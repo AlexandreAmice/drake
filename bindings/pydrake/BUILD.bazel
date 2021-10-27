@@ -298,6 +298,7 @@ PYBIND_SUBPACKAGES_FOR_COVERAGE = [
     "//bindings/pydrake/common",
     "//bindings/pydrake/manipulation",
     "//bindings/pydrake/multibody",
+    "//bindings/pydrake/planning",
     "//bindings/pydrake/solvers",
     "//bindings/pydrake/systems",
     "//bindings/pydrake/visualization",

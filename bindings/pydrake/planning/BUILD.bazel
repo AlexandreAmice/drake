@@ -1,0 +1,92 @@
+# -*- python -*-
+
+load("@drake//tools/install:install.bzl", "install")
+load(
+    "@drake//tools/skylark:pybind.bzl",
+    "add_pybind_coverage_data",
+    "drake_pybind_library",
+    "get_drake_py_installs",
+    "get_pybind_package_info",
+)
+load(
+    "@drake//tools/skylark:drake_py.bzl",
+    "drake_py_library",
+    "drake_py_unittest",
+)
+load(
+    "@drake//tools/skylark:alias.bzl",
+    "drake_py_library_aliases",
+)
+load("//bindings/pydrake:pydrake.bzl", "add_lint_tests_pydrake")
+
+package(default_visibility = [
+    "//bindings/pydrake:__subpackages__",
+])
+
+# This determines how `PYTHONPATH` is configured, and how to install the
+# bindings.
+# TODO(eric.cousineau): address
+# https://github.com/RobotLocomotion/drake/issues/12055
+PACKAGE_INFO = get_pybind_package_info("//bindings")
+
+drake_py_library(
+    name = "module_py",
+    srcs = ["__init__.py"],
+    imports = PACKAGE_INFO.py_imports,
+    deps = [
+        "//bindings/pydrake:module_py",
+    ],
+)
+
+drake_pybind_library(
+    name = "common_robotics_utilities_py",
+    cc_deps = [
+        "//bindings/pydrake:documentation_pybind",
+        "@common_robotics_utilities",
+    ],
+    cc_srcs = ["common_robotics_utilities_py.cc"],
+    package_info = PACKAGE_INFO,
+    py_deps = [
+        # "//bindings/pydrake/common:value_py",
+    ],
+)
+
+PY_LIBRARIES_WITH_INSTALL = [
+    ":common_robotics_utilities_py",
+]
+
+PY_LIBRARIES = [
+    ":module_py",
+]
+
+# Symbol roll-up (for user ease).
+drake_py_library(
+    name = "all_py",
+    srcs = ["all.py"],
+    deps = PY_LIBRARIES_WITH_INSTALL + PY_LIBRARIES,
+)
+
+# Package roll-up (for Bazel dependencies).
+drake_py_library(
+    name = "planning",
+    deps = [":all_py"],
+)
+
+install(
+    name = "install",
+    targets = PY_LIBRARIES + [":all_py"],
+    py_dest = PACKAGE_INFO.py_dest,
+    deps = get_drake_py_installs(PY_LIBRARIES_WITH_INSTALL),
+)
+
+drake_py_unittest(
+    name = "common_robotics_utilities_test",
+    deps = [
+        ":common_robotics_utilities_py",
+        "//bindings/pydrake/common/test_utilities",
+    ],
+)
+
+add_pybind_coverage_data()
+
+add_lint_tests_pydrake()
