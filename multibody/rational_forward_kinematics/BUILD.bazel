@@ -249,4 +249,23 @@ drake_cc_googletest(
     ],
 )
 
+drake_cc_binary(
+    name = "iiwa_shelf_demo",
+    srcs = ["test/iiwa_shelf_demo.cc"],
+    data = [
+        "//examples/kuka_iiwa_arm:models",
+        "//manipulation/models/iiwa_description:models",
+        "//manipulation/models/wsg_50_description:models",
+        "//sos_iris_certifier:models",
+    ],
+    deps = [
+        ":cspace_free_region",
+        "//common:find_resource",
+        "//geometry:meshcat_visualizer",
+        "//multibody/inverse_kinematics",
+        "//multibody/parsing:parser",
+        "//multibody/plant",
+    ],
+)
+
 add_lint_tests()

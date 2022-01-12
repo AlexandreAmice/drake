@@ -186,6 +186,10 @@ class CspaceFreeRegion {
     std::vector<symbolic::Polynomial> verified_polynomials;
   };
 
+  /* @note I strongly recommend NOT to use this function. I created this
+   * function for fast prototyping. It is very slow when constructing the
+   * program (as it incurs a lot of dynamic memory allocation.
+   */
   CspacePolytopeProgramReturn ConstructProgramForCspacePolytope(
       const Eigen::Ref<const Eigen::VectorXd>& q_star,
       const std::vector<LinkVertexOnPlaneSideRational>& rationals,
