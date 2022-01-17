@@ -18,6 +18,7 @@ drake_cc_package_library(
         ":convex_set",
         ":graph_of_convex_sets",
         ":iris",
+        ":polytope_cover",
     ],
 )
 
@@ -72,6 +73,17 @@ drake_cc_library(
         "//solvers:ibex_solver",
         "//solvers:ipopt_solver",
         "//solvers:snopt_solver",
+    ],
+)
+
+drake_cc_library(
+    name = "polytope_cover",
+    srcs = ["polytope_cover.cc"],
+    hdrs = ["polytope_cover.h"],
+    deps = [
+        "//math:gray_code",
+        "//solvers:mathematical_program",
+        "//solvers:solve",
     ],
 )
 
@@ -190,6 +202,14 @@ drake_cc_googletest(
         ":test_utilities",
         "//common/test_utilities:eigen_matrix_compare",
         "//common/test_utilities:expect_throws_message",
+    ],
+)
+
+drake_cc_googletest(
+    name = "polytope_cover_test",
+    deps = [
+        ":polytope_cover",
+        "//common/test_utilities:eigen_matrix_compare",
     ],
 )
 

@@ -14,6 +14,7 @@
 #include "drake/geometry/optimization/iris.h"
 #include "drake/geometry/optimization/minkowski_sum.h"
 #include "drake/geometry/optimization/point.h"
+#include "drake/geometry/optimization/polytope_cover.h"
 #include "drake/geometry/optimization/vpolytope.h"
 
 namespace drake {
@@ -422,6 +423,39 @@ void DefineGeometryOptimization(py::module m) {
             py::arg("result"), edge_doc.GetSolutionPhiXu.doc)
         .def("GetSolutionPhiXv", &GraphOfConvexSets::Edge::GetSolutionPhiXv,
             py::arg("result"), edge_doc.GetSolutionPhiXv.doc);
+  }
+
+  // polytope_cover.h
+  {
+    py::class_<AxisAlignedBox>(m, "AxisAlignedBox", doc.AxisAlignedBox.doc)
+        .def(py::init<const Eigen::Ref<const Eigen::VectorXd>&,
+                 const Eigen::Ref<const Eigen::VectorXd>&>(),
+            py::arg("lo"), py::arg("up"), doc.AxisAlignedBox.ctor.doc)
+        .def_static("OuterBox", &AxisAlignedBox::OuterBox, py::arg("C"),
+            py::arg("d"), doc.AxisAlignedBox.OuterBox.doc)
+        .def("Scale", &AxisAlignedBox::Scale, py::arg("factor"),
+            doc.AxisAlignedBox.Scale.doc)
+        .def("lo", &AxisAlignedBox::lo, py_rvp::reference_internal,
+            doc.AxisAlignedBox.lo.doc)
+        .def("up", &AxisAlignedBox::up, py_rvp::reference_internal,
+            doc.AxisAlignedBox.lo.doc);
+
+    py::class_<FindInscribedBox>(
+        m, "FindInscribedBox", doc.FindInscribedBox.doc)
+        .def(py::init<const Eigen::Ref<const Eigen::MatrixXd>&,
+                 const Eigen::Ref<const Eigen::VectorXd>&,
+                 std::vector<AxisAlignedBox>,
+                 const std::optional<AxisAlignedBox>&>(),
+            py::arg("C"), py::arg("d"), py::arg("obstacles"),
+            py::arg("outer_box"), doc.FindInscribedBox.ctor.doc)
+        .def("prog", &FindInscribedBox::prog, py_rvp::reference_internal,
+            doc.FindInscribedBox.prog.doc)
+        .def("mutable_prog", &FindInscribedBox::mutable_prog,
+            py_rvp::reference_internal, doc.FindInscribedBox.mutable_prog.doc)
+        .def("box_lo", &FindInscribedBox::box_lo, py_rvp::reference_internal,
+            doc.FindInscribedBox.box_lo.doc)
+        .def("box_up", &FindInscribedBox::box_up, py_rvp::reference_internal,
+            doc.FindInscribedBox.box_up.doc);
   }
 }
 
