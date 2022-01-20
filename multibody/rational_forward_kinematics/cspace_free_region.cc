@@ -5,6 +5,7 @@
 #include <optional>
 
 #include <fmt/format.h>
+#include <libqhullcpp/Qhull.h>
 
 #include "drake/geometry/optimization/vpolytope.h"
 #include "drake/multibody/rational_forward_kinematics/generate_monomial_basis_util.h"
@@ -380,7 +381,7 @@ void AddNonnegativeConstraintForPolytopeOnOneSideOfPlane(
   for (int i = 0; i < d_minus_Ct.rows(); ++i) {
     (*lagrangian_polytope)(i) =
         prog->NewSosPolynomial(monomial_basis,
-                                       verification_option.lagrangian_type)
+                               verification_option.lagrangian_type)
             .first;
     *verified_polynomial -= (*lagrangian_polytope)(i)*d_minus_Ct(i);
   }
@@ -388,7 +389,7 @@ void AddNonnegativeConstraintForPolytopeOnOneSideOfPlane(
     if (t_lower_needs_lagrangian[i]) {
       (*lagrangian_lower)(i) =
           prog->NewSosPolynomial(monomial_basis,
-                                         verification_option.lagrangian_type)
+                                 verification_option.lagrangian_type)
               .first;
       *verified_polynomial -= (*lagrangian_lower)(i)*t_minus_t_lower(i);
     } else {
@@ -399,7 +400,7 @@ void AddNonnegativeConstraintForPolytopeOnOneSideOfPlane(
     if (t_upper_needs_lagrangian[i]) {
       (*lagrangian_upper)(i) =
           prog->NewSosPolynomial(monomial_basis,
-                                         verification_option.lagrangian_type)
+                                 verification_option.lagrangian_type)
               .first;
       *verified_polynomial -= (*lagrangian_upper)(i)*t_upper_minus_t(i);
     } else {
@@ -409,7 +410,7 @@ void AddNonnegativeConstraintForPolytopeOnOneSideOfPlane(
 
   const symbolic::Polynomial verified_polynomial_expected =
       prog->NewSosPolynomial(monomial_basis,
-                                     verification_option.link_polynomial_type)
+                             verification_option.link_polynomial_type)
           .first;
   const symbolic::Polynomial poly_diff{*verified_polynomial -
                                        verified_polynomial_expected};
@@ -947,6 +948,11 @@ void CspaceFreeRegion::CspacePolytopeBilinearAlternation(
       &d_minus_Ct, &t_lower, &t_upper, &t_minus_t_lower, &t_upper_minus_t,
       &C_var, &d_var, &lagrangian_gram_vars, &verified_gram_vars,
       &separating_plane_vars);
+  if (bilinear_alternation_option.compute_polytope_volume) {
+    drake::log()->info(
+        fmt::format("Polytope volume {}",
+                    CalcCspacePolytopeVolume(C_val, d_val, t_lower, t_upper)));
+  }
 
   MatrixX<symbolic::Variable> P;
   VectorX<symbolic::Variable> q;
@@ -1048,6 +1054,11 @@ void CspaceFreeRegion::CspacePolytopeBilinearAlternation(
     }
     C_val = result_polytope.GetSolution(C_var);
     d_val = result_polytope.GetSolution(d_var);
+    if (bilinear_alternation_option.compute_polytope_volume) {
+      drake::log()->info(fmt::format(
+          "Polytope volume {}",
+          CalcCspacePolytopeVolume(C_val, d_val, t_lower, t_upper)));
+    }
     *C_final = C_val;
     *d_final = d_val;
     iter_count += 1;
@@ -1081,7 +1092,7 @@ void CspaceFreeRegion::CspacePolytopeBinarySearch(
       &C_var, &d_var, &lagrangian_gram_vars, &verified_gram_vars,
       &separating_plane_vars);
   DRAKE_DEMAND(binary_search_option.epsilon_min >=
-               FindEpsilonLower(t_lower, t_upper, C, d_init));
+               FindEpsilonLower(C, d_init, t_lower, t_upper));
 
   VerificationOption verification_option{};
   // Checks if C*t<=d, t_lower<=t<=t_upper is collision free.
@@ -1091,7 +1102,7 @@ void CspaceFreeRegion::CspacePolytopeBinarySearch(
       [this, &alternation_tuples, &C, &lagrangian_gram_vars,
        &verified_gram_vars, &separating_plane_vars, &t_lower, &t_upper,
        &verification_option, &solver_options, &C_var, &d_var, &d_minus_Ct,
-       &t_minus_t_lower, &t_upper_minus_t](
+       &t_minus_t_lower, &t_upper_minus_t, &binary_search_option](
           const Eigen::VectorXd& d, bool search_d, Eigen::VectorXd* d_sol) {
         const double redundant_tighten = 0.;
         auto prog = this->ConstructLagrangianProgram(
@@ -1127,6 +1138,11 @@ void CspaceFreeRegion::CspacePolytopeBinarySearch(
         drake::log()->info(fmt::format(
             "Solver time {}",
             result.get_solver_details<solvers::MosekSolver>().optimizer_time));
+        if (binary_search_option.compute_polytope_volume) {
+          drake::log()->info(
+              fmt::format("C-space polytope volume {}",
+                          CalcCspacePolytopeVolume(C, d, t_lower, t_upper)));
+        }
         return result.is_success();
       };
   if (is_polytope_collision_free(
@@ -1498,10 +1514,10 @@ void FindRedundantInequalities(
   }
 }
 
-double FindEpsilonLower(const Eigen::Ref<const Eigen::VectorXd>& t_lower,
-                        const Eigen::Ref<const Eigen::VectorXd>& t_upper,
-                        const Eigen::Ref<const Eigen::MatrixXd>& C,
-                        const Eigen::Ref<const Eigen::VectorXd>& d) {
+double FindEpsilonLower(const Eigen::Ref<const Eigen::MatrixXd>& C,
+                        const Eigen::Ref<const Eigen::VectorXd>& d,
+                        const Eigen::Ref<const Eigen::VectorXd>& t_lower,
+                        const Eigen::Ref<const Eigen::VectorXd>& t_upper) {
   solvers::MathematicalProgram prog{};
   const int nt = t_lower.rows();
   const auto t = prog.NewContinuousVariables(nt, "t");
@@ -1518,6 +1534,30 @@ double FindEpsilonLower(const Eigen::Ref<const Eigen::VectorXd>& t_lower,
   const auto result = solvers::Solve(prog);
   DRAKE_DEMAND(result.is_success());
   return result.get_optimal_cost();
+}
+
+double CalcCspacePolytopeVolume(const Eigen::MatrixXd& C,
+                                const Eigen::VectorXd& d,
+                                const Eigen::VectorXd& t_lower,
+                                const Eigen::VectorXd& t_upper) {
+  const int nt = t_lower.rows();
+  Eigen::MatrixXd C_bar(C.rows() + 2 * nt, nt);
+  C_bar << C, Eigen::MatrixXd::Identity(nt, nt),
+      -Eigen::MatrixXd::Identity(nt, nt);
+  Eigen::VectorXd d_bar(C.rows() + 2 * nt);
+  d_bar << d, t_upper, -t_lower;
+  const geometry::optimization::HPolyhedron h_poly(C_bar, d_bar);
+  const geometry::optimization::VPolytope v_poly(h_poly);
+  // TODO(hongkai.dai) call v_poly.CalcVolume() when Drake PR 16409 is merged.
+  orgQhull::Qhull qhull;
+  qhull.runQhull("", nt, v_poly.vertices().cols(), v_poly.vertices().data(),
+                 "");
+  if (qhull.qhullStatus() != 0) {
+    throw std::runtime_error(
+        fmt::format("Qhull terminated with status {} and message:\n{}",
+                    qhull.qhullStatus(), qhull.qhullMessage()));
+  }
+  return qhull.volume();
 }
 
 // Explicit instantiation.
@@ -1540,6 +1580,5 @@ template void SymmetricMatrixFromLower<double>(
 template void SymmetricMatrixFromLower<symbolic::Variable>(
     int mat_rows, const Eigen::Ref<const VectorX<symbolic::Variable>>&,
     MatrixX<symbolic::Variable>*);
-
 }  // namespace multibody
 }  // namespace drake

@@ -419,6 +419,29 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
           py::arg("t_upper"), py::arg("constrain_P_psd") = true,
           doc.AddInscribedEllipsoid.doc);
 
+  m.def(
+      "FindRedundantInequalities",
+      [](const Eigen::MatrixXd& C, const Eigen::VectorXd& d,
+          const Eigen::VectorXd& t_lower, const Eigen::VectorXd& t_upper,
+          double tighten) {
+        std::unordered_set<int> C_redundant_indices, t_lower_redundant_indices,
+            t_upper_redundant_indices;
+        FindRedundantInequalities(C, d, t_lower, t_upper, tighten,
+            &C_redundant_indices, &t_lower_redundant_indices,
+            &t_upper_redundant_indices);
+        std::make_tuple(C_redundant_indices, t_lower_redundant_indices,
+            t_upper_redundant_indices);
+      },
+      py::arg("C"), py::arg("d"), py::arg("t_lower"), py::arg("t_upper"),
+      py::arg("tighten"), doc.FindRedundantInequalities.doc);
+
+  m.def("FindEpsilonLower", &FindEpsilonLower, py::arg("C"), py::arg("d"),
+      py::arg("t_lower"), py::arg("t_upper"), doc.FindEpsilonLower.doc);
+
+  m.def("CalcCspacePolytopeVolume", &CalcCspacePolytopeVolume, py::arg("C"),
+      py::arg("d"), py::arg("t_lower"), py::arg("t_upper"),
+      doc.CalcCspacePolytopeVolume.doc);
+
   py::module::import("pydrake.solvers.mathematicalprogram");
 }
 

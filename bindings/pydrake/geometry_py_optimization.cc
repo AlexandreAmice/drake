@@ -438,13 +438,14 @@ void DefineGeometryOptimization(py::module m) {
         .def("lo", &AxisAlignedBox::lo, py_rvp::reference_internal,
             doc.AxisAlignedBox.lo.doc)
         .def("up", &AxisAlignedBox::up, py_rvp::reference_internal,
-            doc.AxisAlignedBox.lo.doc);
+            doc.AxisAlignedBox.lo.doc)
+        .def("volume", &AxisAlignedBox::volume, doc.AxisAlignedBox.volume.doc);
 
     py::class_<FindInscribedBox>(
         m, "FindInscribedBox", doc.FindInscribedBox.doc)
         .def(py::init<const Eigen::Ref<const Eigen::MatrixXd>&,
                  const Eigen::Ref<const Eigen::VectorXd>&,
-                 std::vector<AxisAlignedBox>,
+                 const std::vector<AxisAlignedBox>&,
                  const std::optional<AxisAlignedBox>&>(),
             py::arg("C"), py::arg("d"), py::arg("obstacles"),
             py::arg("outer_box"), doc.FindInscribedBox.ctor.doc)
@@ -455,7 +456,9 @@ void DefineGeometryOptimization(py::module m) {
         .def("box_lo", &FindInscribedBox::box_lo, py_rvp::reference_internal,
             doc.FindInscribedBox.box_lo.doc)
         .def("box_up", &FindInscribedBox::box_up, py_rvp::reference_internal,
-            doc.FindInscribedBox.box_up.doc);
+            doc.FindInscribedBox.box_up.doc)
+        .def("AddObstacle", &FindInscribedBox::AddObstacle,
+            doc.FindInscribedBox.AddObstacle.doc);
   }
 }
 

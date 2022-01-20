@@ -1223,11 +1223,11 @@ GTEST_TEST(FindEpsilonLower, Test) {
   // clang-format on
   Eigen::Vector4d d(3, 3, 3, 3);
   const double tol{1E-6};
-  EXPECT_NEAR(FindEpsilonLower(t_lower, t_upper, C, d), -3, tol);
+  EXPECT_NEAR(FindEpsilonLower(C, d, t_lower, t_upper), -3, tol);
 
   // C*t<=d is |x-2| + |y-2|<=3
   d << 7, 3, 3, -1;
-  EXPECT_NEAR(FindEpsilonLower(t_lower, t_upper, C, d), -1, tol);
+  EXPECT_NEAR(FindEpsilonLower(C, d, t_lower, t_upper), -1, tol);
 }
 
 }  // namespace multibody
