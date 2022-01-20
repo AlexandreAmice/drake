@@ -4,10 +4,12 @@
 #include "drake/geometry/collision_filter_declaration.h"
 #include "drake/geometry/meshcat_visualizer.h"
 #include "drake/geometry/optimization/hpolyhedron.h"
+#include "drake/geometry/optimization/polytope_cover.h"
 #include "drake/multibody/inverse_kinematics/inverse_kinematics.h"
 #include "drake/multibody/parsing/parser.h"
 #include "drake/multibody/rational_forward_kinematics/cspace_free_region.h"
 #include "drake/solvers/common_solver_option.h"
+#include "drake/solvers/gurobi_solver.h"
 #include "drake/solvers/mosek_solver.h"
 #include "drake/solvers/solve.h"
 #include "drake/systems/framework/diagram_builder.h"
@@ -176,7 +178,10 @@ int DoMain() {
   CspaceFreeRegion::FilteredCollisionPairs filtered_collision_pairs{};
 
   CspaceFreeRegion::BinarySearchOption binary_search_option{
-      .epsilon_max = 0.01, .epsilon_min = 0., .max_iters = 2};
+      .epsilon_max = 0.01,
+      .epsilon_min = 0.,
+      .max_iters = 2,
+      .compute_polytope_volume = true};
   solvers::SolverOptions solver_options;
   solver_options.SetOption(solvers::CommonSolverOption::kPrintToConsole, false);
   Eigen::VectorXd d_binary_search;
@@ -185,7 +190,10 @@ int DoMain() {
                                  d_init, binary_search_option, solver_options,
                                  q0, std::nullopt, &d_binary_search);
   CspaceFreeRegion::BilinearAlternationOption bilinear_alternation_option{
-      .max_iters = 10, .convergence_tol = 0.001, .redundant_tighten = 0.5};
+      .max_iters = 10,
+      .convergence_tol = 0.001,
+      .redundant_tighten = 0.5,
+      .compute_polytope_volume = true};
   Eigen::MatrixXd C_final;
   Eigen::VectorXd d_final;
   Eigen::MatrixXd P_final;
@@ -194,6 +202,42 @@ int DoMain() {
       q_star, filtered_collision_pairs, C_init, d_binary_search,
       bilinear_alternation_option, solver_options, q0, std::nullopt, &C_final,
       &d_final, &P_final, &q_final);
+
+  // Now partition the certified region C_final * t <= d_final, t_lower <= t <=
+  // t_upper into boxes.
+  const Eigen::VectorXd t_upper =
+      (iiwa_diagram.plant().GetPositionUpperLimits() / 2)
+          .array()
+          .tan()
+          .matrix();
+  const Eigen::VectorXd t_lower =
+      (iiwa_diagram.plant().GetPositionLowerLimits() / 2)
+          .array()
+          .tan()
+          .matrix();
+  const int nq = iiwa_diagram.plant().num_positions();
+  Eigen::MatrixXd C_bar(C_final.rows() + 2 * nq, nq);
+  C_bar << C_final, Eigen::MatrixXd::Identity(nq, nq),
+      -Eigen::MatrixXd::Identity(nq, nq);
+  Eigen::VectorXd d_bar(d_final.rows() + 2 * nq);
+  d_bar << d_final, t_upper, -t_lower;
+  const int num_boxes = 10;
+  geometry::optimization::FindInscribedBox find_box(C_bar, d_bar, {},
+                                                    std::nullopt);
+  find_box.MaximizeBoxVolume();
+  std::vector<geometry::optimization::AxisAlignedBox> boxes;
+  solvers::GurobiSolver gurobi_solver;
+  for (int i = 0; i < num_boxes; ++i) {
+    const auto result_box =
+        gurobi_solver.Solve(find_box.prog(), std::nullopt, solver_options);
+    geometry::optimization::AxisAlignedBox box(
+        result_box.GetSolution(find_box.box_lo()),
+        result_box.GetSolution(find_box.box_up()));
+    drake::log()->info(fmt::format("Box volume {}", box.volume()));
+    boxes.push_back(box);
+    const auto obstacle = box.Scale(0.9);
+    find_box.AddObstacle(obstacle);
+  }
 
   return 0;
 }

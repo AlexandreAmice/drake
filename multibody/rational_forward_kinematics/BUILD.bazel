@@ -263,6 +263,7 @@ drake_cc_binary(
         ":cspace_free_region",
         "//common:find_resource",
         "//geometry:meshcat_visualizer",
+        "//geometry/optimization:polytope_cover",
         "//multibody/inverse_kinematics",
         "//multibody/parsing:parser",
         "//multibody/plant",

@@ -3,6 +3,8 @@
 #include <limits>
 #include <utility>
 
+#include "polytope_cover.h"
+
 #include "drake/math/gray_code.h"
 #include "drake/solvers/mathematical_program.h"
 #include "drake/solvers/solve.h"
@@ -59,49 +61,24 @@ AxisAlignedBox AxisAlignedBox::Scale(double factor) const {
                         center + (up_ - lo_) / 2 * factor);
 }
 
-namespace {
-// Add the constraint that box_lo <= x <= box_up doesn't overlap with the other
-// obstacle box. The box box_lo <= x <= box_up has to lie within outer_box.
-VectorX<symbolic::Variable> AddBoxNotOverlapping(
-    solvers::MathematicalProgram* prog,
-    const VectorX<symbolic::Variable>& box_lo,
-    const VectorX<symbolic::Variable>& box_up, const AxisAlignedBox& obstacle,
-    const AxisAlignedBox& outer_box) {
-  // Two boxes don't overlap if at least on one dimenstion we have box_lo1(i) >=
-  // box_up2(i) or box_up1(i) <= box_lo2(i). We use a binary variable to
-  // indicate whether this condition is true.
-  const int dim = box_lo.rows();
-  const auto b = prog->NewBinaryVariables(2 * dim);
-  for (int i = 0; i < dim; ++i) {
-    // b(2i) = 1 implies box_lo(i) >= obstacle.up(i).
-    // We write box_lo(i) >= outer_box.lo(i) + (obstale.up(i) - outer_box.lo(i))
-    // * b(2i)
-    prog->AddLinearConstraint(
-        Eigen::RowVector2d(1, outer_box.lo()(i) - obstacle.up()(i)),
-        outer_box.lo()(i), kInf,
-        Vector2<symbolic::Variable>(box_lo(i), b(2 * i)));
-    // b(2i+1) = 1 implies box_up(i) <= obstacle.lo(i).
-    // We write box_up(i) <= outer_box.up(i) - (outer_box.up(i) -
-    // obstacle.lo(i)) * b(2i+1)
-    prog->AddLinearConstraint(
-        Eigen::RowVector2d(1, outer_box.up()(i) - obstacle.lo()(i)), -kInf,
-        outer_box.up()(i),
-        Vector2<symbolic::Variable>(box_up(i), b(2 * i + 1)));
-  }
-  prog->AddLinearConstraint(Eigen::RowVectorXd::Ones(2 * dim), 1, kInf, b);
-  return b;
-}
-}  // namespace
+double AxisAlignedBox::volume() const { return (up_ - lo_).array().prod(); }
 
-FindInscribedBox::FindInscribedBox(
-    const Eigen::Ref<const Eigen::MatrixXd>& C,
-    const Eigen::Ref<const Eigen::VectorXd>& d,
-    std::vector<AxisAlignedBox> obstacles,
-    const std::optional<AxisAlignedBox>& outer_box)
+FindInscribedBox::FindInscribedBox(const Eigen::Ref<const Eigen::MatrixXd>& C,
+                                   const Eigen::Ref<const Eigen::VectorXd>& d,
+                                   const std::vector<AxisAlignedBox>& obstacles,
+                                   std::optional<AxisAlignedBox> outer_box)
     : prog_{new solvers::MathematicalProgram()},
       C_{C},
       d_{d},
-      obstacles_{std::move(obstacles)} {
+      obstacles_{},
+      outer_box_{nullptr} {
+  // First we compute the outer box if the user doesn't provide one
+  if (outer_box.has_value()) {
+    outer_box_ = std::make_unique<AxisAlignedBox>(std::move(outer_box.value()));
+  } else {
+    const AxisAlignedBox outer_box_tmp = AxisAlignedBox::OuterBox(C_, d_);
+    outer_box_ = std::make_unique<AxisAlignedBox>(std::move(outer_box_tmp));
+  }
   const int dim = C_.cols();
   box_lo_ = prog_->NewContinuousVariables(dim, "lo");
   box_up_ = prog_->NewContinuousVariables(dim, "up");
@@ -128,15 +105,56 @@ FindInscribedBox::FindInscribedBox(
     prog_->AddLinearConstraint(C, lb_inf, d, vertex);
   }
   // Now add the constraint that the box doesn't overlap with any obstacles.
-  // First we compute the outer box if the user doesn't provide one
-  if (!obstacles_.empty()) {
-    const AxisAlignedBox outer_box_ = outer_box.has_value()
-                                          ? outer_box.value()
-                                          : AxisAlignedBox::OuterBox(C_, d_);
-    for (const auto& obstacle : obstacles_) {
-      AddBoxNotOverlapping(prog_.get(), box_lo_, box_up_, obstacle, outer_box_);
+  if (!obstacles.empty()) {
+    obstacles_.reserve(obstacles.size());
+    for (const auto& obstacle : obstacles) {
+      AddObstacle(obstacle);
     }
   }
+}
+
+VectorX<symbolic::Variable> FindInscribedBox::AddObstacle(
+    const AxisAlignedBox& obstacle) {
+  obstacles_.push_back(obstacle);
+  // Two boxes don't overlap if at least on one dimenstion we have box_lo1(i) >=
+  // box_up2(i) or box_up1(i) <= box_lo2(i). We use a binary variable to
+  // indicate whether this condition is true.
+  const int dim = box_lo_.rows();
+  const auto b = prog_->NewBinaryVariables(2 * dim);
+  for (int i = 0; i < dim; ++i) {
+    // b(2i) = 1 implies box_lo(i) >= obstacle.up(i).
+    // We write box_lo(i) >= outer_box.lo(i) + (obstacle.up(i) -
+    // outer_box.lo(i))
+    // * b(2i)
+    prog_->AddLinearConstraint(
+        Eigen::RowVector2d(1, outer_box_->lo()(i) - obstacle.up()(i)),
+        outer_box_->lo()(i), kInf,
+        Vector2<symbolic::Variable>(box_lo_(i), b(2 * i)));
+    // b(2i+1) = 1 implies box_up(i) <= obstacle.lo(i).
+    // We write box_up(i) <= outer_box.up(i) - (outer_box.up(i) -
+    // obstacle.lo(i)) * b(2i+1)
+    prog_->AddLinearConstraint(
+        Eigen::RowVector2d(1, outer_box_->up()(i) - obstacle.lo()(i)), -kInf,
+        outer_box_->up()(i),
+        Vector2<symbolic::Variable>(box_up_(i), b(2 * i + 1)));
+    // It is impossible if box_lo(i) > obstacle.up(i) and box_up(i) <
+    // obstacle.lo(i), so we can add b(2i) + b(2i+1) <=1
+    prog_->AddLinearConstraint(Eigen::RowVector2d::Ones(), -kInf, 1,
+                               b.segment<2>(2 * i));
+  }
+  prog_->AddLinearConstraint(Eigen::RowVectorXd::Ones(2 * dim), 1, kInf, b);
+  return b;
+}
+
+void FindInscribedBox::MaximizeBoxVolume() {
+  // Maximize product(box_up(i) - box_lo(i)).
+  const int dim = box_lo_.rows();
+  Eigen::MatrixXd A(dim, 2 * dim);
+  A.leftCols(dim) = Eigen::MatrixXd::Identity(dim, dim);
+  A.rightCols(dim) = -Eigen::MatrixXd::Identity(dim, dim);
+  VectorX<symbolic::Variable> vars(2 * dim);
+  vars << box_up_, box_lo_;
+  prog_->AddMaximizeGeometricMeanCost(A, Eigen::VectorXd::Zero(dim), vars);
 }
 }  // namespace optimization
 }  // namespace geometry

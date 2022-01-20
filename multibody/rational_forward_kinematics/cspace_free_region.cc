@@ -5,6 +5,7 @@
 #include <optional>
 
 #include <fmt/format.h>
+#include <libqhullcpp/Qhull.h>
 
 #include "drake/geometry/optimization/vpolytope.h"
 #include "drake/multibody/rational_forward_kinematics/generate_monomial_basis_util.h"
@@ -969,6 +970,11 @@ void CspaceFreeRegion::CspacePolytopeBilinearAlternation(
       &d_minus_Ct, &t_lower, &t_upper, &t_minus_t_lower, &t_upper_minus_t,
       &C_var, &d_var, &lagrangian_gram_vars, &verified_gram_vars,
       &separating_plane_vars);
+  if (bilinear_alternation_option.compute_polytope_volume) {
+    drake::log()->info(
+        fmt::format("Polytope volume {}",
+                    CalcCspacePolytopeVolume(C_val, d_val, t_lower, t_upper)));
+  }
 
   MatrixX<symbolic::Variable> P;
   VectorX<symbolic::Variable> q;
@@ -1090,6 +1096,11 @@ void CspaceFreeRegion::CspacePolytopeBilinearAlternation(
     }
     C_val = result_polytope.GetSolution(C_var);
     d_val = result_polytope.GetSolution(d_var);
+    if (bilinear_alternation_option.compute_polytope_volume) {
+      drake::log()->info(fmt::format(
+          "Polytope volume {}",
+          CalcCspacePolytopeVolume(C_val, d_val, t_lower, t_upper)));
+    }
     *C_final = C_val;
     *d_final = d_val;
     iter_count += 1;
@@ -1134,7 +1145,7 @@ void CspaceFreeRegion::CspacePolytopeBinarySearch(
     }
   }
   DRAKE_DEMAND(binary_search_option.epsilon_min >=
-               FindEpsilonLower(t_lower, t_upper, C, d_init, t_inner_pts,
+               FindEpsilonLower(C, d_init, t_lower, t_upper, t_inner_pts,
                                 inner_polytope));
 
   VerificationOption verification_option{};
@@ -1148,7 +1159,7 @@ void CspaceFreeRegion::CspacePolytopeBinarySearch(
                                      &C_var, &d_var, &d_minus_Ct,
                                      &t_minus_t_lower, &t_upper_minus_t,
                                      &t_inner_pts, &inner_polytope](
-                                        const Eigen::VectorXd& d, bool search_d,
+                                        const Eigen::VectorXd& d, bool search_d, bool compute_polytope_volume,
                                         Eigen::VectorXd* d_sol) {
     const double redundant_tighten = 0.;
     auto prog = this->ConstructLagrangianProgram(
@@ -1198,20 +1209,25 @@ void CspaceFreeRegion::CspacePolytopeBinarySearch(
     drake::log()->info(fmt::format(
         "Solver time {}",
         result.get_solver_details<solvers::MosekSolver>().optimizer_time));
+    if (compute_polytope_volume) {
+drake::log()->info(
+              fmt::format("C-space polytope volume {}",
+                          CalcCspacePolytopeVolume(C, d, t_lower, t_upper)));
+    }
     return result.is_success();
   };
   if (is_polytope_collision_free(
           d_without_epsilon +
               binary_search_option.epsilon_max *
                   Eigen::VectorXd::Ones(d_without_epsilon.rows()),
-          binary_search_option.search_d, d_final)) {
+          binary_search_option.search_d, binary_search_option.compute_polytope_volume, d_final)) {
     return;
   }
   if (!is_polytope_collision_free(
           d_without_epsilon +
               binary_search_option.epsilon_min *
                   Eigen::VectorXd::Ones(d_without_epsilon.rows()),
-          false /* don't search for d */, d_final)) {
+          false /* don't search for d */, binary_search_option.compute_polytope_volume, d_final)) {
     throw std::runtime_error(
         fmt::format("binary search: the initial epsilon {} is infeasible",
                     binary_search_option.epsilon_min));
@@ -1225,7 +1241,7 @@ void CspaceFreeRegion::CspacePolytopeBinarySearch(
         d_without_epsilon +
         eps * Eigen::VectorXd::Ones(d_without_epsilon.rows());
     const bool is_feasible =
-        is_polytope_collision_free(d, binary_search_option.search_d, d_final);
+        is_polytope_collision_free(d, binary_search_option.search_d, binary_search_option.compute_polytope_volume, d_final);
     if (is_feasible) {
       drake::log()->info(fmt::format("epsilon={} is feasible", eps));
       // Now we need to reset d_without_epsilon. The invariance we want is that
@@ -1570,10 +1586,10 @@ void FindRedundantInequalities(
 }
 
 double FindEpsilonLower(
-    const Eigen::Ref<const Eigen::VectorXd>& t_lower,
-    const Eigen::Ref<const Eigen::VectorXd>& t_upper,
     const Eigen::Ref<const Eigen::MatrixXd>& C,
     const Eigen::Ref<const Eigen::VectorXd>& d,
+    const Eigen::Ref<const Eigen::VectorXd>& t_lower,
+    const Eigen::Ref<const Eigen::VectorXd>& t_upper,
     const std::optional<Eigen::MatrixXd>& t_inner_pts,
     const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
         inner_polytope) {
@@ -1697,6 +1713,30 @@ void AddCspacePolytopeContainment(
   }
 }
 
+double CalcCspacePolytopeVolume(const Eigen::MatrixXd& C,
+                                const Eigen::VectorXd& d,
+                                const Eigen::VectorXd& t_lower,
+                                const Eigen::VectorXd& t_upper) {
+  const int nt = t_lower.rows();
+  Eigen::MatrixXd C_bar(C.rows() + 2 * nt, nt);
+  C_bar << C, Eigen::MatrixXd::Identity(nt, nt),
+      -Eigen::MatrixXd::Identity(nt, nt);
+  Eigen::VectorXd d_bar(C.rows() + 2 * nt);
+  d_bar << d, t_upper, -t_lower;
+  const geometry::optimization::HPolyhedron h_poly(C_bar, d_bar);
+  const geometry::optimization::VPolytope v_poly(h_poly);
+  // TODO(hongkai.dai) call v_poly.CalcVolume() when Drake PR 16409 is merged.
+  orgQhull::Qhull qhull;
+  qhull.runQhull("", nt, v_poly.vertices().cols(), v_poly.vertices().data(),
+                 "");
+  if (qhull.qhullStatus() != 0) {
+    throw std::runtime_error(
+        fmt::format("Qhull terminated with status {} and message:\n{}",
+                    qhull.qhullStatus(), qhull.qhullMessage()));
+  }
+  return qhull.volume();
+}
+
 // Explicit instantiation.
 template symbolic::Polynomial CalcPolynomialFromGram<double>(
     const VectorX<symbolic::Monomial>&,
@@ -1717,6 +1757,5 @@ template void SymmetricMatrixFromLower<double>(
 template void SymmetricMatrixFromLower<symbolic::Variable>(
     int mat_rows, const Eigen::Ref<const VectorX<symbolic::Variable>>&,
     MatrixX<symbolic::Variable>*);
-
 }  // namespace multibody
 }  // namespace drake

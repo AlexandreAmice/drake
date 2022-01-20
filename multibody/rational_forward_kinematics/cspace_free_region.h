@@ -376,6 +376,9 @@ class CspaceFreeRegion {
     // How much tighten we use to determine if a row in {C*t<=d, t_lower <= t <=
     // t_upper} is redundant.
     std::optional<double> redundant_tighten{std::nullopt};
+    // Whether to compute and print the volume of the polytope {C*t<=d,
+    // t_lower<= t <= t_upper} each time we search for the polytope.
+    bool compute_polytope_volume{false};
   };
 
   /**
@@ -420,6 +423,8 @@ class CspaceFreeRegion {
     // then fix the Lagrangian multiplier and search the right-hand side vector
     // d through another SOS program.
     bool search_d{true};
+    // Whether to compute and print the volume of the C-space polytope.
+    bool compute_polytope_volume{false};
   };
 
   /**
@@ -647,10 +652,10 @@ void FindRedundantInequalities(
 // TODO(Alex.Amice): add the version with epsilon being a vector, and search for
 // each epsilon independently.
 double FindEpsilonLower(
-    const Eigen::Ref<const Eigen::VectorXd>& t_lower,
-    const Eigen::Ref<const Eigen::VectorXd>& t_upper,
     const Eigen::Ref<const Eigen::MatrixXd>& C,
     const Eigen::Ref<const Eigen::VectorXd>& d,
+    const Eigen::Ref<const Eigen::VectorXd>& t_lower,
+    const Eigen::Ref<const Eigen::VectorXd>& t_upper,
     const std::optional<Eigen::MatrixXd>& t_inner_pts,
     const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
         inner_polytope);
@@ -685,5 +690,12 @@ void AddCspacePolytopeContainment(
     const VectorX<symbolic::Variable>& d,
     const Eigen::Ref<const Eigen::MatrixXd>& inner_pts);
 
+/**
+ * Compute the volume of the Cspace region C*t<=d, t_lower <= t <= t_upper.
+ */
+[[nodiscard]] double CalcCspacePolytopeVolume(const Eigen::MatrixXd& C,
+                                              const Eigen::VectorXd& d,
+                                              const Eigen::VectorXd& t_lower,
+                                              const Eigen::VectorXd& t_upper);
 }  // namespace multibody
 }  // namespace drake

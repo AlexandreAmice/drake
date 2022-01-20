@@ -1239,13 +1239,13 @@ GTEST_TEST(FindEpsilonLower, Test) {
   Eigen::Vector4d d(3, 3, 3, 3);
   const double tol{1E-6};
   EXPECT_NEAR(
-      FindEpsilonLower(t_lower, t_upper, C, d, std::nullopt, std::nullopt), -3,
+      FindEpsilonLower(C, d, t_lower, t_upper, std::nullopt, std::nullopt), -3,
       tol);
 
   // C*t<=d is |x-2| + |y-2|<=3
   d << 7, 3, 3, -1;
   EXPECT_NEAR(
-      FindEpsilonLower(t_lower, t_upper, C, d, std::nullopt, std::nullopt), -1,
+      FindEpsilonLower(C, d, t_lower, t_upper, std::nullopt, std::nullopt), -1,
       tol);
 
   // C*t<=d is |x| + |y| <= 2, with inner_pts being (0.1, 0.5), (-0.3, -.4), (1,
@@ -1256,7 +1256,7 @@ GTEST_TEST(FindEpsilonLower, Test) {
   inner_pts << 0.1, -0.3, 1,
                0.5, -0.4, 0.2;
   // clang-format on
-  EXPECT_NEAR(FindEpsilonLower(t_lower, t_upper, C, d, inner_pts, std::nullopt),
+  EXPECT_NEAR(FindEpsilonLower(C, d, t_lower, t_upper, inner_pts, std::nullopt),
               -0.8, tol);
 
   // C*t<=d is |x| + |y| <= 2, with inner_polytope being
@@ -1269,7 +1269,7 @@ GTEST_TEST(FindEpsilonLower, Test) {
               0,  1;
   // clang-format on
   Eigen::VectorXd d_inner = Eigen::Vector3d(-0.2, 0.5, 0.6);
-  EXPECT_NEAR(FindEpsilonLower(t_lower, t_upper, C, d, std::nullopt,
+  EXPECT_NEAR(FindEpsilonLower(C, d, t_lower, t_upper, std::nullopt,
                                std::make_pair(C_inner, d_inner)),
               -0.9, tol);
 }
