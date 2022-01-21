@@ -368,6 +368,8 @@ void AddNonnegativeConstraintForPolytopeOnOneSideOfPlane(
     const VectorX<symbolic::Polynomial>& t_minus_t_lower,
     const VectorX<symbolic::Polynomial>& t_upper_minus_t,
     const VectorX<symbolic::Monomial>& monomial_basis,
+    // TODO: should we enforce that this basis be sufficient to express the polynomials in
+    // polytope_on_one_side_rational
     const VerificationOption& verification_option,
     const std::vector<bool>& t_lower_needs_lagrangian,
     const std::vector<bool>& t_upper_needs_lagrangian,
@@ -380,6 +382,7 @@ void AddNonnegativeConstraintForPolytopeOnOneSideOfPlane(
   lagrangian_upper->resize(t_upper_minus_t.rows());
   *verified_polynomial = polytope_on_one_side_rational.numerator();
   for (int i = 0; i < d_minus_Ct.rows(); ++i) {
+    // TODO(amice): only include the lagranians from the non-redundant inequalities of the polytope. Check this condition in here or pass argument like for the lower and upper?
     (*lagrangian_polytope)(i) =
         prog->NewSosPolynomial(monomial_basis,
                                        verification_option.lagrangian_type)
@@ -387,6 +390,8 @@ void AddNonnegativeConstraintForPolytopeOnOneSideOfPlane(
     *verified_polynomial -= (*lagrangian_polytope)(i)*d_minus_Ct(i);
   }
   for (int i = 0; i < t_minus_t_lower.rows(); ++i) {
+    // TODO: Should we not still add the multiplier here and just set it to 0 if its not needed. Because when we adjust
+    // the regions in the bilinear alternation, it may become the case that t-t_lower>= 0 and t_upper-t <=0 becomes relevant again
     if (t_lower_needs_lagrangian[i]) {
       (*lagrangian_lower)(i) =
           prog->NewSosPolynomial(monomial_basis,
@@ -421,6 +426,7 @@ void AddNonnegativeConstraintForPolytopeOnOneSideOfPlane(
 }
 }  // namespace
 
+// TODO: how is this different from the ContructLagranianProblem method?
 CspaceFreeRegion::CspacePolytopeProgramReturn
 CspaceFreeRegion::ConstructProgramForCspacePolytope(
     const Eigen::Ref<const Eigen::VectorXd>& q_star,
