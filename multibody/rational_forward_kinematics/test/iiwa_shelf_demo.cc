@@ -183,7 +183,7 @@ int DoMain() {
   Eigen::VectorXd q_star = Eigen::Matrix<double, 7, 1>::Zero();
   dut.CspacePolytopeBinarySearch(q_star, filtered_collision_pairs, C_init,
                                  d_init, binary_search_option, solver_options,
-                                 &d_binary_search);
+                                 q0, std::nullopt, &d_binary_search);
   CspaceFreeRegion::BilinearAlternationOption bilinear_alternation_option{
       .max_iters = 10, .convergence_tol = 0.001, .redundant_tighten = 0.5};
   Eigen::MatrixXd C_final;
@@ -192,8 +192,8 @@ int DoMain() {
   Eigen::VectorXd q_final;
   dut.CspacePolytopeBilinearAlternation(
       q_star, filtered_collision_pairs, C_init, d_binary_search,
-      bilinear_alternation_option, solver_options, &C_final, &d_final, &P_final,
-      &q_final);
+      bilinear_alternation_option, solver_options, q0, std::nullopt, &C_final,
+      &d_final, &P_final, &q_final);
 
   return 0;
 }

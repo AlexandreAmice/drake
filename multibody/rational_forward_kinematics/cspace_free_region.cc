@@ -380,7 +380,7 @@ void AddNonnegativeConstraintForPolytopeOnOneSideOfPlane(
   for (int i = 0; i < d_minus_Ct.rows(); ++i) {
     (*lagrangian_polytope)(i) =
         prog->NewSosPolynomial(monomial_basis,
-                                       verification_option.lagrangian_type)
+                               verification_option.lagrangian_type)
             .first;
     *verified_polynomial -= (*lagrangian_polytope)(i)*d_minus_Ct(i);
   }
@@ -388,7 +388,7 @@ void AddNonnegativeConstraintForPolytopeOnOneSideOfPlane(
     if (t_lower_needs_lagrangian[i]) {
       (*lagrangian_lower)(i) =
           prog->NewSosPolynomial(monomial_basis,
-                                         verification_option.lagrangian_type)
+                                 verification_option.lagrangian_type)
               .first;
       *verified_polynomial -= (*lagrangian_lower)(i)*t_minus_t_lower(i);
     } else {
@@ -399,7 +399,7 @@ void AddNonnegativeConstraintForPolytopeOnOneSideOfPlane(
     if (t_upper_needs_lagrangian[i]) {
       (*lagrangian_upper)(i) =
           prog->NewSosPolynomial(monomial_basis,
-                                         verification_option.lagrangian_type)
+                                 verification_option.lagrangian_type)
               .first;
       *verified_polynomial -= (*lagrangian_upper)(i)*t_upper_minus_t(i);
     } else {
@@ -409,7 +409,7 @@ void AddNonnegativeConstraintForPolytopeOnOneSideOfPlane(
 
   const symbolic::Polynomial verified_polynomial_expected =
       prog->NewSosPolynomial(monomial_basis,
-                                     verification_option.link_polynomial_type)
+                             verification_option.link_polynomial_type)
           .first;
   const symbolic::Polynomial poly_diff{*verified_polynomial -
                                        verified_polynomial_expected};
@@ -907,9 +907,12 @@ void CspaceFreeRegion::CspacePolytopeBilinearAlternation(
     const Eigen::Ref<const Eigen::VectorXd>& d_init,
     const CspaceFreeRegion::BilinearAlternationOption&
         bilinear_alternation_option,
-    const solvers::SolverOptions& solver_options, Eigen::MatrixXd* C_final,
-    Eigen::VectorXd* d_final, Eigen::MatrixXd* P_final,
-    Eigen::VectorXd* q_final) const {
+    const solvers::SolverOptions& solver_options,
+    const std::optional<Eigen::MatrixXd>& q_inner_pts,
+    const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
+        inner_polytope,
+    Eigen::MatrixXd* C_final, Eigen::VectorXd* d_final,
+    Eigen::MatrixXd* P_final, Eigen::VectorXd* q_final) const {
   if (bilinear_alternation_option.lagrangian_backoff_scale < 0) {
     throw std::invalid_argument(
         fmt::format("lagrangian_backoff_scale={}, should be non-negative",
@@ -1011,6 +1014,26 @@ void CspaceFreeRegion::CspacePolytopeBilinearAlternation(
     margin = prog_polytope->NewContinuousVariables(C_var.rows(), "margin");
     AddOuterPolytope(prog_polytope.get(), P_sol, q_sol, C_var, d_var, margin);
     prog_polytope->AddBoundingBoxConstraint(0, kInf, margin);
+    // Add the constraint that the polytope contains the t_inner_pts.
+    if (q_inner_pts.has_value()) {
+      Eigen::MatrixXd t_inner_pts(q_inner_pts->rows(), q_inner_pts->cols());
+      for (int i = 0; i < q_inner_pts->cols(); ++i) {
+        t_inner_pts.col(i) = rational_forward_kinematics_.ComputeTValue(
+            q_inner_pts->col(i), q_star);
+      }
+      for (int i = 0; i < t_inner_pts.cols(); ++i) {
+        DRAKE_DEMAND((t_inner_pts.col(i).array() <= t_upper.array()).all());
+        DRAKE_DEMAND((t_inner_pts.col(i).array() >= t_lower.array()).all());
+      }
+      AddCspacePolytopeContainment(prog_polytope.get(), C_var, d_var,
+                                   t_inner_pts);
+    }
+    // Add the constraint that the polytope contains the inner polytope.
+    if (inner_polytope.has_value()) {
+      AddCspacePolytopeContainment(prog_polytope.get(), C_var, d_var,
+                                   inner_polytope->first,
+                                   inner_polytope->second, t_lower, t_upper);
+    }
 
     // Maximize ∏ᵢ(margin(i) + epsilon), where epsilon is a
     // small positive number to make sure this geometric mean is always
@@ -1061,6 +1084,9 @@ void CspaceFreeRegion::CspacePolytopeBinarySearch(
     const Eigen::Ref<const Eigen::VectorXd>& d_init,
     const BinarySearchOption& binary_search_option,
     const solvers::SolverOptions& solver_options,
+    const std::optional<Eigen::MatrixXd>& q_inner_pts,
+    const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
+        inner_polytope,
     Eigen::VectorXd* d_final) const {
   // The polytope region is C * t <= d_without_epsilon + epsilon. We might
   // change d_without_epsilon during the binary search process.
@@ -1080,55 +1106,81 @@ void CspaceFreeRegion::CspacePolytopeBinarySearch(
       &d_minus_Ct, &t_lower, &t_upper, &t_minus_t_lower, &t_upper_minus_t,
       &C_var, &d_var, &lagrangian_gram_vars, &verified_gram_vars,
       &separating_plane_vars);
+  std::optional<Eigen::MatrixXd> t_inner_pts;
+  if (q_inner_pts.has_value()) {
+    t_inner_pts->resize(q_inner_pts->rows(), q_inner_pts->cols());
+    for (int i = 0; i < q_inner_pts->cols(); ++i) {
+      t_inner_pts->col(i) = rational_forward_kinematics_.ComputeTValue(
+          q_inner_pts->col(i), q_star);
+    }
+  }
   DRAKE_DEMAND(binary_search_option.epsilon_min >=
-               FindEpsilonLower(t_lower, t_upper, C, d_init));
+               FindEpsilonLower(t_lower, t_upper, C, d_init, t_inner_pts,
+                                inner_polytope));
 
   VerificationOption verification_option{};
   // Checks if C*t<=d, t_lower<=t<=t_upper is collision free.
   // Update d_final = d if the program C*t<=d, t_lower <= t <= t_upper is
   // collision free.
-  auto is_polytope_collision_free =
-      [this, &alternation_tuples, &C, &lagrangian_gram_vars,
-       &verified_gram_vars, &separating_plane_vars, &t_lower, &t_upper,
-       &verification_option, &solver_options, &C_var, &d_var, &d_minus_Ct,
-       &t_minus_t_lower, &t_upper_minus_t](
-          const Eigen::VectorXd& d, bool search_d, Eigen::VectorXd* d_sol) {
-        const double redundant_tighten = 0.;
-        auto prog = this->ConstructLagrangianProgram(
-            alternation_tuples, C, d, lagrangian_gram_vars, verified_gram_vars,
-            separating_plane_vars, t_lower, t_upper, verification_option,
-            redundant_tighten, nullptr, nullptr);
-        const auto result = solvers::Solve(*prog, std::nullopt, solver_options);
-        if (result.is_success()) {
-          *d_sol = d;
-          if (search_d) {
-            // Now fix the Lagrangian and C, and search for d.
-            const auto lagrangian_gram_var_vals =
-                result.GetSolution(lagrangian_gram_vars);
-            auto prog_polytope = this->ConstructPolytopeProgram(
-                alternation_tuples, C_var, d_var, d_minus_Ct,
-                lagrangian_gram_var_vals, verified_gram_vars,
-                separating_plane_vars, t_minus_t_lower, t_upper_minus_t,
-                verification_option);
-            prog_polytope->AddBoundingBoxConstraint(C, C, C_var);
-            // d_var >= d
-            prog_polytope->AddBoundingBoxConstraint(
-                d, Eigen::VectorXd::Constant(d.rows(), kInf), d_var);
-            // maximize d_var.
-            prog_polytope->AddLinearCost(-Eigen::VectorXd::Ones(d_var.rows()),
-                                         0, d_var);
-            const auto result_polytope =
-                solvers::Solve(*prog_polytope, std::nullopt, solver_options);
-            if (result_polytope.is_success()) {
-              *d_sol = result_polytope.GetSolution(d_var);
-            }
-          }
+  auto is_polytope_collision_free = [this, &alternation_tuples, &C,
+                                     &lagrangian_gram_vars, &verified_gram_vars,
+                                     &separating_plane_vars, &t_lower, &t_upper,
+                                     &verification_option, &solver_options,
+                                     &C_var, &d_var, &d_minus_Ct,
+                                     &t_minus_t_lower, &t_upper_minus_t,
+                                     &t_inner_pts, &inner_polytope](
+                                        const Eigen::VectorXd& d, bool search_d,
+                                        Eigen::VectorXd* d_sol) {
+    const double redundant_tighten = 0.;
+    auto prog = this->ConstructLagrangianProgram(
+        alternation_tuples, C, d, lagrangian_gram_vars, verified_gram_vars,
+        separating_plane_vars, t_lower, t_upper, verification_option,
+        redundant_tighten, nullptr, nullptr);
+    const auto result = solvers::Solve(*prog, std::nullopt, solver_options);
+    if (result.is_success()) {
+      *d_sol = d;
+      if (search_d) {
+        // Now fix the Lagrangian and C, and search for d.
+        const auto lagrangian_gram_var_vals =
+            result.GetSolution(lagrangian_gram_vars);
+        auto prog_polytope = this->ConstructPolytopeProgram(
+            alternation_tuples, C_var, d_var, d_minus_Ct,
+            lagrangian_gram_var_vals, verified_gram_vars, separating_plane_vars,
+            t_minus_t_lower, t_upper_minus_t, verification_option);
+        // Calling AddBoundingBoxConstraint(C, C, C_var) for matrix C and
+        // C_var might have problem, see Drake issue #16421
+        prog_polytope->AddBoundingBoxConstraint(
+            Eigen::Map<const Eigen::VectorXd>(C.data(), C.rows() * C.cols()),
+            Eigen::Map<const Eigen::VectorXd>(C.data(), C.rows() * C.cols()),
+            Eigen::Map<const VectorX<symbolic::Variable>>(C_var.data(),
+                                                          C.rows() * C.cols()));
+        // d_var >= d
+        prog_polytope->AddBoundingBoxConstraint(
+            d, Eigen::VectorXd::Constant(d.rows(), kInf), d_var);
+        if (t_inner_pts.has_value()) {
+          AddCspacePolytopeContainment(prog_polytope.get(), C_var, d_var,
+                                       t_inner_pts.value());
         }
-        drake::log()->info(fmt::format(
-            "Solver time {}",
-            result.get_solver_details<solvers::MosekSolver>().optimizer_time));
-        return result.is_success();
-      };
+        if (inner_polytope.has_value()) {
+          AddCspacePolytopeContainment(
+              prog_polytope.get(), C_var, d_var, inner_polytope->first,
+              inner_polytope->second, t_lower, t_upper);
+        }
+        // maximize d_var.
+        prog_polytope->AddLinearCost(-Eigen::VectorXd::Ones(d_var.rows()), 0,
+                                     d_var);
+        const auto result_polytope =
+            solvers::Solve(*prog_polytope, std::nullopt, solver_options);
+        if (result_polytope.is_success()) {
+          *d_sol = result_polytope.GetSolution(d_var);
+        }
+      }
+    }
+    drake::log()->info(fmt::format(
+        "Solver time {}",
+        result.get_solver_details<solvers::MosekSolver>().optimizer_time));
+    return result.is_success();
+  };
   if (is_polytope_collision_free(
           d_without_epsilon +
               binary_search_option.epsilon_max *
@@ -1498,12 +1550,18 @@ void FindRedundantInequalities(
   }
 }
 
-double FindEpsilonLower(const Eigen::Ref<const Eigen::VectorXd>& t_lower,
-                        const Eigen::Ref<const Eigen::VectorXd>& t_upper,
-                        const Eigen::Ref<const Eigen::MatrixXd>& C,
-                        const Eigen::Ref<const Eigen::VectorXd>& d) {
+double FindEpsilonLower(
+    const Eigen::Ref<const Eigen::VectorXd>& t_lower,
+    const Eigen::Ref<const Eigen::VectorXd>& t_upper,
+    const Eigen::Ref<const Eigen::MatrixXd>& C,
+    const Eigen::Ref<const Eigen::VectorXd>& d,
+    const std::optional<Eigen::MatrixXd>& t_inner_pts,
+    const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
+        inner_polytope) {
   solvers::MathematicalProgram prog{};
   const int nt = t_lower.rows();
+  DRAKE_DEMAND(t_upper.rows() == nt);
+  DRAKE_DEMAND(C.cols() == nt);
   const auto t = prog.NewContinuousVariables(nt, "t");
   const auto epsilon = prog.NewContinuousVariables<1>("epsilon");
   // Add the constraint C*t<=d+epsilon and t_lower <= t <= t_upper.
@@ -1513,11 +1571,111 @@ double FindEpsilonLower(const Eigen::Ref<const Eigen::VectorXd>& t_lower,
   prog.AddLinearConstraint(A, Eigen::VectorXd::Constant(C.rows(), -kInf), d,
                            {t, epsilon});
   prog.AddBoundingBoxConstraint(t_lower, t_upper, t);
+  if (t_inner_pts.has_value()) {
+    // epsilon >= C *t_inner_pts - d
+    const double eps_min = ((C * t_inner_pts.value()).colwise() - d).maxCoeff();
+    prog.AddBoundingBoxConstraint(eps_min, kInf, epsilon);
+  }
+  if (inner_polytope.has_value()) {
+    // This is not the most efficient way to add the constraint that
+    // C*t<=d+epsilon contains the inner_polytope.
+    const auto C_var = prog.NewContinuousVariables(C.rows(), C.cols());
+    prog.AddBoundingBoxConstraint(
+        Eigen::Map<const Eigen::VectorXd>(C.data(), C.rows() * C.cols()),
+        Eigen::Map<const Eigen::VectorXd>(C.data(), C.rows() * C.cols()),
+        Eigen::Map<const VectorX<symbolic::Variable>>(C_var.data(),
+                                                      C.rows() * C.cols()));
+    // d_var = d+epsilon
+    const auto d_var = prog.NewContinuousVariables(d.rows());
+    Eigen::MatrixXd coeff(d.rows(), d.rows() + 1);
+    coeff << Eigen::MatrixXd::Identity(d.rows(), d.rows()),
+        -Eigen::VectorXd::Ones(d.rows());
+    prog.AddLinearEqualityConstraint(coeff, d, {d_var, epsilon});
+    AddCspacePolytopeContainment(&prog, C_var, d_var, inner_polytope->first,
+                                 inner_polytope->second, t_lower, t_upper);
+  }
   // minimize epsilon.
   prog.AddLinearCost(Vector1d(1), 0, epsilon);
   const auto result = solvers::Solve(prog);
   DRAKE_DEMAND(result.is_success());
   return result.get_optimal_cost();
+}
+
+void GetCspacePolytope(const Eigen::Ref<const Eigen::MatrixXd>& C,
+                       const Eigen::Ref<const Eigen::VectorXd>& d,
+                       const Eigen::Ref<const Eigen::VectorXd>& t_lower,
+                       const Eigen::Ref<const Eigen::VectorXd>& t_upper,
+                       Eigen::MatrixXd* C_bar, Eigen::VectorXd* d_bar) {
+  const int nt = t_lower.rows();
+  DRAKE_DEMAND(C.cols() == nt);
+  DRAKE_DEMAND(C_bar != nullptr);
+  DRAKE_DEMAND(d_bar != nullptr);
+  C_bar->resize(C.rows() + 2 * nt, nt);
+  *C_bar << C, Eigen::MatrixXd::Identity(nt, nt),
+      -Eigen::MatrixXd::Identity(nt, nt);
+  d_bar->resize(C.rows() + 2 * nt);
+  *d_bar << d, t_upper, -t_lower;
+}
+
+void AddCspacePolytopeContainment(
+    solvers::MathematicalProgram* prog, const MatrixX<symbolic::Variable>& C,
+    const VectorX<symbolic::Variable>& d,
+    const Eigen::Ref<const Eigen::MatrixXd>& C_inner,
+    const Eigen::Ref<const Eigen::VectorXd>& d_inner,
+    const Eigen::Ref<const Eigen::VectorXd>& t_lower,
+    const Eigen::Ref<const Eigen::VectorXd>& t_upper) {
+  const int dim = C.cols();
+  DRAKE_DEMAND(C_inner.cols() == dim);
+  Eigen::MatrixXd C_bar;
+  Eigen::VectorXd d_bar;
+  GetCspacePolytope(C_inner, d_inner, t_lower, t_upper, &C_bar, &d_bar);
+  // According to duality theory, the polytope C*t<=d contains the polytope
+  // C_bar*t <= d_bar if and only if there exists variable λᵢ≥ 0, dᵢ−λᵢᵀd̅≥0,
+  // C̅ᵀλᵢ=cᵢ for every row of C*t<=d.
+  auto lambda = prog->NewContinuousVariables(C_bar.rows(), C.rows());
+  prog->AddBoundingBoxConstraint(0, kInf, lambda);
+  // Allocate the memory for the constraint coefficients and variables.
+  // coefficients for dᵢ−λᵢᵀd̅
+  Eigen::RowVectorXd coeff1(C_bar.rows() + 1);
+  VectorX<symbolic::Variable> vars1(C_bar.rows() + 1);
+  // Coefficients for C̅ᵀλᵢ=cᵢ
+  Eigen::MatrixXd coeff2(C_bar.cols(), C_bar.rows() + C_bar.cols());
+  coeff2 << C_bar.transpose(),
+      -Eigen::MatrixXd::Identity(C_bar.cols(), C_bar.cols());
+  VectorX<symbolic::Variable> vars2(C_bar.rows() + C_bar.cols());
+  for (int i = 0; i < C.rows(); ++i) {
+    // Add the constraint dᵢ−λᵢᵀd̅≥0
+    coeff1(0) = 1;
+    coeff1.tail(C_bar.rows()) = -d_bar.transpose();
+    vars1(0) = d(i);
+    vars1.tail(C_bar.rows()) = lambda.col(i);
+    prog->AddLinearConstraint(coeff1, 0, kInf, vars1);
+    // Add the constraint C̅ᵀλᵢ=cᵢ
+    vars2 << lambda.col(i), C.row(i).transpose();
+    prog->AddLinearEqualityConstraint(
+        coeff2, Eigen::VectorXd::Zero(C_bar.cols()), vars2);
+  }
+}
+
+void AddCspacePolytopeContainment(
+    solvers::MathematicalProgram* prog, const MatrixX<symbolic::Variable>& C,
+    const VectorX<symbolic::Variable>& d,
+    const Eigen::Ref<const Eigen::MatrixXd>& inner_pts) {
+  DRAKE_DEMAND(C.cols() == inner_pts.rows());
+  // Add the constraint that C * inner_pts <= d
+  // Note this is a constraint on variable C and d.
+  // Namely C.row(i) * inner_pts - d(i) * 𝟏ᵀ <= 0.
+  Eigen::MatrixXd coeff(inner_pts.cols(), inner_pts.rows() + 1);
+  coeff.leftCols(inner_pts.rows()) = inner_pts.transpose();
+  coeff.rightCols<1>() = -Eigen::VectorXd::Ones(inner_pts.cols());
+  // Allocate memory.
+  VectorX<symbolic::Variable> vars(C.cols() + 1);
+  const Eigen::VectorXd lb = Eigen::VectorXd::Constant(inner_pts.cols(), -kInf);
+  const Eigen::VectorXd ub = Eigen::VectorXd::Zero(inner_pts.cols());
+  for (int i = 0; i < C.rows(); ++i) {
+    vars << C.row(i).transpose(), d(i);
+    prog->AddLinearConstraint(coeff, lb, ub, vars);
+  }
 }
 
 // Explicit instantiation.
