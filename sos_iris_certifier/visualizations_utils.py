@@ -207,44 +207,8 @@ def plot_3d_poly_marchingcubes(region, resolution, vis, name, mat = None, verbos
             mat)
 
 def plot_3d_poly(region, vis, name, mat = None, verbose = False):
-
-    def prune_halfspaces(C, d):
-        num_inequalities = C.shape[0]
-        num_vars = C.shape[1]
-        redundant_idx = []
-        
-        for excluded_index in range(num_inequalities):
-        
-            #build optimization problem
-            v = C[excluded_index, :]
-            w = d[excluded_index]
-            A = np.delete(C, excluded_index, 0)
-            b = np.delete(d, excluded_index)
-            prog = MathematicalProgram()
-            x = prog.NewContinuousVariables(num_vars)
-            prog.AddCost(- v@x)
-            prog.AddConstraint(le(A@x, b))
-            prog.AddConstraint(v@x <= w+1)
-            result = Solve(prog)
-            if result.is_success():
-                val = result.get_optimal_cost()
-                if -val <= d[excluded_index]:
-                    redundant_idx.append(excluded_index)
-            else:
-                print('Solve failed. Cannot determine whether constraint redundant.')
-            if len(redundant_idx):
-                #print(redundant_idx)
-                C_simp = np.delete(C, np.array(redundant_idx), 0)
-                d_simp = np.delete(d, np.array(redundant_idx))
-            else:
-                C_simp = C
-                d_simp = d
-            
-        return C_simp, d_simp, redundant_idx
-
     # First, prune region
-    A_new ,b_new, redundant_rows = prune_halfspaces(region.A(), region.b())
-    region = HPolyhedron(A_new, b_new)
+    region = region.ReduceInequalities()
 
     def project_and_triangulate(pts):
         n = np.cross(pts[0,:]-pts[1,:],pts[0,:]-pts[2,:])

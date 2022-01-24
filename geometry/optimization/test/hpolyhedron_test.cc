@@ -474,76 +474,34 @@ GTEST_TEST(HPolyhedronTest, OffsetIrredundantBoxes) {
 }
 
 GTEST_TEST(HPolyhedronTest, IrredundantBallIntersectionContainedInBothOriginal) {
-  Eigen::MatrixXd A0(36,3);
-  Eigen::VectorXd b0(36);
-  Eigen::MatrixXd A1(7,3);
-  Eigen::VectorXd b1(7);
-  //clang-format off
-  A0 <<    1.       ,  0.       ,   0.       ,
-           0.        , 1.        ,  0.        ,
-           0.        , 0.        ,  1.        ,
-          -1.        ,-0.        , -0.        ,
-          -0.        ,-1.        , -0.        ,
-          -0.        ,-0.        , -1.        ,
-           0.14569377, 0.97734161, -0.15354705,
-           0.14507821, 0.97918599, -0.14194054,
-           0.13324741, 0.99019755,  0.04187999,
-           0.13325049, 0.99019886,  0.0418393 ,
-           0.13325357, 0.99020016,  0.0417986 ,
-           0.13325665, 0.99020147,  0.04175789,
-           0.13325973, 0.99020277,  0.04171717,
-           0.17673294, 0.97152064, -0.15783889,
-           0.17723733, 0.96946316, -0.16949369,
-           0.17721183, 0.96957292, -0.16889145,
-           0.17718487, 0.9696883 , -0.1682561 ,
-           0.17715619, 0.96981032, -0.16758167,
-           0.13834252, 0.69751068, -0.70309331,
-           0.13851255, 0.71147702, -0.68892287,
-           0.13751017, 0.85533306, -0.49949606,
-           0.13751053, 0.85531603, -0.49952512,
-           0.16696735, 0.67944639, -0.71447499,
-           0.16685434, 0.69267701, -0.7016824 ,
-           0.16228808, 0.83192935, -0.53061864,
-           0.16228944, 0.83190782, -0.53065197,
-           0.12214756, 0.58253193, -0.80357733,
-           0.1228507 , 0.59772306, -0.79223409,
-           0.12840434, 0.76631789, -0.62949918,
-           0.12840368, 0.76628412, -0.62954042,
-           0.12840302, 0.76625034, -0.62958167,
-           0.15616761, 0.5642631 , -0.81069034,
-           0.15653994, 0.57980132, -0.79957843,
-           0.1571008 , 0.75279325, -0.63923522,
-           0.15710151, 0.75275753, -0.63927711,
-           0.15710222, 0.75272179, -0.63931901;
-  b0 << 1.73205081,  1.73205081,  1.73205081, 1.73205081,  1.73205081,  1.73205081,
-       -0.90505503, -0.89488313, -0.67312999,-0.67319184, -0.67325369, -0.67331556,
-       -0.67337743, -0.90233114, -0.91194952,-0.91146518, -0.91095276, -0.9104072 ,
-       -0.91818143, -0.92969365, -0.97994542,-0.9799523 , -0.89818648, -0.90957952,
-       -0.97451322, -0.97451584, -0.8897345 ,-0.90448817, -1.02214108, -1.0221306 ,
-       -1.02212011, -0.86783947, -0.88323654,-1.00963666, -1.00962362, -1.00961056;
-
-
-  A1 <<   1.        ,  0.        ,  0.       ,
-          0.        ,  1.        ,  0.       ,
-          0.        ,  0.        ,  1.       ,
-         -1.        , -0.        , -0.       ,
-         -0.        , -1.        , -0.       ,
-         -0.        , -0.        , -1.       ,
-          0.93523194, -0.33785034,  0.1058223;
-
-  b1 << 1.73205081, 1.73205081, 1.73205081, 1.73205081, 1.73205081, 1.73205081, 0.26346887;
+  Eigen::MatrixXd A_L1(8,3);
+  Eigen::VectorXd b_L1 = Eigen::VectorXd::Ones(8);
+  // clang-format off
+  A_L1 <<  1, 1, 1,
+           1, 1,-1,
+           1,-1, 1,
+           1,-1,-1,
+          -1, 1, 1,
+          -1, 1,-1,
+          -1,-1, 1,
+          -1,-1,-1;
   //clang-format on
-  HPolyhedron P0(A0, b0);
-  HPolyhedron P1(A1, b1);
-  HPolyhedron IrredP0intoP1 = P1.IrredundantIntersection(P0);
-  HPolyhedron IrredP1intoP0 = P0.IrredundantIntersection(P1);
+  HPolyhedron L1_ball = HPolyhedron(A_L1, b_L1);
+
+  Eigen::Vector3d lower_limit = -Eigen::Vector3d::Ones();
+  Eigen::Vector3d upper_limit = Eigen::Vector3d::Ones();
+  HPolyhedron Linfty_ball = HPolyhedron::MakeBox(lower_limit, upper_limit);
+
+  //clang-format on
+  HPolyhedron IrredL1intoLinf = Linfty_ball.IrredundantIntersection(L1_ball);
+  HPolyhedron IrredLinfintoL1 = L1_ball.IrredundantIntersection(Linfty_ball);
 
 
 
-  EXPECT_TRUE(IrredP0intoP1.ContainedInOtherHPolyhedron(P0));
-  EXPECT_TRUE(IrredP0intoP1.ContainedInOtherHPolyhedron(P1));
-  EXPECT_TRUE(IrredP1intoP0.ContainedInOtherHPolyhedron(P0));
-  EXPECT_TRUE(IrredP1intoP0.ContainedInOtherHPolyhedron(P1));
+  EXPECT_TRUE(IrredL1intoLinf.ContainedInOtherHPolyhedron(L1_ball));
+  EXPECT_TRUE(IrredL1intoLinf.ContainedInOtherHPolyhedron(Linfty_ball));
+  EXPECT_TRUE(IrredLinfintoL1.ContainedInOtherHPolyhedron(L1_ball));
+  EXPECT_TRUE(IrredLinfintoL1.ContainedInOtherHPolyhedron(Linfty_ball));
 }
 
 GTEST_TEST(HPolyhedronTest, ReduceL1LInfBallIntersection) {

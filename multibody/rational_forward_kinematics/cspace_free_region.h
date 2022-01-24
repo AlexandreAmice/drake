@@ -82,8 +82,6 @@ struct VerificationOption {
  * side of the plane. If the link is on the positive side of the plane, then the
  * rational is aᵀx + b - 1, otherwise it is -1 - aᵀx - b
  */
- //TODO: why does this have the other_side_link_polytope? Isn't the requirement
- // that a link vertex be on a desired side of a plane independent of the other polytope?
 struct LinkVertexOnPlaneSideRational {
   LinkVertexOnPlaneSideRational(
       symbolic::RationalFunction m_rational,
