@@ -58,14 +58,17 @@ void FindMonomialBasisForPolytopicRegion(
   // computed.
   const SortedPair<multibody::BodyIndex> kinematics_chain(
       rational.link_polytope->body_index(), rational.expressed_body_index);
-
   const auto it = map_chain_to_monomial_basis->find(kinematics_chain);
   if (it == map_chain_to_monomial_basis->end()) {
     const auto t_halfchain = rational_forward_kinematics.FindTOnPath(
         rational.link_polytope->body_index(), rational.expressed_body_index);
-
-    *monomial_basis_halfchain = GenerateMonomialBasisWithOrderUpToOne(
-        drake::symbolic::Variables(t_halfchain));
+    if (t_halfchain.rows() > 0) {
+      *monomial_basis_halfchain = GenerateMonomialBasisWithOrderUpToOne(
+          drake::symbolic::Variables(t_halfchain));
+    } else {
+      *monomial_basis_halfchain =
+          Vector1<symbolic::Monomial>(symbolic::Monomial());
+    }
     map_chain_to_monomial_basis->emplace_hint(
         it, std::make_pair(kinematics_chain, *monomial_basis_halfchain));
   } else {
@@ -150,6 +153,12 @@ CspaceFreeRegion::CspaceFreeRegion(
   for (const auto& [link1, polytopes1] : polytope_geometries_) {
     for (const auto& [link2, polytopes2] : polytope_geometries_) {
       if (link1 < link2) {
+        if (rational_forward_kinematics_.FindTOnPath(link1, link2).rows() ==
+            0) {
+          throw std::runtime_error(fmt::format(
+              "No joint on the kinematic chain from link {} to {}",
+              plant->get_body(link1).name(), plant->get_body(link2).name()));
+        }
         // link_collision_pairs stores all the pair of collision geometry on
         // (link1, link2).
         std::vector<std::pair<const ConvexPolytope*, const ConvexPolytope*>>
@@ -368,7 +377,6 @@ void AddNonnegativeConstraintForPolytopeOnOneSideOfPlane(
     const VectorX<symbolic::Polynomial>& t_minus_t_lower,
     const VectorX<symbolic::Polynomial>& t_upper_minus_t,
     const VectorX<symbolic::Monomial>& monomial_basis,
-    // polytope_on_one_side_rational
     const VerificationOption& verification_option,
     const std::vector<bool>& t_lower_needs_lagrangian,
     const std::vector<bool>& t_upper_needs_lagrangian,

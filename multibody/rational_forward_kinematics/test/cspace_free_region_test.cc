@@ -75,6 +75,10 @@ class IiwaCspaceTest : public ::testing::Test {
     obstacles_id_.push_back(plant_->RegisterCollisionGeometry(
         plant_->world_body(), X_WP, geometry::Box(0.1, 0.25, 0.15),
         "world_box2", CoulombFriction<double>()));
+    link1_polytopes_id_.push_back(plant_->RegisterCollisionGeometry(
+        plant_->GetBodyByName("iiwa_link_1"), {},
+        geometry::Box(0.01, 0.01, 0.005), "link1_polytope",
+        CoulombFriction<double>()));
 
     plant_->Finalize();
     diagram_ = builder.Build();
@@ -104,6 +108,7 @@ class IiwaCspaceTest : public ::testing::Test {
   std::vector<BodyIndex> iiwa_link_;
   std::vector<geometry::GeometryId> link7_polytopes_id_;
   std::vector<geometry::GeometryId> link5_polytopes_id_;
+  std::vector<geometry::GeometryId> link1_polytopes_id_;
   std::vector<geometry::GeometryId> obstacles_id_;
 };
 
@@ -816,7 +821,7 @@ TEST_F(IiwaCspaceTest, ConstructLagrangianAndPolytopeProgram) {
     const symbolic::Polynomial verified_polynomial_expected =
         CalcPolynomialFromGram<double>(tuple.monomial_basis, verified_gram);
     EXPECT_TRUE(verified_polynomial.CoefficientsAlmostEqual(
-        verified_polynomial_expected, 1E-6));
+        verified_polynomial_expected, 4E-4));
   }
   // Make sure that the polytope C * t <= d contains the ellipsoid.
   const auto margin_sol = result_polytope.GetSolution(margin);
