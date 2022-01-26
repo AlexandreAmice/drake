@@ -368,6 +368,7 @@ void AddNonnegativeConstraintForPolytopeOnOneSideOfPlane(
     const VectorX<symbolic::Polynomial>& t_minus_t_lower,
     const VectorX<symbolic::Polynomial>& t_upper_minus_t,
     const VectorX<symbolic::Monomial>& monomial_basis,
+    // polytope_on_one_side_rational
     const VerificationOption& verification_option,
     const std::vector<bool>& t_lower_needs_lagrangian,
     const std::vector<bool>& t_upper_needs_lagrangian,

@@ -269,7 +269,6 @@ HPolyhedron HPolyhedron::ReduceInequalities() const {
   const int num_inequalities = A_.rows();
   const int num_vars = A_.cols();
 
-  int num_kept = num_inequalities;
   std::unordered_set<int> kept_indices;
   for (int i = 0; i < num_inequalities; i++) {
       kept_indices.emplace(i);
@@ -301,14 +300,17 @@ HPolyhedron HPolyhedron::ReduceInequalities() const {
     // the current inequality is redundant
     if (-result.get_optimal_cost() <= b_(excluded_index)) {
       kept_indices.erase(excluded_index);
-      num_kept--;
     }
   }
-  Eigen::MatrixXd A_new(num_kept, num_vars);
-  Eigen::VectorXd b_new(num_kept);
-  for(const int ind : kept_indices){
-    A_new.row(ind) = A_.row(ind);
-    b_new.row(ind) = b_.row(ind);
+
+  Eigen::MatrixXd A_new(kept_indices.size(), num_vars);
+  Eigen::VectorXd b_new(kept_indices.size());
+  int i = 0;
+  for(const int ind : kept_indices)
+  {
+    A_new.row(i) = A_.row(ind);
+    b_new.row(i) = b_.row(ind);
+    i++;
   }
   return HPolyhedron(A_new, b_new);
 }
