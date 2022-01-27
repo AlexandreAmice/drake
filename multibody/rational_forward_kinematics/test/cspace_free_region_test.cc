@@ -75,6 +75,10 @@ class IiwaCspaceTest : public ::testing::Test {
     obstacles_id_.push_back(plant_->RegisterCollisionGeometry(
         plant_->world_body(), X_WP, geometry::Box(0.1, 0.25, 0.15),
         "world_box2", CoulombFriction<double>()));
+    link1_polytopes_id_.push_back(plant_->RegisterCollisionGeometry(
+        plant_->GetBodyByName("iiwa_link_1"), {},
+        geometry::Box(0.01, 0.01, 0.005), "link1_polytope",
+        CoulombFriction<double>()));
 
     plant_->Finalize();
     diagram_ = builder.Build();
@@ -104,6 +108,7 @@ class IiwaCspaceTest : public ::testing::Test {
   std::vector<BodyIndex> iiwa_link_;
   std::vector<geometry::GeometryId> link7_polytopes_id_;
   std::vector<geometry::GeometryId> link5_polytopes_id_;
+  std::vector<geometry::GeometryId> link1_polytopes_id_;
   std::vector<geometry::GeometryId> obstacles_id_;
 };
 
@@ -354,15 +359,16 @@ void CheckPolynomialDegree2(const symbolic::Polynomial& p,
 
 void ConstructInitialCspacePolytope(const CspaceFreeRegion& dut,
                                     Eigen::VectorXd* q_star, Eigen::MatrixXd* C,
-                                    Eigen::VectorXd* d) {
+                                    Eigen::VectorXd* d,
+                                    Eigen::VectorXd* q_not_in_collision) {
   const auto& plant = dut.rational_forward_kinematics().plant();
   auto context = plant.CreateDefaultContext();
   *q_star = Eigen::VectorXd::Zero(7);
 
   // I will build a small C-space polytope C*t<=d around q_not_in_collision;
-  const Eigen::VectorXd q_not_in_collision =
+  *q_not_in_collision =
       (Eigen::VectorXd(7) << 0.5, 0.3, -0.3, 0.1, 0.4, 0.2, 0.1).finished();
-  plant.SetPositions(context.get(), q_not_in_collision);
+  plant.SetPositions(context.get(), *q_not_in_collision);
   ASSERT_FALSE(dut.IsPostureInCollision(*context));
 
   // First generate a region C * t <= d.
@@ -406,7 +412,7 @@ void ConstructInitialCspacePolytope(const CspaceFreeRegion& dut,
   // Now I take some samples of t slightly away from q_not_in_collision. C * t
   // <= d contains all these samples.
   Eigen::Matrix<double, 7, 6> t_samples;
-  t_samples.col(0) = ((q_not_in_collision - *q_star) / 2).array().tan();
+  t_samples.col(0) = ((*q_not_in_collision - *q_star) / 2).array().tan();
   t_samples.col(1) =
       t_samples.col(0) +
       (Eigen::VectorXd(7) << 0.11, -0.02, 0.03, 0.01, 0, 0.02, 0.02).finished();
@@ -440,7 +446,8 @@ TEST_F(IiwaCspaceTest, ConstructProgramForCspacePolytope) {
   Eigen::VectorXd q_star;
   Eigen::MatrixXd C;
   Eigen::VectorXd d;
-  ConstructInitialCspacePolytope(dut, &q_star, &C, &d);
+  Eigen::VectorXd q_not_in_collision;
+  ConstructInitialCspacePolytope(dut, &q_star, &C, &d, &q_not_in_collision);
 
   CspaceFreeRegion::FilteredCollisionPairs filtered_collision_pairs{};
   auto clock_start = std::chrono::system_clock::now();
@@ -628,7 +635,8 @@ TEST_F(IiwaCspaceTest, ConstructLagrangianAndPolytopeProgram) {
   Eigen::VectorXd q_star;
   Eigen::MatrixXd C;
   Eigen::VectorXd d;
-  ConstructInitialCspacePolytope(dut, &q_star, &C, &d);
+  Eigen::VectorXd q_not_in_collision;
+  ConstructInitialCspacePolytope(dut, &q_star, &C, &d, &q_not_in_collision);
 
   CspaceFreeRegion::FilteredCollisionPairs filtered_collision_pairs{};
   std::vector<CspaceFreeRegion::CspacePolytopeTuple> alternation_tuples;
@@ -816,7 +824,7 @@ TEST_F(IiwaCspaceTest, ConstructLagrangianAndPolytopeProgram) {
     const symbolic::Polynomial verified_polynomial_expected =
         CalcPolynomialFromGram<double>(tuple.monomial_basis, verified_gram);
     EXPECT_TRUE(verified_polynomial.CoefficientsAlmostEqual(
-        verified_polynomial_expected, 1E-6));
+        verified_polynomial_expected, 4E-4));
   }
   // Make sure that the polytope C * t <= d contains the ellipsoid.
   const auto margin_sol = result_polytope.GetSolution(margin);
@@ -839,7 +847,8 @@ TEST_F(IiwaCspaceTest, CspacePolytopeBilinearAlternation) {
   Eigen::VectorXd q_star;
   Eigen::MatrixXd C;
   Eigen::VectorXd d;
-  ConstructInitialCspacePolytope(dut, &q_star, &C, &d);
+  Eigen::VectorXd q_not_in_collision;
+  ConstructInitialCspacePolytope(dut, &q_star, &C, &d, &q_not_in_collision);
 
   CspaceFreeRegion::FilteredCollisionPairs filtered_collision_pairs{};
   // Intentially multiplies a factor to make the rows of C unnormalized.
@@ -862,7 +871,12 @@ TEST_F(IiwaCspaceTest, CspacePolytopeBilinearAlternation) {
   solver_options.SetOption(solvers::CommonSolverOption::kPrintToConsole, true);
   dut.CspacePolytopeBilinearAlternation(
       q_star, filtered_collision_pairs, C, d, bilinear_alternation_options,
-      solver_options, &C_final, &d_final, &P_final, &q_final);
+      solver_options, q_not_in_collision, std::nullopt, &C_final, &d_final,
+      &P_final, &q_final);
+  const Eigen::VectorXd t_inner_pts =
+      dut.rational_forward_kinematics().ComputeTValue(q_not_in_collision,
+                                                      q_star);
+  EXPECT_TRUE(((C_final * t_inner_pts).array() <= d_final.array()).all());
 }
 
 TEST_F(IiwaCspaceTest, CspacePolytopeBinarySearch) {
@@ -876,7 +890,8 @@ TEST_F(IiwaCspaceTest, CspacePolytopeBinarySearch) {
   Eigen::VectorXd q_star;
   Eigen::MatrixXd C;
   Eigen::VectorXd d;
-  ConstructInitialCspacePolytope(dut, &q_star, &C, &d);
+  Eigen::VectorXd q_not_in_collision;
+  ConstructInitialCspacePolytope(dut, &q_star, &C, &d, &q_not_in_collision);
 
   CspaceFreeRegion::FilteredCollisionPairs filtered_collision_pairs{};
   // Intentially multiplies a factor to make the rows of C unnormalized.
@@ -892,15 +907,15 @@ TEST_F(IiwaCspaceTest, CspacePolytopeBinarySearch) {
   Eigen::VectorXd d_final;
   dut.CspacePolytopeBinarySearch(q_star, filtered_collision_pairs, C, d,
                                  binary_search_option, solver_options,
-                                 &d_final);
+                                 q_not_in_collision, std::nullopt, &d_final);
 
   // Now do binary search but also look for d.
   binary_search_option.search_d = true;
   binary_search_option.max_iters = 2;
   Eigen::VectorXd d_final_search_d;
-  dut.CspacePolytopeBinarySearch(q_star, filtered_collision_pairs, C, d,
-                                 binary_search_option, solver_options,
-                                 &d_final_search_d);
+  dut.CspacePolytopeBinarySearch(
+      q_star, filtered_collision_pairs, C, d, binary_search_option,
+      solver_options, q_not_in_collision, std::nullopt, &d_final_search_d);
 }
 
 GTEST_TEST(CalcPolynomialFromGram, Test1) {
@@ -1223,11 +1238,138 @@ GTEST_TEST(FindEpsilonLower, Test) {
   // clang-format on
   Eigen::Vector4d d(3, 3, 3, 3);
   const double tol{1E-6};
-  EXPECT_NEAR(FindEpsilonLower(t_lower, t_upper, C, d), -3, tol);
+  EXPECT_NEAR(
+      FindEpsilonLower(C, d, t_lower, t_upper, std::nullopt, std::nullopt), -3,
+      tol);
 
   // C*t<=d is |x-2| + |y-2|<=3
   d << 7, 3, 3, -1;
-  EXPECT_NEAR(FindEpsilonLower(t_lower, t_upper, C, d), -1, tol);
+  EXPECT_NEAR(
+      FindEpsilonLower(C, d, t_lower, t_upper, std::nullopt, std::nullopt), -1,
+      tol);
+
+  // C*t<=d is |x| + |y| <= 2, with inner_pts being (0.1, 0.5), (-0.3, -.4), (1,
+  // 0.2)
+  d << 2, 2, 2, 2;
+  Eigen::Matrix<double, 2, 3> inner_pts;
+  // clang-format off
+  inner_pts << 0.1, -0.3, 1,
+               0.5, -0.4, 0.2;
+  // clang-format on
+  EXPECT_NEAR(FindEpsilonLower(C, d, t_lower, t_upper, inner_pts, std::nullopt),
+              -0.8, tol);
+
+  // C*t<=d is |x| + |y| <= 2, with inner_polytope being
+  // x+y >= 0.2, x<= 0.5, y <= 0.6
+  d << 2, 2, 2, 2;
+  Eigen::MatrixXd C_inner(3, 2);
+  // clang-format off
+  C_inner << -1, -1,
+              1,  0,
+              0,  1;
+  // clang-format on
+  Eigen::VectorXd d_inner = Eigen::Vector3d(-0.2, 0.5, 0.6);
+  EXPECT_NEAR(FindEpsilonLower(C, d, t_lower, t_upper, std::nullopt,
+                               std::make_pair(C_inner, d_inner)),
+              -0.9, tol);
+}
+
+GTEST_TEST(GetCspacePolytope, Test) {
+  Eigen::Matrix<double, 3, 2> C;
+  // Use arbitrary value of C, d, t_lower, t_upper.
+  // clang-format off
+  C << 1, 3,
+       2, 4,
+       -1, 2;
+  // clang-format on
+  Eigen::Vector3d d(1, 3, 5);
+
+  Eigen::Vector2d t_lower(2, -4);
+  Eigen::Vector2d t_upper(4, 8);
+  Eigen::MatrixXd C_bar;
+  Eigen::VectorXd d_bar;
+  GetCspacePolytope(C, d, t_lower, t_upper, &C_bar, &d_bar);
+  Eigen::MatrixXd C_bar_expected(7, 2);
+  C_bar_expected.topRows<3>() = C;
+  C_bar_expected.middleRows<2>(3) = Eigen::Matrix2d::Identity();
+  C_bar_expected.bottomRows<2>() = -Eigen::Matrix2d::Identity();
+  Eigen::VectorXd d_bar_expected(7);
+  d_bar_expected << d, t_upper, -t_lower;
+  EXPECT_TRUE(CompareMatrices(C_bar, C_bar_expected));
+  EXPECT_TRUE(CompareMatrices(d_bar, d_bar_expected));
+}
+
+GTEST_TEST(AddCspacePolytopeContainment, Test1) {
+  solvers::MathematicalProgram prog;
+  // Contain the polytope |x| + |y| <= 1 and |x|<= 0.8, |y|<= 0.9.
+  Eigen::Matrix<double, 4, 2> C_inner;
+  // clang-format off
+  C_inner << 1, 1,
+             1, -1,
+             -1, 1,
+             -1, -1;
+  // clang-format on
+  Eigen::Vector4d d_inner(1, 1, 1, 1);
+  const Eigen::Vector2d t_lower(-0.8, -0.9);
+  const Eigen::Vector2d t_upper(0.8, 0.9);
+  // Find a triangle that contains the polytope.
+  auto C = prog.NewContinuousVariables<3, 2>();
+  auto d = prog.NewContinuousVariables<3>();
+  AddCspacePolytopeContainment(&prog, C, d, C_inner, d_inner, t_lower, t_upper);
+  // Also constraint d >= 1 to avoid the trivial solution C=0 and d=0
+  prog.AddBoundingBoxConstraint(1, kInf, d);
+  auto result = solvers::Solve(prog);
+  EXPECT_TRUE(result.is_success());
+  // The vertices of the contained region
+  Eigen::Matrix<double, 8, 2> vertices;
+  // clang-format off
+  vertices << -0.1, 0.9,
+               0.1, 0.9,
+              -0.8, 0.2,
+               0.8, 0.2,
+              -0.8, -0.2,
+               0.8, 0.2,
+              -0.1, -0.9,
+               0.1, -0.9;
+  // clang-format on
+  auto C_sol = result.GetSolution(C);
+  auto d_sol = result.GetSolution(d);
+  const double tol{1E-6};
+  for (int i = 0; i < vertices.rows(); ++i) {
+    EXPECT_TRUE(
+        ((C_sol * vertices.row(i).transpose()).array() <= d_sol.array() + tol)
+            .all());
+  }
+  // Now I fix C and only minimize d
+  prog.AddBoundingBoxConstraint(Eigen::Vector2d(1, 2), Eigen::Vector2d(1, 2),
+                                C.row(0).transpose());
+  prog.AddLinearCost(d(0));
+  result = solvers::Solve(prog);
+  // The line x + 2y touches the inner polytope at (0.1, 0.9), namely d(0) = 0.1
+  // + 2 * 0.9=1.9.
+  EXPECT_NEAR(result.GetSolution(d(0)), 1.9, tol);
+}
+
+GTEST_TEST(AddCspacePolytopeContainment, Test2) {
+  solvers::MathematicalProgram prog;
+  Eigen::Matrix<double, 2, 3> inner_pts;
+  // clang-format off
+  inner_pts << 1, 2, -4,
+               3, -1, -1;
+  // clang-format on
+  auto C = prog.NewContinuousVariables<4, 2>();
+  auto d = prog.NewContinuousVariables<4>();
+  AddCspacePolytopeContainment(&prog, C, d, inner_pts);
+  // Avoid the trivial solution C = d = 0.
+  prog.AddBoundingBoxConstraint(1, kInf, d);
+  const auto result = solvers::Solve(prog);
+  EXPECT_TRUE(result.is_success());
+  const auto C_sol = result.GetSolution(C);
+  const auto d_sol = result.GetSolution(d);
+  for (int i = 0; i < inner_pts.cols(); ++i) {
+    EXPECT_TRUE(
+        ((C_sol * inner_pts.col(i)).array() <= d_sol.array() + 1E-6).all());
+  }
 }
 
 }  // namespace multibody

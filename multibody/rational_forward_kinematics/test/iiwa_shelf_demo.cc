@@ -4,10 +4,12 @@
 #include "drake/geometry/collision_filter_declaration.h"
 #include "drake/geometry/meshcat_visualizer.h"
 #include "drake/geometry/optimization/hpolyhedron.h"
+#include "drake/geometry/optimization/polytope_cover.h"
 #include "drake/multibody/inverse_kinematics/inverse_kinematics.h"
 #include "drake/multibody/parsing/parser.h"
 #include "drake/multibody/rational_forward_kinematics/cspace_free_region.h"
 #include "drake/solvers/common_solver_option.h"
+#include "drake/solvers/gurobi_solver.h"
 #include "drake/solvers/mosek_solver.h"
 #include "drake/solvers/solve.h"
 #include "drake/systems/framework/diagram_builder.h"
@@ -25,7 +27,7 @@ class IiwaDiagram {
     multibody::Parser parser(plant_);
     const std::string iiwa_file_path = FindResourceOrThrow(
         "drake/manipulation/models/iiwa_description/sdf/"
-        "iiwa14_no_collision.sdf");
+        "iiwa14_coarse_collision.sdf");
     const auto iiwa_instance = parser.AddModelFromFile(iiwa_file_path, "iiwa");
     plant_->WeldFrames(plant_->world_frame(),
                        plant_->GetFrameByName("iiwa_link_0"));
@@ -44,20 +46,31 @@ class IiwaDiagram {
     const auto& schunk_frame = plant_->GetFrameByName("body", wsg_instance);
     plant_->WeldFrames(link7, schunk_frame, X_7G);
     // SceneGraph should ignore the collision between any geometries on the
-    // gripper.
-    geometry::GeometrySet gripper_geometries;
-    auto add_gripper_geometries = [this, wsg_instance, &gripper_geometries](
-                                      const std::string& body_name) {
-      const geometry::FrameId frame_id = plant_->GetBodyFrameIdOrThrow(
-          plant_->GetBodyByName(body_name, wsg_instance).index());
-      gripper_geometries.Add(frame_id);
-    };
+    // gripper, and between the gripper and link 6
+    geometry::GeometrySet gripper_link6_geometries;
+    auto add_gripper_geometries =
+        [this, wsg_instance,
+         &gripper_link6_geometries](const std::string& body_name) {
+          const geometry::FrameId frame_id = plant_->GetBodyFrameIdOrThrow(
+              plant_->GetBodyByName(body_name, wsg_instance).index());
+          gripper_link6_geometries.Add(frame_id);
+        };
     add_gripper_geometries("body");
     add_gripper_geometries("left_finger");
     add_gripper_geometries("right_finger");
+
+    const geometry::FrameId link_6_frame_id = plant_->GetBodyFrameIdOrThrow(
+        plant_->GetBodyByName("iiwa_link_6", iiwa_instance).index());
+    const auto& inspector = scene_graph_->model_inspector();
+    const std::vector<geometry::GeometryId> link_6_geometries =
+        inspector.GetGeometries(link_6_frame_id, geometry::Role::kProximity);
+    for (const auto geometry : link_6_geometries) {
+      gripper_link6_geometries.Add(geometry);
+    }
+
     scene_graph_->collision_filter_manager().Apply(
         geometry::CollisionFilterDeclaration().ExcludeWithin(
-            gripper_geometries));
+            gripper_link6_geometries));
 
     const std::string shelf_file_path =
         FindResourceOrThrow("drake/sos_iris_certifier/shelves.sdf");
@@ -70,8 +83,10 @@ class IiwaDiagram {
 
     plant_->Finalize();
 
+    geometry::MeshcatVisualizerParams meshcat_params{};
+    meshcat_params.role = geometry::Role::kProximity;
     visualizer_ = &geometry::MeshcatVisualizer<double>::AddToBuilder(
-        &builder, *scene_graph_, meshcat_);
+        &builder, *scene_graph_, meshcat_, meshcat_params);
     diagram_ = builder.Build();
   }
 
@@ -176,24 +191,66 @@ int DoMain() {
   CspaceFreeRegion::FilteredCollisionPairs filtered_collision_pairs{};
 
   CspaceFreeRegion::BinarySearchOption binary_search_option{
-      .epsilon_max = 0.01, .epsilon_min = 0., .max_iters = 2};
+      .epsilon_max = 0.01,
+      .epsilon_min = 0.,
+      .max_iters = 2,
+      .compute_polytope_volume = true};
   solvers::SolverOptions solver_options;
   solver_options.SetOption(solvers::CommonSolverOption::kPrintToConsole, false);
   Eigen::VectorXd d_binary_search;
   Eigen::VectorXd q_star = Eigen::Matrix<double, 7, 1>::Zero();
   dut.CspacePolytopeBinarySearch(q_star, filtered_collision_pairs, C_init,
                                  d_init, binary_search_option, solver_options,
-                                 &d_binary_search);
+                                 q0, std::nullopt, &d_binary_search);
   CspaceFreeRegion::BilinearAlternationOption bilinear_alternation_option{
-      .max_iters = 10, .convergence_tol = 0.001, .redundant_tighten = 0.5};
+      .max_iters = 10,
+      .convergence_tol = 0.001,
+      .redundant_tighten = 0.5,
+      .compute_polytope_volume = true};
   Eigen::MatrixXd C_final;
   Eigen::VectorXd d_final;
   Eigen::MatrixXd P_final;
   Eigen::VectorXd q_final;
   dut.CspacePolytopeBilinearAlternation(
       q_star, filtered_collision_pairs, C_init, d_binary_search,
-      bilinear_alternation_option, solver_options, &C_final, &d_final, &P_final,
-      &q_final);
+      bilinear_alternation_option, solver_options, q0, std::nullopt, &C_final,
+      &d_final, &P_final, &q_final);
+
+  // Now partition the certified region C_final * t <= d_final, t_lower <= t <=
+  // t_upper into boxes.
+  const Eigen::VectorXd t_upper =
+      (iiwa_diagram.plant().GetPositionUpperLimits() / 2)
+          .array()
+          .tan()
+          .matrix();
+  const Eigen::VectorXd t_lower =
+      (iiwa_diagram.plant().GetPositionLowerLimits() / 2)
+          .array()
+          .tan()
+          .matrix();
+  const int nq = iiwa_diagram.plant().num_positions();
+  Eigen::MatrixXd C_bar(C_final.rows() + 2 * nq, nq);
+  C_bar << C_final, Eigen::MatrixXd::Identity(nq, nq),
+      -Eigen::MatrixXd::Identity(nq, nq);
+  Eigen::VectorXd d_bar(d_final.rows() + 2 * nq);
+  d_bar << d_final, t_upper, -t_lower;
+  const int num_boxes = 10;
+  geometry::optimization::FindInscribedBox find_box(C_bar, d_bar, {},
+                                                    std::nullopt);
+  find_box.MaximizeBoxVolume();
+  std::vector<geometry::optimization::AxisAlignedBox> boxes;
+  solvers::GurobiSolver gurobi_solver;
+  for (int i = 0; i < num_boxes; ++i) {
+    const auto result_box =
+        gurobi_solver.Solve(find_box.prog(), std::nullopt, solver_options);
+    geometry::optimization::AxisAlignedBox box(
+        result_box.GetSolution(find_box.box_lo()),
+        result_box.GetSolution(find_box.box_up()));
+    drake::log()->info(fmt::format("Box volume {}", box.volume()));
+    boxes.push_back(box);
+    const auto obstacle = box.Scale(0.9);
+    find_box.AddObstacle(obstacle);
+  }
 
   return 0;
 }

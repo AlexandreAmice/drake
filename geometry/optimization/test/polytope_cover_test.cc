@@ -80,16 +80,7 @@ GTEST_TEST(FindInscribedBox, Test2) {
   obstacles.emplace_back(Eigen::Vector2d(-1, -1), Eigen::Vector2d(-0.2, -0.5));
   obstacles.emplace_back(Eigen::Vector2d(0.2, -1), Eigen::Vector2d(1, -0.5));
   FindInscribedBox dut(C, d, obstacles, std::nullopt);
-  // Maximize the box volume as product(box_up(i) - box_lo(i))
-  Eigen::Matrix<double, 2, 4> A;
-  // clang-format off
-  A << 1, 0, -1, 0,
-       0, 1, 0, -1;
-  // clang-format on
-  dut.mutable_prog()->AddMaximizeGeometricMeanCost(
-      A, Eigen::Vector2d::Zero(),
-      Vector4<symbolic::Variable>(dut.box_up()(0), dut.box_up()(1),
-                                  dut.box_lo()(0), dut.box_lo()(1)));
+  dut.MaximizeBoxVolume();
   const auto result = solvers::Solve(dut.prog());
   EXPECT_TRUE(result.is_success());
   const double tol{1E-6};
@@ -97,6 +88,25 @@ GTEST_TEST(FindInscribedBox, Test2) {
                               Eigen::Vector2d(-1, -0.5), tol));
   EXPECT_TRUE(CompareMatrices(result.GetSolution(dut.box_up()),
                               Eigen::Vector2d(1, 0.5), tol));
+}
+
+GTEST_TEST(FindInscribedBox, AddObstacle) {
+  Eigen::Matrix<double, 4, 2> C;
+  // clang-format on
+  C << 1, 1, 1, -1, -1, 1, -1, -1;
+  // clang-format off
+  const Eigen::Vector4d d(1, 1, 1, 1);
+  FindInscribedBox dut(C, d, {}, std::nullopt);
+  const auto b = dut.AddObstacle(AxisAlignedBox(Eigen::Vector2d(-0.5, -0.5), Eigen::Vector2d(0.5, 0.5)));
+  // box on the left of the obstacle.
+  dut.mutable_prog()->AddBoundingBoxConstraint(1, 1, b(1));
+  dut.MaximizeBoxVolume();
+  const auto result = solvers::Solve(dut.prog());
+  EXPECT_TRUE(result.is_success());
+  const double tol{1E-4};
+  EXPECT_TRUE(CompareMatrices(result.GetSolution(dut.box_lo()), Eigen::Vector2d(-0.75, -0.25), tol));
+  EXPECT_TRUE(CompareMatrices(result.GetSolution(dut.box_up()), Eigen::Vector2d(-0.5, 0.25), tol));
+
 }
 }  // namespace
 }  // namespace optimization

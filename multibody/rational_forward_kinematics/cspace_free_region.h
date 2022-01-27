@@ -370,6 +370,9 @@ class CspaceFreeRegion {
     // How much tighten we use to determine if a row in {C*t<=d, t_lower <= t <=
     // t_upper} is redundant.
     std::optional<double> redundant_tighten{std::nullopt};
+    // Whether to compute and print the volume of the polytope {C*t<=d,
+    // t_lower<= t <= t_upper} each time we search for the polytope.
+    bool compute_polytope_volume{false};
   };
 
   /**
@@ -380,10 +383,16 @@ class CspaceFreeRegion {
    * t_lower/t_upper ar the lower and upper bounds of t computed from joint
    * limits.
    * @param q_star t = tan((q - q_star)/2)
+   * @param q_inner_pts If this input is not empty, then the searched polytope
+   * {C*t<=d, t_lower<=t<=t_upper} needs to contain the t computed from each
+   * column of q_inner_pts.
+   * @param inner_polytope (C_inner, d_inner) If this input is not empty, then
+   * the searched polytope {C*t<=d} needs to contain {C_inner * t <= d_inner,
+   * t_lower <= t <= t_upper}.
    * @param[out] C_final At termination, the free polytope is C_final * t <=
-   * d_final.
+   * d_final, t_lower <= t <= t_upper.
    * @param[out] d_final At termination, the free polytope is C_final * t <=
-   * d_final.
+   * d_final, t_lower <= t <= t_upper.
    * @param[out] P_final The inscribed ellipsoid if {P_final*y+q_final | |y|₂≤1}
    * @param[out] q_final The inscribed ellipsoid if {P_final*y+q_final | |y|₂≤1}
    */
@@ -393,9 +402,12 @@ class CspaceFreeRegion {
       const Eigen::Ref<const Eigen::MatrixXd>& C_init,
       const Eigen::Ref<const Eigen::VectorXd>& d_init,
       const BilinearAlternationOption& bilinear_alternation_option,
-      const solvers::SolverOptions& solver_options, Eigen::MatrixXd* C_final,
-      Eigen::VectorXd* d_final, Eigen::MatrixXd* P_final,
-      Eigen::VectorXd* q_final) const;
+      const solvers::SolverOptions& solver_options,
+      const std::optional<Eigen::MatrixXd>& q_inner_pts,
+      const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
+          inner_polytope,
+      Eigen::MatrixXd* C_final, Eigen::VectorXd* d_final,
+      Eigen::MatrixXd* P_final, Eigen::VectorXd* q_final) const;
 
   struct BinarySearchOption {
     double epsilon_max{10};
@@ -405,6 +417,8 @@ class CspaceFreeRegion {
     // then fix the Lagrangian multiplier and search the right-hand side vector
     // d through another SOS program.
     bool search_d{true};
+    // Whether to compute and print the volume of the C-space polytope.
+    bool compute_polytope_volume{false};
   };
 
   /**
@@ -420,6 +434,12 @@ class CspaceFreeRegion {
    * Lagrangian multiplier and search d, and denote the newly found d as
    * d_reset. We then reset ε to zero and find the collision free region C*t <=
    * d_reset + ε through binary search.
+   * @param q_inner_pts If this input is not empty, then the searched polytope
+   * {C*t<=d, t_lower<=t<=t_upper} needs to contain the t computed from each
+   * column of q_inner_pts.
+   * @param inner_polytope (C_inner, d_inner) If this input is not empty, then
+   * the searched polytope {C*t<=d} needs to contain {C_inner * t <= d_inner,
+   * t_lower <= t <= t_upper}.
    */
   void CspacePolytopeBinarySearch(
       const Eigen::Ref<const Eigen::VectorXd>& q_star,
@@ -428,6 +448,9 @@ class CspaceFreeRegion {
       const Eigen::Ref<const Eigen::VectorXd>& d_init,
       const BinarySearchOption& binary_search_option,
       const solvers::SolverOptions& solver_options,
+      const std::optional<Eigen::MatrixXd>& q_inner_pts,
+      const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
+          inner_polytope,
       Eigen::VectorXd* d_final) const;
 
   const RationalForwardKinematics& rational_forward_kinematics() const {
@@ -624,13 +647,63 @@ void FindRedundantInequalities(
 /**
  * When we do binary search to find epsilon such that C*t<= d + epsilon is
  * collision free, if epsilon is too small, then this polytope {t| C*t<=
- * d+epsilon, t_lower<=t<=t_upper} can be empty. To avoid this case, we find
+ * d+epsilon * 𝟏, t_lower<=t<=t_upper} can be empty. To avoid this case, we find
  * the minimal epsilon such that this polytope is non-empty.
+ * @param t_lower The lower bound of t computed from joint lower limits.
+ * @param t_upper The upper bound of t computed from joint upper limits.
+ * @param t_inner_pts. If non-empty, then the polytope C*t+epsilon also have to
+ * contain each column of t_inner_pts.
+ * @param inner_polytope. A pair (C_bar, d_bar). If non-empty, then the polytope
+ * C*t<=d+epsilon also has to contain the polytope {C_bar*t<=d_bar,
+ * t_lower<=t<=t_upper}.
  */
-double FindEpsilonLower(const Eigen::Ref<const Eigen::VectorXd>& t_lower,
-                        const Eigen::Ref<const Eigen::VectorXd>& t_upper,
-                        const Eigen::Ref<const Eigen::MatrixXd>& C,
-                        const Eigen::Ref<const Eigen::VectorXd>& d);
+// TODO(Alex.Amice): add the version with epsilon being a vector, and search for
+// each epsilon independently.
+double FindEpsilonLower(
+    const Eigen::Ref<const Eigen::MatrixXd>& C,
+    const Eigen::Ref<const Eigen::VectorXd>& d,
+    const Eigen::Ref<const Eigen::VectorXd>& t_lower,
+    const Eigen::Ref<const Eigen::VectorXd>& t_upper,
+    const std::optional<Eigen::MatrixXd>& t_inner_pts,
+    const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
+        inner_polytope);
 
+/**
+ * Concatenate the polytope C*t<=d, t_lower <= t <= t_upper as C_bar * t <=
+ * d_bar, where C_bar = [C; I; -I], d_bar = [d;t_upper;-t_lower].
+ */
+void GetCspacePolytope(const Eigen::Ref<const Eigen::MatrixXd>& C,
+                       const Eigen::Ref<const Eigen::VectorXd>& d,
+                       const Eigen::Ref<const Eigen::VectorXd>& t_lower,
+                       const Eigen::Ref<const Eigen::VectorXd>& t_upper,
+                       Eigen::MatrixXd* C_bar, Eigen::VectorXd* d_bar);
+
+/**
+ * Add the constraint that the polytope C*t<=d contains the polytope
+ * C_inner*t<=d_inner, t_lower <= t <= t_upper.
+ */
+void AddCspacePolytopeContainment(
+    solvers::MathematicalProgram* prog, const MatrixX<symbolic::Variable>& C,
+    const VectorX<symbolic::Variable>& d,
+    const Eigen::Ref<const Eigen::MatrixXd>& C_inner,
+    const Eigen::Ref<const Eigen::VectorXd>& d_inner,
+    const Eigen::Ref<const Eigen::VectorXd>& t_lower,
+    const Eigen::Ref<const Eigen::VectorXd>& t_upper);
+
+/**
+ * Add the constraints that C*t<=d contains each column of inner_pts.
+ */
+void AddCspacePolytopeContainment(
+    solvers::MathematicalProgram* prog, const MatrixX<symbolic::Variable>& C,
+    const VectorX<symbolic::Variable>& d,
+    const Eigen::Ref<const Eigen::MatrixXd>& inner_pts);
+
+/**
+ * Compute the volume of the Cspace region C*t<=d, t_lower <= t <= t_upper.
+ */
+[[nodiscard]] double CalcCspacePolytopeVolume(const Eigen::MatrixXd& C,
+                                              const Eigen::VectorXd& d,
+                                              const Eigen::VectorXd& t_lower,
+                                              const Eigen::VectorXd& t_upper);
 }  // namespace multibody
 }  // namespace drake

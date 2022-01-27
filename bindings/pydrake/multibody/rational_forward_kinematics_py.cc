@@ -395,20 +395,25 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
               const Eigen::Ref<const Eigen::VectorXd>& d_init,
               const CspaceFreeRegion::BilinearAlternationOption&
                   bilinear_alternation_option,
-              const solvers::SolverOptions& solver_options) {
+              const solvers::SolverOptions& solver_options,
+              const std::optional<Eigen::MatrixXd>& q_inner_pts,
+              const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
+                  inner_polytope) {
             Eigen::MatrixXd C_final;
             Eigen::VectorXd d_final;
             Eigen::MatrixXd P_final;
             Eigen::VectorXd q_final;
             self->CspacePolytopeBilinearAlternation(q_star,
                 filtered_collision_pairs, C_init, d_init,
-                bilinear_alternation_option, solver_options, &C_final, &d_final,
-                &P_final, &q_final);
+                bilinear_alternation_option, solver_options, q_inner_pts,
+                inner_polytope, &C_final, &d_final, &P_final, &q_final);
             return std::make_tuple(C_final, d_final, P_final, q_final);
           },
           py::arg("q_star"), py::arg("filtered_collision_pairs"),
           py::arg("C_init"), py::arg("d_init"),
           py::arg("bilinear_alternation_option"), py::arg("solver_options"),
+          py::arg("q_inner_pts") = std::nullopt,
+          py::arg("inner_polytope") = std::nullopt,
           doc.CspaceFreeRegion.CspacePolytopeBilinearAlternation.doc)
       .def(
           "CspacePolytopeBinarySearch",
@@ -419,15 +424,20 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
               const Eigen::Ref<const Eigen::MatrixXd>& C,
               const Eigen::Ref<const Eigen::VectorXd>& d_init,
               const CspaceFreeRegion::BinarySearchOption& binary_search_option,
-              const solvers::SolverOptions& solver_options) {
+              const solvers::SolverOptions& solver_options,
+              const std::optional<Eigen::MatrixXd>& q_inner_pts,
+              const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
+                  inner_polytope) {
             Eigen::VectorXd d_final;
             self->CspacePolytopeBinarySearch(q_star, filtered_collision_pairs,
-                C, d_init, binary_search_option, solver_options, &d_final);
+                C, d_init, binary_search_option, solver_options, q_inner_pts,
+                inner_polytope, &d_final);
             return d_final;
           },
           py::arg("q_star"), py::arg("filtered_collision_pairs"), py::arg("C"),
           py::arg("d_init"), py::arg("binary_search_option"),
-          py::arg("solver_options"),
+          py::arg("solver_options"), py::arg("q_inner_pts") = std::nullopt,
+          py::arg("inner_polytope") = std::nullopt,
           doc.CspaceFreeRegion.CspacePolytopeBinarySearch.doc)
       .def("IsPostureInCollision", &CspaceFreeRegion::IsPostureInCollision,
           doc.CspaceFreeRegion.IsPostureInCollision.doc)
@@ -459,6 +469,55 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
           py::arg("prog"), py::arg("C"), py::arg("d"), py::arg("t_lower"),
           py::arg("t_upper"), py::arg("constrain_P_psd") = true,
           doc.AddInscribedEllipsoid.doc);
+
+  m.def(
+       "AddCspacePolytopeContainment",
+       [](solvers::MathematicalProgram* prog,
+           const MatrixX<symbolic::Variable>& C,
+           const VectorX<symbolic::Variable>& d,
+           const Eigen::Ref<const Eigen::MatrixXd>& C_inner,
+           const Eigen::Ref<const Eigen::VectorXd>& d_inner,
+           const Eigen::Ref<const Eigen::VectorXd>& t_lower,
+           const Eigen::Ref<const Eigen::VectorXd>& t_upper) {
+         return AddCspacePolytopeContainment(
+             prog, C, d, C_inner, d_inner, t_lower, t_upper);
+       },
+       py::arg("prog"), py::arg("C"), py::arg("d"), py::arg("C_inner"),
+       py::arg("d_inner"), py::arg("t_lower"), py::arg("t_upper"),
+       doc.AddCspacePolytopeContainment.doc_7args)
+      .def(
+          "AddCspacePolytopeContainment",
+          [](solvers::MathematicalProgram* prog,
+              const MatrixX<symbolic::Variable>& C,
+              const VectorX<symbolic::Variable>& d,
+              const Eigen::Ref<const Eigen::MatrixXd>& inner_pts) {
+            return AddCspacePolytopeContainment(prog, C, d, inner_pts);
+          },
+          py::arg("prog"), py::arg("C"), py::arg("d"), py::arg("inner_pts"),
+          doc.AddCspacePolytopeContainment.doc_4args)
+      .def(
+          "FindRedundantInequalities",
+          [](const Eigen::MatrixXd& C, const Eigen::VectorXd& d,
+              const Eigen::VectorXd& t_lower, const Eigen::VectorXd& t_upper,
+              double tighten) {
+            std::unordered_set<int> C_redundant_indices,
+                t_lower_redundant_indices, t_upper_redundant_indices;
+            FindRedundantInequalities(C, d, t_lower, t_upper, tighten,
+                &C_redundant_indices, &t_lower_redundant_indices,
+                &t_upper_redundant_indices);
+            return std::make_tuple(C_redundant_indices,
+                t_lower_redundant_indices, t_upper_redundant_indices);
+          },
+          py::arg("C"), py::arg("d"), py::arg("t_lower"), py::arg("t_upper"),
+          py::arg("tighten"), doc.FindRedundantInequalities.doc)
+      .def("FindEpsilonLower", &FindEpsilonLower, py::arg("C"), py::arg("d"),
+          py::arg("t_lower"), py::arg("t_upper"),
+          py::arg("t_inner_pts") = std::nullopt,
+          py::arg("inner_polytope") = std::nullopt, doc.FindEpsilonLower.doc);
+
+  m.def("CalcCspacePolytopeVolume", &CalcCspacePolytopeVolume, py::arg("C"),
+      py::arg("d"), py::arg("t_lower"), py::arg("t_upper"),
+      doc.CalcCspacePolytopeVolume.doc);
 
   py::module::import("pydrake.solvers.mathematicalprogram");
 }
