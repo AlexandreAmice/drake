@@ -29,6 +29,8 @@ class AxisAlignedBox {
 
   const Eigen::VectorXd& up() const { return up_; }
 
+  [[nodiscard]] double volume() const;
+
  private:
   Eigen::VectorXd lo_;
   Eigen::VectorXd up_;
@@ -48,8 +50,8 @@ class FindInscribedBox {
    */
   FindInscribedBox(const Eigen::Ref<const Eigen::MatrixXd>& C,
                    const Eigen::Ref<const Eigen::VectorXd>& d,
-                   std::vector<AxisAlignedBox> obstacles,
-                   const std::optional<AxisAlignedBox>& outer_box);
+                   const std::vector<AxisAlignedBox>& obstacles,
+                   std::optional<AxisAlignedBox> outer_box);
 
   const solvers::MathematicalProgram& prog() const { return *prog_; }
 
@@ -59,6 +61,20 @@ class FindInscribedBox {
 
   const VectorX<symbolic::Variable>& box_up() const { return box_up_; }
 
+  /**
+   * Add the constraint to the program that the searched box should not overlap
+   * with `obstacle`.
+   * @return b The binary variable to ensure the searched box doesn't intersect
+   * with this obstacle. box(2i) = 1 implies box_lo(i) >= obstacle.up(i).
+   * box(2i+1) = 1 implies box_up(i) <= obstacle.lo(i).
+   */
+  VectorX<symbolic::Variable> AddObstacle(const AxisAlignedBox& obstacle);
+
+  /**
+   * Add the lorentz cone constraint and linear cost to maximize the box volume.
+   */
+  void MaximizeBoxVolume();
+
  private:
   std::unique_ptr<solvers::MathematicalProgram> prog_;
   Eigen::MatrixXd C_;
@@ -66,6 +82,7 @@ class FindInscribedBox {
   std::vector<AxisAlignedBox> obstacles_;
   VectorX<symbolic::Variable> box_lo_;
   VectorX<symbolic::Variable> box_up_;
+  std::unique_ptr<AxisAlignedBox> outer_box_;
 };
 
 }  // namespace optimization
