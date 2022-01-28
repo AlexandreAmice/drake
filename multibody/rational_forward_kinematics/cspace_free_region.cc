@@ -11,6 +11,7 @@
 #include <libqhullcpp/Qhull.h>
 
 #include "drake/geometry/optimization/vpolytope.h"
+#include "drake/multibody/rational_forward_kinematics/collision_geometry.h"
 #include "drake/multibody/rational_forward_kinematics/generate_monomial_basis_util.h"
 #include "drake/multibody/rational_forward_kinematics/rational_forward_kinematics_internal.h"
 #include "drake/multibody/rational_forward_kinematics/redundant_inequality_pruning.h"
@@ -1315,6 +1316,25 @@ void CspaceFreeRegion::CspacePolytopeBinarySearch(
   }
 }
 
+// Get the Lorentz cone constraint for |a|<=1
+std::vector<solvers::Binding<solvers::LorentzConeConstraint>>
+GetNormLessThan1Constraint(const Vector3<symbolic::Expression>& a_A) {
+  Eigen::Matrix<double, 4, 3> A_lorentz = Eigen::Matrix<double, 4, 3>::Zero();
+  A_lorentz.bottomRows<3>() = Eigen::Matrix3d::Identity();
+  const Eigen::Vector4d b_lorentz(1, 0, 0, 0);
+  Vector3<symbolic::Variable> a_var;
+  for (int i = 0; i < 3; ++i) {
+    DRAKE_DEMAND(symbolic::is_variable(a_A(i)));
+    a_var(i) = *a_A(i).GetVariables().begin();
+  }
+  std::vector<solvers::Binding<solvers::LorentzConeConstraint>>
+      lorentz_cone_constraints;
+  lorentz_cone_constraints.emplace_back(
+      std::make_shared<solvers::LorentzConeConstraint>(A_lorentz, b_lorentz),
+      a_var);
+  return lorentz_cone_constraints;
+}
+
 std::vector<LinkOnPlaneSideRational>
 GenerateLinkOnOneSideOfPlaneRationalFunction(
     const RationalForwardKinematics& rational_forward_kinematics,
@@ -1332,39 +1352,52 @@ GenerateLinkOnOneSideOfPlaneRationalFunction(
     separating_delta = separating_polytope_delta;
   }
 
-  switch (link_geometry->type()) {
-    case CollisionGeometryType::kPolytope: {
-      // TODO (hongkai.dai): cache the map from geometry_id to vertices since
-      // getting the vertices might be expensive.
-      const Eigen::Matrix3Xd p_BV =
-          link_geometry->X_BG() * GetVertices(link_geometry->geometry());
-      rational_fun.reserve(p_BV.cols());
-      const symbolic::Monomial monomial_one{};
-      // a_A and b are not polynomial of sinθ or cosθ.
-      Vector3<symbolic::Polynomial> a_A_poly;
-      for (int i = 0; i < 3; ++i) {
-        a_A_poly(i) = symbolic::Polynomial({{monomial_one, a_A(i)}});
-      }
-      const symbolic::Polynomial b_poly({{monomial_one, b}});
-      for (int i = 0; i < p_BV.cols(); ++i) {
-        // Step 1: Compute vertex position.
-        const Vector3<drake::symbolic::Polynomial> p_AVi =
-            X_AB_multilinear.p_AB + X_AB_multilinear.R_AB * p_BV.col(i);
+  const symbolic::Monomial monomial_one{};
+  // a_A and b are not polynomial of sinθ or cosθ.
+  Vector3<symbolic::Polynomial> a_A_poly;
+  for (int i = 0; i < 3; ++i) {
+    a_A_poly(i) = symbolic::Polynomial({{monomial_one, a_A(i)}});
+  }
+  const symbolic::Polynomial b_poly({{monomial_one, b}});
 
-        // Step 2: Compute a_A.dot(p_AVi) + b
+  // Compute the rational for a.dot(p_AQ)+b-offset on the positive side, and
+  // -offset - a.dot(p_AQ)-b on the negative side, add this rational to
+  // rational_fun.
+  auto compute_rational =
+      [&rational_fun, &X_AB_multilinear, &a_A_poly, &b_poly,
+       &rational_forward_kinematics, plane_side, &a_A, &b, link_geometry,
+       other_side_geometry, plane_order](
+          const Eigen::Vector3d& p_BQ, double offset,
+          const std::vector<solvers::Binding<solvers::LorentzConeConstraint>>&
+              lorentz_cone_constraints) {
+        // Step 1: Compute p_AQ.
+        const Vector3<drake::symbolic::Polynomial> p_AQ =
+            X_AB_multilinear.p_AB + X_AB_multilinear.R_AB * p_BQ;
+
+        // Step 2: Compute a_A.dot(p_AQ) + b
         const drake::symbolic::Polynomial point_on_hyperplane_side =
-            a_A_poly.dot(p_AVi) + b_poly;
+            a_A_poly.dot(p_AQ) + b_poly;
 
         // Step 3: Convert the multilinear polynomial to rational function.
         rational_fun.emplace_back(
             rational_forward_kinematics
                 .ConvertMultilinearPolynomialToRationalFunction(
                     plane_side == PlaneSide::kPositive
-                        ? point_on_hyperplane_side - separating_delta
-                        : -separating_delta - point_on_hyperplane_side),
+                        ? point_on_hyperplane_side - offset
+                        : -offset - point_on_hyperplane_side),
             link_geometry, X_AB_multilinear.frame_A_index, other_side_geometry,
-            a_A, b, plane_side, plane_order,
-            std::vector<solvers::Binding<solvers::LorentzConeConstraint>>{});
+            a_A, b, plane_side, plane_order, lorentz_cone_constraints);
+      };
+
+  switch (link_geometry->type()) {
+    case CollisionGeometryType::kPolytope: {
+      // TODO(hongkai.dai): cache the map from geometry_id to vertices since
+      // getting the vertices might be expensive.
+      const Eigen::Matrix3Xd p_BV =
+          link_geometry->X_BG() * GetVertices(link_geometry->geometry());
+      rational_fun.reserve(p_BV.cols());
+      for (int i = 0; i < p_BV.cols(); ++i) {
+        compute_rational(p_BV.col(i), separating_delta, {});
       }
       break;
     }
@@ -1372,57 +1405,47 @@ GenerateLinkOnOneSideOfPlaneRationalFunction(
       // We will generate the rational for
       // aᵀc + b − r (positive side) or -r − b − aᵀc(negative side)
       // where c is the center of the sphere, r is the radius of the sphere.
-      // Additionally we will need to add the constraint |a|≤1 as a second-order
-      // cone constraint.
+      // Additionally we will need to add the constraint |a|≤1 as a
+      // second-order cone constraint.
       const auto link_sphere =
           dynamic_cast<const geometry::Sphere*>(&link_geometry->geometry());
       rational_fun.reserve(1);
-      const symbolic::Monomial monomial_one{};
-      // a_A and b are not polynomial of sinθ or cosθ.
-      Vector3<symbolic::Polynomial> a_A_poly;
-      for (int i = 0; i < 3; ++i) {
-        a_A_poly(i) = symbolic::Polynomial({{monomial_one, a_A(i)}});
-      }
-      const symbolic::Polynomial b_poly({{monomial_one, b}});
-      // Step 1: Compute ellipsoid center position.
-      const Vector3<drake::symbolic::Polynomial> p_AC =
-          X_AB_multilinear.p_AB +
-          X_AB_multilinear.R_AB * link_geometry->X_BG().translation();
-
-      // Step 2: Compute a_A.dot(p_AC) + b
-      const drake::symbolic::Polynomial center_on_hyperplane_side =
-          a_A_poly.dot(p_AC) + b_poly;
-
-      // Step 3: Get the Lorentz cone constraint |a|≤1
-      DRAKE_DEMAND(plane_order == SeparatingPlaneOrder::kConstant);
-      // [1; a] in Lorentz cone.
-      Eigen::Matrix<double, 4, 3> A_lorentz =
-          Eigen::Matrix<double, 4, 3>::Zero();
-      A_lorentz.bottomRows<3>() = Eigen::Matrix3d::Identity();
-      const Eigen::Vector4d b_lorentz(1, 0, 0, 0);
-      Vector3<symbolic::Variable> a_var;
-      for (int i = 0; i < 3; ++i) {
-        DRAKE_DEMAND(symbolic::is_variable(a_A(i)));
-        a_var(i) = *a_A(i).GetVariables().begin();
-      }
-      std::vector<solvers::Binding<solvers::LorentzConeConstraint>>
-          lorentz_cone_constraints;
-      lorentz_cone_constraints.emplace_back(
-          std::make_shared<solvers::LorentzConeConstraint>(A_lorentz,
-                                                           b_lorentz),
-          a_var);
-
       const double radius = link_sphere->radius();
-
-      // Step 4: Convert the multilinear polynomial to rational function.
-      rational_fun.emplace_back(
-          rational_forward_kinematics
-              .ConvertMultilinearPolynomialToRationalFunction(
-                  plane_side == PlaneSide::kPositive
-                      ? center_on_hyperplane_side - radius
-                      : -radius - center_on_hyperplane_side),
-          link_geometry, X_AB_multilinear.frame_A_index, other_side_geometry,
-          a_A, b, plane_side, plane_order, lorentz_cone_constraints);
+      DRAKE_DEMAND(plane_order == SeparatingPlaneOrder::kConstant);
+      compute_rational(link_geometry->X_BG().translation(), radius,
+                       GetNormLessThan1Constraint(a_A));
+      break;
+    }
+    case CollisionGeometryType::kCapsule: {
+      // We will generate the rational for
+      // aᵀc₁ + b − r, aᵀc₂ + b − r (positive side) or -r − b − aᵀc₁, -r − b −
+      // aᵀc₂ (negative side) where c₁, c₂ are the centers of the capsule
+      // spheres, r is the radius of the capsule. Additionally we will need to
+      // add the constraint |a|≤1 as a second-order cone constraint.
+      const auto link_capsule =
+          dynamic_cast<const geometry::Capsule*>(&link_geometry->geometry());
+      rational_fun.reserve(2);
+      Eigen::Matrix<double, 3, 2> p_BC;
+      p_BC.col(0) = link_geometry->X_BG() *
+                    Eigen::Vector3d(0, 0, -link_capsule->length() / 2);
+      p_BC.col(1) = link_geometry->X_BG() *
+                    Eigen::Vector3d(0, 0, link_capsule->length() / 2);
+      for (int i = 0; i < 2; ++i) {
+        DRAKE_DEMAND(plane_order == SeparatingPlaneOrder::kConstant);
+        std::vector<solvers::Binding<solvers::LorentzConeConstraint>>
+            lorentz_cone_constraints;
+        if (i == 0) {
+          // We only need to impose the Lorentz cone constraint |a|<=1 for
+          // once, no need to do that for both spheres on the capsule.
+          lorentz_cone_constraints = GetNormLessThan1Constraint(a_A);
+        }
+        compute_rational(p_BC.col(i), link_capsule->radius(),
+                         lorentz_cone_constraints);
+      }
+      break;
+    }
+    default: {
+      throw std::runtime_error("Not implemented yet");
     }
   }
   return rational_fun;
@@ -1447,7 +1470,8 @@ void ComputeBoundsOnT(const Eigen::Ref<const Eigen::VectorXd>& q_star,
                       const Eigen::Ref<const Eigen::VectorXd>& q_upper,
                       Eigen::VectorXd* t_lower, Eigen::VectorXd* t_upper) {
   DRAKE_DEMAND((q_upper.array() >= q_lower.array()).all());
-  // Currently I require that q_upper - q_star < pi and q_star - q_lower > -pi.
+  // Currently I require that q_upper - q_star < pi and q_star - q_lower >
+  // -pi.
   DRAKE_DEMAND(((q_upper - q_star).array() < M_PI).all());
   DRAKE_DEMAND(((q_star - q_lower).array() > -M_PI).all());
   *t_lower = ((q_lower - q_star) / 2).array().tan();
@@ -1605,9 +1629,9 @@ void AddOuterPolytope(
     const Eigen::Ref<const VectorX<symbolic::Variable>>& d,
     const Eigen::Ref<const VectorX<symbolic::Variable>>& margin) {
   DRAKE_DEMAND(P.rows() == P.cols());
-  // Add the constraint |cᵢᵀP|₂ ≤ dᵢ − cᵢᵀq − δᵢ as a Lorentz cone constraint,
-  // namely [dᵢ − cᵢᵀq − δᵢ, cᵢᵀP] is in the Lorentz cone.
-  // [dᵢ − cᵢᵀq − δᵢ, cᵢᵀP] = A_lorentz1 * [cᵢᵀ, dᵢ, δᵢ] + b_lorentz1
+  // Add the constraint |cᵢᵀP|₂ ≤ dᵢ − cᵢᵀq − δᵢ as a Lorentz cone
+  // constraint, namely [dᵢ − cᵢᵀq − δᵢ, cᵢᵀP] is in the Lorentz cone. [dᵢ
+  // − cᵢᵀq − δᵢ, cᵢᵀP] = A_lorentz1 * [cᵢᵀ, dᵢ, δᵢ] + b_lorentz1
   Eigen::MatrixXd A_lorentz1(P.rows() + 1, 2 + C.cols());
   Eigen::VectorXd b_lorentz1(P.rows() + 1);
   VectorX<symbolic::Variable> lorentz1_vars(2 + C.cols());
@@ -1621,9 +1645,8 @@ void AddOuterPolytope(
     lorentz1_vars << C.row(i).transpose(), d(i), margin(i);
     prog->AddLorentzConeConstraint(A_lorentz1, b_lorentz1, lorentz1_vars);
   }
-  // Add the constraint |cᵢᵀ|₂ ≤ 1 as a Lorentz cone constraint that [1, cᵢᵀ] is
-  // in the Lorentz cone.
-  // [1, cᵢᵀ] = A_lorentz2 * cᵢᵀ + b_lorentz2
+  // Add the constraint |cᵢᵀ|₂ ≤ 1 as a Lorentz cone constraint that [1,
+  // cᵢᵀ] is in the Lorentz cone. [1, cᵢᵀ] = A_lorentz2 * cᵢᵀ + b_lorentz2
   Eigen::MatrixXd A_lorentz2 = Eigen::MatrixXd::Zero(1 + C.cols(), C.cols());
   A_lorentz2.bottomRows(C.cols()) =
       Eigen::MatrixXd::Identity(C.cols(), C.cols());
@@ -1676,6 +1699,13 @@ GetCollisionGeometries(const systems::Diagram<double>& diagram,
           collision_geometry = std::make_unique<CollisionGeometry>(
               CollisionGeometryType::kSphere, &shape, body_index, geometry_id,
               X_BG);
+        } else if (dynamic_cast<const geometry::Capsule*>(&shape)) {
+          collision_geometry = std::make_unique<CollisionGeometry>(
+              CollisionGeometryType::kCapsule, &shape, body_index, geometry_id,
+              X_BG);
+        } else {
+          throw std::runtime_error(
+              "GetCollisionGeometries: unsupported shape type.");
         }
         DRAKE_DEMAND(collision_geometry.get() != nullptr);
 
@@ -1702,7 +1732,8 @@ void FindRedundantInequalities(
   C_redundant_indices->clear();
   t_lower_redundant_indices->clear();
   t_upper_redundant_indices->clear();
-  // We aggregate the constraint {C*t<=d, t_lower <= t <= t_upper} as C̅t ≤ d̅
+  // We aggregate the constraint {C*t<=d, t_lower <= t <= t_upper} as C̅t ≤
+  // d̅
   const int nt = t_lower.rows();
   Eigen::MatrixXd C_bar(C.rows() + 2 * nt, nt);
   Eigen::VectorXd d_bar(d.rows() + 2 * nt);
@@ -1806,9 +1837,9 @@ void AddCspacePolytopeContainment(
   Eigen::MatrixXd C_bar;
   Eigen::VectorXd d_bar;
   GetCspacePolytope(C_inner, d_inner, t_lower, t_upper, &C_bar, &d_bar);
-  // According to duality theory, the polytope C*t<=d contains the polytope
-  // C_bar*t <= d_bar if and only if there exists variable λᵢ≥ 0, dᵢ−λᵢᵀd̅≥0,
-  // C̅ᵀλᵢ=cᵢ for every row of C*t<=d.
+  // According to duality theory, the polytope C*t<=d contains the
+  // polytope C_bar*t <= d_bar if and only if there exists variable λᵢ≥ 0,
+  // dᵢ−λᵢᵀd̅≥0, C̅ᵀλᵢ=cᵢ for every row of C*t<=d.
   auto lambda = prog->NewContinuousVariables(C_bar.rows(), C.rows());
   prog->AddBoundingBoxConstraint(0, kInf, lambda);
   // Allocate the memory for the constraint coefficients and variables.
@@ -1867,7 +1898,8 @@ double CalcCspacePolytopeVolume(const Eigen::MatrixXd& C,
   d_bar << d, t_upper, -t_lower;
   const geometry::optimization::HPolyhedron h_poly(C_bar, d_bar);
   const geometry::optimization::VPolytope v_poly(h_poly);
-  // TODO(hongkai.dai) call v_poly.CalcVolume() when Drake PR 16409 is merged.
+  // TODO(hongkai.dai) call v_poly.CalcVolume() when Drake PR 16409 is
+  // merged.
   orgQhull::Qhull qhull;
   qhull.runQhull("", nt, v_poly.vertices().cols(), v_poly.vertices().data(),
                  "");

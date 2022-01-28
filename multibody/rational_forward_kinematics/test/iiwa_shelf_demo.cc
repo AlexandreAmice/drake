@@ -99,12 +99,19 @@ class IiwaDiagram {
     const math::RigidTransformd X_WShelf(Eigen::Vector3d(0.8, 0, 0.4));
     plant_->WeldFrames(plant_->world_frame(), shelf_frame, X_WShelf);
 
+    // Add a sphere as an obstacle.
     math::RigidTransformd X_WSphere = X_WShelf;
     X_WSphere.set_translation(X_WShelf.translation() +
                               Eigen::Vector3d(-0.2, 0.3, 0.1));
     plant_->RegisterCollisionGeometry(plant_->world_body(), X_WSphere,
                                       geometry::Sphere(0.1), "world_sphere",
                                       CoulombFriction<double>());
+
+    // Add a capsule as an obstacle.
+    math::RigidTransformd X_WCapsule(Eigen::Vector3d(0.5, -0.3, 0.3));
+    plant_->RegisterCollisionGeometry(
+        plant_->world_body(), X_WCapsule, geometry::Capsule(0.03, 0.4),
+        "world_capsule", CoulombFriction<double>());
 
     plant_->Finalize();
 

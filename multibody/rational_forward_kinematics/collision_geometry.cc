@@ -1,5 +1,7 @@
 #include "drake/multibody/rational_forward_kinematics/collision_geometry.h"
 
+#include <vector>
+
 #include <libqhullcpp/Qhull.h>
 
 #include "drake/geometry/read_obj.h"

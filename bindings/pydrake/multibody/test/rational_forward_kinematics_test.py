@@ -137,15 +137,16 @@ class IiwaCspaceTest(unittest.TestCase):
             dut.GenerateTuplesForBilinearAlternation(
                 q_star=q_star, filtered_collision_pairs=set(), C_rows=24)
 
-        q_star, C, d = self.construct_initial_cspace_polytope(dut, self.diagram)
+        q_star, C, d = self.construct_initial_cspace_polytope(
+            dut, self.diagram)
         P = np.empty((7, 7), dtype=sym.Variable)
         q = np.empty(7, dtype=sym.Variable)
         verification_option = mut.VerificationOption()
         redundant_tighten = 0.5
         prog_lagrangian = dut.ConstructLagrangianProgram(
             alternation_tuples, C, d, lagrangian_gram_vars, verified_gram_vars,
-            separating_plane_vars, separating_plane_lorentz_cone_constraints, t_lower, t_upper, verification_option,
-            redundant_tighten)
+            separating_plane_vars, separating_plane_lorentz_cone_constraints,
+            t_lower, t_upper, verification_option, redundant_tighten)
         P, q = mut.AddInscribedEllipsoid(prog_lagrangian, C, d, t_lower,
                                          t_upper)
         result_lagrangian = mp.Solve(prog_lagrangian)
@@ -159,8 +160,8 @@ class IiwaCspaceTest(unittest.TestCase):
         prog_polytope = dut.ConstructPolytopeProgram(
             alternation_tuples, C_var, d_var, d_minus_Ct,
             lagrangian_gram_var_vals, verified_gram_vars,
-            separating_plane_vars, separating_plane_lorentz_cone_constraints, t_minus_t_lower, t_upper_minus_t,
-            verification_option)
+            separating_plane_vars, separating_plane_lorentz_cone_constraints,
+            t_minus_t_lower, t_upper_minus_t, verification_option)
         result_polytope = mp.Solve(prog_polytope)
         self.assertTrue(result_polytope.is_success())
 
@@ -171,7 +172,8 @@ class IiwaCspaceTest(unittest.TestCase):
                                    mut.SeparatingPlaneOrder.kAffine,
                                    mut.CspaceRegionType.kGenericPolytope,
                                    separating_polytope_delta=1.)
-        q_star, C_init, d_init = self.construct_initial_cspace_polytope(dut, self.diagram)
+        q_star, C_init, d_init = self.construct_initial_cspace_polytope(
+            dut, self.diagram)
         filtered_collision_pairs = set()
         bilinear_alternation_option = mut.BilinearAlternationOption()
         bilinear_alternation_option.max_iters = 2
@@ -191,7 +193,8 @@ class IiwaCspaceTest(unittest.TestCase):
                                    mut.SeparatingPlaneOrder.kAffine,
                                    mut.CspaceRegionType.kGenericPolytope,
                                    separating_polytope_delta=1.)
-        q_star, C_init, d_init = self.construct_initial_cspace_polytope(dut, self.diagram)
+        q_star, C_init, d_init = self.construct_initial_cspace_polytope(
+            dut, self.diagram)
         filtered_collision_pairs = set()
         binary_search_option = mut.BinarySearchOption()
         binary_search_option.epsilon_max = 1

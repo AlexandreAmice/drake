@@ -14,6 +14,7 @@ namespace multibody {
 enum class CollisionGeometryType {
   kPolytope,
   kSphere,
+  kCapsule,
 };
 
 class CollisionGeometry {
