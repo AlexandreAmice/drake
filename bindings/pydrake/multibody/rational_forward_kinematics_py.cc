@@ -249,7 +249,7 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
           CspaceRegionType, double>(),
       py::arg("diagram"), py::arg("plant"), py::arg("scene_graph"),
       py::arg("plane_order"), py::arg("cspace_region_type"),
-      py::arg("separating_polytope_delta"), doc.CspaceFreeRegion.ctor.doc);
+      py::arg("separating_polytope_delta") = 1., doc.CspaceFreeRegion.ctor.doc);
 
   cspace_cls
       .def("map_collisions_to_separating_planes",
