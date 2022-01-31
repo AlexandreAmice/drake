@@ -453,6 +453,38 @@ class CspaceFreeRegion {
           inner_polytope,
       Eigen::VectorXd* d_final) const;
 
+  /**
+   * Find the C-space free polytope C*t<=d through bisection search.
+   * In each iteration we check if this polytope
+   * C*t <= d + ε
+   * t_lower <= t <= t_upper
+   * is collision free, and do a binary search on ε.
+   * where t = tan((q - q_star)/2), t_lower and t_upper are computed from robot
+   * joint limits.
+   * @note that if binary_search_option.search_d is true, then after we find a
+   * feasible vector ε with C*t<= d+ε being collision free, we then fix the
+   * Lagrangian multiplier and search d, and denote the newly found d as
+   * d_reset. We then reset ε to zero and find the collision free region C*t <=
+   * d_reset + ε through bisection search.
+   * @param q_inner_pts If this input is not empty, then the searched polytope
+   * {C*t<=d, t_lower<=t<=t_upper} needs to contain the t computed from each
+   * column of q_inner_pts.
+   * @param inner_polytope (C_inner, d_inner) If this input is not empty, then
+   * the searched polytope {C*t<=d} needs to contain {C_inner * t <= d_inner,
+   * t_lower <= t <= t_upper}.
+   */
+  void CspacePolytopeBisectionSearchVector(
+      const Eigen::Ref<const Eigen::VectorXd>& q_star,
+      const FilteredCollisionPairs& filtered_collision_pairs,
+      const Eigen::Ref<const Eigen::MatrixXd>& C,
+      const Eigen::Ref<const Eigen::VectorXd>& d_init,
+      const BinarySearchOption& binary_search_option,
+      const solvers::SolverOptions& solver_options,
+      const std::optional<Eigen::MatrixXd>& q_inner_pts,
+      const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
+          inner_polytope,
+      Eigen::VectorXd* d_final) const;
+
   const RationalForwardKinematics& rational_forward_kinematics() const {
     return rational_forward_kinematics_;
   }
@@ -660,6 +692,30 @@ void FindRedundantInequalities(
 // TODO(Alex.Amice): add the version with epsilon being a vector, and search for
 // each epsilon independently.
 double FindEpsilonLower(
+    const Eigen::Ref<const Eigen::MatrixXd>& C,
+    const Eigen::Ref<const Eigen::VectorXd>& d,
+    const Eigen::Ref<const Eigen::VectorXd>& t_lower,
+    const Eigen::Ref<const Eigen::VectorXd>& t_upper,
+    const std::optional<Eigen::MatrixXd>& t_inner_pts,
+    const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
+        inner_polytope);
+
+/**
+ * When we do binary search to find epsilon such that C*t<= d + epsilon is
+ * collision free, if epsilon is too small, then this polytope {t| C*t<=
+ * d+epsilon * 𝟏, t_lower<=t<=t_upper} can be empty. To avoid this case, we find
+ * the minimal epsilon such that this polytope is non-empty.
+ * @param t_lower The lower bound of t computed from joint lower limits.
+ * @param t_upper The upper bound of t computed from joint upper limits.
+ * @param t_inner_pts. If non-empty, then the polytope C*t+epsilon also have to
+ * contain each column of t_inner_pts.
+ * @param inner_polytope. A pair (C_bar, d_bar). If non-empty, then the polytope
+ * C*t<=d+epsilon also has to contain the polytope {C_bar*t<=d_bar,
+ * t_lower<=t<=t_upper}.
+ */
+// TODO(Alex.Amice): add the version with epsilon being a vector, and search for
+// each epsilon independently.
+double FindEpsilonVectorLower(
     const Eigen::Ref<const Eigen::MatrixXd>& C,
     const Eigen::Ref<const Eigen::VectorXd>& d,
     const Eigen::Ref<const Eigen::VectorXd>& t_lower,

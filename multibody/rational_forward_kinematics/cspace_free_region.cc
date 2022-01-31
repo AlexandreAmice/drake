@@ -1265,6 +1265,169 @@ drake::log()->info(
   }
 }
 
+
+void CspaceFreeRegion::CspacePolytopeBisectionSearchVector(
+    const Eigen::Ref<const Eigen::VectorXd>& q_star,
+    const FilteredCollisionPairs& filtered_collision_pairs,
+    const Eigen::Ref<const Eigen::MatrixXd>& C,
+    const Eigen::Ref<const Eigen::VectorXd>& d_init,
+    const BinarySearchOption& binary_search_option,
+    const solvers::SolverOptions& solver_options,
+    const std::optional<Eigen::MatrixXd>& q_inner_pts,
+    const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
+        inner_polytope,
+    Eigen::VectorXd* d_final) const {
+  // The polytope region is C * t <= d_without_epsilon + epsilon. We might
+  // change d_without_epsilon during the binary search process.
+  Eigen::VectorXd d_without_epsilon = d_init;
+  const int C_rows = C.rows();
+  DRAKE_DEMAND(d_init.rows() == C_rows);
+  DRAKE_DEMAND(C.cols() == rational_forward_kinematics_.t().rows());
+  std::vector<CspaceFreeRegion::CspacePolytopeTuple> alternation_tuples;
+  VectorX<symbolic::Polynomial> d_minus_Ct;
+  Eigen::VectorXd t_lower, t_upper;
+  VectorX<symbolic::Polynomial> t_minus_t_lower, t_upper_minus_t;
+  MatrixX<symbolic::Variable> C_var;
+  VectorX<symbolic::Variable> d_var, lagrangian_gram_vars, verified_gram_vars,
+      separating_plane_vars;
+  GenerateTuplesForBilinearAlternation(
+      q_star, filtered_collision_pairs, C_rows, &alternation_tuples,
+      &d_minus_Ct, &t_lower, &t_upper, &t_minus_t_lower, &t_upper_minus_t,
+      &C_var, &d_var, &lagrangian_gram_vars, &verified_gram_vars,
+      &separating_plane_vars);
+  std::optional<Eigen::MatrixXd> t_inner_pts;
+  if (q_inner_pts.has_value()) {
+    t_inner_pts->resize(q_inner_pts->rows(), q_inner_pts->cols());
+    for (int i = 0; i < q_inner_pts->cols(); ++i) {
+      t_inner_pts->col(i) = rational_forward_kinematics_.ComputeTValue(
+          q_inner_pts->col(i), q_star);
+    }
+  }
+  // TODO(Alex.Amice) make this a vector search condition
+  DRAKE_DEMAND(binary_search_option.epsilon_min >=
+               FindEpsilonLower(C, d_init, t_lower, t_upper, t_inner_pts,
+                                inner_polytope));
+
+  VerificationOption verification_option{};
+  // Checks if C*t<=d, t_lower<=t<=t_upper is collision free.
+  // Update d_final = d if the program C*t<=d, t_lower <= t <= t_upper is
+  // collision free.
+  auto is_polytope_collision_free = [this, &alternation_tuples, &C,
+                                     &lagrangian_gram_vars, &verified_gram_vars,
+                                     &separating_plane_vars, &t_lower, &t_upper,
+                                     &verification_option, &solver_options,
+                                     &C_var, &d_var, &d_minus_Ct,
+                                     &t_minus_t_lower, &t_upper_minus_t,
+                                     &t_inner_pts, &inner_polytope](
+                                        const Eigen::VectorXd& d, bool search_d, bool compute_polytope_volume,
+                                        Eigen::VectorXd* d_sol) {
+    const double redundant_tighten = 0.;
+    auto prog = this->ConstructLagrangianProgram(
+        alternation_tuples, C, d, lagrangian_gram_vars, verified_gram_vars,
+        separating_plane_vars, t_lower, t_upper, verification_option,
+        redundant_tighten, nullptr, nullptr);
+    const auto result = solvers::Solve(*prog, std::nullopt, solver_options);
+    if (result.is_success()) {
+      *d_sol = d;
+      if (search_d) {
+        // Now fix the Lagrangian and C, and search for d.
+        const auto lagrangian_gram_var_vals =
+            result.GetSolution(lagrangian_gram_vars);
+        auto prog_polytope = this->ConstructPolytopeProgram(
+            alternation_tuples, C_var, d_var, d_minus_Ct,
+            lagrangian_gram_var_vals, verified_gram_vars, separating_plane_vars,
+            t_minus_t_lower, t_upper_minus_t, verification_option);
+        // Calling AddBoundingBoxConstraint(C, C, C_var) for matrix C and
+        // C_var might have problem, see Drake issue #16421
+        prog_polytope->AddBoundingBoxConstraint(
+            Eigen::Map<const Eigen::VectorXd>(C.data(), C.rows() * C.cols()),
+            Eigen::Map<const Eigen::VectorXd>(C.data(), C.rows() * C.cols()),
+            Eigen::Map<const VectorX<symbolic::Variable>>(C_var.data(),
+                                                          C.rows() * C.cols()));
+        // d_var >= d
+        prog_polytope->AddBoundingBoxConstraint(
+            d, Eigen::VectorXd::Constant(d.rows(), kInf), d_var);
+        if (t_inner_pts.has_value()) {
+          AddCspacePolytopeContainment(prog_polytope.get(), C_var, d_var,
+                                       t_inner_pts.value());
+        }
+        if (inner_polytope.has_value()) {
+          AddCspacePolytopeContainment(
+              prog_polytope.get(), C_var, d_var, inner_polytope->first,
+              inner_polytope->second, t_lower, t_upper);
+        }
+        // maximize d_var.
+        prog_polytope->AddLinearCost(-Eigen::VectorXd::Ones(d_var.rows()), 0,
+                                     d_var);
+        const auto result_polytope =
+            solvers::Solve(*prog_polytope, std::nullopt, solver_options);
+        if (result_polytope.is_success()) {
+          *d_sol = result_polytope.GetSolution(d_var);
+        }
+      }
+    }
+    drake::log()->info(fmt::format(
+        "Solver time {}",
+        result.get_solver_details<solvers::MosekSolver>().optimizer_time));
+    if (compute_polytope_volume) {
+      drake::log()->info(
+              fmt::format("C-space polytope volume {}",
+                          CalcCspacePolytopeVolume(C, d, t_lower, t_upper)));
+    }
+    return result.is_success();
+  };
+  if (is_polytope_collision_free(
+          d_without_epsilon +
+              binary_search_option.epsilon_max *
+                  Eigen::VectorXd::Ones(d_without_epsilon.rows()),
+          binary_search_option.search_d, binary_search_option.compute_polytope_volume, d_final)) {
+    return;
+  }
+  if (!is_polytope_collision_free(
+          d_without_epsilon +
+              binary_search_option.epsilon_min *
+                  Eigen::VectorXd::Ones(d_without_epsilon.rows()),
+          false /* don't search for d */, binary_search_option.compute_polytope_volume, d_final)) {
+    throw std::runtime_error(
+        fmt::format("binary search: the initial epsilon {} is infeasible",
+                    binary_search_option.epsilon_min));
+  }
+
+  // TODO(Alex.Amice) start this from non-uniform vector
+  const Eigen::VectorXd eps_max_const = binary_search_option.epsilon_max*Eigen::VectorXd::Ones(C.rows());
+  Eigen::VectorXd eps_max = binary_search_option.epsilon_max*Eigen::VectorXd::Ones(C.rows());
+  Eigen::VectorXd eps_min = binary_search_option.epsilon_min*Eigen::VectorXd::Ones(C.rows());
+  Eigen::VectorXd eps = (eps_max + eps_min) / 2;
+
+  int iter_count = 0;
+  // TODO(Alex.Amice) make the tol an option
+  while (iter_count < binary_search_option.max_iters and (eps_max - eps_min).maxCoeff() > 1e-6) {
+    eps = (eps_max + eps_min) / 2;
+    const Eigen::VectorXd d =
+        d_without_epsilon + eps;
+    const bool is_feasible =
+        is_polytope_collision_free(d, binary_search_option.search_d, binary_search_option.compute_polytope_volume, d_final);
+    if (is_feasible) {
+      drake::log()->info(fmt::format("epsilon={} is feasible", eps));
+      // feasibility implies that C*t <= d + eps is collision free. As we are trying to grow
+      // eps as much as possible that means we have a new eps_min. We reset eps_max to
+      // its original value as without this we may not have the true coordinatewise max.
+      eps_min = *d_final - d_without_epsilon;
+      eps_max = eps_max_const;
+
+      drake::log()->info(
+          fmt::format("reset eps_min={}, eps_max={}", eps_min, eps_max));
+    } else {
+      drake::log()->info(fmt::format("epsilon={} is infeasible", eps));
+      eps_max = eps;
+    }
+    iter_count++;
+  }
+}
+
+
+
+
 std::vector<LinkVertexOnPlaneSideRational>
 GenerateLinkOnOneSideOfPlaneRationalFunction(
     const RationalForwardKinematics& rational_forward_kinematics,

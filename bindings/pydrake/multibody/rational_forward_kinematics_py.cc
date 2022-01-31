@@ -439,6 +439,30 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
           py::arg("solver_options"), py::arg("q_inner_pts") = std::nullopt,
           py::arg("inner_polytope") = std::nullopt,
           doc.CspaceFreeRegion.CspacePolytopeBinarySearch.doc)
+      .def(
+          "CspacePolytopeBisectionSearchVector",
+          [](const CspaceFreeRegion* self,
+              const Eigen::Ref<const Eigen::VectorXd>& q_star,
+              const CspaceFreeRegion::FilteredCollisionPairs&
+                  filtered_collision_pairs,
+              const Eigen::Ref<const Eigen::MatrixXd>& C,
+              const Eigen::Ref<const Eigen::VectorXd>& d_init,
+              const CspaceFreeRegion::BinarySearchOption& binary_search_option,
+              const solvers::SolverOptions& solver_options,
+              const std::optional<Eigen::MatrixXd>& q_inner_pts,
+              const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
+                  inner_polytope) {
+            Eigen::VectorXd d_final;
+            self->CspacePolytopeBisectionSearchVector(q_star, filtered_collision_pairs,
+                C, d_init, binary_search_option, solver_options, q_inner_pts,
+                inner_polytope, &d_final);
+            return d_final;
+          },
+          py::arg("q_star"), py::arg("filtered_collision_pairs"), py::arg("C"),
+          py::arg("d_init"), py::arg("binary_search_option"),
+          py::arg("solver_options"), py::arg("q_inner_pts") = std::nullopt,
+          py::arg("inner_polytope") = std::nullopt,
+          doc.CspaceFreeRegion.CspacePolytopeBisectionSearchVector.doc)
       .def("IsPostureInCollision", &CspaceFreeRegion::IsPostureInCollision,
           doc.CspaceFreeRegion.IsPostureInCollision.doc)
       .def("separating_planes", &CspaceFreeRegion::separating_planes,
