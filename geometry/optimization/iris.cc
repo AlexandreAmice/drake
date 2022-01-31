@@ -655,17 +655,20 @@ HPolyhedron IrisInConfigurationSpace(const MultibodyPlant<double>& plant,
       // TODO(russt): Consider (re-)implementing a "feasibility only" version of
       // the IRIS check + nonlinear optimization to improve.
       for (const auto& pair : sorted_pairs) {
+        int num_faces = 0;
         while (sample_point_requirement &&
                FindClosestCollision(
                    same_point_constraint, *frames.at(pair.geomA),
                    *frames.at(pair.geomB), *sets.at(pair.geomA),
                    *sets.at(pair.geomB), E, A.topRows(num_constraints),
-                   b.head(num_constraints), *ibex, sample, &closest)) {
+                   b.head(num_constraints), *ibex, sample, &closest) && 
+                   ((options.max_faces_per_collision_pair<0) || num_faces <= options.max_faces_per_collision_pair)) {
           AddTangentToPolytope(E, closest, options, &A, &b, &num_constraints);
           if (options.require_sample_point_is_contained) {
             sample_point_requirement =
                 A.row(num_constraints - 1) * sample <= b(num_constraints - 1);
           }
+          num_faces++;
         }
       }
     }
@@ -814,17 +817,20 @@ HPolyhedron IrisInRationalConfigurationSpace(const multibody::MultibodyPlant<dou
     // First use a fast nonlinear optimizer to add as many constraint as it
     // can find.
     for (const auto& pair : sorted_pairs) {
+      int num_faces = 0;
       while (sample_point_requirement &&
              FindClosestCollision(
                      same_point_constraint, *frames.at(pair.geomA),
                      *frames.at(pair.geomB), *sets.at(pair.geomA),
                      *sets.at(pair.geomB), E, A.topRows(num_constraints),
-                     b.head(num_constraints), *solver, t_sample, &closest)) {
+                     b.head(num_constraints), *solver, t_sample, &closest)&&
+                     ((options.max_faces_per_collision_pair<0) || num_faces <= options.max_faces_per_collision_pair)) {
         AddTangentToPolytope(E, closest, options, &A, &b, &num_constraints);
         if (options.require_sample_point_is_contained) {
           sample_point_requirement =
                   A.row(num_constraints - 1) * t_sample <= b(num_constraints - 1);
         }
+        num_faces++;
       }
     }
 

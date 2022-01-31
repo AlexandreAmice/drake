@@ -10,6 +10,7 @@ from functools import partial
 import mcubes
 import visualizations_utils as viz_utils
 from pydrake.all import RationalForwardKinematics, GeometrySet
+from pydrake.geometry import Role
 import pydrake.symbolic as sym
 import iris_utils
 from IPython.display import display
@@ -40,11 +41,9 @@ class IrisPlantVisualizer:
         self.q_upper_limits = plant.GetPositionUpperLimits()
         self.t_upper_limits = self.forward_kin.ComputeTValue(self.q_upper_limits,  self.q_star).squeeze()
 
-
-
-
+        self.viz_role = kwargs.get('viz_role', Role.kIllustration)
         visualizer = ConnectMeshcatVisualizer(self.builder, scene_graph, zmq_url=zmq_url,
-                                      delete_prefix_on_load=False)
+                                      delete_prefix_on_load=False, role=self.viz_role)
         self.diagram = self.builder.Build()
         visualizer.load()
         self.diagram_context = self.diagram.CreateDefaultContext()

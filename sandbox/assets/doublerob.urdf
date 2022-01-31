@@ -57,7 +57,7 @@
       <geometry>
         <box size="0.1 0.1 0.8"/>
       </geometry>
-      <material name="Blue"/>
+      <material name="Green"/>
     </visual>
     <inertial>
       <origin xyz="0 0 0.5" rpy="0 0 0"/>
@@ -81,7 +81,7 @@
       <geometry>
         <box size="0.1 0.1 1.1"/>
       </geometry>
-      <material name="Green"/>
+      <material name="Blue"/>
     </visual>
     <inertial>
       <origin xyz="0 0 0.65" rpy="0 0 0"/>
@@ -99,19 +99,19 @@
     <parent link="base"/>
     <child link="link1"/>
   </joint>
-
-  <joint name="jointa" type="revolute">
-    <origin rpy="0 0 0" xyz="0 -1.5 0.4"/>
-    <axis xyz="1 0 0"/>
-    <parent link="base"/>
-    <child link="linka"/>
-  </joint>
   
   <joint name="joint2" type="revolute">
     <origin rpy="0 0 0" xyz="0 0 1.0"/>
     <axis xyz="1 0 0"/>
     <parent link="link1"/>
     <child link="link2"/>
+  </joint>
+
+  <joint name="jointa" type="revolute">
+    <origin rpy="0 0 0" xyz="0 -1.5 0.4"/>
+    <axis xyz="1 0 0"/>
+    <parent link="base"/>
+    <child link="linka"/>
   </joint>
 
   <!-- visual only -->

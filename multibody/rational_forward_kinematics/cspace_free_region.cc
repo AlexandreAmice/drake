@@ -177,6 +177,7 @@ CspaceFreeRegion::CspaceFreeRegion(
                 }
               }
               num_collision_pairs++;
+
               link_collision_pairs.emplace_back(&polytope1, &polytope2);
             }
           }
