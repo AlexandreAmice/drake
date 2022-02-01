@@ -266,6 +266,26 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
           &CspaceFreeRegion::BinarySearchOption::search_d,
           doc.CspaceFreeRegion.BinarySearchOption.search_d.doc);
 
+  // VectorBisectionSearchOption
+  py::class_<CspaceFreeRegion::VectorBisectionSearchOption>(
+      m, "VectorBisectionSearchOption", doc.CspaceFreeRegion.VectorBisectionSearchOption.doc)
+      .def(py::init<>())
+      .def_readwrite("epsilon_max",
+          &CspaceFreeRegion::VectorBisectionSearchOption::epsilon_max,
+          doc.CspaceFreeRegion.VectorBisectionSearchOption.epsilon_max.doc)
+      .def_readwrite("epsilon_min",
+          &CspaceFreeRegion::VectorBisectionSearchOption::epsilon_min,
+          doc.CspaceFreeRegion.VectorBisectionSearchOption.epsilon_min.doc)
+      .def_readwrite("max_iters",
+          &CspaceFreeRegion::VectorBisectionSearchOption::max_iters,
+          doc.CspaceFreeRegion.VectorBisectionSearchOption.max_iters.doc)
+      .def_readwrite("search_d",
+          &CspaceFreeRegion::VectorBisectionSearchOption::search_d,
+          doc.CspaceFreeRegion.VectorBisectionSearchOption.search_d.doc)
+      .def_readwrite("infeasible_counts_as_iter",
+          &CspaceFreeRegion::VectorBisectionSearchOption::infeasible_counts_as_iter,
+          doc.CspaceFreeRegion.VectorBisectionSearchOption.infeasible_counts_as_iter.doc);
+
   // CspaceFreeRegion
   py::class_<CspaceFreeRegion> cspace_cls(
       m, "CspaceFreeRegion", doc.CspaceFreeRegion.doc);
@@ -447,19 +467,19 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
                   filtered_collision_pairs,
               const Eigen::Ref<const Eigen::MatrixXd>& C,
               const Eigen::Ref<const Eigen::VectorXd>& d_init,
-              const CspaceFreeRegion::BinarySearchOption& binary_search_option,
+              const CspaceFreeRegion::VectorBisectionSearchOption& vector_bisection_search_option,
               const solvers::SolverOptions& solver_options,
               const std::optional<Eigen::MatrixXd>& q_inner_pts,
               const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
                   inner_polytope) {
             Eigen::VectorXd d_final;
             self->CspacePolytopeBisectionSearchVector(q_star, filtered_collision_pairs,
-                C, d_init, binary_search_option, solver_options, q_inner_pts,
+                C, d_init, vector_bisection_search_option, solver_options, q_inner_pts,
                 inner_polytope, &d_final);
             return d_final;
           },
           py::arg("q_star"), py::arg("filtered_collision_pairs"), py::arg("C"),
-          py::arg("d_init"), py::arg("binary_search_option"),
+          py::arg("d_init"), py::arg("vector_bisection_search_option"),
           py::arg("solver_options"), py::arg("q_inner_pts") = std::nullopt,
           py::arg("inner_polytope") = std::nullopt,
           doc.CspaceFreeRegion.CspacePolytopeBisectionSearchVector.doc)
@@ -509,9 +529,11 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
       py::arg("C"), py::arg("d"), py::arg("t_lower"), py::arg("t_upper"),
       py::arg("tighten"), doc.FindRedundantInequalities.doc);
 
-  m.def("FindEpsilonLower", &FindEpsilonLower, py::arg("t_lower"), py::arg("t_upper"), py::arg("C"), py::arg("d"),
-  py::arg("t_inner") = std::nullopt, py::arg("inner_polytope") = std::nullopt, 
-       doc.FindEpsilonLower.doc);
+//  m.def("FindEpsilonLower", &FindEpsilonLower,
+//        py::arg("t_lower"), py::arg("t_upper"),
+//        py::arg("C"), py::arg("d"),
+//  py::arg("t_inner") = std::nullopt, py::arg("inner_polytope") = std::nullopt,
+//       doc.FindEpsilonLower.doc);
 
   m.def(
        "AddCspacePolytopeContainment",

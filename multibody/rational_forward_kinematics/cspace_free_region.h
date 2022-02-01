@@ -421,6 +421,20 @@ class CspaceFreeRegion {
     bool compute_polytope_volume{false};
   };
 
+  struct VectorBisectionSearchOption {
+    double epsilon_max{10};
+    double epsilon_min{0};
+    int max_iters{5};
+    // If set to true, then after we verify that C*t<=d is collision free, we
+    // then fix the Lagrangian multiplier and search the right-hand side vector
+    // d through another SOS program.
+    bool search_d{true};
+    // Whether to compute and print the volume of the C-space polytope.
+    bool compute_polytope_volume{false};
+    // Whether an infeasible step of bisection search counts as an iterations
+    bool infeasible_counts_as_iter{false};
+  };
+
   /**
    * Find the C-space free polytope C*t<=d through binary search.
    * In each iteration we check if this polytope
@@ -461,7 +475,7 @@ class CspaceFreeRegion {
    * is collision free, and do a binary search on ε.
    * where t = tan((q - q_star)/2), t_lower and t_upper are computed from robot
    * joint limits.
-   * @note that if binary_search_option.search_d is true, then after we find a
+   * @note that if vector_bisection_search_option.search_d is true, then after we find a
    * feasible vector ε with C*t<= d+ε being collision free, we then fix the
    * Lagrangian multiplier and search d, and denote the newly found d as
    * d_reset. We then reset ε to zero and find the collision free region C*t <=
@@ -478,7 +492,7 @@ class CspaceFreeRegion {
       const FilteredCollisionPairs& filtered_collision_pairs,
       const Eigen::Ref<const Eigen::MatrixXd>& C,
       const Eigen::Ref<const Eigen::VectorXd>& d_init,
-      const BinarySearchOption& binary_search_option,
+      const VectorBisectionSearchOption& vector_bisection_search_option,
       const solvers::SolverOptions& solver_options,
       const std::optional<Eigen::MatrixXd>& q_inner_pts,
       const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
@@ -692,6 +706,15 @@ void FindRedundantInequalities(
 // TODO(Alex.Amice): add the version with epsilon being a vector, and search for
 // each epsilon independently.
 double FindEpsilonLower(
+    const Eigen::Ref<const Eigen::MatrixXd>& C,
+    const Eigen::Ref<const Eigen::VectorXd>& d,
+    const Eigen::Ref<const Eigen::VectorXd>& t_lower,
+    const Eigen::Ref<const Eigen::VectorXd>& t_upper,
+    const std::optional<Eigen::MatrixXd>& t_inner_pts,
+    const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
+        inner_polytope);
+
+double FindEpsilonLowerVector(
     const Eigen::Ref<const Eigen::MatrixXd>& C,
     const Eigen::Ref<const Eigen::VectorXd>& d,
     const Eigen::Ref<const Eigen::VectorXd>& t_lower,

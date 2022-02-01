@@ -860,6 +860,8 @@ HPolyhedron IrisInRationalConfigurationSpace(const multibody::MultibodyPlant<dou
     }
 
     if (!sample_point_requirement) {
+      // sample point is not contained so last inequality is bad.
+      num_constraints--;
       break;
     }
     P = HPolyhedron(A.topRows(num_constraints), b.head(num_constraints));
