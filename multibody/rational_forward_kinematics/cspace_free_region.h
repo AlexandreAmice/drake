@@ -111,6 +111,15 @@ struct LinkVertexOnPlaneSideRational {
 enum class CspaceRegionType { kGenericPolytope, kAxisAlignedBoundingBox };
 
 /**
+ * When we maximize the inscribed ellipsoid, we can measure the size of the
+ * ellipsoid by either the logarithm of its volume, or the n'th root of its
+ * volume. The logarithm volume would introduce exponential cone constraints,
+ * while the n'th root of the volume would introduce second order cone
+ * constraints.
+ */
+enum class EllipsoidVolume { kLog, kNthRoot };
+
+/**
  * This class tries to find a large convex set in the configuration space, such
  * that this whole convex set is collision free. We assume that the obstacles
  * are unions of polytopes in the workspace, and the robot link poses
@@ -379,6 +388,9 @@ class CspaceFreeRegion {
     // Whether to compute and print the volume of the polytope {C*t<=d,
     // t_lower<= t <= t_upper} each time we search for the polytope.
     bool compute_polytope_volume{false};
+    // The objective function used in maximizing the volume of the inscribed
+    // volume.
+    EllipsoidVolume ellipsoid_volume{EllipsoidVolume::kNthRoot};
   };
 
   /**

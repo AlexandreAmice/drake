@@ -186,6 +186,11 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
       .value(
           "kAxisAlignedBoundingBox", CspaceRegionType::kAxisAlignedBoundingBox);
 
+  // EllipsoidVolume
+  py::enum_<EllipsoidVolume>(m, "EllipsoidVolume", doc.EllipsoidVolume.doc)
+      .value("kLog", EllipsoidVolume::kLog)
+      .value("kNthRoot", EllipsoidVolume::kNthRoot);
+
   // BilinearAlternationOption
   py::class_<CspaceFreeRegion::BilinearAlternationOption>(m,
       "BilinearAlternationOption",
