@@ -315,6 +315,8 @@ HPolyhedron HPolyhedron::ReduceInequalities() const {
   return HPolyhedron(A_new, b_new);
 }
 
+
+
 bool HPolyhedron::DoPointInSet(const Eigen::Ref<const VectorXd>& x,
                                double tol) const {
   DRAKE_DEMAND(A_.cols() == x.size());

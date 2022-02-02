@@ -12,6 +12,7 @@
 #include "drake/multibody/rational_forward_kinematics/generate_monomial_basis_util.h"
 #include "drake/multibody/rational_forward_kinematics/rational_forward_kinematics.h"
 #include "drake/multibody/rational_forward_kinematics/rational_forward_kinematics_internal.h"
+#include "drake/multibody/rational_forward_kinematics/centrally_symmetric_hpolytope.h"
 
 namespace drake {
 namespace pydrake {
@@ -71,45 +72,24 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
             //             cls_doc.CalcLinkPoses
             )
         .def("ComputeTValue",
-             overload_cast_explicit<
-                 Eigen::VectorXd,
-                 const Eigen::Ref<const Eigen::VectorXd>&,
-                 const Eigen::Ref<const Eigen::VectorXd>&,
-                 bool>(
-          &Class::ComputeTValue), py::arg("q_val"),
-            py::arg("q_star_val"), py::arg("clamp_angle") = false
+            overload_cast_explicit<Eigen::VectorXd,
+                const Eigen::Ref<const Eigen::VectorXd>&,
+                const Eigen::Ref<const Eigen::VectorXd>&, bool>(
+                &Class::ComputeTValue),
+            py::arg("q_val"), py::arg("q_star_val"),
+            py::arg("clamp_angle") = false
             //             cls_doc.CalcLinkPoses
             )
-          // TODO (amice): figure out how to bind the symbolic version of this function
-//        .def("ComputeTValue",
-//             overload_cast_explicit<
-//                 drake::VectorX<symbolic::Expression>,
-//                 const Eigen::Ref<const drake::VectorX<symbolic::Expression>>&,
-//                 const Eigen::Ref<const Eigen::MatrixXd>&,
-//                 bool>(
-//          &Class::ComputeTValue), py::arg("q_val"),
-//            py::arg("q_star_val"), py::arg("clamp_angle") = false
-//            //             cls_doc.CalcLinkPoses
-//            )
+
         .def("ComputeQValue",
-             overload_cast_explicit<
-                 Eigen::VectorXd,
-                 const Eigen::Ref<const Eigen::VectorXd>&,
-                 const Eigen::Ref<const Eigen::VectorXd>&>
-          (&Class::ComputeQValue), py::arg("t_val"),
-            py::arg("q_star_val")
+            overload_cast_explicit<Eigen::VectorXd,
+                const Eigen::Ref<const Eigen::VectorXd>&,
+                const Eigen::Ref<const Eigen::VectorXd>&>(
+                &Class::ComputeQValue),
+            py::arg("t_val"), py::arg("q_star_val")
             //             cls_doc.CalcLinkPoses
             )
-            // TODO (amice): figure out how to bind the symbolic version of this function
-//        .def("ComputeQValue",
-//             overload_cast_explicit<
-//                 drake::VectorX<symbolic::Expression>,
-//                 const Eigen::Ref<const Eigen::VectorXd>&,
-//                 const Eigen::Ref<const Eigen::VectorXd>&>
-//          (&Class::ComputeQValue), py::arg("t_val"),
-//            py::arg("q_star_val")
-//            //             cls_doc.CalcLinkPoses
-//            )
+
         .def(
             "FindTOnPath", &Class::FindTOnPath, py::arg("start"), py::arg("end")
             //             cls_doc.CalcLinkPoses
@@ -267,8 +247,9 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
           doc.CspaceFreeRegion.BinarySearchOption.search_d.doc);
 
   // VectorBisectionSearchOption
-  py::class_<CspaceFreeRegion::VectorBisectionSearchOption>(
-      m, "VectorBisectionSearchOption", doc.CspaceFreeRegion.VectorBisectionSearchOption.doc)
+  py::class_<CspaceFreeRegion::VectorBisectionSearchOption>(m,
+      "VectorBisectionSearchOption",
+      doc.CspaceFreeRegion.VectorBisectionSearchOption.doc)
       .def(py::init<>())
       .def_readwrite("epsilon_max",
           &CspaceFreeRegion::VectorBisectionSearchOption::epsilon_max,
@@ -283,8 +264,10 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
           &CspaceFreeRegion::VectorBisectionSearchOption::search_d,
           doc.CspaceFreeRegion.VectorBisectionSearchOption.search_d.doc)
       .def_readwrite("infeasible_counts_as_iter",
-          &CspaceFreeRegion::VectorBisectionSearchOption::infeasible_counts_as_iter,
-          doc.CspaceFreeRegion.VectorBisectionSearchOption.infeasible_counts_as_iter.doc);
+          &CspaceFreeRegion::VectorBisectionSearchOption::
+              infeasible_counts_as_iter,
+          doc.CspaceFreeRegion.VectorBisectionSearchOption
+              .infeasible_counts_as_iter.doc);
 
   // CspaceFreeRegion
   py::class_<CspaceFreeRegion> cspace_cls(
@@ -304,12 +287,14 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
           &CspaceFreeRegion::GenerateLinkOnOneSideOfPlaneRationals,
           py::arg("q_star"), py::arg("filtered_collision_pairs"),
           doc.CspaceFreeRegion.GenerateLinkOnOneSideOfPlaneRationals.doc)
-      .def_property_readonly("rational_forward_kinematics", &CspaceFreeRegion::rational_forward_kinematics,
-           doc.CspaceFreeRegion.rational_forward_kinematics.doc)
+      .def_property_readonly("rational_forward_kinematics",
+          &CspaceFreeRegion::rational_forward_kinematics,
+          doc.CspaceFreeRegion.rational_forward_kinematics.doc)
       .def_property_readonly("plane_order", &CspaceFreeRegion::plane_order,
-           doc.CspaceFreeRegion.plane_order.doc)
-      .def_property_readonly("cspace_region_type", &CspaceFreeRegion::cspace_region_type,
-           doc.CspaceFreeRegion.cspace_region_type.doc);
+          doc.CspaceFreeRegion.plane_order.doc)
+      .def_property_readonly("cspace_region_type",
+          &CspaceFreeRegion::cspace_region_type,
+          doc.CspaceFreeRegion.cspace_region_type.doc);
   // CspacePolytopeTuple
   py::class_<CspaceFreeRegion::CspacePolytopeTuple>(cspace_cls,
       "CspacePolytopeTuple", doc.CspaceFreeRegion.CspacePolytopeTuple.doc)
@@ -467,14 +452,16 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
                   filtered_collision_pairs,
               const Eigen::Ref<const Eigen::MatrixXd>& C,
               const Eigen::Ref<const Eigen::VectorXd>& d_init,
-              const CspaceFreeRegion::VectorBisectionSearchOption& vector_bisection_search_option,
+              const CspaceFreeRegion::VectorBisectionSearchOption&
+                  vector_bisection_search_option,
               const solvers::SolverOptions& solver_options,
               const std::optional<Eigen::MatrixXd>& q_inner_pts,
               const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
                   inner_polytope) {
             Eigen::VectorXd d_final;
-            self->CspacePolytopeBisectionSearchVector(q_star, filtered_collision_pairs,
-                C, d_init, vector_bisection_search_option, solver_options, q_inner_pts,
+            self->CspacePolytopeBisectionSearchVector(q_star,
+                filtered_collision_pairs, C, d_init,
+                vector_bisection_search_option, solver_options, q_inner_pts,
                 inner_polytope, &d_final);
             return d_final;
           },
@@ -529,11 +516,12 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
       py::arg("C"), py::arg("d"), py::arg("t_lower"), py::arg("t_upper"),
       py::arg("tighten"), doc.FindRedundantInequalities.doc);
 
-//  m.def("FindEpsilonLower", &FindEpsilonLower,
-//        py::arg("t_lower"), py::arg("t_upper"),
-//        py::arg("C"), py::arg("d"),
-//  py::arg("t_inner") = std::nullopt, py::arg("inner_polytope") = std::nullopt,
-//       doc.FindEpsilonLower.doc);
+  //  m.def("FindEpsilonLower", &FindEpsilonLower,
+  //        py::arg("t_lower"), py::arg("t_upper"),
+  //        py::arg("C"), py::arg("d"),
+  //  py::arg("t_inner") = std::nullopt, py::arg("inner_polytope") =
+  //  std::nullopt,
+  //       doc.FindEpsilonLower.doc);
 
   m.def(
        "AddCspacePolytopeContainment",
@@ -585,6 +573,9 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
       doc.CalcCspacePolytopeVolume.doc);
 
   py::module::import("pydrake.solvers.mathematicalprogram");
+
+//  m.def("GenerateSeedingPolytope", &GenerateSeedingPolytope,
+//      py::arg("seed_point"), py::arg("num_perm_dim"), py::arg("num_rot"));
 }
 
 }  // namespace pydrake
