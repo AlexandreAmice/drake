@@ -77,10 +77,9 @@ drake_cc_library(
     name = "centrally_symmetric_hpolytope",
     srcs = ["centrally_symmetric_hpolytope.cc"],
     hdrs = ["centrally_symmetric_hpolytope.h"],
-    visibility = ["//visibility:public"],
-    #    deps = [
-    #        "//geometry/optimization",
-    #    ],
+    deps = [
+        "//geometry/optimization:convex_set",
+    ],
 )
 
 drake_cc_library(

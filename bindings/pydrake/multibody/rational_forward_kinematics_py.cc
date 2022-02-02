@@ -574,8 +574,17 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
 
   py::module::import("pydrake.solvers.mathematicalprogram");
 
-//  m.def("GenerateSeedingPolytope", &GenerateSeedingPolytope,
-//      py::arg("seed_point"), py::arg("num_perm_dim"), py::arg("num_rot"));
+  m.def("GenerateSeedingPolytope", &GenerateSeedingPolytope,
+      py::arg("seed_point"), py::arg("num_perm_dim"), py::arg("num_rot"));
+
+  m.def("MakeKCanonicalSOnMembers", &MakeKCanonicalSOnMembers,
+      py::arg("k"), py::arg("n"));
+
+  m.def("MakeKFirstDimSwapsOfDimN", &MakeKFirstDimSwapsOfDimN,
+      py::arg("k"), py::arg("n"));
+
+  m.def("SameDimensionalAffineTransform", &SameDimensionalAffineTransform,
+      py::arg("C"), py::arg("d"), py::arg("P"));
 }
 
 }  // namespace pydrake
