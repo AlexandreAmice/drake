@@ -57,6 +57,11 @@ struct IrisOptions {
   demanding, so we allow it to be disabled for a faster algorithm for obtaining
   regions without the rigorous guarantee. */
   bool enable_ibex = true;
+
+  /** Maximum number of faces added per collision pair, per iteration. Setting this option to -1 
+      imposes no limit. Default value is -1. */
+  int max_faces_per_collision_pair{-1};
+
 };
 
 /** The IRIS (Iterative Region Inflation by Semidefinite programming) algorithm,

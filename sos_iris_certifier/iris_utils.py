@@ -20,7 +20,7 @@ def MakeFromVPolytopeSceneGraph(query, geom, expressed_in=None):
 
 def _orth(M):
     # Find basis of M and its orthogonal subspace
-    _, D, V = np.linalg.svd(M)
+    _, D, V = np.linalg.svd(M, full_matrices=False)
     return V[D >= 1e-9], V[D < 1e-9]
 
 def extract_mono_verts(mono_list, indets):

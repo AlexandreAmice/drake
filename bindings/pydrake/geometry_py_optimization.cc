@@ -223,6 +223,8 @@ void DefineGeometryOptimization(py::module m) {
           doc.IrisOptions.configuration_space_margin.doc)
       .def_readwrite("enable_ibex", &IrisOptions::enable_ibex,
           doc.IrisOptions.enable_ibex.doc)
+      .def_readwrite("max_faces_per_collision_pair", &IrisOptions::max_faces_per_collision_pair,
+          doc.IrisOptions.max_faces_per_collision_pair.doc)
       .def("__repr__", [](const IrisOptions& self) {
         return py::str(
             "IrisOptions("
@@ -231,12 +233,13 @@ void DefineGeometryOptimization(py::module m) {
             "termination_threshold={}, "
             "relative_termination_threshold={}, "
             "configuration_space_margin={}, "
-            "enable_ibex={}"
+            "enable_ibex={}, "
+            "max_faces_per_collision_pair={}, "
             ")")
             .format(self.require_sample_point_is_contained,
                 self.iteration_limit, self.termination_threshold,
                 self.relative_termination_threshold,
-                self.configuration_space_margin, self.enable_ibex);
+                self.configuration_space_margin, self.enable_ibex, self.max_faces_per_collision_pair);
       });
   py::class_<IrisOptionsRationalSpace>(m, "IrisOptionsRationalSpace", doc.IrisOptionsRationalSpace.doc)
       .def(py::init<>(), doc.IrisOptionsRationalSpace.ctor.doc)
@@ -256,6 +259,8 @@ void DefineGeometryOptimization(py::module m) {
           doc.IrisOptions.configuration_space_margin.doc)
       .def_readwrite("enable_ibex", &IrisOptionsRationalSpace::enable_ibex,
           doc.IrisOptions.enable_ibex.doc)
+      .def_readwrite("max_faces_per_collision_pair", &IrisOptionsRationalSpace::max_faces_per_collision_pair,
+          doc.IrisOptions.max_faces_per_collision_pair.doc)
       .def_readwrite("certify_region_with_sos_during_generation", &IrisOptionsRationalSpace::certify_region_with_sos_during_generation,
           doc.IrisOptionsRationalSpace.certify_region_with_sos_during_generation.doc)
       .def_readwrite("certify_region_with_sos_after_generation", &IrisOptionsRationalSpace::certify_region_with_sos_after_generation,
@@ -270,7 +275,8 @@ void DefineGeometryOptimization(py::module m) {
             "termination_threshold={}, "
             "relative_termination_threshold={}, "
             "configuration_space_margin={}, "
-            "enable_ibex={}"
+            "enable_ibex={}, "
+            "max_faces_per_collision_pair={}, "
             "certify_region_with_sos_during_generation={}"
             "certify_region_with_sos_after_generation={}"
             ")")
@@ -278,6 +284,7 @@ void DefineGeometryOptimization(py::module m) {
                 self.iteration_limit, self.termination_threshold,
                 self.relative_termination_threshold,
                 self.configuration_space_margin, self.enable_ibex,
+                self.max_faces_per_collision_pair,
                 self.certify_region_with_sos_during_generation,
                 self.certify_region_with_sos_after_generation
                 );

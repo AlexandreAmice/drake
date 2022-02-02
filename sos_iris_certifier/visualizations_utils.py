@@ -210,6 +210,8 @@ def plot_3d_poly(region, vis, name, mat = None, verbose = False):
     # First, prune region
     region = region.ReduceInequalities()
 
+    region = region.ReduceInequalities()
+
     def project_and_triangulate(pts):
         n = np.cross(pts[0,:]-pts[1,:],pts[0,:]-pts[2,:])
         n = n / np.linalg.norm(n)
@@ -224,15 +226,15 @@ def plot_3d_poly(region, vis, name, mat = None, verbose = False):
         return tri.simplices
 
     # Find feasible point in region
-    prog = MathematicalProgram()
-    x = prog.NewContinuousVariables(3)
-    prog.AddConstraint(le(region.A()@x, region.b()))
-    result = Solve(prog)
-    if result.is_success():
-        x0 = result.GetSolution()
-    else:
-        print("Solve failed. No feasible point found in region.")
-
+    # prog = MathematicalProgram()
+    # x = prog.NewContinuousVariables(3)
+    # prog.AddConstraint(le(region.A()@x, region.b()))
+    # result = Solve(prog)
+    # if result.is_success():
+    #    x0 = result.GetSolution()
+    # else:
+    #    print("Solve failed. No feasible point found in region.")
+    x0 = region.MaximumVolumeInscribedEllipsoid().center()
     A = region.A()
     b = region.b() - A@x0
 
@@ -250,7 +252,7 @@ def plot_3d_poly(region, vis, name, mat = None, verbose = False):
     vertices = t_v[:,1:] + x0  # vertices need to be moved back
 
     # only keep nonempty facets
-    facets_with_duplicates = [np.array(list(facet)) for facet in poly.get_input_incidence() if list(facet)]
+    facets_with_duplicates = [np.array(list(facet)) for facet in poly.get_input_incidence() if len(list(facet))>2]
 
     # if facet is subset of any other facet, remove
     remove_idxs = []
@@ -269,12 +271,17 @@ def plot_3d_poly(region, vis, name, mat = None, verbose = False):
     count = 0
     for idx, facet in enumerate(facets):
         tri = project_and_triangulate(vertices[facet])
+        verts = vertices[facet]
+        idxs = tri+count
+    #    print('it:', idx)
+    #   print(len(verts))
+    #    print(len(idxs))
+        mesh_vertices.append(verts)
+        mesh_triangles.append(idxs)
 
-        mesh_vertices.append(vertices[facet])
-        mesh_triangles.append(tri+count)
-        
         count += vertices[facet].shape[0]
 
+    # print('end')
     mesh_vertices = np.concatenate(mesh_vertices, 0)
     mesh_triangles = np.concatenate(mesh_triangles, 0)
 
@@ -321,15 +328,15 @@ def plot_regions(vis, regions, ellipses = None, region_suffix='', opacity = 0.5)
         c = colors[i]
         mat = meshcat.geometry.MeshLambertMaterial(color=rgb_to_hex(c), wireframe=False)
         mat.opacity = opacity
-        plot_3d_poly(region=region,
-                           vis=vis['iris']['regions'+region_suffix],
-                           name=str(i),
-                           mat=mat)
-        # plot_3d_poly_marchingcubes(region=region,
-        #                    resolution=30,
-        #                    vis=vis['iris']['regions'+region_suffix],
-        #                    name=str(i),
-        #                    mat=mat)
+        # plot_3d_poly(region=region,
+        #                   vis=vis['iris']['regions'+region_suffix],
+        #                   name=str(i),
+        #                   mat=mat)
+        plot_3d_poly_marchingcubes(region=region,
+                            resolution=30,
+                            vis=vis['iris']['regions'+region_suffix],
+                            name=str(i),
+                            mat=mat)
         if ellipses is not None:
             C = ellipses[i].A()  # [:, (0,2,1)]
             d = ellipses[i].center()  # [[0,2,1]]

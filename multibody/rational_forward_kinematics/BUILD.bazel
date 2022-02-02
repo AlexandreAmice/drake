@@ -27,6 +27,7 @@ drake_cc_package_library(
     name = "rational_forward_kinematics",
     visibility = ["//visibility:public"],
     deps = [
+        ":centrally_symmetric_hpolytope",
         ":convex_geometry",
         ":cspace_free_region",
         ":generate_monomial_basis_util",
@@ -70,6 +71,16 @@ drake_cc_library(
         "//solvers:mathematical_program",
         "//solvers:solve",
     ],
+)
+
+drake_cc_library(
+    name = "centrally_symmetric_hpolytope",
+    srcs = ["centrally_symmetric_hpolytope.cc"],
+    hdrs = ["centrally_symmetric_hpolytope.h"],
+    visibility = ["//visibility:public"],
+    #    deps = [
+    #        "//geometry/optimization",
+    #    ],
 )
 
 drake_cc_library(
@@ -247,6 +258,14 @@ drake_cc_googletest(
     name = "redundant_inequality_pruning_test",
     deps = [
         ":redundant_inequality_pruning",
+    ],
+)
+
+drake_cc_googletest(
+    name = "centrally_symmetric_hpolytope_test",
+    deps = [
+        ":centrally_symmetric_hpolytope",
+        "//common/test_utilities:eigen_matrix_compare",
     ],
 )
 

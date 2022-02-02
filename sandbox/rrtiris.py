@@ -12,26 +12,29 @@ class IrisNode:
         self.children = []
         self.id = None
 
+def normalize(v):
+    norm = np.linalg.norm(v)
+    if norm == 0: 
+       return v
+    return v / norm 
+
 class RRTIRIS:
     def __init__(self, 
                  start, 
                  goal, 
                  limits, 
+                 default_iris_domain,
                  iris_handle,
-                 col_func_handle, 
+                 offset_scaler,
                  init_goal_sample_rate = 0.05,
                  goal_sample_rate_scaler = 0.1,
                  verbose = False,
                  plotcallback = None,
-                 sample_collision_free = False
                  ):
 
         self.dim = len(start)
-        #col_check(pos) == True -> in collision!
-        self.in_collision = col_func_handle
-        self.check_col = True
-        self.sample_collision_free = sample_collision_free
         self.iris_handle = iris_handle
+        self.default_iris_domain = default_iris_domain
 
         self.start = start
         self.goal = goal
@@ -39,7 +42,7 @@ class RRTIRIS:
         self.min_pos = self.limits[0]
         self.max_pos = self.limits[1]
         self.min_max_diff = self.max_pos - self.min_pos 
-    
+        self.offset_scaler = offset_scaler
         self.init_goal_sample_rate = init_goal_sample_rate
         self.goal_sample_rate = init_goal_sample_rate
         self.goal_sample_rate_scaler = goal_sample_rate_scaler
@@ -47,15 +50,13 @@ class RRTIRIS:
         self.plotcallback = plotcallback
         self.do_plot = True if self.plotcallback is not None else False
 
-        if self.check_col and self.in_collision(start):
-            print("[RRT ERROR] Start position is in collision")
-            raise NotImplementedError
-
-        if self.check_col and self.in_collision(goal):
-            print("[RRT ERROR] Goal position is in collision")
-            raise NotImplementedError
-
-        region, ellipse = self.iris_handle(start)
+        self.node_ellipses = []
+        self.node_centers = [] 
+        self.node_volumes = []
+        self.node_regions = []
+        self.seed_points = [start]
+        self.out_set_seed_points = []
+        region, ellipse = self.generate_region(start, [])
         root = IrisNode(region, ellipse)
         root.id = 0
         self.nodes = [root]
@@ -77,17 +78,14 @@ class RRTIRIS:
         
         rand = np.random.rand(self.dim)
         pos_samp = self.min_pos + rand*self.min_max_diff 
-      
-        if self.sample_collision_free:
-            good_sample = not self.in_collision(pos_samp) if collision_free else True
-        else: 
-            good_sample = True 
+
+        good_sample = not self.in_regions(pos_samp)
 
         it = 0
         while not good_sample and it < MAXIT:
             rand = np.random.rand(self.dim)
             pos_samp = self.min_pos + rand*self.min_max_diff 
-            good_sample = not self.in_collision(pos_samp)
+            good_sample = not self.in_regions(pos_samp)
             it+=1
 
         if not good_sample:
@@ -95,27 +93,36 @@ class RRTIRIS:
             raise NotImplementedError
         return pos_samp
 
+    def in_regions(self,sample):
+        in_reg = False
+        for reg in self.node_regions:
+            in_reg |= reg.PointInSet(sample)
+        return in_reg
+            
     def check_region(self, region, ellipse):
         #use ellipses to check regions for similarity
         #compare center and volume
-        vol = ellipse.Volume()
-        center_origin = np.linalg.norm(ellipse.center())
-        min_vol_diff = np.min(np.abs(np.array(self.node_volumes) - vol))
-        if min_vol_diff< 0.001 or center_origin<1e-7:
-            return False
-        else:
-            return True
+        #vol = ellipse.Volume()
+        #center_origin = np.linalg.norm(ellipse.center())
+        #min_vol_diff = np.min(np.abs(np.array(self.node_volumes) - vol))
+        #if min_vol_diff< 0.001 or center_origin<1e-7:
+        #    return False
+        #else:
+        #    return True
+        return True
 
     def run(self, n_it):
-
         for it in range(n_it):
-            print(it)
+            #print(it)
             pos_samp = self.sample_node_pos()
             seed_point, min_dist, closest_points, nearest_id = self.get_closest_point_in_regions(pos_samp) 
-            #print('[RRT IRIS] Pos_samp', pos_samp, ' seed ', seed_point, ' dist ', min_dist)
+            if self.verbose:
+                print('[RRT IRIS] Pos_samp', pos_samp, ' seed ', seed_point, ' dist ', min_dist)
+            self.seed_points.append(seed_point)
+            self.out_set_seed_points.append(pos_samp)
             
             parent_node = self.nodes[nearest_id]
-            region, ellipse = self.iris_handle(seed_point)
+            region, ellipse = self.generate_region(seed_point, closest_points)
             if self.check_region(region, ellipse):
                 child_node = IrisNode(region, ellipse)
                 child_node.id = it + 1
@@ -135,12 +142,10 @@ class RRTIRIS:
                 print('[RRT IRIS] Region check failed')
             
 
-            
-
             if dist_to_target<self.distance_to_go:
                 self.distance_to_go = dist_to_target
                 self.closest_id = child_node.id
-                self.goal_sample_rate = np.clip(0.8 - self.distance_to_go*self.goal_sample_rate_scaler, a_min = self.init_goal_sample_rate, a_max = 1)
+                self.goal_sample_rate = np.clip(0.5 - self.distance_to_go*self.goal_sample_rate_scaler, a_min = self.init_goal_sample_rate, a_max = 1)
                 if self.verbose:
                     print("[RRT IRIS] it: {iter} distance to target: {dist: .3f} goalsample prob: {prob: .3f}".format(iter =it, dist = self.distance_to_go, prob = self.goal_sample_rate))
 
@@ -149,7 +154,31 @@ class RRTIRIS:
 
         return False, self.node_regions, self.node_ellipses
 
-       
+    def generate_region(self, seed_point, closest_points_in_regions):
+        #compute polytope cuts of existing regions
+        A = []
+        B = []
+        for ellipse, closest_point in zip(self.node_ellipses, closest_points_in_regions):
+            a, b = self.compute_cut(closest_point, ellipse)
+            A.append(a)
+            B.append(b)
+
+        A = np.array(A)
+        B = np.array(B)
+        if len(A):
+            domain = HPolyhedron(A = np.vstack((self.default_iris_domain.A(), A)), b = np.hstack((self.default_iris_domain.b(), B)))
+        else:
+            domain = self.default_iris_domain
+        poly = self.iris_handle(seed_point, domain)
+        return poly, poly.MaximumVolumeInscribedEllipsoid()
+
+    def compute_cut(self, seed, ellipse):
+        center = ellipse.center()
+        vec = seed - center 
+        a = normalize(vec)
+        b = a@(center + self.offset_scaler*(seed - center))
+        return -a, -b
+
     def get_closest_point_in_regions(self, sample):
         num_regions = len(self.nodes) 
         prog = MathematicalProgram()

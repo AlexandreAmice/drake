@@ -3,7 +3,7 @@
 <robot name="lid">
   
   <material name="li">
-    <color rgba="1.0 1.0 1.0 0.5"/>
+    <color rgba="1.0 1.0 1.0 0.35"/>
   </material>
 
   <link name="base"/>

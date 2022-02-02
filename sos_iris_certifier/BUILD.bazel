@@ -19,6 +19,7 @@ filegroup(
     name = "models",
     data = [
         "assets/box.urdf",
+        "assets/box_small.urdf",
         "assets/doublerob.urdf",
         "assets/ground.urdf",
         "assets/lid.urdf",
@@ -26,13 +27,17 @@ filegroup(
         "assets/shelves2.sdf",
         "assets/shelves3.sdf",
         "assets/shelves4.sdf",
+        "assets/oneDOF_iiwa7_with_box_collision.sdf",
+        "assets/twoDOF_iiwa7_with_box_collision.sdf",
         "planar_iiwa14_one_sphere.urdf",
         "planar_iiwa_dense_collision_no_gripper.yaml",
         "planar_iiwa_dense_collision_welded_gripper.yaml",
         "planar_iiwa_simple_collision_no_gripper.yaml",
         "planar_iiwa_simple_collision_welded_gripper.yaml",
         "schunk_wsg_50_welded_fingers.sdf",
+        "schunk_wsg_50_block.sdf",
         "shelves.sdf",
+        "assets/bimanual_iiwa.yaml"
     ],
     visibility = ["//visibility:public"],
 )
@@ -86,6 +91,7 @@ drake_jupyter_py_binary(
         "//sos_iris_certifier:iris_plant_visualizer",
         "//sos_iris_certifier:iris_utils",
         "//sos_iris_certifier:visualizations_utils",
+        "//sandbox:rrtiris"
     ],
 )
 
@@ -96,6 +102,21 @@ drake_jupyter_py_binary(
         "//manipulation/models/iiwa_description:models",
         "//sos_iris_certifier:models",
     ],
+    deps = [
+        "//bindings/pydrake",
+        "//sos_iris_certifier:certified_iris_generator",
+        "//sos_iris_certifier:iris_plant_visualizer",
+        "//sos_iris_certifier:iris_utils",
+        "//sos_iris_certifier:visualizations_utils",
+    ],
+)
+
+drake_jupyter_py_binary(
+    name = "bimanual_rational",
+    add_test_rule = 0,
+    data = [
+        "//manipulation/models/iiwa_description:models",
+        "//sos_iris_certifier:models"],
     deps = [
         "//bindings/pydrake",
         "//sos_iris_certifier:certified_iris_generator",
@@ -117,6 +138,40 @@ drake_jupyter_py_binary(
         "//sos_iris_certifier:iris_plant_visualizer",
         "//sos_iris_certifier:iris_utils",
         "//sos_iris_certifier:visualizations_utils",
+        "//sandbox:rrtiris"
+    ],
+)
+
+drake_jupyter_py_binary(
+    name = "iiwa_4shelves",
+    add_test_rule = 0,
+    data = [
+        "//manipulation/models/iiwa_description:models",
+        "//sos_iris_certifier:models",
+    ],
+    deps = [
+        "//bindings/pydrake",
+        "//sos_iris_certifier:certified_iris_generator",
+        "//sos_iris_certifier:iris_plant_visualizer",
+        "//sos_iris_certifier:iris_utils",
+        "//sos_iris_certifier:visualizations_utils",
+        "//sandbox:rrtiris"
+    ],
+)
+
+drake_jupyter_py_binary(
+    name = "pinball_iiwas",
+    add_test_rule = 0,
+    data = [
+        "//sos_iris_certifier:models",
+    ],
+    deps = [
+        "//bindings/pydrake",
+        "//sos_iris_certifier:certified_iris_generator",
+        "//sos_iris_certifier:iris_plant_visualizer",
+        "//sos_iris_certifier:iris_utils",
+        "//sos_iris_certifier:visualizations_utils",
+        "//sandbox:rrtiris"
     ],
 )
 
