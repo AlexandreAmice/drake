@@ -422,8 +422,8 @@ class CspaceFreeRegion {
   };
 
   struct VectorBisectionSearchOption {
-    double epsilon_max{10};
-    double epsilon_min{0};
+    Eigen::VectorXd epsilon_max;
+    Eigen::VectorXd epsilon_min;
     int max_iters{5};
     // If set to true, then after we verify that C*t<=d is collision free, we
     // then fix the Lagrangian multiplier and search the right-hand side vector
@@ -714,14 +714,21 @@ double FindEpsilonLower(
     const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
         inner_polytope);
 
-double FindEpsilonLowerVector(
+Eigen::VectorXd FindEpsilonLowerVector(
     const Eigen::Ref<const Eigen::MatrixXd>& C,
     const Eigen::Ref<const Eigen::VectorXd>& d,
     const Eigen::Ref<const Eigen::VectorXd>& t_lower,
     const Eigen::Ref<const Eigen::VectorXd>& t_upper,
-    const std::optional<Eigen::MatrixXd>& t_inner_pts,
+    const Eigen::MatrixXd& t_inner_pts,
     const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
         inner_polytope);
+
+Eigen::VectorXd FindEpsilonUpperVector(
+    const Eigen::Ref<const Eigen::MatrixXd>& C,
+    const Eigen::Ref<const Eigen::VectorXd>& d,
+    const Eigen::Ref<const Eigen::VectorXd>& t_lower,
+    const Eigen::Ref<const Eigen::VectorXd>& t_upper);
+
 
 /**
  * When we do binary search to find epsilon such that C*t<= d + epsilon is
