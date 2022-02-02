@@ -1328,42 +1328,38 @@ void CspaceFreeRegion::CspacePolytopeBisectionSearchVector(
                                      &t_inner_pts, &inner_polytope](
                                         const Eigen::VectorXd& d, bool search_d, bool compute_polytope_volume,
                                         Eigen::VectorXd* d_sol) {
-    const double redundant_tighten = 0.;
+//    const double redundant_tighten = 0;
+    // don't use redundant constraint
+    std::optional<int> redundant_tighten = std::nullopt;
     auto prog = this->ConstructLagrangianProgram(
         alternation_tuples, C, d, lagrangian_gram_vars, verified_gram_vars,
         separating_plane_vars, t_lower, t_upper, verification_option,
         redundant_tighten, nullptr, nullptr);
-//    prog->AddLinearCost(-Eigen::VectorXd::Ones(1), 0,
-//                              separating_plane_vars.row(0));
+
     auto result = solvers::Solve(*prog, std::nullopt, solver_options);
-    drake::log()->info(
-              fmt::format("no cost success = {}", result.is_success()));
-    drake::log()->info(
-              fmt::format("no cost status = {}", result.get_solver_details<solvers::MosekSolver>().rescode));
+//    drake::log()->info(
+//              fmt::format("no cost success = {}", result.is_success()));
+//    drake::log()->info(
+//              fmt::format("no cost status = {}", result.get_solver_details<solvers::MosekSolver>().rescode));
 
-
-    auto prog_lagrangian = ConstructLagrangianProgram(
-          alternation_tuples, C, d, lagrangian_gram_vars,
-          verified_gram_vars, separating_plane_vars, t_lower, t_upper,
-          verification_option, redundant_tighten, nullptr,
-          nullptr);
-    // necessary for backoff
-    prog_lagrangian->AddLinearCost(-Eigen::VectorXd::Ones(1), 0,
-                              separating_plane_vars.row(0));
-    auto result_lagrangian = solvers::Solve(*prog_lagrangian, std::nullopt, solver_options);
-    drake::log()->info(
-              fmt::format("with cost success = {}", result_lagrangian.is_success()));
-    drake::log()->info(
-              fmt::format("with cost status = {}", result_lagrangian.get_solver_details<solvers::MosekSolver>().rescode));
+//
+//    auto prog_lagrangian = ConstructLagrangianProgram(
+//          alternation_tuples, C, d, lagrangian_gram_vars,
+//          verified_gram_vars, separating_plane_vars, t_lower, t_upper,
+//          verification_option, redundant_tighten, nullptr,
+//          nullptr);
+//    // necessary for backoff
+//    prog_lagrangian->AddLinearCost(-Eigen::VectorXd::Ones(1), 0,
+//                              separating_plane_vars.row(0));
+//    auto result_lagrangian = solvers::Solve(*prog_lagrangian, std::nullopt, solver_options);
+//    drake::log()->info(
+//              fmt::format("with cost success = {}", result_lagrangian.is_success()));
+//    drake::log()->info(
+//              fmt::format("with cost status = {}", result_lagrangian.get_solver_details<solvers::MosekSolver>().rescode));
 
     if (result.is_success()) {
       *d_sol = d;
       if (search_d) {
-        // Need to Backoff TODO(Alex.Amice) add option for backoff scale
-        result = BackoffProgram(
-          prog.get(), result.get_optimal_cost(),
-          1e-5, solver_options);
-
         // Now fix the Lagrangian and C, and search for d.
         const auto lagrangian_gram_var_vals =
 
