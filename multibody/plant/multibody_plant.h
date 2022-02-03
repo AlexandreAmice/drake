@@ -509,11 +509,15 @@ See Drake issue #12942 for more discussion.
 
 Once the user is done adding modeling elements and registering geometry, a
 call to Finalize() must be performed. This call will:
-- Build the underlying MultibodyTree topology, see MultibodyTree::Finalize()
-  for details,
+- Build the underlying tree structure of the multibody model,
 - declare the plant's state,
 - declare the plant's input and output ports,
-- declare input and output ports for communication with a SceneGraph.
+- declare collision filters to ignore collisions:
+  - between bodies connected by a joint,
+  - between bodies welded (directly or transitively) to the world.
+
+<!-- TODO(#16422): ignore collisions within all groups of welded-together
+     bodies -->
 
 <!-- TODO(amcastro-tri): Consider making the actual geometry registration
      with GS AFTER Finalize() so that we can tell if there are any bodies
@@ -1153,15 +1157,11 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
   /// No more multibody elements can be added after a call to Finalize().
   ///
   /// At Finalize(), state and input/output ports for `this` plant are declared.
-  /// If `this` plant registered geometry with a SceneGraph, input and
-  /// output ports to enable communication with that SceneGraph are declared
-  /// as well.
   ///
-  /// If geometry has been registered on a SceneGraph instance, that instance
-  /// must be provided to the Finalize() method so that any geometric
-  /// implications of the finalization process can be appropriately handled.
+  /// For a full account of the effects of Finalize(), see
+  /// @ref mbp_finalize_stage "Finalize() stage".
   ///
-  /// @see is_finalized().
+  /// @see is_finalized(), @ref mbp_finalize_stage "Finalize() stage".
   ///
   /// @throws std::exception if the %MultibodyPlant has already been
   /// finalized.
@@ -1648,64 +1648,70 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
     return contact_surface_representation_;
   }
 
-#ifndef DRAKE_DOXYGEN_CXX
-  // TODO(xuchenhan-tri): Remove SetContactSolver() once
-  //  SetDiscreteUpdateManager() stabilizes.
-  // (Experimental) SetContactSolver() should only be called by advanced
-  // developers wanting to try out their custom contact solvers. We choose not
-  // to show it in public documentations rather than making it private with
-  // friends.
-  // @param solver The contact solver to be used for simulations of discrete
-  // models with frictional contact. Discrete updates will use this solver after
-  // this call.
-  // @pre solver != nullptr.
-  // @note `this` MultibodyPlant will no longer support scalar conversion to or
-  // from symbolic::Expression after a call to this method.
+  /// <!-- TODO(xuchenhan-tri): Remove SetContactSolver() once
+  /// SetDiscreteUpdateManager() stabilizes. -->
+  ///
+  /// For use only by advanced developers wanting to try out their custom
+  /// contact solvers.
+  ///
+  /// @experimental
+  ///
+  /// @param solver The contact solver to be used for simulations of discrete
+  /// models with frictional contact. Discrete updates will use this solver
+  /// after this call.
+  /// @pre solver != nullptr.
+  /// @note `this` MultibodyPlant will no longer support scalar conversion to or
+  /// from symbolic::Expression after a call to this method.
   void SetContactSolver(
       std::unique_ptr<contact_solvers::internal::ContactSolver<T>> solver) {
     DRAKE_DEMAND(solver != nullptr);
     contact_solver_ = std::move(solver);
   }
 
-  // (Experimental) SetDiscreteUpdateManager() should only be called by advanced
-  // developers wanting to try out their custom time stepping strategies,
-  // including contact resolution. We choose not to show it in public
-  // documentations rather than making it private with friends. With this method
-  // MultibodyPlant takes ownership of `manager`.
-  //
-  // @note Setting a contact manager bypasses the mechanism to set a different
-  // contact solver with SetContactSolver(). Use only one of these two
-  // experimental mechanims but never both.
-  //
-  // @param manager
-  //   After this call the new manager is used to advance discrete states.
-  // @pre manager != nullptr.
-  // @throws std::exception if called pre-finalize. See Finalize().
-  // @note `this` MultibodyPlant will no longer support scalar conversion to or
-  // from symbolic::Expression after a call to this method.
+  /// For use only by advanced developers wanting to try out their custom time
+  /// stepping strategies, including contact resolution.
+  ///
+  /// @experimental
+  ///
+  /// With this method MultibodyPlant takes ownership of `manager`.
+  ///
+  /// @note Setting a contact manager bypasses the mechanism to set a different
+  /// contact solver with SetContactSolver(). Use only one of these two
+  /// experimental mechanims but never both.
+  ///
+  /// @param manager
+  ///   After this call the new manager is used to advance discrete states.
+  /// @pre manager != nullptr.
+  /// @throws std::exception if called pre-finalize. See Finalize().
+  /// @note `this` MultibodyPlant will no longer support scalar conversion to or
+  /// from symbolic::Expression after a call to this method.
   void SetDiscreteUpdateManager(
       std::unique_ptr<internal::DiscreteUpdateManager<T>> manager);
 
-  // (Experimental) AddPhysicalModel() should only be called by advanced
-  // developers wanting to try out their new physical models. We choose not to
-  // show it in public documentations rather than making it private with
-  // friends. With this method MultibodyPlant takes ownership of `model` and
-  // calls its DeclareSystemResources() method at Finalize(), giving specific
-  // physical model implementations a chance to declare the system resources it
-  // needs.
-  //
-  // @param model After this call the model is owned by `this` MultibodyPlant.
-  // @pre model != nullptr.
-  // @throws std::exception if called post-finalize. See Finalize().
-  // @note `this` MultibodyPlant will no longer support scalar conversion to or
-  // from symbolic::Expression after a call to this method.
+  /// For use only by advanced developers wanting to try out their new physical
+  /// models.
+  ///
+  /// @experimental
+  ///
+  /// With this method MultibodyPlant takes ownership of `model` and
+  /// calls its DeclareSystemResources() method at Finalize(), giving specific
+  /// physical model implementations a chance to declare the system resources it
+  /// needs.
+  ///
+  /// @param model After this call the model is owned by `this` MultibodyPlant.
+  /// @pre model != nullptr.
+  /// @throws std::exception if called post-finalize. See Finalize().
+  /// @note `this` MultibodyPlant will no longer support scalar conversion to or
+  /// from symbolic::Expression after a call to this method.
   void AddPhysicalModel(std::unique_ptr<internal::PhysicalModel<T>> model);
 
+  /// For use only by advanced developers.
+  ///
+  /// @experimental
   const std::vector<std::unique_ptr<internal::PhysicalModel<T>>>&
   physical_models() const {
     return physical_models_;
   }
-#endif
 
   // TODO(amcastro-tri): per work in #13064, we should reconsider whether to
   // deprecate/remove this method altogether or at least promote to proper
@@ -4425,30 +4431,35 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
 
   // Helper method to fill in the ContactResults given the current context when
   // the model is continuous.
+  // @param[out] contact_results is fully overwritten
   void CalcContactResultsContinuous(const systems::Context<T>& context,
                                     ContactResults<T>* contact_results) const;
 
   // Helper method for the continuous mode plant, to fill in the ContactResults
   // for the point pair model, given the current context. Called by
   // CalcContactResultsContinuous.
-  void CalcContactResultsContinuousPointPair(
+  // @param[in,out] contact_results is appended to
+  void AppendContactResultsContinuousPointPair(
       const systems::Context<T>& context,
       ContactResults<T>* contact_results) const;
 
   // Helper method to fill in `contact_results` with hydroelastic forces as a
   // function of the state stored in `context`.
+  // @param[in,out] contact_results is appended to
   void AppendContactResultsContinuousHydroelastic(
       const systems::Context<T>& context,
       ContactResults<T>* contact_results) const;
 
   // This method accumulates both point and hydroelastic contact results into
   // contact_results when the model is discrete.
+  // @param[out] contact_results is fully overwritten
   void CalcContactResultsDiscrete(const systems::Context<T>& context,
                                   ContactResults<T>* contact_results) const;
 
   // Helper method to fill in contact_results with point contact information
   // for the given state stored in context, when the model is discrete.
-  void CalcContactResultsDiscretePointPair(
+  // @param[in,out] contact_results is appended to
+  void AppendContactResultsDiscretePointPair(
       const systems::Context<T>& context,
       ContactResults<T>* contact_results) const;
 

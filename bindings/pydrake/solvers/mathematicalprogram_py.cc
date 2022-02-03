@@ -891,14 +891,15 @@ void BindMathematicalProgram(py::module m) {
           py::arg("X"),
           doc.MathematicalProgram.AddMaximizeLogDeterminantCost.doc)
       .def("AddMaximizeGeometricMeanCost",
-          overload_cast_explicit<void, const Eigen::Ref<const Eigen::MatrixXd>&,
+          overload_cast_explicit<Binding<LinearCost>,
+              const Eigen::Ref<const Eigen::MatrixXd>&,
               const Eigen::Ref<const Eigen::VectorXd>&,
               const Eigen::Ref<const VectorX<symbolic::Variable>>&>(
               &MathematicalProgram::AddMaximizeGeometricMeanCost),
           py::arg("A"), py::arg("b"), py::arg("x"),
           doc.MathematicalProgram.AddMaximizeGeometricMeanCost.doc_3args)
       .def("AddMaximizeGeometricMeanCost",
-          overload_cast_explicit<void,
+          overload_cast_explicit<Binding<LinearCost>,
               const Eigen::Ref<const VectorX<symbolic::Variable>>&, double>(
               &MathematicalProgram::AddMaximizeGeometricMeanCost),
           py::arg("x"), py::arg("c"),
@@ -958,9 +959,9 @@ void BindMathematicalProgram(py::module m) {
           doc.MathematicalProgram.AddLinearConstraint.doc_3args_e_lb_ub)
       .def("AddLinearConstraint",
           static_cast<Binding<LinearConstraint> (MathematicalProgram::*)(
-              const Eigen::Ref<const VectorX<symbolic::Expression>>&,
-              const Eigen::Ref<const Eigen::VectorXd>&,
-              const Eigen::Ref<const Eigen::VectorXd>&)>(
+              const Eigen::Ref<const MatrixX<symbolic::Expression>>&,
+              const Eigen::Ref<const Eigen::MatrixXd>&,
+              const Eigen::Ref<const Eigen::MatrixXd>&)>(
               &MathematicalProgram::AddLinearConstraint),
           py::arg("v"), py::arg("lb"), py::arg("ub"),
           doc.MathematicalProgram.AddLinearConstraint.doc_3args_v_lb_ub)
@@ -971,7 +972,7 @@ void BindMathematicalProgram(py::module m) {
       .def(
           "AddLinearConstraint",
           [](MathematicalProgram* self,
-              const Eigen::Ref<const VectorX<Formula>>& formulas) {
+              const Eigen::Ref<const MatrixX<Formula>>& formulas) {
             return self->AddLinearConstraint(formulas.array());
           },
           py::arg("formulas"),
@@ -1010,9 +1011,9 @@ void BindMathematicalProgram(py::module m) {
               .doc_2args_constEigenMatrixBase_constEigenMatrixBase)
       .def("AddBoundingBoxConstraint",
           static_cast<Binding<BoundingBoxConstraint> (MathematicalProgram::*)(
-              const Eigen::Ref<const Eigen::VectorXd>&,
-              const Eigen::Ref<const Eigen::VectorXd>&,
-              const Eigen::Ref<const VectorXDecisionVariable>&)>(
+              const Eigen::Ref<const Eigen::MatrixXd>&,
+              const Eigen::Ref<const Eigen::MatrixXd>&,
+              const Eigen::Ref<const MatrixXDecisionVariable>&)>(
               &MathematicalProgram::AddBoundingBoxConstraint),
           doc.MathematicalProgram.AddBoundingBoxConstraint.doc_3args_lb_ub_vars)
       .def("AddBoundingBoxConstraint",
@@ -1475,13 +1476,15 @@ for every column of ``prog_var_vals``. )""")
           py::arg("bindings"), py::arg("tol") = 1e-6,
           doc.MathematicalProgram.CheckSatisfiedAtInitialGuess.doc_vector)
       .def("indeterminates", &MathematicalProgram::indeterminates,
-          doc.MathematicalProgram.indeterminates.doc)
+          // dtype = object arrays must be copied, and cannot be referenced.
+          py_rvp::copy, doc.MathematicalProgram.indeterminates.doc)
       .def("indeterminate", &MathematicalProgram::indeterminate, py::arg("i"),
           doc.MathematicalProgram.indeterminate.doc)
       .def("indeterminates_index", &MathematicalProgram::indeterminates_index,
           doc.MathematicalProgram.indeterminates_index.doc)
       .def("decision_variables", &MathematicalProgram::decision_variables,
-          doc.MathematicalProgram.decision_variables.doc)
+          // dtype = object arrays must be copied, and cannot be  referenced.
+          py_rvp::copy, doc.MathematicalProgram.decision_variables.doc)
       .def("decision_variable", &MathematicalProgram::decision_variable,
           py::arg("i"), doc.MathematicalProgram.decision_variable.doc)
       .def("decision_variable_index",

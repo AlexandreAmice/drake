@@ -44,6 +44,7 @@ load("@drake//tools/workspace/json:repository.bzl", "json_repository")
 load("@drake//tools/workspace/lapack:repository.bzl", "lapack_repository")
 load("@drake//tools/workspace/lcm:repository.bzl", "lcm_repository")
 load("@drake//tools/workspace/libblas:repository.bzl", "libblas_repository")
+load("@drake//tools/workspace/libcmaes:repository.bzl", "libcmaes_repository")
 load("@drake//tools/workspace/libcurl:repository.bzl", "libcurl_repository")
 load("@drake//tools/workspace/libjpeg:repository.bzl", "libjpeg_repository")
 load("@drake//tools/workspace/liblapack:repository.bzl", "liblapack_repository")  # noqa
@@ -191,6 +192,8 @@ def add_default_repositories(excludes = [], mirrors = DEFAULT_MIRRORS):
         lcm_repository(name = "lcm", mirrors = mirrors)
     if "libblas" not in excludes:
         libblas_repository(name = "libblas")
+    if "libcmaes" not in excludes:
+        libcmaes_repository(name = "libcmaes", mirrors = mirrors)
     if "libcurl" not in excludes:
         libcurl_repository(name = "libcurl")
     if "libjpeg" not in excludes:
@@ -307,7 +310,8 @@ def add_default_toolchains(excludes = []):
         # --extra_toolchains=//tools/py_toolchain:linux_dbg_toolchain
         native.register_toolchains(
             "@drake//tools/py_toolchain:linux_toolchain",
-            "@drake//tools/py_toolchain:macos_toolchain",
+            "@drake//tools/py_toolchain:macos_i386_toolchain",
+            "@drake//tools/py_toolchain:macos_arm64_toolchain",
         )
 
 def add_default_workspace(
