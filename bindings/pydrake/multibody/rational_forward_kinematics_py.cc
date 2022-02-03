@@ -263,11 +263,11 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
       .def_readwrite("search_d",
           &CspaceFreeRegion::VectorBisectionSearchOption::search_d,
           doc.CspaceFreeRegion.VectorBisectionSearchOption.search_d.doc)
-      .def_readwrite("infeasible_counts_as_iter",
+      .def_readwrite("max_feasible_iters",
           &CspaceFreeRegion::VectorBisectionSearchOption::
-              infeasible_counts_as_iter,
+              max_feasible_iters,
           doc.CspaceFreeRegion.VectorBisectionSearchOption
-              .infeasible_counts_as_iter.doc);
+              .max_feasible_iters.doc);
 
   // CspaceFreeRegion
   py::class_<CspaceFreeRegion> cspace_cls(

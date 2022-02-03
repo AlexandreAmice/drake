@@ -6,6 +6,9 @@ namespace multibody {
 HPolyhedron GenerateSeedingPolytope(const Eigen::VectorXd seed_point,
                                     const int num_perm_dim, const int num_rot) {
   HPolyhedron unit_box = HPolyhedron::MakeUnitBox(seed_point.rows());
+
+  double const scale = 0.1;
+  unit_box = HPolyhedron(unit_box.A(), scale * unit_box.b());
   std::vector<Eigen::MatrixXd> SOnMembers =
       MakeKCanonicalSOnMembers(num_rot, seed_point.rows());
   std::vector<Eigen::MatrixXd> perms =
@@ -15,7 +18,8 @@ HPolyhedron GenerateSeedingPolytope(const Eigen::VectorXd seed_point,
                         seed_point.rows());
   Eigen::VectorXd b_new(2 * seed_point.rows() * (num_perm_dim * num_rot+1));
   A_new.topRows(2 * seed_point.rows()) = unit_box.A();
-  b_new.topRows(2 * seed_point.rows()) = unit_box.b() + seed_point;
+
+  b_new.topRows(2 * seed_point.rows()) = unit_box.b() + unit_box.A() * seed_point;
 
   int cur_row = 2 * seed_point.rows();
   std::unique_ptr<HPolyhedron> cur_transformed_polytope_ptr{nullptr};

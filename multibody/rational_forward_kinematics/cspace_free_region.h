@@ -424,15 +424,18 @@ class CspaceFreeRegion {
   struct VectorBisectionSearchOption {
     Eigen::VectorXd epsilon_max;
     Eigen::VectorXd epsilon_min;
-    int max_iters{5};
+    // maximum total number of iterations
+    int max_iters{20};
+
+    // maximum number of successful bisection steps
+    int max_feasible_iters{5};
+
     // If set to true, then after we verify that C*t<=d is collision free, we
     // then fix the Lagrangian multiplier and search the right-hand side vector
     // d through another SOS program.
     bool search_d{true};
     // Whether to compute and print the volume of the C-space polytope.
     bool compute_polytope_volume{false};
-    // Whether an infeasible step of bisection search counts as an iterations
-    bool infeasible_counts_as_iter{false};
   };
 
   /**

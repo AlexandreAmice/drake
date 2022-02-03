@@ -1435,8 +1435,8 @@ void CspaceFreeRegion::CspacePolytopeBisectionSearchVector(
     }
     total_iter_count++;
     drake::log()->info(fmt::format("total iter={}, feasible iter = {}", total_iter_count, feasible_iter_count));
-    exit_for_iters = vector_bisection_search_option.infeasible_counts_as_iter ? total_iter_count > vector_bisection_search_option.max_iters :
-                     feasible_iter_count > vector_bisection_search_option.max_iters;
+    exit_for_iters = total_iter_count > vector_bisection_search_option.max_iters or
+                     feasible_iter_count > vector_bisection_search_option.max_feasible_iters;
   }
 }
 
@@ -1837,7 +1837,7 @@ Eigen::VectorXd FindEpsilonLowerVector(
   prog.AddBoundingBoxConstraint(t_lower, t_upper, t);
 
   // epsilon >= C *t_inner_pts - d
-  const Eigen::VectorXd eps_min = ((C * t_inner_pts.value()).colwise() - d+Eigen::VectorXd::Constant(d.rows(),1E-8));
+  const Eigen::VectorXd eps_min = (C * t_inner_pts).colwise() - d-Eigen::VectorXd::Constant(d.rows(),1E-8);
   prog.AddBoundingBoxConstraint(eps_min, kInf*Eigen::VectorXd::Ones(epsilon.rows()), epsilon);
 
   if (inner_polytope.has_value()) {
