@@ -285,6 +285,9 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
       .def_readwrite("scalar_binary_search_options",
           &CspaceFreeRegion::IntegratedRegionSearchOptions::scalar_binary_search_options,
           doc.CspaceFreeRegion.IntegratedRegionSearchOptions.scalar_binary_search_options.doc)
+      .def_readwrite("bilinear_alternation_options",
+          &CspaceFreeRegion::IntegratedRegionSearchOptions::bilinear_alternation_options,
+          doc.CspaceFreeRegion.IntegratedRegionSearchOptions.bilinear_alternation_options.doc)
       .def_readwrite("max_method_switch",
           &CspaceFreeRegion::IntegratedRegionSearchOptions::max_method_switch,
           doc.CspaceFreeRegion.IntegratedRegionSearchOptions.max_method_switch.doc)

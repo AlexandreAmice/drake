@@ -1533,7 +1533,13 @@ void CspaceFreeRegion::CspacePolytopeBisectionSearchVector(
       // eps_min. We reset eps_max to its original value as without this we may
       // not have the true coordinatewise max.
       eps_min = *d_final - d_without_epsilon;
-      eps_max = eps_max_const;
+
+      // ensure eps_min doesn't exceed eps_max
+      const double scale = 0.1;
+      eps_max = eps_max.cwiseMax(eps_min + scale*eps_min.cwiseAbs());
+
+      // grow eps_max again a little
+      eps_max = eps_max_const.cwiseMin(eps_max + scale*eps_max.cwiseAbs());
 
       feasible_iter_count++;
     } else {
