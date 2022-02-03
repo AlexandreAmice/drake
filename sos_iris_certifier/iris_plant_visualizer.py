@@ -105,7 +105,7 @@ class IrisPlantVisualizer:
         # Triangulate grid
         self.tri = scipy.spatial.Delaunay(verts)
         self.plane_triangles = self.tri.simplices
-        self.plane_verts = np.array(self.verts)
+        self.plane_verts = np.array(verts)
         # Append zero z-coordinate
         self.plane_verts = np.concatenate((self.plane_verts, np.zeros((no_xpoints * no_ypoints, 1))), axis=1)
 
