@@ -187,6 +187,25 @@ int SmallestPower2(int n) {
     }
   }
 }
+
+// Compute the following problem
+// max C.row(i).dot(t)
+// s.t t_lower <= t <= t_upper
+Eigen::VectorXd ComputeMaxD(const Eigen::MatrixXd& C,
+                            const Eigen::VectorXd& t_lower,
+                            const Eigen::VectorXd& t_upper) {
+  DRAKE_DEMAND(C.cols() == t_lower.rows());
+  DRAKE_DEMAND(C.cols() == t_upper.rows());
+  DRAKE_DEMAND((t_lower.array() <= t_upper.array()).all());
+  Eigen::VectorXd d_max(C.rows());
+  for (int i = 0; i < C.rows(); ++i) {
+    d_max(i) = 0;
+    for (int j = 0; j < C.cols(); ++j) {
+      d_max(i) += C(i, j) > 0 ? C(i, j) * t_upper(j) : C(i, j) * t_lower(j);
+    }
+  }
+  return d_max;
+}
 }  // namespace
 
 CspaceFreeRegion::CspaceFreeRegion(
@@ -1106,7 +1125,18 @@ void CspaceFreeRegion::CspacePolytopeBilinearAlternation(
     // Add the constraint that the polytope contains the ellipsoid
     margin = prog_polytope->NewContinuousVariables(C_var.rows(), "margin");
     AddOuterPolytope(prog_polytope.get(), P_sol, q_sol, C_var, d_var, margin);
-    prog_polytope->AddBoundingBoxConstraint(0, kInf, margin);
+
+    // We know that the verified polytope has to be contained in the box t_lower
+    // <= t <= t_upper. Hence there is no point to grow the polytope such that
+    // any of its halfspace C.row(i) * t <= d(i) contains the entire box t_lower
+    // <= t <= t_upper. Hence an upper bound of the margin δ is the maximal
+    // distance from any vertices of the box t_lower <= t <= t_upper to the
+    // ellipsoid.
+    // Computing the distance from a point to a hyperellipsoid is non-trivial.
+    // Here we use an upper bound of this distance, which is the maximal
+    // distance between any two points within the box.
+    const double margin_upper_bound = (t_upper - t_lower).norm();
+    prog_polytope->AddBoundingBoxConstraint(0, margin_upper_bound, margin);
     // Add the constraint that the polytope contains the t_inner_pts.
     if (q_inner_pts.has_value()) {
       Eigen::MatrixXd t_inner_pts(q_inner_pts->rows(), q_inner_pts->cols());
@@ -1139,6 +1169,12 @@ void CspaceFreeRegion::CspacePolytopeBilinearAlternation(
     auto result_polytope =
         solvers::Solve(*prog_polytope, std::nullopt, solver_options);
     if (!result_polytope.is_success()) {
+      drake::log()->info(
+          fmt::format("mosek info {}, {}",
+                      result_polytope.get_solver_details<solvers::MosekSolver>()
+                          .solution_status,
+                      result_polytope.get_solution_result()));
+
       drake::log()->warn(fmt::format(
           "Failed to find the polytope at iteration {}", iter_count));
       return;
@@ -1216,18 +1252,18 @@ void CspaceFreeRegion::CspacePolytopeBinarySearch(
   DRAKE_DEMAND(binary_search_option.epsilon_min >=
                FindEpsilonLower(C, d_init, t_lower, t_upper, t_inner_pts,
                                 inner_polytope));
+  const Eigen::VectorXd d_max = ComputeMaxD(C, t_lower, t_upper);
 
   VerificationOption verification_option{};
   // Checks if C*t<=d, t_lower<=t<=t_upper is collision free.
-  // Update d_final = d if the program C*t<=d, t_lower <= t <= t_upper is
-  // collision free.
+  // This function will update d_sol when the polytope is collision free.
   auto is_polytope_collision_free = [this, &alternation_tuples, &C,
                                      &lagrangian_gram_vars, &verified_gram_vars,
                                      &separating_plane_vars, &t_lower, &t_upper,
                                      &verification_option, &solver_options,
                                      &C_var, &d_var, &d_minus_Ct,
                                      &t_minus_t_lower, &t_upper_minus_t,
-                                     &t_inner_pts, &inner_polytope](
+                                     &t_inner_pts, &inner_polytope, &d_max](
                                         const Eigen::VectorXd& d, bool search_d,
                                         bool compute_polytope_volume,
                                         Eigen::VectorXd* d_sol) {
@@ -1254,9 +1290,8 @@ void CspaceFreeRegion::CspacePolytopeBinarySearch(
             Eigen::Map<const Eigen::VectorXd>(C.data(), C.rows() * C.cols()),
             Eigen::Map<const VectorX<symbolic::Variable>>(C_var.data(),
                                                           C.rows() * C.cols()));
-        // d_var >= d
-        prog_polytope->AddBoundingBoxConstraint(
-            d, Eigen::VectorXd::Constant(d.rows(), kInf), d_var);
+        // d <= d_var <= d_max
+        prog_polytope->AddBoundingBoxConstraint(d, d_max, d_var);
         if (t_inner_pts.has_value()) {
           AddCspacePolytopeContainment(prog_polytope.get(), C_var, d_var,
                                        t_inner_pts.value());
