@@ -1404,7 +1404,6 @@ void CspaceFreeRegion::CspacePolytopeBisectionSearchVector(
                     vector_bisection_search_option.epsilon_min));
   }
 
-  // TODO(Alex.Amice) start this from non-uniform vector
   const Eigen::VectorXd eps_max_const = vector_bisection_search_option.epsilon_max;
   Eigen::VectorXd eps_max = vector_bisection_search_option.epsilon_max;
   Eigen::VectorXd eps_min = vector_bisection_search_option.epsilon_min;
