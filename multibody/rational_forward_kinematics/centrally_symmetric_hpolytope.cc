@@ -15,7 +15,7 @@ HPolyhedron GenerateSeedingPolytope(const Eigen::VectorXd seed_point,
                         seed_point.rows());
   Eigen::VectorXd b_new(2 * seed_point.rows() * (num_perm_dim * num_rot+1));
   A_new.topRows(2 * seed_point.rows()) = unit_box.A();
-  b_new.topRows(2 * seed_point.rows()) = unit_box.b() + seed_point;
+  b_new.topRows(2 * seed_point.rows()) = unit_box.b() + unit_box.A() * seed_point;
 
   int cur_row = 2 * seed_point.rows();
   std::unique_ptr<HPolyhedron> cur_transformed_polytope_ptr{nullptr};
