@@ -263,11 +263,11 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
       .def_readwrite("search_d",
           &CspaceFreeRegion::VectorBisectionSearchOption::search_d,
           doc.CspaceFreeRegion.VectorBisectionSearchOption.search_d.doc)
-      .def_readwrite("infeasible_counts_as_iter",
+      .def_readwrite("max_feasible_iters",
           &CspaceFreeRegion::VectorBisectionSearchOption::
-              infeasible_counts_as_iter,
+              max_feasible_iters,
           doc.CspaceFreeRegion.VectorBisectionSearchOption
-              .infeasible_counts_as_iter.doc);
+              .max_feasible_iters.doc);
 
   // CspaceFreeRegion
   py::class_<CspaceFreeRegion> cspace_cls(
@@ -566,7 +566,14 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
       .def("FindEpsilonLower", &FindEpsilonLower, py::arg("C"), py::arg("d"),
           py::arg("t_lower"), py::arg("t_upper"),
           py::arg("t_inner_pts") = std::nullopt,
-          py::arg("inner_polytope") = std::nullopt, doc.FindEpsilonLower.doc);
+          py::arg("inner_polytope") = std::nullopt, doc.FindEpsilonLower.doc)
+      .def("FindEpsilonLowerVector", &FindEpsilonLowerVector, py::arg("C"), py::arg("d"),
+          py::arg("t_lower"), py::arg("t_upper"),
+          py::arg("t_inner_pts"),
+          py::arg("inner_polytope") = std::nullopt, doc.FindEpsilonLowerVector.doc)
+      .def("FindEpsilonUpperVector", &FindEpsilonUpperVector,
+           py::arg("C"), py::arg("d"),
+          py::arg("t_lower"), py::arg("t_upper"));
 
   m.def("CalcCspacePolytopeVolume", &CalcCspacePolytopeVolume, py::arg("C"),
       py::arg("d"), py::arg("t_lower"), py::arg("t_upper"),
