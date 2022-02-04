@@ -186,6 +186,35 @@ class IrisPlantVisualizer:
                         self.plot_plane_geom_id(geomA, geomB, collision_pair_to_plane_dictionary, t, color=colors[i],
                                                 region_name=f"region {i}")
 
+    def show_res_with_planes_cpp(self, q):
+        t = self.forward_kin.ComputeTValue(q, self.q_star)
+        self.showres(q)
+        if self.region_to_collision_pair_to_plane_dictionary is not None:
+            for region, collision_pair_to_plane_dictionary in self.region_to_collision_pair_to_plane_dictionary.items():
+                if region.PointInSet(t):
+                    colors = viz_utils.n_colors(len(collision_pair_to_plane_dictionary.keys()))
+                    for i, (pair, planes) in enumerate(collision_pair_to_plane_dictionary.items()):
+                        geomA, geomB = pair[0], pair[1]
+                        self.plot_plane_geom_id_cpp(geomA, geomB, collision_pair_to_plane_dictionary, t, color=colors[i],
+                                                region_name=f"region {i}")
+
+    def plot_plane_geom_id_cpp(self, geomA, geomB, planes_dict, cur_t, color=(0, 0, 0), region_name = ''):
+        verts_tf, p1, p2 = self.transform_plane_geom_id_cpp(geomA, geomB, planes_dict, cur_t)
+
+        mat = meshcat.geometry.MeshLambertMaterial(color=viz_utils.rgb_to_hex(color), wireframe=False)
+        mat.opacity = 0.5
+        self.vis[region_name]["plane"][f"{geomA.get_value()}, {geomB.get_value()}"].set_object(
+            meshcat.geometry.TriangularMeshGeometry(verts_tf, self.plane_triangles),
+            mat)
+
+        mat.opacity = 1.0
+        viz_utils.plot_point(loc=p1, radius=0.05, mat=mat, vis=self.vis[region_name]["plane"][f"{geomA.get_value()}, {geomB.get_value()}"],
+                         marker_id='p1')
+        mat = meshcat.geometry.MeshLambertMaterial(color=viz_utils.rgb_to_hex(color), wireframe=False)
+        mat.opacity = 1.0
+        viz_utils.plot_point(loc=p2, radius=0.05, mat=mat, vis=self.vis[region_name]["plane"][f"{geomA.get_value()}, {geomB.get_value()}"],
+                         marker_id='p2')
+
     def plot_plane_geom_id(self, geomA, geomB, planes_dict, cur_t, color=(0, 0, 0), region_name = ''):
         verts_tf, p1, p2 = self.transform_plane_geom_id(geomA, geomB, planes_dict, cur_t)
 
@@ -232,6 +261,21 @@ class IrisPlantVisualizer:
         vB = self.t_space_vertex_world_position_by_geom_id[geomB][:, 0]
         a_poly, b_poly = planes_dict[(geomA, geomB)]
         return self.transform_at_t(cur_t, a_poly, b_poly, vA, vB)
+
+    def transform_at_t_cpp(self, cur_t, a_poly, b_poly, p1_rat, p2_rat):
+        eval_dict = dict(zip(b_poly.indeterminates(), cur_t))
+        a, b = EvaluatePlanePair((a_poly, b_poly), eval_dict)
+        eval_dict = dict(zip(self.t_variables, cur_t))
+        #     print(f"{a}, {b}")
+        p1 = np.array([p.Evaluate(eval_dict) for p in p1_rat])
+        p2 = np.array([p.Evaluate(eval_dict) for p in p2_rat])
+        return self.transform(a, b, p1, p2, self.plane_verts), p1, p2
+
+    def transform_plane_geom_id_cpp(self, geomA, geomB, planes_dict, cur_t):
+        vA = self.t_space_vertex_world_position_by_geom_id[geomA][:, 0]
+        vB = self.t_space_vertex_world_position_by_geom_id[geomB][:, 0]
+        a_poly, b_poly = planes_dict[(geomA, geomB)]
+        return self.transform_at_t_cpp(cur_t, a_poly, b_poly, vA, vB)
 
     def animate_t(self, traj, steps, runtime):
         # loop

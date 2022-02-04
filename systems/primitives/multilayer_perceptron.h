@@ -163,7 +163,8 @@ class MultilayerPerceptron final : public LeafSystem<T> {
 
    Note: The class uses the System Cache to minimize the number of dynamic
    memory allocations for repeated calls to this function with the same sized
-   `X`.  Changing the batch size between calls requires memory allocations.
+   `X`.  Changing the batch size between calls to this method or BatchOutput
+   requires memory allocations.
 
    @param X is a batch input, with one input per column.
    @param loss is a scalar loss function, where `Y` is the columnwise batch
@@ -174,8 +175,8 @@ class MultilayerPerceptron final : public LeafSystem<T> {
    input argument to avoid memory allocations inside the algorithm.
    @returns the calculated loss.
 
-   Note: It is expected that this algorithm will be used with T=double. It
-   uses analytical gradients; AutoDiffXd is not required.
+   Note: It is expected that this algorithm will be used with T=double. It uses
+   analytical gradients; AutoDiffXd is not required.
    */
   T Backpropagation(const Context<T>& context,
                     const Eigen::Ref<const MatrixX<T>>& X,
@@ -192,6 +193,20 @@ class MultilayerPerceptron final : public LeafSystem<T> {
       const Eigen::Ref<const MatrixX<T>>& Y_desired,
       EigenPtr<VectorX<T>> dloss_dparams) const;
 
+  /** Evaluates the batch output for the MLP with a batch input vector. Each
+   column of `X` represents an input, and each column of `Y` will be assigned
+   the corresponding output.
+
+   Note: In python, use numpy.asfortranarray() to allocate the writeable matrix
+   `Y`.
+
+   This methods shares the cache with Backpropagation. If the size of X changes
+   here or in Backpropagation, it may force dynamic memory allocations.
+   */
+  void BatchOutput(const Context<T>& context,
+                   const Eigen::Ref<const MatrixX<T>>& X,
+                   EigenPtr<MatrixX<T>> Y) const;
+
  private:
   // Calculates y = f(x) for the entire network.
   void CalcOutput(const Context<T>& context, BasicVector<T>* y) const;
@@ -199,11 +214,6 @@ class MultilayerPerceptron final : public LeafSystem<T> {
   // Calculates the cache entries for the hidden units in the network.
   void CalcHiddenLayers(const Context<T>& context,
                         std::vector<VectorX<T>>* hidden) const;
-
-  // Dummy function. The caching interface requires it to exist, but we do not
-  // use it in practice.
-  void BackpropCacheNoOp(const Context<T>& context,
-                         std::vector<MatrixX<T>>* bp) const;
 
   int num_hidden_layers_;  // The number of layers - 2.
   int num_weights_;     // The number of weight matrices (number of layers -1 ).

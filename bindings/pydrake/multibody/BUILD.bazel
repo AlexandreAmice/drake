@@ -84,7 +84,6 @@ drake_pybind_library(
         "//bindings/pydrake:documentation_pybind",
         "//bindings/pydrake/common:cpp_template_pybind",
         "//bindings/pydrake/common:default_scalars_pybind",
-        "//bindings/pydrake/common:deprecation_pybind",
         "//bindings/pydrake/common:eigen_geometry_pybind",
         "//bindings/pydrake/common:type_pack",
         "//bindings/pydrake/common:type_safe_index_pybind",
@@ -105,7 +104,6 @@ drake_pybind_library(
         "//bindings/pydrake:documentation_pybind",
         "//bindings/pydrake/common:cpp_template_pybind",
         "//bindings/pydrake/common:default_scalars_pybind",
-        "//bindings/pydrake/common:deprecation_pybind",
         "//bindings/pydrake/common:eigen_geometry_pybind",
         "//bindings/pydrake/common:type_pack",
         "//bindings/pydrake/common:type_safe_index_pybind",
@@ -120,15 +118,36 @@ drake_pybind_library(
         "//bindings/pydrake:geometry_py",
         "//bindings/pydrake/common:cpp_template_py",
     ],
+    py_srcs = ["_plant_extra.py"],
 )
 
 drake_pybind_library(
     name = "parsing_py",
-    cc_deps = ["//bindings/pydrake:documentation_pybind"],
+    cc_deps = [
+        "//bindings/pydrake:documentation_pybind",
+        "//bindings/pydrake/common:deprecation_pybind",
+    ],
     cc_srcs = ["parsing_py.cc"],
     package_info = PACKAGE_INFO,
     py_deps = [
         ":module_py",
+    ],
+)
+
+drake_pybind_library(
+    name = "meshcat_py",
+    cc_deps = [
+        "//bindings/pydrake:documentation_pybind",
+        "//bindings/pydrake/common:cpp_template_pybind",
+        "//bindings/pydrake/common:default_scalars_pybind",
+        "//bindings/pydrake/common:monostate_pybind",
+        "//bindings/pydrake/common:type_pack",
+    ],
+    cc_srcs = ["meshcat_py.cc"],
+    package_info = PACKAGE_INFO,
+    py_deps = [
+        ":module_py",
+        ":plant_py",
     ],
 )
 
@@ -194,6 +213,7 @@ PY_LIBRARIES_WITH_INSTALL = [
     ":benchmarks_py",
     ":inverse_kinematics_py",
     ":math_py",
+    ":meshcat_py",
     ":optimization_py",
     ":parsing_py",
     ":plant_py",
@@ -284,6 +304,8 @@ drake_py_unittest(
         "//bindings/pydrake/common/test_utilities:pickle_compare_py",
         "//bindings/pydrake/systems:analysis_py",
         "//bindings/pydrake/systems:scalar_conversion_py",
+        # TODO(jwnimmer-tri) Remove this on 2022-05-01 per deprecations.
+        ":meshcat_py",
     ],
 )
 
@@ -292,6 +314,18 @@ drake_py_unittest(
     deps = [
         ":math_py",
         "//bindings/pydrake/common/test_utilities",
+    ],
+)
+
+drake_py_unittest(
+    name = "meshcat_test",
+    data = [
+        "//multibody/benchmarks/acrobot:models",
+    ],
+    deps = [
+        ":meshcat_py",
+        ":parsing_py",
+        "//bindings/pydrake/common/test_utilities:numpy_compare_py",
     ],
 )
 

@@ -144,7 +144,11 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
   // SeparatingPlane
   py::class_<multibody::SeparatingPlane>(
       m, "SeparatingPlane", doc.SeparatingPlane.doc)
-      .def_readonly("a", &SeparatingPlane::a, doc.SeparatingPlane.a.doc)
+//      .def_readonly("a", &SeparatingPlane::a, doc.SeparatingPlane.a.doc)
+      .def("a",
+                    [](const SeparatingPlane* self){
+          return self->a;
+      }, doc.SeparatingPlane.a.doc)
       .def_readonly("b", &SeparatingPlane::b, doc.SeparatingPlane.b.doc)
       .def_readonly("positive_side_polytope",
           &SeparatingPlane::positive_side_polytope,
@@ -155,9 +159,18 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
       .def_readonly("expressed_link", &SeparatingPlane::expressed_link,
           doc.SeparatingPlane.expressed_link.doc)
       .def_readonly(
+          "geometryA", &SeparatingPlane::geometryA, doc.SeparatingPlane.geometryA.doc)
+      .def_readonly(
+          "geometryB", &SeparatingPlane::geometryB, doc.SeparatingPlane.geometryB.doc)      
+      .def_readonly(
           "order", &SeparatingPlane::order, doc.SeparatingPlane.order.doc)
-      .def_readonly("decision_variables", &SeparatingPlane::decision_variables,
-          doc.SeparatingPlane.decision_variables.doc);
+      .def("decision_variables",
+                    [](const SeparatingPlane* self){
+          return self->decision_variables;
+      }, doc.SeparatingPlane.decision_variables.doc);
+//      .def_readonly("decision_variables", &SeparatingPlane::decision_variables,
+//          doc.SeparatingPlane.decision_variables.doc);
+
 
   // PlaneSide
   py::enum_<PlaneSide>(m, "PlaneSide", doc.PlaneSide.doc)
@@ -201,6 +214,11 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
       .value("kGenericPolytope", CspaceRegionType::kGenericPolytope)
       .value(
           "kAxisAlignedBoundingBox", CspaceRegionType::kAxisAlignedBoundingBox);
+
+  // EllipsoidVolume
+  py::enum_<EllipsoidVolume>(m, "EllipsoidVolume", doc.EllipsoidVolume.doc)
+      .value("kLog", EllipsoidVolume::kLog)
+      .value("kNthRoot", EllipsoidVolume::kNthRoot);
 
   // BilinearAlternationOption
   py::class_<CspaceFreeRegion::BilinearAlternationOption>(m,
@@ -268,6 +286,27 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
               max_feasible_iters,
           doc.CspaceFreeRegion.VectorBisectionSearchOption
               .max_feasible_iters.doc);
+
+  //interleavedRegionSearchOptions
+   py::class_<CspaceFreeRegion::InterleavedRegionSearchOptions>(m,
+      "InterleavedRegionSearchOptions",
+      doc.CspaceFreeRegion.InterleavedRegionSearchOptions.doc)
+      .def(py::init<>())
+      .def_readwrite("vector_bisection_search_options",
+          &CspaceFreeRegion::InterleavedRegionSearchOptions::vector_bisection_search_options,
+          doc.CspaceFreeRegion.InterleavedRegionSearchOptions.vector_bisection_search_options.doc)
+      .def_readwrite("scalar_binary_search_options",
+          &CspaceFreeRegion::InterleavedRegionSearchOptions::scalar_binary_search_options,
+          doc.CspaceFreeRegion.InterleavedRegionSearchOptions.scalar_binary_search_options.doc)
+      .def_readwrite("bilinear_alternation_options",
+          &CspaceFreeRegion::InterleavedRegionSearchOptions::bilinear_alternation_options,
+          doc.CspaceFreeRegion.InterleavedRegionSearchOptions.bilinear_alternation_options.doc)
+      .def_readwrite("max_method_switch",
+          &CspaceFreeRegion::InterleavedRegionSearchOptions::max_method_switch,
+          doc.CspaceFreeRegion.InterleavedRegionSearchOptions.max_method_switch.doc)
+      .def_readwrite("use_vector_bisection_search",
+          &CspaceFreeRegion::InterleavedRegionSearchOptions::use_vector_bisection_search,
+          doc.CspaceFreeRegion.InterleavedRegionSearchOptions.use_vector_bisection_search.doc);
 
   // CspaceFreeRegion
   py::class_<CspaceFreeRegion> cspace_cls(
@@ -470,6 +509,37 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
           py::arg("solver_options"), py::arg("q_inner_pts") = std::nullopt,
           py::arg("inner_polytope") = std::nullopt,
           doc.CspaceFreeRegion.CspacePolytopeBisectionSearchVector.doc)
+      .def(
+          "InterleavedCSpacePolytopeSearch",
+          [](const CspaceFreeRegion* self,
+              const Eigen::Ref<const Eigen::VectorXd>& q_star,
+              const CspaceFreeRegion::FilteredCollisionPairs&
+                  filtered_collision_pairs,
+              const Eigen::Ref<const Eigen::MatrixXd>& C_init,
+              const Eigen::Ref<const Eigen::VectorXd>& d_init,
+              const CspaceFreeRegion::InterleavedRegionSearchOptions&
+                  interleaved_region_search_options,
+              const solvers::SolverOptions& solver_options,
+              const std::optional<Eigen::MatrixXd>& q_inner_pts,
+              const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
+                  inner_polytope) {
+            Eigen::MatrixXd C_final;
+            Eigen::VectorXd d_final;
+            Eigen::MatrixXd P_final;
+            Eigen::VectorXd q_final;
+            self->InterleavedCSpacePolytopeSearch(q_star,
+                filtered_collision_pairs, C_init, d_init,
+                interleaved_region_search_options, solver_options, q_inner_pts,
+                inner_polytope, &C_final, &d_final, &P_final, &q_final);
+            return std::make_tuple(C_final, d_final, P_final, q_final);
+          },
+          py::arg("q_star"), py::arg("filtered_collision_pairs"),
+          py::arg("C_init"), py::arg("d_init"),
+          py::arg("interleaved_region_search_options"), py::arg("solver_options"),
+          py::arg("q_inner_pts") = std::nullopt,
+          py::arg("inner_polytope") = std::nullopt,
+          doc.CspaceFreeRegion.CspacePolytopeBilinearAlternation.doc)
+
       .def("IsPostureInCollision", &CspaceFreeRegion::IsPostureInCollision,
           doc.CspaceFreeRegion.IsPostureInCollision.doc)
       .def("separating_planes", &CspaceFreeRegion::separating_planes,
@@ -515,13 +585,6 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
       },
       py::arg("C"), py::arg("d"), py::arg("t_lower"), py::arg("t_upper"),
       py::arg("tighten"), doc.FindRedundantInequalities.doc);
-
-  //  m.def("FindEpsilonLower", &FindEpsilonLower,
-  //        py::arg("t_lower"), py::arg("t_upper"),
-  //        py::arg("C"), py::arg("d"),
-  //  py::arg("t_inner") = std::nullopt, py::arg("inner_polytope") =
-  //  std::nullopt,
-  //       doc.FindEpsilonLower.doc);
 
   m.def(
        "AddCspacePolytopeContainment",

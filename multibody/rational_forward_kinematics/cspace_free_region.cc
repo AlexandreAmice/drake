@@ -133,6 +133,79 @@ void CalcDminusCt(const Eigen::Ref<const MatrixX<T>>& C,
     (*d_minus_Ct)(i) = symbolic::Polynomial(d_minus_Ct_poly_map);
   }
 }
+
+// Given a matrix X, add the cost to maximize the geometric mean of X's eigen
+// values (provided that X is positive semidefinite).
+void AddMaximizeEigenValueGeometricMean(
+    solvers::MathematicalProgram* prog,
+    const Eigen::Ref<const MatrixX<symbolic::Variable>>& X) {
+  // See https://docs.mosek.com/modeling-cookbook/sdo.html#log-determinant for
+  // the derivation.
+  DRAKE_DEMAND(X.rows() == X.cols());
+  const int X_rows = X.rows();
+  auto Z_lower = prog->NewContinuousVariables(X_rows * (X_rows + 1) / 2);
+  MatrixX<symbolic::Expression> Z(X_rows, X_rows);
+  Z.setZero();
+  // diag_Z is the diagonal matrix that only contains the diagonal entries of Z.
+  MatrixX<symbolic::Expression> diag_Z(X_rows, X_rows);
+  diag_Z.setZero();
+  int Z_lower_index = 0;
+  for (int j = 0; j < X_rows; ++j) {
+    for (int i = j; i < X_rows; ++i) {
+      Z(i, j) = Z_lower(Z_lower_index++);
+    }
+    diag_Z(j, j) = Z(j, j);
+  }
+
+  MatrixX<symbolic::Expression> psd_mat(2 * X_rows, 2 * X_rows);
+  // clang-format off
+  psd_mat << X,             Z,
+             Z.transpose(), diag_Z;
+  // clang-format on
+  prog->AddPositiveSemidefiniteConstraint(psd_mat);
+  // We know that det(X) >= det(Z) = prod(Z(i, i))
+  VectorX<symbolic::Variable> Z_diag_vec(X_rows);
+  int Z_lower_count = 0;
+  for (int i = 0; i < X_rows; ++i) {
+    Z_diag_vec(i) = Z_lower(Z_lower_count);
+    Z_lower_count += X_rows - i;
+  }
+  prog->AddMaximizeGeometricMeanCost(Z_diag_vec);
+}
+
+// Return the smallest d >= n where d = power(2, k);
+int SmallestPower2(int n) {
+  DRAKE_DEMAND(n >= 1);
+  if (n == 1) {
+    return 1;
+  }
+  int ret = 1;
+  while (true) {
+    ret *= 2;
+    if (ret >= n) {
+      return ret;
+    }
+  }
+}
+
+// Compute the following problem
+// max C.row(i).dot(t)
+// s.t t_lower <= t <= t_upper
+Eigen::VectorXd ComputeMaxD(const Eigen::MatrixXd& C,
+                            const Eigen::VectorXd& t_lower,
+                            const Eigen::VectorXd& t_upper) {
+  DRAKE_DEMAND(C.cols() == t_lower.rows());
+  DRAKE_DEMAND(C.cols() == t_upper.rows());
+  DRAKE_DEMAND((t_lower.array() <= t_upper.array()).all());
+  Eigen::VectorXd d_max(C.rows());
+  for (int i = 0; i < C.rows(); ++i) {
+    d_max(i) = 0;
+    for (int j = 0; j < C.cols(); ++j) {
+      d_max(i) += C(i, j) > 0 ? C(i, j) * t_upper(j) : C(i, j) * t_lower(j);
+    }
+  }
+  return d_max;
+}
 }  // namespace
 
 CspaceFreeRegion::CspaceFreeRegion(
@@ -177,7 +250,6 @@ CspaceFreeRegion::CspaceFreeRegion(
                 }
               }
               num_collision_pairs++;
-
               link_collision_pairs.emplace_back(&polytope1, &polytope2);
             }
           }
@@ -266,16 +338,19 @@ CspaceFreeRegion::CspaceFreeRegion(
         plane_decision_vars(var_count) = b_constant;
         var_count++;
       }
+
       separating_planes_.emplace_back(
           a, b, polytope_pair.first, polytope_pair.second,
           internal::FindBodyInTheMiddleOfChain(*plant, link_pair.first(),
                                                link_pair.second()),
+          polytope_pair.first->get_id(), polytope_pair.second->get_id(),
           plane_order_, plane_decision_vars);
+
       map_polytopes_to_separating_planes_.emplace(
           SortedPair<ConvexGeometry::Id>(polytope_pair.first->get_id(),
                                          polytope_pair.second->get_id()),
           &(separating_planes_[separating_planes_.size() - 1]));
-    }
+      }
   }
 }
 
@@ -897,7 +972,6 @@ solvers::MathematicalProgramResult BackoffProgram(
     drake::log()->error(
         "Currently only support program with exactly one linear cost");
   }
-  drake::log()->info("Past drake demand");
   const auto linear_cost = prog->linear_costs()[0];
   prog->RemoveCost(linear_cost);
   if (backoff_scale <= 0) {
@@ -914,9 +988,7 @@ solvers::MathematicalProgramResult BackoffProgram(
           : (1 - backoff_scale) * cost_val - linear_cost.evaluator()->b();
   prog->AddLinearConstraint(linear_cost.evaluator()->a(), -kInf, upper_bound,
                             linear_cost.variables());
-  drake::log()->info("right before solve");
   const auto result = solvers::Solve(*prog, std::nullopt, solver_options);
-  drake::log()->info("right after solve");
   if (!result.is_success()) {
     throw std::runtime_error("Backoff fails.");
   }
@@ -994,18 +1066,32 @@ void CspaceFreeRegion::CspacePolytopeBilinearAlternation(
         verified_gram_vars, separating_plane_vars, t_lower, t_upper,
         verification_option, bilinear_alternation_option.redundant_tighten, &P,
         &q);
-    auto [log_det_cost, log_det_t, log_det_Z] =
+    std::string cost_name;
+    switch (bilinear_alternation_option.ellipsoid_volume) {
+      case EllipsoidVolume::kLog: {
         prog_lagrangian->AddMaximizeLogDeterminantCost(
             P.cast<symbolic::Expression>());
+        cost_name = "log(det(P))";
+        break;
+      }
+      case EllipsoidVolume::kNthRoot: {
+        AddMaximizeEigenValueGeometricMean(prog_lagrangian.get(), P);
+        cost_name = fmt::format("power(det(P), 1/{}", SmallestPower2(P.rows()));
+        break;
+      }
+    }
+    const auto lagrangian_cost = prog_lagrangian->linear_costs()[0];
     auto result_lagrangian =
         solvers::Solve(*prog_lagrangian, std::nullopt, solver_options);
     if (!result_lagrangian.is_success()) {
-      throw std::runtime_error(
+      drake::log()->warn(
           fmt::format("Find Lagrangian fails in iter {}", iter_count));
+      return;
     }
+    double lagrangian_cost_val = -result_lagrangian.get_optimal_cost();
     if (bilinear_alternation_option.verbose) {
       drake::log()->info(fmt::format(
-          "Iter: {}, max(log(det(P)))={}, solver_time {}", iter_count,
+          "Iter: {}, max({})={}, solver_time {}", iter_count, cost_name,
           -result_lagrangian.get_optimal_cost(),
           result_lagrangian.get_solver_details<solvers::MosekSolver>()
               .optimizer_time));
@@ -1014,10 +1100,11 @@ void CspaceFreeRegion::CspacePolytopeBilinearAlternation(
       result_lagrangian = BackoffProgram(
           prog_lagrangian.get(), result_lagrangian.get_optimal_cost(),
           bilinear_alternation_option.lagrangian_backoff_scale, solver_options);
+      lagrangian_cost_val = -result_lagrangian.EvalBinding(lagrangian_cost)(0);
       if (bilinear_alternation_option.verbose) {
         drake::log()->info(fmt::format(
-            "backoff with log(det(P)) {}, solver time {}",
-            -result_lagrangian.EvalBinding(log_det_cost)(0),
+            "backoff with {} {}, solver time {}", cost_name,
+            lagrangian_cost_val,
             result_lagrangian.get_solver_details<solvers::MosekSolver>()
                 .optimizer_time));
       }
@@ -1029,10 +1116,9 @@ void CspaceFreeRegion::CspacePolytopeBilinearAlternation(
     *P_final = P_sol;
     *q_final = q_sol;
     // Update the cost.
-    const double log_det_P = std::log(P_sol.determinant());
-    cost_improvement = log_det_P - previous_cost;
+    cost_improvement = lagrangian_cost_val - previous_cost;
     drake::log()->info(fmt::format("cost improvement {}", cost_improvement));
-    previous_cost = log_det_P;
+    previous_cost = lagrangian_cost_val;
 
     // Now solve the polytope problem (fix Lagrangian).
     auto prog_polytope = ConstructPolytopeProgram(
@@ -1042,7 +1128,18 @@ void CspaceFreeRegion::CspacePolytopeBilinearAlternation(
     // Add the constraint that the polytope contains the ellipsoid
     margin = prog_polytope->NewContinuousVariables(C_var.rows(), "margin");
     AddOuterPolytope(prog_polytope.get(), P_sol, q_sol, C_var, d_var, margin);
-    prog_polytope->AddBoundingBoxConstraint(0, kInf, margin);
+
+    // We know that the verified polytope has to be contained in the box t_lower
+    // <= t <= t_upper. Hence there is no point to grow the polytope such that
+    // any of its halfspace C.row(i) * t <= d(i) contains the entire box t_lower
+    // <= t <= t_upper. Hence an upper bound of the margin δ is the maximal
+    // distance from any vertices of the box t_lower <= t <= t_upper to the
+    // ellipsoid.
+    // Computing the distance from a point to a hyperellipsoid is non-trivial.
+    // Here we use an upper bound of this distance, which is the maximal
+    // distance between any two points within the box.
+    const double margin_upper_bound = (t_upper - t_lower).norm();
+    prog_polytope->AddBoundingBoxConstraint(0, margin_upper_bound, margin);
     // Add the constraint that the polytope contains the t_inner_pts.
     if (q_inner_pts.has_value()) {
       Eigen::MatrixXd t_inner_pts(q_inner_pts->rows(), q_inner_pts->cols());
@@ -1075,8 +1172,15 @@ void CspaceFreeRegion::CspacePolytopeBilinearAlternation(
     auto result_polytope =
         solvers::Solve(*prog_polytope, std::nullopt, solver_options);
     if (!result_polytope.is_success()) {
-      throw std::runtime_error(fmt::format(
+      drake::log()->info(
+          fmt::format("mosek info {}, {}",
+                      result_polytope.get_solver_details<solvers::MosekSolver>()
+                          .solution_status,
+                      result_polytope.get_solution_result()));
+
+      drake::log()->warn(fmt::format(
           "Failed to find the polytope at iteration {}", iter_count));
+      return;
     }
 
     if (bilinear_alternation_option.verbose) {
@@ -1151,19 +1255,20 @@ void CspaceFreeRegion::CspacePolytopeBinarySearch(
   DRAKE_DEMAND(binary_search_option.epsilon_min >=
                FindEpsilonLower(C, d_init, t_lower, t_upper, t_inner_pts,
                                 inner_polytope));
+  const Eigen::VectorXd d_max = ComputeMaxD(C, t_lower, t_upper);
 
   VerificationOption verification_option{};
   // Checks if C*t<=d, t_lower<=t<=t_upper is collision free.
-  // Update d_final = d if the program C*t<=d, t_lower <= t <= t_upper is
-  // collision free.
+  // This function will update d_sol when the polytope is collision free.
   auto is_polytope_collision_free = [this, &alternation_tuples, &C,
                                      &lagrangian_gram_vars, &verified_gram_vars,
                                      &separating_plane_vars, &t_lower, &t_upper,
                                      &verification_option, &solver_options,
                                      &C_var, &d_var, &d_minus_Ct,
                                      &t_minus_t_lower, &t_upper_minus_t,
-                                     &t_inner_pts, &inner_polytope](
-                                        const Eigen::VectorXd& d, bool search_d, bool compute_polytope_volume,
+                                     &t_inner_pts, &inner_polytope, &d_max](
+                                        const Eigen::VectorXd& d, bool search_d,
+                                        bool compute_polytope_volume,
                                         Eigen::VectorXd* d_sol) {
     const double redundant_tighten = 0.;
     auto prog = this->ConstructLagrangianProgram(
@@ -1188,9 +1293,8 @@ void CspaceFreeRegion::CspacePolytopeBinarySearch(
             Eigen::Map<const Eigen::VectorXd>(C.data(), C.rows() * C.cols()),
             Eigen::Map<const VectorX<symbolic::Variable>>(C_var.data(),
                                                           C.rows() * C.cols()));
-        // d_var >= d
-        prog_polytope->AddBoundingBoxConstraint(
-            d, Eigen::VectorXd::Constant(d.rows(), kInf), d_var);
+        // d <= d_var <= d_max
+        prog_polytope->AddBoundingBoxConstraint(d, d_max, d_var);
         if (t_inner_pts.has_value()) {
           AddCspacePolytopeContainment(prog_polytope.get(), C_var, d_var,
                                        t_inner_pts.value());
@@ -1205,8 +1309,8 @@ void CspaceFreeRegion::CspacePolytopeBinarySearch(
                                      d_var);
         const auto result_polytope =
             solvers::Solve(*prog_polytope, std::nullopt, solver_options);
-        drake::log()->info(
-              fmt::format("bilinear alt on d is successful {}", result_polytope.is_success()));
+        drake::log()->info(fmt::format("search d is successful = {}",
+                                       result_polytope.is_success()));
         if (result_polytope.is_success()) {
           *d_sol = result_polytope.GetSolution(d_var);
         }
@@ -1216,9 +1320,9 @@ void CspaceFreeRegion::CspacePolytopeBinarySearch(
         "Solver time {}",
         result.get_solver_details<solvers::MosekSolver>().optimizer_time));
     if (compute_polytope_volume) {
-drake::log()->info(
-              fmt::format("C-space polytope volume {}",
-                          CalcCspacePolytopeVolume(C, d, t_lower, t_upper)));
+      drake::log()->info(
+          fmt::format("C-space polytope volume {}",
+                      CalcCspacePolytopeVolume(C, d, t_lower, t_upper)));
     }
     return result.is_success();
   };
@@ -1226,14 +1330,16 @@ drake::log()->info(
           d_without_epsilon +
               binary_search_option.epsilon_max *
                   Eigen::VectorXd::Ones(d_without_epsilon.rows()),
-          binary_search_option.search_d, binary_search_option.compute_polytope_volume, d_final)) {
+          binary_search_option.search_d,
+          binary_search_option.compute_polytope_volume, d_final)) {
     return;
   }
   if (!is_polytope_collision_free(
           d_without_epsilon +
               binary_search_option.epsilon_min *
                   Eigen::VectorXd::Ones(d_without_epsilon.rows()),
-          false /* don't search for d */, binary_search_option.compute_polytope_volume, d_final)) {
+          false /* don't search for d */,
+          binary_search_option.compute_polytope_volume, d_final)) {
     throw std::runtime_error(
         fmt::format("binary search: the initial epsilon {} is infeasible",
                     binary_search_option.epsilon_min));
@@ -1246,9 +1352,9 @@ drake::log()->info(
     const Eigen::VectorXd d =
         d_without_epsilon +
         eps * Eigen::VectorXd::Ones(d_without_epsilon.rows());
-    const bool is_feasible =
-        is_polytope_collision_free(d, binary_search_option.search_d, binary_search_option.compute_polytope_volume, d_final);
-
+    const bool is_feasible = is_polytope_collision_free(
+        d, binary_search_option.search_d,
+        binary_search_option.compute_polytope_volume, d_final);
     if (is_feasible) {
       drake::log()->info(fmt::format("epsilon={} is feasible", eps));
       // Now we need to reset d_without_epsilon. The invariance we want is that
@@ -1271,7 +1377,6 @@ drake::log()->info(
     iter_count++;
   }
 }
-
 
 void CspaceFreeRegion::CspacePolytopeBisectionSearchVector(
     const Eigen::Ref<const Eigen::VectorXd>& q_star,
@@ -1322,9 +1427,10 @@ void CspaceFreeRegion::CspacePolytopeBisectionSearchVector(
                                      &C_var, &d_var, &d_minus_Ct,
                                      &t_minus_t_lower, &t_upper_minus_t,
                                      &t_inner_pts, &inner_polytope](
-                                        const Eigen::VectorXd& d, bool search_d, bool compute_polytope_volume,
+                                        const Eigen::VectorXd& d, bool search_d,
+                                        bool compute_polytope_volume,
                                         Eigen::VectorXd* d_sol) {
-//    const double redundant_tighten = 0;
+    //    const double redundant_tighten = 0;
     // don't use redundant constraint
     std::optional<int> redundant_tighten = std::nullopt;
     auto prog = this->ConstructLagrangianProgram(
@@ -1370,10 +1476,10 @@ void CspaceFreeRegion::CspacePolytopeBisectionSearchVector(
         const auto result_polytope =
             solvers::Solve(*prog_polytope, std::nullopt, solver_options);
         drake::log()->info(
-              fmt::format("bilinear alt on d {}", result_polytope.is_success() ? "succeeded" : "failed"));
+            fmt::format("bilinear alt on d {}",
+                        result_polytope.is_success() ? "succeeded" : "failed"));
 
         if (result_polytope.is_success()) {
-
           *d_sol = result_polytope.GetSolution(d_var);
         }
       }
@@ -1383,29 +1489,30 @@ void CspaceFreeRegion::CspacePolytopeBisectionSearchVector(
         result.get_solver_details<solvers::MosekSolver>().optimizer_time));
     if (compute_polytope_volume) {
       drake::log()->info(
-              fmt::format("C-space polytope volume {}",
-                          CalcCspacePolytopeVolume(C, d, t_lower, t_upper)));
+          fmt::format("C-space polytope volume {}",
+                      CalcCspacePolytopeVolume(C, d, t_lower, t_upper)));
     }
     return result.is_success();
   };
   if (is_polytope_collision_free(
-      d_without_epsilon +
+          d_without_epsilon +
               vector_bisection_search_option.epsilon_max *
                   Eigen::VectorXd::Ones(d_without_epsilon.rows()),
-      vector_bisection_search_option.search_d, vector_bisection_search_option.compute_polytope_volume, d_final)) {
+          vector_bisection_search_option.search_d,
+          vector_bisection_search_option.compute_polytope_volume, d_final)) {
     return;
   }
   if (!is_polytope_collision_free(
-      d_without_epsilon +
-              vector_bisection_search_option.epsilon_min,
-      false /* don't search for d */, vector_bisection_search_option.compute_polytope_volume, d_final)) {
+          d_without_epsilon + vector_bisection_search_option.epsilon_min,
+          false /* don't search for d */,
+          vector_bisection_search_option.compute_polytope_volume, d_final)) {
     throw std::runtime_error(
         fmt::format("binary search: the initial epsilon {} is infeasible",
                     vector_bisection_search_option.epsilon_min));
   }
 
-  // TODO(Alex.Amice) start this from non-uniform vector
-  const Eigen::VectorXd eps_max_const = vector_bisection_search_option.epsilon_max;
+  const Eigen::VectorXd eps_max_const =
+      vector_bisection_search_option.epsilon_max;
   Eigen::VectorXd eps_max = vector_bisection_search_option.epsilon_max;
   Eigen::VectorXd eps_min = vector_bisection_search_option.epsilon_min;
   Eigen::VectorXd eps = (eps_max + eps_min) / 2;
@@ -1415,32 +1522,238 @@ void CspaceFreeRegion::CspacePolytopeBisectionSearchVector(
 
   // TODO(Alex.Amice) make the tol an option
   bool exit_for_iters = false;
-//  while (total_iter_count < vector_bisection_search_option.max_iters and (eps_max - eps_min).maxCoeff() > 1e-6) {
+  //  while (total_iter_count < vector_bisection_search_option.max_iters and
+  //  (eps_max - eps_min).maxCoeff() > 1e-6) {
   while (not exit_for_iters and (eps_max - eps_min).maxCoeff() > 1e-6) {
     eps = (eps_max + eps_min) / 2;
-    const Eigen::VectorXd d =
-        d_without_epsilon + eps;
-    const bool is_feasible =
-        is_polytope_collision_free(d, vector_bisection_search_option.search_d, vector_bisection_search_option.compute_polytope_volume, d_final);
+    const Eigen::VectorXd d = d_without_epsilon + eps;
+    const bool is_feasible = is_polytope_collision_free(
+        d, vector_bisection_search_option.search_d,
+        vector_bisection_search_option.compute_polytope_volume, d_final);
     if (is_feasible) {
-      // feasibility implies that C*t <= d + eps is collision free. As we are trying to grow
-      // eps as much as possible that means we have a new eps_min. We reset eps_max to
-      // its original value as without this we may not have the true coordinatewise max.
+      // feasibility implies that C*t <= d + eps is collision free. As we are
+      // trying to grow eps as much as possible that means we have a new
+      // eps_min. We reset eps_max to its original value as without this we may
+      // not have the true coordinatewise max.
       eps_min = *d_final - d_without_epsilon;
-      eps_max = eps_max_const;
+
+      // ensure eps_min doesn't exceed eps_max
+      const double scale = 0.2;
+      eps_max = eps_max.cwiseMax(eps_min + scale*eps_min.cwiseAbs());
+
+      // grow eps_max a little
+      eps_max = eps_max_const.cwiseMin(eps_max + scale*eps_max.cwiseAbs());
 
       feasible_iter_count++;
     } else {
       eps_max = eps;
     }
     total_iter_count++;
-    drake::log()->info(fmt::format("total iter={}, feasible iter = {}", total_iter_count, feasible_iter_count));
-    exit_for_iters = total_iter_count > vector_bisection_search_option.max_iters or
-                     feasible_iter_count > vector_bisection_search_option.max_feasible_iters;
+    drake::log()->info(fmt::format("total iter={}, feasible iter = {}",
+                                   total_iter_count, feasible_iter_count));
+    exit_for_iters =
+        total_iter_count > vector_bisection_search_option.max_iters or
+        feasible_iter_count > vector_bisection_search_option.max_feasible_iters;
   }
 }
 
+void CspaceFreeRegion::InterleavedCSpacePolytopeSearch(
+    const Eigen::Ref<const Eigen::VectorXd>& q_star,
+    const FilteredCollisionPairs& filtered_collision_pairs,
+    const Eigen::Ref<const Eigen::MatrixXd>& C_init,
+    const Eigen::Ref<const Eigen::VectorXd>& d_init,
+    const InterleavedRegionSearchOptions& interleaved_region_search_option,
+    const solvers::SolverOptions& solver_options,
+    const std::optional<Eigen::MatrixXd>& q_inner_pts,
+    const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
+        inner_polytope,
+    Eigen::MatrixXd* C_final, Eigen::VectorXd* d_final,
+    Eigen::MatrixXd* P_final, Eigen::VectorXd* q_final) const {
 
+  Eigen::MatrixXd C = C_init;
+  for (int i = 0; i < interleaved_region_search_option.max_method_switch; i++) {
+    if (interleaved_region_search_option.use_vector_bisection_search) {
+      CspacePolytopeBisectionSearchVector(
+          q_star, filtered_collision_pairs, C, d_init,
+          interleaved_region_search_option.vector_bisection_search_options,
+          solver_options, q_inner_pts, inner_polytope, d_final);
+    } else {
+      CspacePolytopeBinarySearch(
+          q_star, filtered_collision_pairs, C, d_init,
+          interleaved_region_search_option.scalar_binary_search_options, solver_options,
+          q_inner_pts, inner_polytope, d_final);
+    }
+    CspacePolytopeBilinearAlternation(
+        q_star, filtered_collision_pairs, C, d_init,
+        interleaved_region_search_option.bilinear_alternation_options,
+        solver_options, q_inner_pts, inner_polytope, C_final, d_final, P_final, q_final);
+    C = *C_final;
+  }
+}
+
+void CspaceFreeRegion::DoCspaceFreeRegionSearch(
+        const systems::Diagram<double>& diagram,
+        const multibody::MultibodyPlant<double>* plant,
+        const geometry::SceneGraph<double>* scene_graph,
+        SeparatingPlaneOrder plane_order, CspaceRegionType cspace_region_type,
+        const Eigen::Ref<const Eigen::VectorXd>& seedpoint_q,
+        const Eigen::Ref<const Eigen::VectorXd>& q_star,
+        const FilteredCollisionPairs& filtered_collision_pairs,
+        const Eigen::Ref<const Eigen::MatrixXd>& C_init,
+        const Eigen::Ref<const Eigen::VectorXd>& d_init,
+        const InterleavedRegionSearchOptions& interleaved_region_search_option,
+        const solvers::SolverOptions& solver_options,
+        const std::optional<Eigen::MatrixXd>& q_inner_pts_opt,
+        const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
+            inner_polytope,
+        Eigen::MatrixXd* C_final, Eigen::VectorXd* d_final,
+        Eigen::MatrixXd* P_final, Eigen::VectorXd* q_final) const {
+    CspaceFreeRegion free_region = CspaceFreeRegion(diagram, plant,scene_graph,plane_order, cspace_region_type);
+    Eigen::MatrixXd q_inner_pts;
+    if (q_inner_pts_opt.has_value()){
+        DRAKE_DEMAND(q_inner_pts_opt.value().rows() == seedpoint_q.rows());
+        q_inner_pts.resize(q_inner_pts_opt.value().rows(), q_inner_pts_opt.value().cols() + 1);
+        q_inner_pts.leftCols(q_inner_pts_opt.value().cols()) = q_inner_pts_opt.value();
+        q_inner_pts.rightCols(1) = seedpoint_q;
+    }
+    else {
+        q_inner_pts.resize(seedpoint_q.rows(), 1);
+        q_inner_pts = seedpoint_q;
+    }
+
+    free_region.InterleavedCSpacePolytopeSearch(
+                                    q_star,
+                                    filtered_collision_pairs,
+                                    C_init,
+                                    d_init,
+                                    interleaved_region_search_option,
+                                    solver_options,
+                                    q_inner_pts,
+                                    inner_polytope,  C_final, d_final, P_final,  q_final);
+
+}
+
+void CspaceFreeRegion::DoCspaceFreeRegionSearch(
+        const systems::Diagram<double>& diagram,
+        const multibody::MultibodyPlant<double>* plant,
+        const geometry::SceneGraph<double>* scene_graph,
+        SeparatingPlaneOrder plane_order, CspaceRegionType cspace_region_type,
+        const Eigen::Ref<const Eigen::VectorXd>& seedpoint_q,
+        const Eigen::Ref<const Eigen::VectorXd>& q_star,
+        const FilteredCollisionPairs& filtered_collision_pairs,
+        const Eigen::Ref<const Eigen::MatrixXd>& C_init,
+        const Eigen::Ref<const Eigen::VectorXd>& d_init,
+        const BilinearAlternationOption& bilinear_alternation_option,
+        const solvers::SolverOptions& solver_options,
+        const std::optional<Eigen::MatrixXd>& q_inner_pts_opt,
+        const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
+            inner_polytope,
+        Eigen::MatrixXd* C_final, Eigen::VectorXd* d_final,
+        Eigen::MatrixXd* P_final, Eigen::VectorXd* q_final) const {
+    CspaceFreeRegion free_region = CspaceFreeRegion(diagram, plant,scene_graph,plane_order, cspace_region_type);
+    Eigen::MatrixXd q_inner_pts;
+    if (q_inner_pts_opt.has_value()){
+        DRAKE_DEMAND(q_inner_pts_opt.value().rows() == seedpoint_q.rows());
+        q_inner_pts.resize(q_inner_pts_opt.value().rows(), q_inner_pts_opt.value().cols() + 1);
+        q_inner_pts.leftCols(q_inner_pts_opt.value().cols()) = q_inner_pts_opt.value();
+        q_inner_pts.rightCols(1) = seedpoint_q;
+    }
+    else {
+        q_inner_pts.resize(seedpoint_q.rows(), 1);
+        q_inner_pts = seedpoint_q;
+    }
+
+    free_region.CspacePolytopeBilinearAlternation(
+                                    q_star,
+                                    filtered_collision_pairs,
+                                    C_init,
+                                    d_init,
+                                    bilinear_alternation_option,
+                                    solver_options,
+                                    q_inner_pts,
+                                    inner_polytope,  C_final, d_final, P_final,  q_final);
+
+}
+
+void CspaceFreeRegion::DoCspaceFreeRegionSearch(
+        const systems::Diagram<double>& diagram,
+        const multibody::MultibodyPlant<double>* plant,
+        const geometry::SceneGraph<double>* scene_graph,
+        SeparatingPlaneOrder plane_order, CspaceRegionType cspace_region_type,
+        const Eigen::Ref<const Eigen::VectorXd>& seedpoint_q,
+        const Eigen::Ref<const Eigen::VectorXd>& q_star,
+        const FilteredCollisionPairs& filtered_collision_pairs,
+        const Eigen::Ref<const Eigen::MatrixXd>& C_init,
+        const Eigen::Ref<const Eigen::VectorXd>& d_init,
+        const BinarySearchOption& binary_search_option,
+        const solvers::SolverOptions& solver_options,
+        const std::optional<Eigen::MatrixXd>& q_inner_pts_opt,
+        const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
+            inner_polytope, Eigen::VectorXd* d_final) const {
+    CspaceFreeRegion free_region = CspaceFreeRegion(diagram, plant,scene_graph,plane_order, cspace_region_type);
+    Eigen::MatrixXd q_inner_pts;
+    if (q_inner_pts_opt.has_value()){
+        DRAKE_DEMAND(q_inner_pts_opt.value().rows() == seedpoint_q.rows());
+        q_inner_pts.resize(q_inner_pts_opt.value().rows(), q_inner_pts_opt.value().cols() + 1);
+        q_inner_pts.leftCols(q_inner_pts_opt.value().cols()) = q_inner_pts_opt.value();
+        q_inner_pts.rightCols(1) = seedpoint_q;
+    }
+    else {
+        q_inner_pts.resize(seedpoint_q.rows(), 1);
+        q_inner_pts = seedpoint_q;
+    }
+
+    free_region.CspacePolytopeBinarySearch(
+                                    q_star,
+                                    filtered_collision_pairs,
+                                    C_init,
+                                    d_init,
+                                    binary_search_option,
+                                    solver_options,
+                                    q_inner_pts,
+                                    inner_polytope,  d_final);
+    // TODO(Alex.Amice) maybe actually compute inscribed ellipse?
+}
+
+void CspaceFreeRegion::DoCspaceFreeRegionSearch(
+        const systems::Diagram<double>& diagram,
+        const multibody::MultibodyPlant<double>* plant,
+        const geometry::SceneGraph<double>* scene_graph,
+        SeparatingPlaneOrder plane_order, CspaceRegionType cspace_region_type,
+        const Eigen::Ref<const Eigen::VectorXd>& seedpoint_q,
+        const Eigen::Ref<const Eigen::VectorXd>& q_star,
+        const FilteredCollisionPairs& filtered_collision_pairs,
+        const Eigen::Ref<const Eigen::MatrixXd>& C_init,
+        const Eigen::Ref<const Eigen::VectorXd>& d_init,
+        const VectorBisectionSearchOption& vector_bisection_search_option,
+        const solvers::SolverOptions& solver_options,
+        const std::optional<Eigen::MatrixXd>& q_inner_pts_opt,
+        const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
+            inner_polytope, Eigen::VectorXd* d_final) const {
+    CspaceFreeRegion free_region = CspaceFreeRegion(diagram, plant,scene_graph,plane_order, cspace_region_type);
+    Eigen::MatrixXd q_inner_pts;
+    if (q_inner_pts_opt.has_value()){
+        DRAKE_DEMAND(q_inner_pts_opt.value().rows() == seedpoint_q.rows());
+        q_inner_pts.resize(q_inner_pts_opt.value().rows(), q_inner_pts_opt.value().cols() + 1);
+        q_inner_pts.leftCols(q_inner_pts_opt.value().cols()) = q_inner_pts_opt.value();
+        q_inner_pts.rightCols(1) = seedpoint_q;
+    }
+    else {
+        q_inner_pts.resize(seedpoint_q.rows(), 1);
+        q_inner_pts = seedpoint_q;
+    }
+
+    free_region.CspacePolytopeBisectionSearchVector(
+                                    q_star,
+                                    filtered_collision_pairs,
+                                    C_init,
+                                    d_init,
+                                    vector_bisection_search_option,
+                                    solver_options,
+                                    q_inner_pts,
+                                    inner_polytope,  d_final);
+    // TODO(Alex.Amice) maybe actually compute inscribed ellipse?
+}
 
 
 std::vector<LinkVertexOnPlaneSideRational>
@@ -1829,7 +2142,7 @@ Eigen::VectorXd FindEpsilonLowerVector(
   const auto t = prog.NewContinuousVariables(nt, "t");
   const auto epsilon = prog.NewContinuousVariables(C.rows(), "epsilon");
   // Add the constraint C*t<=d+epsilon and t_lower <= t <= t_upper.
-  Eigen::MatrixXd A(C.rows(), nt + C.rows() );
+  Eigen::MatrixXd A(C.rows(), nt + C.rows());
   A.leftCols(nt) = C;
   A.rightCols(C.rows()) = -Eigen::MatrixXd::Identity(C.rows(), C.rows());
   prog.AddLinearConstraint(A, Eigen::VectorXd::Constant(C.rows(), -kInf), d,
@@ -1837,8 +2150,10 @@ Eigen::VectorXd FindEpsilonLowerVector(
   prog.AddBoundingBoxConstraint(t_lower, t_upper, t);
 
   // epsilon >= C *t_inner_pts - d
-  const Eigen::VectorXd eps_min = (C * t_inner_pts).colwise() - d-Eigen::VectorXd::Constant(d.rows(),1E-8);
-  prog.AddBoundingBoxConstraint(eps_min, kInf*Eigen::VectorXd::Ones(epsilon.rows()), epsilon);
+  const Eigen::VectorXd eps_min = (C * t_inner_pts).colwise() - d -
+                                  Eigen::VectorXd::Constant(d.rows(), 1E-8);
+  prog.AddBoundingBoxConstraint(
+      eps_min, kInf * Eigen::VectorXd::Ones(epsilon.rows()), epsilon);
 
   if (inner_polytope.has_value()) {
     // This is not the most efficient way to add the constraint that
@@ -1851,7 +2166,7 @@ Eigen::VectorXd FindEpsilonLowerVector(
                                                       C.rows() * C.cols()));
     // d_var = d+epsilon
     const auto d_var = prog.NewContinuousVariables(d.rows());
-    Eigen::MatrixXd coeff(d.rows(), 2*d.rows());
+    Eigen::MatrixXd coeff(d.rows(), 2 * d.rows());
     coeff << Eigen::MatrixXd::Identity(d.rows(), d.rows()),
         Eigen::MatrixXd::Identity(d.rows(), d.rows());
     prog.AddLinearEqualityConstraint(coeff, d, {d_var, epsilon});
@@ -1859,7 +2174,7 @@ Eigen::VectorXd FindEpsilonLowerVector(
                                  inner_polytope->second, t_lower, t_upper);
   }
   // minimize epsilon.
-  prog.AddLinearCost(Eigen::MatrixXd::Ones(epsilon.rows(),1), 0, epsilon);
+  prog.AddLinearCost(Eigen::MatrixXd::Ones(epsilon.rows(), 1), 0, epsilon);
   const auto result = solvers::Solve(prog);
   DRAKE_DEMAND(result.is_success());
   return result.GetSolution(epsilon);
@@ -1870,56 +2185,61 @@ Eigen::VectorXd FindEpsilonUpperVector(
     const Eigen::Ref<const Eigen::VectorXd>& d,
     const Eigen::Ref<const Eigen::VectorXd>& t_lower,
     const Eigen::Ref<const Eigen::VectorXd>& t_upper) {
-    using solvers::Binding;
+  using solvers::Binding;
 
-    const int nt = t_lower.rows();
-    solvers::MathematicalProgram prog;
-    const auto t = prog.NewContinuousVariables(nt, "t");
+  const int nt = t_lower.rows();
+  solvers::MathematicalProgram prog;
+  const auto t = prog.NewContinuousVariables(nt, "t");
 
-    const double inflation_coeff = 1.1;
-    geometry::optimization::HPolyhedron Poly_lim_t = geometry::optimization::HPolyhedron::MakeBox(inflation_coeff*t_lower, inflation_coeff*t_upper);
+  const double inflation_coeff = 1.1;
+  geometry::optimization::HPolyhedron Poly_lim_t =
+      geometry::optimization::HPolyhedron::MakeBox(inflation_coeff * t_lower,
+                                                   inflation_coeff * t_upper);
 
-    prog.AddLinearConstraint(Poly_lim_t.A(), Eigen::VectorXd::Constant(Poly_lim_t.A().rows(), -kInf), Poly_lim_t.b(), t);
-    Binding<solvers::LinearConstraint> redundant_constraint_binding = prog.AddLinearConstraint(
-      C.row(0), Eigen::VectorXd::Constant(1, -kInf), d.row(0), t
-      );
+  prog.AddLinearConstraint(
+      Poly_lim_t.A(), Eigen::VectorXd::Constant(Poly_lim_t.A().rows(), -kInf),
+      Poly_lim_t.b(), t);
+  Binding<solvers::LinearConstraint> redundant_constraint_binding =
+      prog.AddLinearConstraint(C.row(0), Eigen::VectorXd::Constant(1, -kInf),
+                               d.row(0), t);
   Binding<solvers::LinearCost> program_cost_binding =
       prog.AddLinearCost(C.row(0), 0, t);
 
-  auto bisect_eps = [&prog, &program_cost_binding, &redundant_constraint_binding, &C, &d](int i){
+  auto bisect_eps = [&prog, &program_cost_binding,
+                     &redundant_constraint_binding, &C, &d](int i) {
     double eps_min{0};
     double eps_max{1};
     double cur_eps{0};
     program_cost_binding.evaluator()->UpdateCoefficients(C.row(i), d(i));
-    while(eps_max - eps_min > 1e-6){
-      cur_eps = (eps_max+eps_min)/2;
+    while (eps_max - eps_min > 1e-6) {
+      cur_eps = (eps_max + eps_min) / 2;
       redundant_constraint_binding.evaluator()->UpdateCoefficients(
-        C.row(i), Eigen::VectorXd::Constant(1, -kInf),
-        Eigen::VectorXd::Constant(1, d(i)+cur_eps + 1));
+          C.row(i), Eigen::VectorXd::Constant(1, -kInf),
+          Eigen::VectorXd::Constant(1, d(i) + cur_eps + 1));
       auto result = solvers::Solve(prog);
-    // constraints define an empty set or the current inequality of other is not redundant
-    bool empty_set_condition = result.get_solution_result() == solvers::SolutionResult::kInfeasibleConstraints ||
-    result.get_solution_result() == solvers::SolutionResult::kInfeasible_Or_Unbounded;
-    // implies c^Tt <= d+ eps irredundant
-    if(empty_set_condition or -result.get_optimal_cost() > d(i)){
-      eps_min = cur_eps;
-    }
-    else{
-      eps_max = cur_eps;
-    }
+      // constraints define an empty set or the current inequality of other is
+      // not redundant
+      bool empty_set_condition =
+          result.get_solution_result() ==
+              solvers::SolutionResult::kInfeasibleConstraints ||
+          result.get_solution_result() ==
+              solvers::SolutionResult::kInfeasible_Or_Unbounded;
+      // implies c^Tt <= d+ eps irredundant
+      if (empty_set_condition or -result.get_optimal_cost() > d(i)) {
+        eps_min = cur_eps;
+      } else {
+        eps_max = cur_eps;
+      }
     }
     return cur_eps;
-    };
+  };
 
   Eigen::VectorXd eps_max(C.rows());
-  for (int i = 0; i < C.rows(); i++){
+  for (int i = 0; i < C.rows(); i++) {
     eps_max(i) = bisect_eps(i);
   }
   return eps_max;
 }
-
-
-
 
 void GetCspacePolytope(const Eigen::Ref<const Eigen::MatrixXd>& C,
                        const Eigen::Ref<const Eigen::VectorXd>& d,
