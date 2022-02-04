@@ -639,8 +639,7 @@ class CspaceFreeRegion {
         const solvers::SolverOptions& solver_options,
         const std::optional<Eigen::MatrixXd>& q_inner_pts,
         const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
-            inner_polytope,
-        Eigen::MatrixXd* C_final, Eigen::VectorXd* d_final,
+            inner_polytope, Eigen::VectorXd* d_final,
         Eigen::MatrixXd* P_final, Eigen::VectorXd* q_final) const;
 
   const RationalForwardKinematics& rational_forward_kinematics() const {

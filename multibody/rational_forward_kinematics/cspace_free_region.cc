@@ -1647,7 +1647,9 @@ void CspaceFreeRegion::DoCspaceFreeRegionSearch(
             inner_polytope,
         Eigen::MatrixXd* C_final, Eigen::VectorXd* d_final,
         Eigen::MatrixXd* P_final, Eigen::VectorXd* q_final) const {
-    CspaceFreeRegion free_region = CspaceFreeRegion(diagram, plant,scene_graph,plane_order, cspace_region_type);
+    CspaceFreeRegion free_region{diagram, plant,
+                                scene_graph,plane_order,
+                                cspace_region_type};
     Eigen::MatrixXd q_inner_pts;
     if (q_inner_pts_opt.has_value()){
         DRAKE_DEMAND(q_inner_pts_opt.value().rows() == seedpoint_q.rows());
@@ -1709,7 +1711,6 @@ void CspaceFreeRegion::DoCspaceFreeRegionSearch(
                                     solver_options,
                                     q_inner_pts,
                                     inner_polytope,  d_final);
-    // TODO(Alex.Amice) maybe actually compute inscribed ellipse?
 }
 
 void CspaceFreeRegion::DoCspaceFreeRegionSearch(
@@ -1749,7 +1750,6 @@ void CspaceFreeRegion::DoCspaceFreeRegionSearch(
                                     solver_options,
                                     q_inner_pts,
                                     inner_polytope,  d_final);
-    // TODO(Alex.Amice) maybe actually compute inscribed ellipse?
 }
 
 
