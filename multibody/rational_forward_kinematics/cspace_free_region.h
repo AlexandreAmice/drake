@@ -111,6 +111,15 @@ struct LinkVertexOnPlaneSideRational {
 enum class CspaceRegionType { kGenericPolytope, kAxisAlignedBoundingBox };
 
 /**
+ * When we maximize the inscribed ellipsoid, we can measure the size of the
+ * ellipsoid by either the logarithm of its volume, or the n'th root of its
+ * volume. The logarithm volume would introduce exponential cone constraints,
+ * while the n'th root of the volume would introduce second order cone
+ * constraints.
+ */
+enum class EllipsoidVolume { kLog, kNthRoot };
+
+/**
  * This class tries to find a large convex set in the configuration space, such
  * that this whole convex set is collision free. We assume that the obstacles
  * are unions of polytopes in the workspace, and the robot link poses
@@ -373,10 +382,13 @@ class CspaceFreeRegion {
     // Whether to compute and print the volume of the polytope {C*t<=d,
     // t_lower<= t <= t_upper} each time we search for the polytope.
     bool compute_polytope_volume{false};
+    // The objective function used in maximizing the volume of the inscribed
+    // ellipsoid.
+    EllipsoidVolume ellipsoid_volume{EllipsoidVolume::kNthRoot};
   };
 
   /**
-   * Search the C-splace polytopic free region
+   * Search the C-space polytopic free region
    * C * t <= d
    * t_lower <= t <= t_upper
    * through bilinear alternation.
@@ -409,6 +421,9 @@ class CspaceFreeRegion {
       Eigen::MatrixXd* C_final, Eigen::VectorXd* d_final,
       Eigen::MatrixXd* P_final, Eigen::VectorXd* q_final) const;
 
+
+
+
   struct BinarySearchOption {
     double epsilon_max{10};
     double epsilon_min{0};
@@ -436,6 +451,24 @@ class CspaceFreeRegion {
     bool search_d{true};
     // Whether to compute and print the volume of the C-space polytope.
     bool compute_polytope_volume{false};
+  };
+
+  struct IntegratedRegionSearchOptions {
+    // options used for VectorBisectionSearch (if used)
+    VectorBisectionSearchOption vector_bisection_search_options;
+
+    // options used for scalar Binary search (if used)
+    BinarySearchOption scalar_binary_search_options;
+
+    // options used for bilinear alternation
+    BilinearAlternationOption bilinear_alternation_options;
+
+    // number of times bisection search and bilinear alternation search are themselves alternated
+    int max_method_switch{2};
+
+    // whether to use VectorBisectionSearch or scalar BinarySearch
+    bool use_vector_bisection_search{true};
+
   };
 
   /**
@@ -501,6 +534,23 @@ class CspaceFreeRegion {
       const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
           inner_polytope,
       Eigen::VectorXd* d_final) const;
+
+  /**
+   * Search for a cspace polytope from an initial guess polytope by alternating between
+   * bisection search and bilinear alternation
+   */
+   void IntegratedCSpacePolytopeSearch(
+       const Eigen::Ref<const Eigen::VectorXd>& q_star,
+      const FilteredCollisionPairs& filtered_collision_pairs,
+      const Eigen::Ref<const Eigen::MatrixXd>& C_init,
+      const Eigen::Ref<const Eigen::VectorXd>& d_init,
+      const IntegratedRegionSearchOptions& integrated_region_search_option,
+      const solvers::SolverOptions& solver_options,
+      const std::optional<Eigen::MatrixXd>& q_inner_pts,
+      const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
+          inner_polytope,
+      Eigen::MatrixXd* C_final, Eigen::VectorXd* d_final,
+      Eigen::MatrixXd* P_final, Eigen::VectorXd* q_final) const;
 
   const RationalForwardKinematics& rational_forward_kinematics() const {
     return rational_forward_kinematics_;
