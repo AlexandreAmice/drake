@@ -139,6 +139,20 @@ drake_cc_library(
 )
 
 drake_cc_library(
+    name = "t_in_collision_constraint",
+    srcs = [
+        "t_in_collision_contraint.cc",
+    ],
+    hdrs = ["t_in_collision_contraint.h"],
+    deps = [
+        "//geometry/optimization:iris",
+        "//multibody/plant",
+        "//solvers:constraint",
+        "//solvers:mathematical_program",
+    ],
+)
+
+drake_cc_library(
     name = "configuration_space_collision_free_region",
     srcs = [
         "configuration_space_collision_free_region.cc",
