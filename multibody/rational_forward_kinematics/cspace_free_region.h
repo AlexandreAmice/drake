@@ -579,7 +579,8 @@ class CspaceFreeRegion {
       const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
           inner_polytope,
       Eigen::MatrixXd* C_final, Eigen::VectorXd* d_final,
-      Eigen::MatrixXd* P_final, Eigen::VectorXd* q_final) const;
+      Eigen::MatrixXd* P_final, Eigen::VectorXd* q_final,
+      std::vector<SeparatingPlane>* separating_planes_sol) const;
 
 //   /**
 //    * do cspace region search

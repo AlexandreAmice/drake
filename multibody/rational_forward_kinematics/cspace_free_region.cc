@@ -1615,7 +1615,8 @@ void CspaceFreeRegion::InterleavedCSpacePolytopeSearch(
     const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
         inner_polytope,
     Eigen::MatrixXd* C_final, Eigen::VectorXd* d_final,
-    Eigen::MatrixXd* P_final, Eigen::VectorXd* q_final) const {
+    Eigen::MatrixXd* P_final, Eigen::VectorXd* q_final,
+    std::vector<SeparatingPlane>* separating_planes_sol) const {
 
   Eigen::MatrixXd C = C_init;
   for (int i = 0; i < interleaved_region_search_option.max_method_switch; i++) {
@@ -1628,12 +1629,12 @@ void CspaceFreeRegion::InterleavedCSpacePolytopeSearch(
       CspacePolytopeBinarySearch(
           q_star, filtered_collision_pairs, C, d_init,
           interleaved_region_search_option.scalar_binary_search_options, solver_options,
-          q_inner_pts, inner_polytope, d_final);
+          q_inner_pts, inner_polytope, d_final, separating_planes_sol);
     }
     CspacePolytopeBilinearAlternation(
         q_star, filtered_collision_pairs, C, d_init,
         interleaved_region_search_option.bilinear_alternation_options,
-        solver_options, q_inner_pts, inner_polytope, C_final, d_final, P_final, q_final);
+        solver_options, q_inner_pts, inner_polytope, C_final, d_final, P_final, q_final, separating_planes_sol);
     C = *C_final;
   }
 }
