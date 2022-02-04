@@ -7,6 +7,11 @@
 namespace drake{
 namespace multibody{
 
+//using CspaceFreeRegion::FilteredCollisionPairs;
+//using SeparatingPlaneOrder;
+//using CspaceRegionType;
+//using CspaceFreeRegion::InterleavedRegionSearchOptions;
+//using SeparatingPlane;
 
 CspaceFreeRegionSolution DoCspaceFreeRegionSearch(
         const systems::Diagram<double>& diagram,
@@ -15,10 +20,10 @@ CspaceFreeRegionSolution DoCspaceFreeRegionSearch(
         SeparatingPlaneOrder plane_order, CspaceRegionType cspace_region_type,
         const Eigen::Ref<const Eigen::VectorXd>& seedpoint_q,
         const Eigen::Ref<const Eigen::VectorXd>& q_star,
-        const FilteredCollisionPairs& filtered_collision_pairs,
+        const CspaceFreeRegion::FilteredCollisionPairs& filtered_collision_pairs,
         const Eigen::Ref<const Eigen::MatrixXd>& C_init,
         const Eigen::Ref<const Eigen::VectorXd>& d_init,
-        const InterleavedRegionSearchOptions& interleaved_region_search_option,
+        const CspaceFreeRegion::InterleavedRegionSearchOptions& interleaved_region_search_option,
         const solvers::SolverOptions& solver_options,
         const std::optional<Eigen::MatrixXd>& q_inner_pts_opt,
         const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
@@ -41,7 +46,7 @@ CspaceFreeRegionSolution DoCspaceFreeRegionSearch(
     Eigen::VectorXd d_final;
     Eigen::MatrixXd P_final;
     Eigen::VectorXd q_final;
-    std::vector<SeparatingPlane>* separating_planes_sol;
+    std::vector<SeparatingPlane> separating_planes_sol;
 
     free_region.InterleavedCSpacePolytopeSearch(
                                     q_star,
