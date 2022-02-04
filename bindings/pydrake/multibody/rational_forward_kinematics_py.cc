@@ -144,7 +144,11 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
   // SeparatingPlane
   py::class_<multibody::SeparatingPlane>(
       m, "SeparatingPlane", doc.SeparatingPlane.doc)
-      .def_readonly("a", &SeparatingPlane::a, doc.SeparatingPlane.a.doc)
+//      .def_readonly("a", &SeparatingPlane::a, doc.SeparatingPlane.a.doc)
+      .def("a",
+                    [](const SeparatingPlane* self){
+          return self->a;
+      }, doc.SeparatingPlane.a.doc)
       .def_readonly("b", &SeparatingPlane::b, doc.SeparatingPlane.b.doc)
       .def_readonly("positive_side_polytope",
           &SeparatingPlane::positive_side_polytope,
@@ -156,8 +160,13 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
           doc.SeparatingPlane.expressed_link.doc)
       .def_readonly(
           "order", &SeparatingPlane::order, doc.SeparatingPlane.order.doc)
-      .def_readonly("decision_variables", &SeparatingPlane::decision_variables,
-          doc.SeparatingPlane.decision_variables.doc);
+      .def("decision_variables",
+                    [](const SeparatingPlane* self){
+          return self->decision_variables;
+      }, doc.SeparatingPlane.decision_variables.doc);
+//      .def_readonly("decision_variables", &SeparatingPlane::decision_variables,
+//          doc.SeparatingPlane.decision_variables.doc);
+
 
   // PlaneSide
   py::enum_<PlaneSide>(m, "PlaneSide", doc.PlaneSide.doc)
@@ -274,26 +283,26 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
           doc.CspaceFreeRegion.VectorBisectionSearchOption
               .max_feasible_iters.doc);
 
-  //IntegratedRegionSearchOptions
-   py::class_<CspaceFreeRegion::IntegratedRegionSearchOptions>(m,
-      "IntegratedRegionSearchOptions",
-      doc.CspaceFreeRegion.IntegratedRegionSearchOptions.doc)
+  //interleavedRegionSearchOptions
+   py::class_<CspaceFreeRegion::InterleavedRegionSearchOptions>(m,
+      "InterleavedRegionSearchOptions",
+      doc.CspaceFreeRegion.InterleavedRegionSearchOptions.doc)
       .def(py::init<>())
       .def_readwrite("vector_bisection_search_options",
-          &CspaceFreeRegion::IntegratedRegionSearchOptions::vector_bisection_search_options,
-          doc.CspaceFreeRegion.IntegratedRegionSearchOptions.vector_bisection_search_options.doc)
+          &CspaceFreeRegion::InterleavedRegionSearchOptions::vector_bisection_search_options,
+          doc.CspaceFreeRegion.InterleavedRegionSearchOptions.vector_bisection_search_options.doc)
       .def_readwrite("scalar_binary_search_options",
-          &CspaceFreeRegion::IntegratedRegionSearchOptions::scalar_binary_search_options,
-          doc.CspaceFreeRegion.IntegratedRegionSearchOptions.scalar_binary_search_options.doc)
+          &CspaceFreeRegion::InterleavedRegionSearchOptions::scalar_binary_search_options,
+          doc.CspaceFreeRegion.InterleavedRegionSearchOptions.scalar_binary_search_options.doc)
       .def_readwrite("bilinear_alternation_options",
-          &CspaceFreeRegion::IntegratedRegionSearchOptions::bilinear_alternation_options,
-          doc.CspaceFreeRegion.IntegratedRegionSearchOptions.bilinear_alternation_options.doc)
+          &CspaceFreeRegion::InterleavedRegionSearchOptions::bilinear_alternation_options,
+          doc.CspaceFreeRegion.InterleavedRegionSearchOptions.bilinear_alternation_options.doc)
       .def_readwrite("max_method_switch",
-          &CspaceFreeRegion::IntegratedRegionSearchOptions::max_method_switch,
-          doc.CspaceFreeRegion.IntegratedRegionSearchOptions.max_method_switch.doc)
+          &CspaceFreeRegion::InterleavedRegionSearchOptions::max_method_switch,
+          doc.CspaceFreeRegion.InterleavedRegionSearchOptions.max_method_switch.doc)
       .def_readwrite("use_vector_bisection_search",
-          &CspaceFreeRegion::IntegratedRegionSearchOptions::use_vector_bisection_search,
-          doc.CspaceFreeRegion.IntegratedRegionSearchOptions.use_vector_bisection_search.doc);
+          &CspaceFreeRegion::InterleavedRegionSearchOptions::use_vector_bisection_search,
+          doc.CspaceFreeRegion.InterleavedRegionSearchOptions.use_vector_bisection_search.doc);
 
   // CspaceFreeRegion
   py::class_<CspaceFreeRegion> cspace_cls(
@@ -497,15 +506,15 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
           py::arg("inner_polytope") = std::nullopt,
           doc.CspaceFreeRegion.CspacePolytopeBisectionSearchVector.doc)
       .def(
-          "IntegratedCSpacePolytopeSearch",
+          "InterleavedCSpacePolytopeSearch",
           [](const CspaceFreeRegion* self,
               const Eigen::Ref<const Eigen::VectorXd>& q_star,
               const CspaceFreeRegion::FilteredCollisionPairs&
                   filtered_collision_pairs,
               const Eigen::Ref<const Eigen::MatrixXd>& C_init,
               const Eigen::Ref<const Eigen::VectorXd>& d_init,
-              const CspaceFreeRegion::IntegratedRegionSearchOptions&
-                  integrated_region_search_options,
+              const CspaceFreeRegion::InterleavedRegionSearchOptions&
+                  interleaved_region_search_options,
               const solvers::SolverOptions& solver_options,
               const std::optional<Eigen::MatrixXd>& q_inner_pts,
               const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
@@ -514,15 +523,15 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
             Eigen::VectorXd d_final;
             Eigen::MatrixXd P_final;
             Eigen::VectorXd q_final;
-            self->IntegratedCSpacePolytopeSearch(q_star,
+            self->InterleavedCSpacePolytopeSearch(q_star,
                 filtered_collision_pairs, C_init, d_init,
-                integrated_region_search_options, solver_options, q_inner_pts,
+                interleaved_region_search_options, solver_options, q_inner_pts,
                 inner_polytope, &C_final, &d_final, &P_final, &q_final);
             return std::make_tuple(C_final, d_final, P_final, q_final);
           },
           py::arg("q_star"), py::arg("filtered_collision_pairs"),
           py::arg("C_init"), py::arg("d_init"),
-          py::arg("integrated_region_search_options"), py::arg("solver_options"),
+          py::arg("interleaved_region_search_options"), py::arg("solver_options"),
           py::arg("q_inner_pts") = std::nullopt,
           py::arg("inner_polytope") = std::nullopt,
           doc.CspaceFreeRegion.CspacePolytopeBilinearAlternation.doc)

@@ -453,7 +453,7 @@ class CspaceFreeRegion {
     bool compute_polytope_volume{false};
   };
 
-  struct IntegratedRegionSearchOptions {
+  struct InterleavedRegionSearchOptions {
     // options used for VectorBisectionSearch (if used)
     VectorBisectionSearchOption vector_bisection_search_options;
 
@@ -539,18 +539,109 @@ class CspaceFreeRegion {
    * Search for a cspace polytope from an initial guess polytope by alternating between
    * bisection search and bilinear alternation
    */
-   void IntegratedCSpacePolytopeSearch(
+   void InterleavedCSpacePolytopeSearch(
        const Eigen::Ref<const Eigen::VectorXd>& q_star,
       const FilteredCollisionPairs& filtered_collision_pairs,
       const Eigen::Ref<const Eigen::MatrixXd>& C_init,
       const Eigen::Ref<const Eigen::VectorXd>& d_init,
-      const IntegratedRegionSearchOptions& integrated_region_search_option,
+      const InterleavedRegionSearchOptions& interleaved_region_search_option,
       const solvers::SolverOptions& solver_options,
       const std::optional<Eigen::MatrixXd>& q_inner_pts,
       const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
           inner_polytope,
       Eigen::MatrixXd* C_final, Eigen::VectorXd* d_final,
       Eigen::MatrixXd* P_final, Eigen::VectorXd* q_final) const;
+
+   /**
+    * do cspace region search
+    * @return
+    */
+    void DoCspaceFreeRegionSearch(
+        const systems::Diagram<double>& diagram,
+        const multibody::MultibodyPlant<double>* plant,
+        const geometry::SceneGraph<double>* scene_graph,
+        SeparatingPlaneOrder plane_order, CspaceRegionType cspace_region_type,
+        const Eigen::Ref<const Eigen::VectorXd>& seedpoint_q,
+        const Eigen::Ref<const Eigen::VectorXd>& q_star,
+        const FilteredCollisionPairs& filtered_collision_pairs,
+        const Eigen::Ref<const Eigen::MatrixXd>& C_init,
+        const Eigen::Ref<const Eigen::VectorXd>& d_init,
+        const InterleavedRegionSearchOptions& interleaved_region_search_option,
+        const solvers::SolverOptions& solver_options,
+        const std::optional<Eigen::MatrixXd>& q_inner_pts,
+        const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
+            inner_polytope,
+        Eigen::MatrixXd* C_final, Eigen::VectorXd* d_final,
+        Eigen::MatrixXd* P_final, Eigen::VectorXd* q_final) const;
+
+    void DoCspaceFreeRegionSearch(
+        const systems::Diagram<double>& diagram,
+        const multibody::MultibodyPlant<double>* plant,
+        const geometry::SceneGraph<double>* scene_graph,
+        SeparatingPlaneOrder plane_order, CspaceRegionType cspace_region_type,
+        const Eigen::Ref<const Eigen::VectorXd>& seedpoint_q,
+        const Eigen::Ref<const Eigen::VectorXd>& q_star,
+        const FilteredCollisionPairs& filtered_collision_pairs,
+        const Eigen::Ref<const Eigen::MatrixXd>& C_init,
+        const Eigen::Ref<const Eigen::VectorXd>& d_init,
+        const BilinearAlternationOption& bilinear_alternation_option,
+        const solvers::SolverOptions& solver_options,
+        const std::optional<Eigen::MatrixXd>& q_inner_pts,
+        const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
+            inner_polytope,
+        Eigen::MatrixXd* C_final, Eigen::VectorXd* d_final,
+        Eigen::MatrixXd* P_final, Eigen::VectorXd* q_final) const;
+
+    void DoCspaceFreeRegionSearch(
+        const systems::Diagram<double>& diagram,
+        const multibody::MultibodyPlant<double>* plant,
+        const geometry::SceneGraph<double>* scene_graph,
+        SeparatingPlaneOrder plane_order, CspaceRegionType cspace_region_type,
+        const Eigen::Ref<const Eigen::VectorXd>& seedpoint_q,
+        const Eigen::Ref<const Eigen::VectorXd>& q_star,
+        const FilteredCollisionPairs& filtered_collision_pairs,
+        const Eigen::Ref<const Eigen::MatrixXd>& C_init,
+        const Eigen::Ref<const Eigen::VectorXd>& d_init,
+        const BinarySearchOption& binary_search_option,
+        const solvers::SolverOptions& solver_options,
+        const std::optional<Eigen::MatrixXd>& q_inner_pts,
+        const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
+            inner_polytope, Eigen::VectorXd* d_final) const;
+
+    void DoCspaceFreeRegionSearch(
+        const systems::Diagram<double>& diagram,
+        const multibody::MultibodyPlant<double>* plant,
+        const geometry::SceneGraph<double>* scene_graph,
+        SeparatingPlaneOrder plane_order, CspaceRegionType cspace_region_type,
+        const Eigen::Ref<const Eigen::VectorXd>& seedpoint_q,
+        const Eigen::Ref<const Eigen::VectorXd>& q_star,
+        const FilteredCollisionPairs& filtered_collision_pairs,
+        const Eigen::Ref<const Eigen::MatrixXd>& C_init,
+        const Eigen::Ref<const Eigen::VectorXd>& d_init,
+        const VectorBisectionSearchOption& vector_bisection_search_option,
+        const solvers::SolverOptions& solver_options,
+        const std::optional<Eigen::MatrixXd>& q_inner_pts,
+        const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
+            inner_polytope,
+        Eigen::VectorXd* d_final) const;
+
+    void DoCspaceFreeRegionSearchMultiSeed(
+        const systems::Diagram<double>& diagram,
+        const multibody::MultibodyPlant<double>* plant,
+        const geometry::SceneGraph<double>* scene_graph,
+        SeparatingPlaneOrder plane_order, CspaceRegionType cspace_region_type,
+        const Eigen::Ref<const Eigen::VectorXd>& seedpoint_q,
+        const Eigen::Ref<const Eigen::VectorXd>& q_star,
+        const FilteredCollisionPairs& filtered_collision_pairs,
+        const Eigen::Ref<const Eigen::MatrixXd>& C_init,
+        const Eigen::Ref<const Eigen::VectorXd>& d_init,
+        const VectorBisectionSearchOption& vector_bisection_search_option,
+        const solvers::SolverOptions& solver_options,
+        const std::optional<Eigen::MatrixXd>& q_inner_pts,
+        const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
+            inner_polytope,
+        Eigen::MatrixXd* C_final, Eigen::VectorXd* d_final,
+        Eigen::MatrixXd* P_final, Eigen::VectorXd* q_final) const;
 
   const RationalForwardKinematics& rational_forward_kinematics() const {
     return rational_forward_kinematics_;
