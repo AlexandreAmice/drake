@@ -92,19 +92,22 @@ class IrisPlantVisualizer:
         self.col_func_handle = partial(self.eval_cons, c=self.collision_constraint, tol=0.01)
         self.col_func_handle_rational = self.eval_cons_rational
 
-        #plotting planes setup
-        x = np.linspace(-1, 1, 3)
-        y = np.linspace(-1, 1, 3)
+        # Plotting planes setup
+        no_xpoints = 3
+        no_ypoints = 3
+        x = np.linspace(-1, 1, no_xpoints)
+        y = np.linspace(-1, 1, no_ypoints)
         verts = []
-
+        # Create grid of vertices in [-1, 1] x [-1, 1]
         for idxx in range(len(x)):
             for idxy in range(len(y)):
                 verts.append(np.array([x[idxx], y[idxy]]))
+        # Triangulate grid
         self.tri = scipy.spatial.Delaunay(verts)
         self.plane_triangles = self.tri.simplices
-        self.plane_verts = self.tri.points[:, :]
-        self.plane_verts = np.concatenate((self.plane_verts, 0 * self.plane_verts[:, 0].reshape(-1, 1)), axis=1)
-
+        self.plane_verts = np.array(verts)
+        # Append zero z-coordinate
+        self.plane_verts = np.concatenate((self.plane_verts, np.zeros((no_xpoints * no_ypoints, 1))), axis=1)
 
         #region -> (collision -> plane dictionary)
         self.region_to_collision_pair_to_plane_dictionary = None
