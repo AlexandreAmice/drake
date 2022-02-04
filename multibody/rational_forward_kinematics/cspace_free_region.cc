@@ -1555,7 +1555,8 @@ void CspaceFreeRegion::CspacePolytopeBisectionSearchVector(
                     vector_bisection_search_option.epsilon_min));
   }
 
-  const Eigen::VectorXd eps_max_const =
+  // absolute max we expect eps_upper_max to achieve
+  Eigen::VectorXd eps_upper_max =
       vector_bisection_search_option.epsilon_max;
   Eigen::VectorXd eps_max = vector_bisection_search_option.epsilon_max;
   Eigen::VectorXd eps_min = vector_bisection_search_option.epsilon_min;
@@ -1580,13 +1581,15 @@ void CspaceFreeRegion::CspacePolytopeBisectionSearchVector(
       // eps_min. We reset eps_max to its original value as without this we may
       // not have the true coordinatewise max.
       eps_min = *d_final - d_without_epsilon;
+      // handles case where eps_min has grown beyond eps_upper_max
+      eps_upper_max = eps_upper_max.cwiseMax(eps_min);
 
       // ensure eps_min doesn't exceed eps_max
       const double scale = 0.2;
-      eps_max = eps_max.cwiseMax(eps_min + scale*eps_min.cwiseAbs());
-
-      // grow eps_max a little
-      eps_max = eps_max_const.cwiseMin(eps_max + scale*eps_max.cwiseAbs());
+      // ensure eps_max at least as big as eps_min
+      eps_max = eps_max.cwiseMax(eps_min);
+      // grow eps_max a little and don't crash all the way to eps_upper_max
+      eps_max = eps_upper_max.cwiseMin(eps_max + scale*eps_max.cwiseAbs());
 
       feasible_iter_count++;
     } else {
@@ -1634,170 +1637,170 @@ void CspaceFreeRegion::InterleavedCSpacePolytopeSearch(
     C = *C_final;
   }
 }
-
-void CspaceFreeRegion::DoCspaceFreeRegionSearch(
-        const systems::Diagram<double>& diagram,
-        const multibody::MultibodyPlant<double>* plant,
-        const geometry::SceneGraph<double>* scene_graph,
-        SeparatingPlaneOrder plane_order, CspaceRegionType cspace_region_type,
-        const Eigen::Ref<const Eigen::VectorXd>& seedpoint_q,
-        const Eigen::Ref<const Eigen::VectorXd>& q_star,
-        const FilteredCollisionPairs& filtered_collision_pairs,
-        const Eigen::Ref<const Eigen::MatrixXd>& C_init,
-        const Eigen::Ref<const Eigen::VectorXd>& d_init,
-        const InterleavedRegionSearchOptions& interleaved_region_search_option,
-        const solvers::SolverOptions& solver_options,
-        const std::optional<Eigen::MatrixXd>& q_inner_pts_opt,
-        const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
-            inner_polytope,
-        Eigen::MatrixXd* C_final, Eigen::VectorXd* d_final,
-        Eigen::MatrixXd* P_final, Eigen::VectorXd* q_final) const {
-    CspaceFreeRegion free_region = CspaceFreeRegion(diagram, plant,scene_graph,plane_order, cspace_region_type);
-    Eigen::MatrixXd q_inner_pts;
-    if (q_inner_pts_opt.has_value()){
-        DRAKE_DEMAND(q_inner_pts_opt.value().rows() == seedpoint_q.rows());
-        q_inner_pts.resize(q_inner_pts_opt.value().rows(), q_inner_pts_opt.value().cols() + 1);
-        q_inner_pts.leftCols(q_inner_pts_opt.value().cols()) = q_inner_pts_opt.value();
-        q_inner_pts.rightCols(1) = seedpoint_q;
-    }
-    else {
-        q_inner_pts.resize(seedpoint_q.rows(), 1);
-        q_inner_pts = seedpoint_q;
-    }
-
-    free_region.InterleavedCSpacePolytopeSearch(
-                                    q_star,
-                                    filtered_collision_pairs,
-                                    C_init,
-                                    d_init,
-                                    interleaved_region_search_option,
-                                    solver_options,
-                                    q_inner_pts,
-                                    inner_polytope,  C_final, d_final, P_final,  q_final);
-
-}
-
-void CspaceFreeRegion::DoCspaceFreeRegionSearch(
-        const systems::Diagram<double>& diagram,
-        const multibody::MultibodyPlant<double>* plant,
-        const geometry::SceneGraph<double>* scene_graph,
-        SeparatingPlaneOrder plane_order, CspaceRegionType cspace_region_type,
-        const Eigen::Ref<const Eigen::VectorXd>& seedpoint_q,
-        const Eigen::Ref<const Eigen::VectorXd>& q_star,
-        const FilteredCollisionPairs& filtered_collision_pairs,
-        const Eigen::Ref<const Eigen::MatrixXd>& C_init,
-        const Eigen::Ref<const Eigen::VectorXd>& d_init,
-        const BilinearAlternationOption& bilinear_alternation_option,
-        const solvers::SolverOptions& solver_options,
-        const std::optional<Eigen::MatrixXd>& q_inner_pts_opt,
-        const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
-            inner_polytope,
-        Eigen::MatrixXd* C_final, Eigen::VectorXd* d_final,
-        Eigen::MatrixXd* P_final, Eigen::VectorXd* q_final) const {
-    CspaceFreeRegion free_region{diagram, plant,
-                                scene_graph,plane_order,
-                                cspace_region_type};
-    Eigen::MatrixXd q_inner_pts;
-    if (q_inner_pts_opt.has_value()){
-        DRAKE_DEMAND(q_inner_pts_opt.value().rows() == seedpoint_q.rows());
-        q_inner_pts.resize(q_inner_pts_opt.value().rows(), q_inner_pts_opt.value().cols() + 1);
-        q_inner_pts.leftCols(q_inner_pts_opt.value().cols()) = q_inner_pts_opt.value();
-        q_inner_pts.rightCols(1) = seedpoint_q;
-    }
-    else {
-        q_inner_pts.resize(seedpoint_q.rows(), 1);
-        q_inner_pts = seedpoint_q;
-    }
-
-    free_region.CspacePolytopeBilinearAlternation(
-                                    q_star,
-                                    filtered_collision_pairs,
-                                    C_init,
-                                    d_init,
-                                    bilinear_alternation_option,
-                                    solver_options,
-                                    q_inner_pts,
-                                    inner_polytope,  C_final, d_final, P_final,  q_final);
-
-}
-
-void CspaceFreeRegion::DoCspaceFreeRegionSearch(
-        const systems::Diagram<double>& diagram,
-        const multibody::MultibodyPlant<double>* plant,
-        const geometry::SceneGraph<double>* scene_graph,
-        SeparatingPlaneOrder plane_order, CspaceRegionType cspace_region_type,
-        const Eigen::Ref<const Eigen::VectorXd>& seedpoint_q,
-        const Eigen::Ref<const Eigen::VectorXd>& q_star,
-        const FilteredCollisionPairs& filtered_collision_pairs,
-        const Eigen::Ref<const Eigen::MatrixXd>& C_init,
-        const Eigen::Ref<const Eigen::VectorXd>& d_init,
-        const BinarySearchOption& binary_search_option,
-        const solvers::SolverOptions& solver_options,
-        const std::optional<Eigen::MatrixXd>& q_inner_pts_opt,
-        const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
-            inner_polytope, Eigen::VectorXd* d_final) const {
-    CspaceFreeRegion free_region = CspaceFreeRegion(diagram, plant,scene_graph,plane_order, cspace_region_type);
-    Eigen::MatrixXd q_inner_pts;
-    if (q_inner_pts_opt.has_value()){
-        DRAKE_DEMAND(q_inner_pts_opt.value().rows() == seedpoint_q.rows());
-        q_inner_pts.resize(q_inner_pts_opt.value().rows(), q_inner_pts_opt.value().cols() + 1);
-        q_inner_pts.leftCols(q_inner_pts_opt.value().cols()) = q_inner_pts_opt.value();
-        q_inner_pts.rightCols(1) = seedpoint_q;
-    }
-    else {
-        q_inner_pts.resize(seedpoint_q.rows(), 1);
-        q_inner_pts = seedpoint_q;
-    }
-
-    free_region.CspacePolytopeBinarySearch(
-                                    q_star,
-                                    filtered_collision_pairs,
-                                    C_init,
-                                    d_init,
-                                    binary_search_option,
-                                    solver_options,
-                                    q_inner_pts,
-                                    inner_polytope,  d_final);
-}
-
-void CspaceFreeRegion::DoCspaceFreeRegionSearch(
-        const systems::Diagram<double>& diagram,
-        const multibody::MultibodyPlant<double>* plant,
-        const geometry::SceneGraph<double>* scene_graph,
-        SeparatingPlaneOrder plane_order, CspaceRegionType cspace_region_type,
-        const Eigen::Ref<const Eigen::VectorXd>& seedpoint_q,
-        const Eigen::Ref<const Eigen::VectorXd>& q_star,
-        const FilteredCollisionPairs& filtered_collision_pairs,
-        const Eigen::Ref<const Eigen::MatrixXd>& C_init,
-        const Eigen::Ref<const Eigen::VectorXd>& d_init,
-        const VectorBisectionSearchOption& vector_bisection_search_option,
-        const solvers::SolverOptions& solver_options,
-        const std::optional<Eigen::MatrixXd>& q_inner_pts_opt,
-        const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
-            inner_polytope, Eigen::VectorXd* d_final) const {
-    CspaceFreeRegion free_region = CspaceFreeRegion(diagram, plant,scene_graph,plane_order, cspace_region_type);
-    Eigen::MatrixXd q_inner_pts;
-    if (q_inner_pts_opt.has_value()){
-        DRAKE_DEMAND(q_inner_pts_opt.value().rows() == seedpoint_q.rows());
-        q_inner_pts.resize(q_inner_pts_opt.value().rows(), q_inner_pts_opt.value().cols() + 1);
-        q_inner_pts.leftCols(q_inner_pts_opt.value().cols()) = q_inner_pts_opt.value();
-        q_inner_pts.rightCols(1) = seedpoint_q;
-    }
-    else {
-        q_inner_pts.resize(seedpoint_q.rows(), 1);
-        q_inner_pts = seedpoint_q;
-    }
-
-    free_region.CspacePolytopeBisectionSearchVector(
-                                    q_star,
-                                    filtered_collision_pairs,
-                                    C_init,
-                                    d_init,
-                                    vector_bisection_search_option,
-                                    solver_options,
-                                    q_inner_pts,
-                                    inner_polytope,  d_final);
-}
+//
+//void CspaceFreeRegion::DoCspaceFreeRegionSearch(
+//        const systems::Diagram<double>& diagram,
+//        const multibody::MultibodyPlant<double>* plant,
+//        const geometry::SceneGraph<double>* scene_graph,
+//        SeparatingPlaneOrder plane_order, CspaceRegionType cspace_region_type,
+//        const Eigen::Ref<const Eigen::VectorXd>& seedpoint_q,
+//        const Eigen::Ref<const Eigen::VectorXd>& q_star,
+//        const FilteredCollisionPairs& filtered_collision_pairs,
+//        const Eigen::Ref<const Eigen::MatrixXd>& C_init,
+//        const Eigen::Ref<const Eigen::VectorXd>& d_init,
+//        const InterleavedRegionSearchOptions& interleaved_region_search_option,
+//        const solvers::SolverOptions& solver_options,
+//        const std::optional<Eigen::MatrixXd>& q_inner_pts_opt,
+//        const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
+//            inner_polytope,
+//        Eigen::MatrixXd* C_final, Eigen::VectorXd* d_final,
+//        Eigen::MatrixXd* P_final, Eigen::VectorXd* q_final) const {
+//    CspaceFreeRegion free_region = CspaceFreeRegion(diagram, plant,scene_graph,plane_order, cspace_region_type);
+//    Eigen::MatrixXd q_inner_pts;
+//    if (q_inner_pts_opt.has_value()){
+//        DRAKE_DEMAND(q_inner_pts_opt.value().rows() == seedpoint_q.rows());
+//        q_inner_pts.resize(q_inner_pts_opt.value().rows(), q_inner_pts_opt.value().cols() + 1);
+//        q_inner_pts.leftCols(q_inner_pts_opt.value().cols()) = q_inner_pts_opt.value();
+//        q_inner_pts.rightCols(1) = seedpoint_q;
+//    }
+//    else {
+//        q_inner_pts.resize(seedpoint_q.rows(), 1);
+//        q_inner_pts = seedpoint_q;
+//    }
+//
+//    free_region.InterleavedCSpacePolytopeSearch(
+//                                    q_star,
+//                                    filtered_collision_pairs,
+//                                    C_init,
+//                                    d_init,
+//                                    interleaved_region_search_option,
+//                                    solver_options,
+//                                    q_inner_pts,
+//                                    inner_polytope,  C_final, d_final, P_final,  q_final);
+//
+//}
+//
+//void CspaceFreeRegion::DoCspaceFreeRegionSearch(
+//        const systems::Diagram<double>& diagram,
+//        const multibody::MultibodyPlant<double>* plant,
+//        const geometry::SceneGraph<double>* scene_graph,
+//        SeparatingPlaneOrder plane_order, CspaceRegionType cspace_region_type,
+//        const Eigen::Ref<const Eigen::VectorXd>& seedpoint_q,
+//        const Eigen::Ref<const Eigen::VectorXd>& q_star,
+//        const FilteredCollisionPairs& filtered_collision_pairs,
+//        const Eigen::Ref<const Eigen::MatrixXd>& C_init,
+//        const Eigen::Ref<const Eigen::VectorXd>& d_init,
+//        const BilinearAlternationOption& bilinear_alternation_option,
+//        const solvers::SolverOptions& solver_options,
+//        const std::optional<Eigen::MatrixXd>& q_inner_pts_opt,
+//        const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
+//            inner_polytope,
+//        Eigen::MatrixXd* C_final, Eigen::VectorXd* d_final,
+//        Eigen::MatrixXd* P_final, Eigen::VectorXd* q_final) const {
+//    CspaceFreeRegion free_region{diagram, plant,
+//                                scene_graph,plane_order,
+//                                cspace_region_type};
+//    Eigen::MatrixXd q_inner_pts;
+//    if (q_inner_pts_opt.has_value()){
+//        DRAKE_DEMAND(q_inner_pts_opt.value().rows() == seedpoint_q.rows());
+//        q_inner_pts.resize(q_inner_pts_opt.value().rows(), q_inner_pts_opt.value().cols() + 1);
+//        q_inner_pts.leftCols(q_inner_pts_opt.value().cols()) = q_inner_pts_opt.value();
+//        q_inner_pts.rightCols(1) = seedpoint_q;
+//    }
+//    else {
+//        q_inner_pts.resize(seedpoint_q.rows(), 1);
+//        q_inner_pts = seedpoint_q;
+//    }
+//
+//    free_region.CspacePolytopeBilinearAlternation(
+//                                    q_star,
+//                                    filtered_collision_pairs,
+//                                    C_init,
+//                                    d_init,
+//                                    bilinear_alternation_option,
+//                                    solver_options,
+//                                    q_inner_pts,
+//                                    inner_polytope,  C_final, d_final, P_final,  q_final);
+//
+//}
+//
+//void CspaceFreeRegion::DoCspaceFreeRegionSearch(
+//        const systems::Diagram<double>& diagram,
+//        const multibody::MultibodyPlant<double>* plant,
+//        const geometry::SceneGraph<double>* scene_graph,
+//        SeparatingPlaneOrder plane_order, CspaceRegionType cspace_region_type,
+//        const Eigen::Ref<const Eigen::VectorXd>& seedpoint_q,
+//        const Eigen::Ref<const Eigen::VectorXd>& q_star,
+//        const FilteredCollisionPairs& filtered_collision_pairs,
+//        const Eigen::Ref<const Eigen::MatrixXd>& C_init,
+//        const Eigen::Ref<const Eigen::VectorXd>& d_init,
+//        const BinarySearchOption& binary_search_option,
+//        const solvers::SolverOptions& solver_options,
+//        const std::optional<Eigen::MatrixXd>& q_inner_pts_opt,
+//        const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
+//            inner_polytope, Eigen::VectorXd* d_final) const {
+//    CspaceFreeRegion free_region = CspaceFreeRegion(diagram, plant,scene_graph,plane_order, cspace_region_type);
+//    Eigen::MatrixXd q_inner_pts;
+//    if (q_inner_pts_opt.has_value()){
+//        DRAKE_DEMAND(q_inner_pts_opt.value().rows() == seedpoint_q.rows());
+//        q_inner_pts.resize(q_inner_pts_opt.value().rows(), q_inner_pts_opt.value().cols() + 1);
+//        q_inner_pts.leftCols(q_inner_pts_opt.value().cols()) = q_inner_pts_opt.value();
+//        q_inner_pts.rightCols(1) = seedpoint_q;
+//    }
+//    else {
+//        q_inner_pts.resize(seedpoint_q.rows(), 1);
+//        q_inner_pts = seedpoint_q;
+//    }
+//
+//    free_region.CspacePolytopeBinarySearch(
+//                                    q_star,
+//                                    filtered_collision_pairs,
+//                                    C_init,
+//                                    d_init,
+//                                    binary_search_option,
+//                                    solver_options,
+//                                    q_inner_pts,
+//                                    inner_polytope,  d_final);
+//}
+//
+//void CspaceFreeRegion::DoCspaceFreeRegionSearch(
+//        const systems::Diagram<double>& diagram,
+//        const multibody::MultibodyPlant<double>* plant,
+//        const geometry::SceneGraph<double>* scene_graph,
+//        SeparatingPlaneOrder plane_order, CspaceRegionType cspace_region_type,
+//        const Eigen::Ref<const Eigen::VectorXd>& seedpoint_q,
+//        const Eigen::Ref<const Eigen::VectorXd>& q_star,
+//        const FilteredCollisionPairs& filtered_collision_pairs,
+//        const Eigen::Ref<const Eigen::MatrixXd>& C_init,
+//        const Eigen::Ref<const Eigen::VectorXd>& d_init,
+//        const VectorBisectionSearchOption& vector_bisection_search_option,
+//        const solvers::SolverOptions& solver_options,
+//        const std::optional<Eigen::MatrixXd>& q_inner_pts_opt,
+//        const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
+//            inner_polytope, Eigen::VectorXd* d_final) const {
+//    CspaceFreeRegion free_region = CspaceFreeRegion(diagram, plant,scene_graph,plane_order, cspace_region_type);
+//    Eigen::MatrixXd q_inner_pts;
+//    if (q_inner_pts_opt.has_value()){
+//        DRAKE_DEMAND(q_inner_pts_opt.value().rows() == seedpoint_q.rows());
+//        q_inner_pts.resize(q_inner_pts_opt.value().rows(), q_inner_pts_opt.value().cols() + 1);
+//        q_inner_pts.leftCols(q_inner_pts_opt.value().cols()) = q_inner_pts_opt.value();
+//        q_inner_pts.rightCols(1) = seedpoint_q;
+//    }
+//    else {
+//        q_inner_pts.resize(seedpoint_q.rows(), 1);
+//        q_inner_pts = seedpoint_q;
+//    }
+//
+//    free_region.CspacePolytopeBisectionSearchVector(
+//                                    q_star,
+//                                    filtered_collision_pairs,
+//                                    C_init,
+//                                    d_init,
+//                                    vector_bisection_search_option,
+//                                    solver_options,
+//                                    q_inner_pts,
+//                                    inner_polytope,  d_final);
+//}
 
 
 std::vector<LinkVertexOnPlaneSideRational>
@@ -2235,10 +2238,10 @@ Eigen::VectorXd FindEpsilonUpperVector(
   solvers::MathematicalProgram prog;
   const auto t = prog.NewContinuousVariables(nt, "t");
 
-  const double inflation_coeff = 1.1;
+  const double inflation_coeff = 0.1;
   geometry::optimization::HPolyhedron Poly_lim_t =
-      geometry::optimization::HPolyhedron::MakeBox(inflation_coeff * t_lower,
-                                                   inflation_coeff * t_upper);
+      geometry::optimization::HPolyhedron::MakeBox(t_lower + inflation_coeff * t_lower.cwiseAbs(),
+                                                   t_upper + inflation_coeff * t_upper.cwiseAbs());
 
   prog.AddLinearConstraint(
       Poly_lim_t.A(), Eigen::VectorXd::Constant(Poly_lim_t.A().rows(), -kInf),
