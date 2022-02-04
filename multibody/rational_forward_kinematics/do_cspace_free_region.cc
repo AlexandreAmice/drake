@@ -22,7 +22,7 @@ CspaceFreeRegionSolution DoCspaceFreeRegionSearch(
         const solvers::SolverOptions& solver_options,
         const std::optional<Eigen::MatrixXd>& q_inner_pts_opt,
         const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
-            inner_polytope) const {
+            inner_polytope) {
     CspaceFreeRegion free_region = CspaceFreeRegion(diagram, plant,scene_graph,plane_order, cspace_region_type);
     Eigen::MatrixXd q_inner_pts;
     // add the seed point to required inner containment
@@ -37,10 +37,11 @@ CspaceFreeRegionSolution DoCspaceFreeRegionSearch(
         q_inner_pts = seedpoint_q;
     }
 
-    Eigen::MatrixXd* C_final;
-    Eigen::VectorXd* d_final;
-    Eigen::MatrixXd* P_final;
-    Eigen::VectorXd* q_final;
+    Eigen::MatrixXd C_final;
+    Eigen::VectorXd d_final;
+    Eigen::MatrixXd P_final;
+    Eigen::VectorXd q_final;
+    std::vector<SeparatingPlane>* separating_planes_sol;
 
     free_region.InterleavedCSpacePolytopeSearch(
                                     q_star,
@@ -50,8 +51,10 @@ CspaceFreeRegionSolution DoCspaceFreeRegionSearch(
                                     interleaved_region_search_option,
                                     solver_options,
                                     q_inner_pts,
-                                    inner_polytope,  C_final, d_final, P_final,  q_final);
-    return CspaceFreeRegionSolution{C_final, d_final, P_final, q_final};
+                                    inner_polytope,  &C_final, &d_final,
+                                    &P_final,  &q_final,
+                                    &separating_planes_sol);
+    return CspaceFreeRegionSolution{C_final, d_final, P_final, q_final, separating_planes_sol};
 
 }
 

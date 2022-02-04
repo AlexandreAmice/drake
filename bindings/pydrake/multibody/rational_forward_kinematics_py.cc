@@ -527,11 +527,12 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
             Eigen::VectorXd d_final;
             Eigen::MatrixXd P_final;
             Eigen::VectorXd q_final;
+            std::vector<SeparatingPlane> separating_planes_sol;
             self->InterleavedCSpacePolytopeSearch(q_star,
                 filtered_collision_pairs, C_init, d_init,
                 interleaved_region_search_options, solver_options, q_inner_pts,
-                inner_polytope, &C_final, &d_final, &P_final, &q_final);
-            return std::make_tuple(C_final, d_final, P_final, q_final);
+                inner_polytope, &C_final, &d_final, &P_final, &q_final, &separating_planes_sol);
+            return std::make_tuple(C_final, d_final, P_final, q_final, separating_planes_sol);
           },
           py::arg("q_star"), py::arg("filtered_collision_pairs"),
           py::arg("C_init"), py::arg("d_init"),

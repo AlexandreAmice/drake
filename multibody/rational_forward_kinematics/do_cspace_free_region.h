@@ -23,7 +23,7 @@ CspaceFreeRegionSolution DoCspaceFreeRegionSearch(
     const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
         inner_polytope,
     Eigen::MatrixXd* C_final, Eigen::VectorXd* d_final,
-    Eigen::MatrixXd* P_final, Eigen::VectorXd* q_final) const;
+    Eigen::MatrixXd* P_final, Eigen::VectorXd* q_final);
 
 std::vector<CspaceFreeRegionSolution> DoCspaceFreeRegionSearchMultiSeedDefaultRegions(
         const systems::Diagram<double>& diagram,
@@ -40,6 +40,5 @@ std::vector<CspaceFreeRegionSolution> DoCspaceFreeRegionSearchMultiSeedDefaultRe
         const std::optional<std::vector<Eigen::MatrixXd>>& q_inner_pts_vect,
         const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
             inner_polytope, Eigen::VectorXd* d_final,
-        Eigen::MatrixXd* P_final, Eigen::VectorXd* q_final) const;
+        Eigen::MatrixXd* P_final, Eigen::VectorXd* q_final);
 
-#endif //DRAKE_MULTIBODY_RATIONAL_FORWARD_KINEMATICS_DO_CSPACE_FREE_REGION_H_
