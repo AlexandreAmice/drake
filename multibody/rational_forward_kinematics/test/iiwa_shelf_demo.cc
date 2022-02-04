@@ -198,10 +198,12 @@ int DoMain() {
   solvers::SolverOptions solver_options;
   solver_options.SetOption(solvers::CommonSolverOption::kPrintToConsole, false);
   Eigen::VectorXd d_binary_search;
+  std::vector<SeparatingPlane> separating_planes_sol;
   Eigen::VectorXd q_star = Eigen::Matrix<double, 7, 1>::Zero();
   dut.CspacePolytopeBinarySearch(q_star, filtered_collision_pairs, C_init,
                                  d_init, binary_search_option, solver_options,
-                                 q0, std::nullopt, &d_binary_search);
+                                 q0, std::nullopt, &d_binary_search,
+                                 &separating_planes_sol);
   CspaceFreeRegion::BilinearAlternationOption bilinear_alternation_option{
       .max_iters = 10,
       .convergence_tol = 0.001,
@@ -214,7 +216,7 @@ int DoMain() {
   dut.CspacePolytopeBilinearAlternation(
       q_star, filtered_collision_pairs, C_init, d_binary_search,
       bilinear_alternation_option, solver_options, q0, std::nullopt, &C_final,
-      &d_final, &P_final, &q_final);
+      &d_final, &P_final, &q_final, &separating_planes_sol);
 
   // Now partition the certified region C_final * t <= d_final, t_lower <= t <=
   // t_upper into boxes.
