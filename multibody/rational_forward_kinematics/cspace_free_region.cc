@@ -206,6 +206,33 @@ Eigen::VectorXd ComputeMaxD(const Eigen::MatrixXd& C,
   }
   return d_max;
 }
+
+SeparatingPlane GetSeparatingPlaneSolution(
+    const SeparatingPlane& plane,
+    const solvers::MathematicalProgramResult& result) {
+  symbolic::Environment env;
+  env.insert(plane.decision_variables,
+             result.GetSolution(plane.decision_variables));
+  Vector3<symbolic::Expression> a_sol;
+  for (int i = 0; i < 3; ++i) {
+    a_sol(i) = plane.a(i).EvaluatePartial(env);
+  }
+  const symbolic::Expression b_sol = plane.b.EvaluatePartial(env);
+  return SeparatingPlane(a_sol, b_sol, plane.positive_side_polytope,
+                         plane.negative_side_polytope, plane.expressed_link,
+                         plane.order, plane.decision_variables);
+}
+
+std::vector<SeparatingPlane> GetSeparatingPlanesSolution(
+    const CspaceFreeRegion& cspace_free_region,
+    const solvers::MathematicalProgramResult& result) {
+  std::vector<SeparatingPlane> planes_sol;
+  planes_sol.reserve(cspace_free_region.separating_planes().size());
+  for (const auto& plane : cspace_free_region.separating_planes()) {
+    planes_sol.push_back(GetSeparatingPlaneSolution(plane, result));
+  }
+  return planes_sol;
+}
 }  // namespace
 
 CspaceFreeRegion::CspaceFreeRegion(
@@ -1008,7 +1035,8 @@ void CspaceFreeRegion::CspacePolytopeBilinearAlternation(
     const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
         inner_polytope,
     Eigen::MatrixXd* C_final, Eigen::VectorXd* d_final,
-    Eigen::MatrixXd* P_final, Eigen::VectorXd* q_final) const {
+    Eigen::MatrixXd* P_final, Eigen::VectorXd* q_final,
+    std::vector<SeparatingPlane>* separating_planes_sol) const {
   if (bilinear_alternation_option.lagrangian_backoff_scale < 0) {
     throw std::invalid_argument(
         fmt::format("lagrangian_backoff_scale={}, should be non-negative",
@@ -1086,6 +1114,8 @@ void CspaceFreeRegion::CspacePolytopeBilinearAlternation(
     if (!result_lagrangian.is_success()) {
       drake::log()->warn(
           fmt::format("Find Lagrangian fails in iter {}", iter_count));
+      *separating_planes_sol =
+          GetSeparatingPlanesSolution(*this, result_lagrangian);
       return;
     }
     double lagrangian_cost_val = -result_lagrangian.get_optimal_cost();
@@ -1180,6 +1210,8 @@ void CspaceFreeRegion::CspacePolytopeBilinearAlternation(
 
       drake::log()->warn(fmt::format(
           "Failed to find the polytope at iteration {}", iter_count));
+      *separating_planes_sol =
+          GetSeparatingPlanesSolution(*this, result_polytope);
       return;
     }
 
@@ -1211,6 +1243,8 @@ void CspaceFreeRegion::CspacePolytopeBilinearAlternation(
     }
     *C_final = C_val;
     *d_final = d_val;
+    *separating_planes_sol =
+        GetSeparatingPlanesSolution(*this, result_polytope);
     iter_count += 1;
   }
 }
@@ -1225,13 +1259,16 @@ void CspaceFreeRegion::CspacePolytopeBinarySearch(
     const std::optional<Eigen::MatrixXd>& q_inner_pts,
     const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
         inner_polytope,
-    Eigen::VectorXd* d_final) const {
+    Eigen::VectorXd* d_final,
+    std::vector<SeparatingPlane>* separating_planes_sol) const {
   // The polytope region is C * t <= d_without_epsilon + epsilon. We might
   // change d_without_epsilon during the binary search process.
   Eigen::VectorXd d_without_epsilon = d_init;
   const int C_rows = C.rows();
   DRAKE_DEMAND(d_init.rows() == C_rows);
   DRAKE_DEMAND(C.cols() == rational_forward_kinematics_.t().rows());
+  DRAKE_DEMAND(d_final != nullptr);
+  DRAKE_DEMAND(separating_planes_sol != nullptr);
   std::vector<CspaceFreeRegion::CspacePolytopeTuple> alternation_tuples;
   VectorX<symbolic::Polynomial> d_minus_Ct;
   Eigen::VectorXd t_lower, t_upper;
@@ -1269,7 +1306,9 @@ void CspaceFreeRegion::CspacePolytopeBinarySearch(
                                      &t_inner_pts, &inner_polytope, &d_max](
                                         const Eigen::VectorXd& d, bool search_d,
                                         bool compute_polytope_volume,
-                                        Eigen::VectorXd* d_sol) {
+                                        Eigen::VectorXd* d_sol,
+                                        solvers::MathematicalProgramResult*
+                                            solver_result) {
     const double redundant_tighten = 0.;
     auto prog = this->ConstructLagrangianProgram(
         alternation_tuples, C, d, lagrangian_gram_vars, verified_gram_vars,
@@ -1278,6 +1317,7 @@ void CspaceFreeRegion::CspacePolytopeBinarySearch(
     const auto result = solvers::Solve(*prog, std::nullopt, solver_options);
     if (result.is_success()) {
       *d_sol = d;
+      *solver_result = result;
       if (search_d) {
         // Now fix the Lagrangian and C, and search for d.
         const auto lagrangian_gram_var_vals =
@@ -1313,6 +1353,7 @@ void CspaceFreeRegion::CspacePolytopeBinarySearch(
                                        result_polytope.is_success()));
         if (result_polytope.is_success()) {
           *d_sol = result_polytope.GetSolution(d_var);
+          *solver_result = result_polytope;
         }
       }
     }
@@ -1326,12 +1367,16 @@ void CspaceFreeRegion::CspacePolytopeBinarySearch(
     }
     return result.is_success();
   };
+
+  solvers::MathematicalProgramResult solver_result;
   if (is_polytope_collision_free(
           d_without_epsilon +
               binary_search_option.epsilon_max *
                   Eigen::VectorXd::Ones(d_without_epsilon.rows()),
           binary_search_option.search_d,
-          binary_search_option.compute_polytope_volume, d_final)) {
+          binary_search_option.compute_polytope_volume, d_final,
+          &solver_result)) {
+    *separating_planes_sol = GetSeparatingPlanesSolution(*this, solver_result);
     return;
   }
   if (!is_polytope_collision_free(
@@ -1339,7 +1384,8 @@ void CspaceFreeRegion::CspacePolytopeBinarySearch(
               binary_search_option.epsilon_min *
                   Eigen::VectorXd::Ones(d_without_epsilon.rows()),
           false /* don't search for d */,
-          binary_search_option.compute_polytope_volume, d_final)) {
+          binary_search_option.compute_polytope_volume, d_final,
+          &solver_result)) {
     throw std::runtime_error(
         fmt::format("binary search: the initial epsilon {} is infeasible",
                     binary_search_option.epsilon_min));
@@ -1354,7 +1400,7 @@ void CspaceFreeRegion::CspacePolytopeBinarySearch(
         eps * Eigen::VectorXd::Ones(d_without_epsilon.rows());
     const bool is_feasible = is_polytope_collision_free(
         d, binary_search_option.search_d,
-        binary_search_option.compute_polytope_volume, d_final);
+        binary_search_option.compute_polytope_volume, d_final, &solver_result);
     if (is_feasible) {
       drake::log()->info(fmt::format("epsilon={} is feasible", eps));
       // Now we need to reset d_without_epsilon. The invariance we want is that
@@ -1376,6 +1422,7 @@ void CspaceFreeRegion::CspacePolytopeBinarySearch(
     }
     iter_count++;
   }
+  *separating_planes_sol = GetSeparatingPlanesSolution(*this, solver_result);
 }
 
 void CspaceFreeRegion::CspacePolytopeBisectionSearchVector(

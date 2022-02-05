@@ -163,7 +163,7 @@ class IiwaCspaceTest(unittest.TestCase):
         bilinear_alternation_option.lagrangian_backoff_scale = 0.01
         bilinear_alternation_option.polytope_backoff_scale = 0.05
         solver_options = mp.SolverOptions()
-        C_final, d_final, P_final, q_final = \
+        C_final, d_final, P_final, q_final, separating_planes_sol = \
             dut.CspacePolytopeBilinearAlternation(
                 q_star, filtered_collision_pairs, C_init, d_init,
                 bilinear_alternation_option, solver_options,
@@ -180,9 +180,7 @@ class IiwaCspaceTest(unittest.TestCase):
         binary_search_option.epsilon_min = 0.
         binary_search_option.max_iters = 3
         solver_options = mp.SolverOptions()
-        d_final = dut.CspacePolytopeBinarySearch(q_star,
-                                                 filtered_collision_pairs,
-                                                 C_init, d_init,
-                                                 binary_search_option,
-                                                 solver_options, None, None)
+        d_final, separating_planes_sol = dut.CspacePolytopeBinarySearch(
+            q_star, filtered_collision_pairs, C_init, d_init,
+            binary_search_option, solver_options, None, None)
         np.testing.assert_array_less(d_init, d_final)

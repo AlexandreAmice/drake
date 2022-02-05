@@ -447,11 +447,14 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
             Eigen::VectorXd d_final;
             Eigen::MatrixXd P_final;
             Eigen::VectorXd q_final;
+            std::vector<SeparatingPlane> separating_planes_sol;
             self->CspacePolytopeBilinearAlternation(q_star,
                 filtered_collision_pairs, C_init, d_init,
                 bilinear_alternation_option, solver_options, q_inner_pts,
-                inner_polytope, &C_final, &d_final, &P_final, &q_final);
-            return std::make_tuple(C_final, d_final, P_final, q_final);
+                inner_polytope, &C_final, &d_final, &P_final, &q_final,
+                &separating_planes_sol);
+            return std::make_tuple(
+                C_final, d_final, P_final, q_final, separating_planes_sol);
           },
           py::arg("q_star"), py::arg("filtered_collision_pairs"),
           py::arg("C_init"), py::arg("d_init"),
@@ -473,10 +476,11 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
               const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
                   inner_polytope) {
             Eigen::VectorXd d_final;
+            std::vector<SeparatingPlane> separating_planes_sol;
             self->CspacePolytopeBinarySearch(q_star, filtered_collision_pairs,
                 C, d_init, binary_search_option, solver_options, q_inner_pts,
-                inner_polytope, &d_final);
-            return d_final;
+                inner_polytope, &d_final, &separating_planes_sol);
+            return std::make_tuple(d_final, separating_planes_sol);
           },
           py::arg("q_star"), py::arg("filtered_collision_pairs"), py::arg("C"),
           py::arg("d_init"), py::arg("binary_search_option"),

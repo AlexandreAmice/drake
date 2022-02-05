@@ -869,10 +869,12 @@ TEST_F(IiwaCspaceTest, CspacePolytopeBilinearAlternation) {
                                    .verbose = true};
   solvers::SolverOptions solver_options;
   solver_options.SetOption(solvers::CommonSolverOption::kPrintToConsole, true);
+  std::vector<SeparatingPlane> separating_planes_sol;
   dut.CspacePolytopeBilinearAlternation(
       q_star, filtered_collision_pairs, C, d, bilinear_alternation_options,
       solver_options, q_not_in_collision, std::nullopt, &C_final, &d_final,
-      &P_final, &q_final);
+      &P_final, &q_final, &separating_planes_sol);
+  EXPECT_EQ(separating_planes_sol.size(), dut.separating_planes().size());
   const Eigen::VectorXd t_inner_pts =
       dut.rational_forward_kinematics().ComputeTValue(q_not_in_collision,
                                                       q_star);
@@ -905,17 +907,22 @@ TEST_F(IiwaCspaceTest, CspacePolytopeBinarySearch) {
   solvers::SolverOptions solver_options;
   solver_options.SetOption(solvers::CommonSolverOption::kPrintToConsole, true);
   Eigen::VectorXd d_final;
+  std::vector<SeparatingPlane> separating_planes_sol;
   dut.CspacePolytopeBinarySearch(q_star, filtered_collision_pairs, C, d,
                                  binary_search_option, solver_options,
-                                 q_not_in_collision, std::nullopt, &d_final);
+                                 q_not_in_collision, std::nullopt, &d_final,
+                                 &separating_planes_sol);
+  EXPECT_EQ(separating_planes_sol.size(), dut.separating_planes().size());
 
   // Now do binary search but also look for d.
   binary_search_option.search_d = true;
   binary_search_option.max_iters = 2;
   Eigen::VectorXd d_final_search_d;
-  dut.CspacePolytopeBinarySearch(
-      q_star, filtered_collision_pairs, C, d, binary_search_option,
-      solver_options, q_not_in_collision, std::nullopt, &d_final_search_d);
+  dut.CspacePolytopeBinarySearch(q_star, filtered_collision_pairs, C, d,
+                                 binary_search_option, solver_options,
+                                 q_not_in_collision, std::nullopt,
+                                 &d_final_search_d, &separating_planes_sol);
+  EXPECT_EQ(separating_planes_sol.size(), dut.separating_planes().size());
 }
 
 GTEST_TEST(CalcPolynomialFromGram, Test1) {
