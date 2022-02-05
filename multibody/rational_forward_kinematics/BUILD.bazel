@@ -30,6 +30,7 @@ drake_cc_package_library(
         ":centrally_symmetric_hpolytope",
         ":convex_geometry",
         ":cspace_free_region",
+        ":do_cspace_free_region",
         ":generate_monomial_basis_util",
         ":plane_side",
         ":rational_forward_kinematics_core",
@@ -120,6 +121,34 @@ drake_cc_library(
         "//solvers:mathematical_program",
         "//solvers:mathematical_program_result",
         "//solvers:mosek_solver",
+    ],
+)
+
+drake_cc_library(
+    name = "do_cspace_free_region",
+    srcs = [
+        "do_cspace_free_region.cc",
+    ],
+    hdrs = [
+        "do_cspace_free_region.h",
+    ],
+    deps = [
+        ":centrally_symmetric_hpolytope",
+        ":cspace_free_region",
+    ],
+)
+
+drake_cc_library(
+    name = "t_in_collision_constraint",
+    srcs = [
+        "t_in_collision_contraint.cc",
+    ],
+    hdrs = ["t_in_collision_contraint.h"],
+    deps = [
+        "//geometry/optimization:iris",
+        "//multibody/plant",
+        "//solvers:constraint",
+        "//solvers:mathematical_program",
     ],
 )
 
