@@ -1422,7 +1422,7 @@ void CspaceFreeRegion::CspacePolytopeBinarySearch(
   *separating_planes_sol = GetSeparatingPlanesSolution(*this, solver_result);
 }
 
-void CspacePolytopeRoundRobinBisectionSearch(
+void CspaceFreeRegion::CspacePolytopeRoundRobinBisectionSearch(
       const Eigen::Ref<const Eigen::VectorXd>& q_star,
       const FilteredCollisionPairs& filtered_collision_pairs,
       const Eigen::Ref<const Eigen::MatrixXd>& C,
@@ -1436,7 +1436,7 @@ void CspacePolytopeRoundRobinBisectionSearch(
       Eigen::VectorXd* d_final,
       std::vector<SeparatingPlane>* separating_planes_sol) const {
 
-  
+
 }
 
 void CspaceFreeRegion::CspacePolytopeBisectionSearchVector(
