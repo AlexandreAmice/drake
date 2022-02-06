@@ -1,8 +1,11 @@
 #include "drake/multibody/rational_forward_kinematics/cspace_free_region.h"
 
 #include <algorithm>
+#include <chrono>
+#include <cmath>
 #include <limits>
 #include <optional>
+#include <thread>
 
 #include <fmt/format.h>
 #include <libqhullcpp/Qhull.h>
@@ -223,13 +226,34 @@ SeparatingPlane GetSeparatingPlaneSolution(
                          plane.order, plane.decision_variables);
 }
 
+/**
+ * @param is_plane_active: sometimes the collision between a pair of geometries
+ * is ignored. is_plane_active[i] means whether the plane
+ * cspace_free_region.separating_planes()[i] is active or not.
+ */
 std::vector<SeparatingPlane> GetSeparatingPlanesSolution(
     const CspaceFreeRegion& cspace_free_region,
+    const std::vector<bool>& is_plane_active,
     const solvers::MathematicalProgramResult& result) {
   std::vector<SeparatingPlane> planes_sol;
-  planes_sol.reserve(cspace_free_region.separating_planes().size());
-  for (const auto& plane : cspace_free_region.separating_planes()) {
-    planes_sol.push_back(GetSeparatingPlaneSolution(plane, result));
+  DRAKE_DEMAND(is_plane_active.size() ==
+               cspace_free_region.separating_planes().size());
+  int num_active_planes = 0;
+  for (bool flag : is_plane_active) {
+    if (flag) {
+      num_active_planes++;
+    }
+  }
+  planes_sol.reserve(num_active_planes);
+
+  for (int plane_index = 0;
+       plane_index <
+       static_cast<int>(cspace_free_region.separating_planes().size());
+       ++plane_index) {
+    if (is_plane_active[plane_index]) {
+      planes_sol.push_back(GetSeparatingPlaneSolution(
+          cspace_free_region.separating_planes()[plane_index], result));
+    }
   }
   return planes_sol;
 }
@@ -373,7 +397,7 @@ CspaceFreeRegion::CspaceFreeRegion(
       map_polytopes_to_separating_planes_.emplace(
           SortedPair<ConvexGeometry::Id>(polytope_pair.first->get_id(),
                                          polytope_pair.second->get_id()),
-          &(separating_planes_[separating_planes_.size() - 1]));
+          static_cast<int>(separating_planes_.size()) - 1);
     }
   }
 }
@@ -651,7 +675,8 @@ void CspaceFreeRegion::GenerateTuplesForBilinearAlternation(
     MatrixX<symbolic::Variable>* C, VectorX<symbolic::Variable>* d,
     VectorX<symbolic::Variable>* lagrangian_gram_vars,
     VectorX<symbolic::Variable>* verified_gram_vars,
-    VectorX<symbolic::Variable>* separating_plane_vars) const {
+    VectorX<symbolic::Variable>* separating_plane_vars,
+    std::vector<std::vector<int>>* separating_plane_to_tuples) const {
   // Create variables C and d.
   const auto& t = rational_forward_kinematics_.t();
   C->resize(C_rows, t.rows());
@@ -680,6 +705,7 @@ void CspaceFreeRegion::GenerateTuplesForBilinearAlternation(
   // Build tuples.
   const auto rationals =
       GenerateLinkOnOneSideOfPlaneRationals(q_star, filtered_collision_pairs);
+  separating_plane_to_tuples->resize(this->separating_planes().size());
   alternation_tuples->reserve(rationals.size());
   // Get the monomial basis for each kinematics chain.
   std::unordered_map<SortedPair<multibody::BodyIndex>,
@@ -720,6 +746,12 @@ void CspaceFreeRegion::GenerateTuplesForBilinearAlternation(
         t_lower_lagrangian_gram_lower_start,
         t_upper_lagrangian_gram_lower_start, verified_gram_vars_count,
         monomial_basis_chain);
+    (*separating_plane_to_tuples)
+        [this->map_polytopes_to_separating_planes_.at(
+             SortedPair<geometry::GeometryId>(
+                 rationals[i].link_polytope->get_id(),
+                 rationals[i].other_side_link_polytope->get_id()))]
+            .push_back(alternation_tuples->size() - 1);
     // Each Gram matrix is of size monomial_basis_chain.rows() *
     // (monomial_basis_chain.rows() + 1) / 2. Each rational needs C.rows() + 2 *
     // t.rows() Lagrangians.
@@ -1018,7 +1050,336 @@ solvers::MathematicalProgramResult BackoffProgram(
   }
   return result;
 }
+
+// Find the largest inscribed ellipsoid in the polytope
+// C*t<=d, t_lower <= t <= t_upper. The ellipsoid is parameterized as {P*y+q |
+// |y|<=1}. We may need to backoff the inscribed ellipsoid a bit to find a
+// strict feasible solution.
+void FindLargestInscribedEllipsoid(
+    const Eigen::MatrixXd& C, const Eigen::VectorXd& d,
+    const Eigen::VectorXd& t_lower, const Eigen::VectorXd& t_upper,
+    double backoff_scale, EllipsoidVolume ellipsoid_volume,
+    const solvers::SolverOptions& solver_options, bool verbose,
+    Eigen::MatrixXd* P_sol, Eigen::VectorXd* q_sol, double* max_cost) {
+  solvers::MathematicalProgram prog;
+  const int nt = t_lower.rows();
+  const auto P = prog.NewSymmetricContinuousVariables(nt, "P");
+  const auto q = prog.NewContinuousVariables(nt, "q");
+  AddInscribedEllipsoid(&prog, C, d, t_lower, t_upper, P, q, true);
+  std::string cost_name;
+  switch (ellipsoid_volume) {
+    case EllipsoidVolume::kLog: {
+      prog.AddMaximizeLogDeterminantCost(P.cast<symbolic::Expression>());
+      cost_name = "log(det(P))";
+      break;
+    }
+    case EllipsoidVolume::kNthRoot: {
+      AddMaximizeEigenValueGeometricMean(&prog, P);
+      cost_name = fmt::format("power(det(P), 1/{})", SmallestPower2(P.rows()));
+      break;
+    }
+  }
+  const auto ellipsoid_cost = prog.linear_costs()[0];
+  auto result = solvers::Solve(prog, std::nullopt, solver_options);
+  *max_cost = -result.get_optimal_cost();
+  if (verbose) {
+    drake::log()->info(fmt::format(
+        "max({})={}, solver_time {}", cost_name, *max_cost,
+        result.get_solver_details<solvers::MosekSolver>().optimizer_time));
+  }
+  if (backoff_scale > 0) {
+    result = BackoffProgram(&prog, result.get_optimal_cost(), backoff_scale,
+                            solver_options);
+    *max_cost = -result.EvalBinding(ellipsoid_cost)(0);
+    if (verbose) {
+      drake::log()->info(fmt::format(
+          "backoff with {}={}, solver time {}", cost_name, *max_cost,
+          result.get_solver_details<solvers::MosekSolver>().optimizer_time));
+    }
+  }
+  *P_sol = result.GetSolution(P);
+  *q_sol = result.GetSolution(q);
+}
 }  // namespace
+
+namespace internal {
+// Some of the separating planes will be ignored by filtered_collision_pairs.
+// Returns std::vector<bool> to indicate if each plane is active or not.
+std::vector<bool> IsPlaneActive(
+    const std::vector<SeparatingPlane>& separating_planes,
+    const CspaceFreeRegion::FilteredCollisionPairs& filtered_collision_pairs) {
+  std::vector<bool> is_plane_active(separating_planes.size(), true);
+  for (int i = 0; i < static_cast<int>(separating_planes.size()); ++i) {
+    if (filtered_collision_pairs.count(SortedPair<geometry::GeometryId>(
+            separating_planes[i].positive_side_polytope->get_id(),
+            separating_planes[i].negative_side_polytope->get_id())) != 0) {
+      is_plane_active[i] = false;
+    }
+  }
+  return is_plane_active;
+}
+
+// For a given polytopic C-space region C * t <= d, t_lower <= t <= t_upper,
+// verify if this region is collision-free by solving the SOS program to find
+// the separating planes and the Lagrangian multipliers. Return true if the SOS
+// is successful, false otherwise.
+bool FindLagrangianAndSeparatingPlanesSingleThread(
+    const CspaceFreeRegion& cspace_free_region,
+    const std::vector<CspaceFreeRegion::CspacePolytopeTuple>&
+        alternation_tuples,
+    const Eigen::MatrixXd& C, const Eigen::VectorXd& d,
+    const VectorX<symbolic::Variable>& lagrangian_gram_vars,
+    const VectorX<symbolic::Variable>& verified_gram_vars,
+    const VectorX<symbolic::Variable>& separating_plane_vars,
+    const Eigen::VectorXd& t_lower, const Eigen::VectorXd& t_upper,
+    const VerificationOption& verification_option,
+    std::optional<double> redundant_tighten,
+    const solvers::SolverOptions& solver_options, bool verbose,
+    const std::vector<bool>& is_plane_active,
+    Eigen::VectorXd* lagrangian_gram_var_vals,
+    Eigen::VectorXd* verified_gram_var_vals,
+    Eigen::VectorXd* separating_plane_var_vals,
+    std::vector<SeparatingPlane>* separating_planes_sol) {
+  auto prog_lagrangian = cspace_free_region.ConstructLagrangianProgram(
+      alternation_tuples, C, d, lagrangian_gram_vars, verified_gram_vars,
+      separating_plane_vars, t_lower, t_upper, verification_option,
+      redundant_tighten, nullptr, nullptr);
+  auto result_lagrangian =
+      solvers::Solve(*prog_lagrangian, std::nullopt, solver_options);
+  if (!result_lagrangian.is_success()) {
+    if (verbose) {
+      drake::log()->warn(fmt::format("Find Lagrangian failed"));
+    }
+    return false;
+  } else {
+    if (verbose) {
+      drake::log()->info(fmt::format(
+          "Lagrangian SOS takes {} seconds",
+          result_lagrangian.get_solver_details<solvers::MosekSolver>()
+              .optimizer_time));
+    }
+  }
+  *lagrangian_gram_var_vals =
+      result_lagrangian.GetSolution(lagrangian_gram_vars);
+  *verified_gram_var_vals = result_lagrangian.GetSolution(verified_gram_vars);
+  *separating_plane_var_vals =
+      result_lagrangian.GetSolution(separating_plane_vars);
+  *separating_planes_sol = GetSeparatingPlanesSolution(
+      cspace_free_region, is_plane_active, result_lagrangian);
+  return true;
+}
+
+// Same as FindLagrangianAndSeparatingPlanesSingleThread. But instead of solving
+// one SOS with all the separating planes simultaneously, we solve many small
+// SOS in parallel, each SOS for one separating plane.
+bool FindLagrangianAndSeparatingPlanesMultiThread(
+    const CspaceFreeRegion& cspace_free_region,
+    const std::vector<CspaceFreeRegion::CspacePolytopeTuple>&
+        alternation_tuples,
+    const Eigen::MatrixXd& C, const Eigen::VectorXd& d,
+    const VectorX<symbolic::Variable>& lagrangian_gram_vars,
+    const VectorX<symbolic::Variable>& verified_gram_vars,
+    const VectorX<symbolic::Variable>& separating_plane_vars,
+    const Eigen::VectorXd& t_lower, const Eigen::VectorXd& t_upper,
+    const VerificationOption& verification_option,
+    std::optional<double> redundant_tighten,
+    const solvers::SolverOptions& solver_options, bool verbose,
+    const std::vector<std::vector<int>>& separating_plane_to_tuples,
+    Eigen::VectorXd* lagrangian_gram_var_vals,
+    Eigen::VectorXd* verified_gram_var_vals,
+    Eigen::VectorXd* separating_plane_var_vals,
+    std::vector<SeparatingPlane>* separating_planes_sol) {
+  // To avoid data race, we allocate memory for lagrangian_gram_var_vals and
+  // separating_planes_sol before launching the multiple threads. To
+  // allocate memory for separating_planes_sol, we count the number of active
+  // planes.
+  int num_active_planes = 0;
+  for (const auto& tuple_indices : separating_plane_to_tuples) {
+    if (!tuple_indices.empty()) {
+      num_active_planes++;
+    }
+  }
+  // Allocate memory for lagrangian_gram_var_vals;
+  lagrangian_gram_var_vals->resize(lagrangian_gram_vars.rows());
+  verified_gram_var_vals->resize(verified_gram_vars.rows());
+  separating_plane_var_vals->resize(separating_plane_vars.rows());
+  separating_planes_sol->resize(num_active_planes);
+  std::vector<bool> is_success(num_active_planes, false);
+  // To set values of separating_plane_vars, I build this map from the variable
+  // to its index in separating_plane_vars.
+  std::unordered_map<symbolic::Variable::Id, int> separating_plane_var_indices;
+  for (int i = 0; i < separating_plane_vars.rows(); ++i) {
+    separating_plane_var_indices.emplace(separating_plane_vars(i).get_id(), i);
+  }
+
+  // This lambda function formulates and solves a small SOS program for each
+  // separating plane. It finds the separating plane and the Lagrangian
+  // multiplier for a pair of collision geometries.
+  auto solve_small_sos = [&cspace_free_region, &alternation_tuples, &C, &d,
+                          &lagrangian_gram_vars, &verified_gram_vars,
+                          &separating_plane_vars, &t_lower, &t_upper,
+                          &verification_option, &redundant_tighten,
+                          &solver_options, &separating_plane_to_tuples,
+                          &separating_plane_var_indices,
+                          lagrangian_gram_var_vals, separating_planes_sol,
+                          verified_gram_var_vals, separating_plane_var_vals,
+                          &is_success](int active_plane_count,
+                                       int plane_index) {
+    const std::vector<int>& tuple_indices =
+        separating_plane_to_tuples[plane_index];
+    std::vector<CspaceFreeRegion::CspacePolytopeTuple> plane_tuples;
+    plane_tuples.reserve(tuple_indices.size());
+    for (const int tuple_index : tuple_indices) {
+      plane_tuples.push_back(alternation_tuples[tuple_index]);
+    }
+    auto prog = cspace_free_region.ConstructLagrangianProgram(
+        plane_tuples, C, d, lagrangian_gram_vars, verified_gram_vars,
+        separating_plane_vars, t_lower, t_upper, verification_option,
+        redundant_tighten, nullptr, nullptr);
+    const auto result = solvers::Solve(*prog, std::nullopt, solver_options);
+    is_success[active_plane_count] = result.is_success();
+    if (result.is_success()) {
+      // Now fill in lagrangian_gram_var_vals;
+      for (const int tuple_index : tuple_indices) {
+        const int gram_rows =
+            alternation_tuples[tuple_index].monomial_basis.rows();
+        const int gram_lower_size = gram_rows * (gram_rows + 1) / 2;
+
+        auto fill_lagrangian =
+            [gram_lower_size, lagrangian_gram_var_vals, &result,
+             &lagrangian_gram_vars](
+                const std::vector<int>& lagrangian_gram_start) {
+              for (int start : lagrangian_gram_start) {
+                lagrangian_gram_var_vals->segment(start, gram_lower_size) =
+                    result.GetSolution(
+                        lagrangian_gram_vars.segment(start, gram_lower_size));
+              }
+            };
+        fill_lagrangian(alternation_tuples[tuple_index]
+                            .polytope_lagrangian_gram_lower_start);
+        fill_lagrangian(alternation_tuples[tuple_index]
+                            .t_lower_lagrangian_gram_lower_start);
+        fill_lagrangian(alternation_tuples[tuple_index]
+                            .t_upper_lagrangian_gram_lower_start);
+        verified_gram_var_vals->segment(
+            alternation_tuples[tuple_index]
+                .verified_polynomial_gram_lower_start,
+            gram_lower_size) =
+            result.GetSolution(verified_gram_vars.segment(
+                alternation_tuples[tuple_index]
+                    .verified_polynomial_gram_lower_start,
+                gram_lower_size));
+      }
+      // Now get the solution for separating_plane.
+      (*separating_planes_sol)[active_plane_count] = GetSeparatingPlaneSolution(
+          cspace_free_region.separating_planes()[plane_index], result);
+      // Set separating_plane_var_vals.
+      for (int i = 0; i < cspace_free_region.separating_planes()[plane_index]
+                              .decision_variables.rows();
+           ++i) {
+        const symbolic::Variable& var =
+            cspace_free_region.separating_planes()[plane_index]
+                .decision_variables(i);
+        (*separating_plane_var_vals)(separating_plane_var_indices.at(
+            var.get_id())) = result.GetSolution(var);
+      }
+    }
+  };
+  std::vector<std::thread> threads;
+  int active_plane_count = 0;
+  for (int plane_index = 0;
+       plane_index <
+       static_cast<int>(cspace_free_region.separating_planes().size());
+       ++plane_index) {
+    if (!separating_plane_to_tuples[plane_index].empty()) {
+      threads.push_back(
+          std::thread(solve_small_sos, active_plane_count, plane_index));
+      active_plane_count++;
+    }
+  }
+  for (auto& th : threads) {
+    th.join();
+  }
+  if (std::all_of(is_success.begin(), is_success.end(),
+                  [](bool flag) { return flag; })) {
+    if (verbose) {
+      drake::log()->info("Found Lagrangian multiplier and separating planes");
+    }
+    return true;
+  } else {
+    if (verbose) {
+      std::string bad_pairs;
+      active_plane_count = 0;
+      const auto& inspector =
+          cspace_free_region.scene_graph().model_inspector();
+      for (int plane_index = 0;
+           plane_index <
+           static_cast<int>(cspace_free_region.separating_planes().size());
+           ++plane_index) {
+        if (!separating_plane_to_tuples[plane_index].empty()) {
+          if (!is_success[active_plane_count]) {
+            bad_pairs.append(fmt::format(
+                "({}, {})\n",
+                inspector.GetName(
+                    cspace_free_region.separating_planes()[plane_index]
+                        .positive_side_polytope->get_id()),
+                inspector.GetName(
+                    cspace_free_region.separating_planes()[plane_index]
+                        .negative_side_polytope->get_id())));
+          }
+          active_plane_count++;
+        }
+      }
+
+      drake::log()->warn(fmt::format(
+          "Cannot find Lagrangian multiplier and separating planes for \n{}",
+          bad_pairs));
+    }
+    return false;
+  }
+}
+
+bool FindLagrangianAndSeparatingPlanes(
+    const CspaceFreeRegion& cspace_free_region,
+    const std::vector<CspaceFreeRegion::CspacePolytopeTuple>&
+        alternation_tuples,
+    const Eigen::MatrixXd& C, const Eigen::VectorXd& d,
+    const VectorX<symbolic::Variable>& lagrangian_gram_vars,
+    const VectorX<symbolic::Variable>& verified_gram_vars,
+    const VectorX<symbolic::Variable>& separating_plane_vars,
+    const Eigen::VectorXd& t_lower, const Eigen::VectorXd& t_upper,
+    const VerificationOption& verification_option,
+    std::optional<double> redundant_tighten,
+    const solvers::SolverOptions& solver_options, bool verbose,
+    bool multi_thread,
+    const std::vector<std::vector<int>>& separating_plane_to_tuples,
+    Eigen::VectorXd* lagrangian_gram_var_vals,
+    Eigen::VectorXd* verified_gram_var_vals,
+    Eigen::VectorXd* separating_plane_var_vals,
+    std::vector<SeparatingPlane>* separating_planes_sol) {
+  if (multi_thread) {
+    return FindLagrangianAndSeparatingPlanesMultiThread(
+        cspace_free_region, alternation_tuples, C, d, lagrangian_gram_vars,
+        verified_gram_vars, separating_plane_vars, t_lower, t_upper,
+        verification_option, redundant_tighten, solver_options, verbose,
+        separating_plane_to_tuples, lagrangian_gram_var_vals,
+        verified_gram_var_vals, separating_plane_var_vals,
+        separating_planes_sol);
+  } else {
+    std::vector<bool> is_plane_active(
+        cspace_free_region.separating_planes().size(), false);
+    for (int i = 0; i < static_cast<int>(is_plane_active.size()); ++i) {
+      is_plane_active[i] = !separating_plane_to_tuples[i].empty();
+    }
+    return FindLagrangianAndSeparatingPlanesSingleThread(
+        cspace_free_region, alternation_tuples, C, d, lagrangian_gram_vars,
+        verified_gram_vars, separating_plane_vars, t_lower, t_upper,
+        verification_option, redundant_tighten, solver_options, verbose,
+        is_plane_active, lagrangian_gram_var_vals, verified_gram_var_vals,
+        separating_plane_var_vals, separating_planes_sol);
+  }
+}
+}  // namespace internal
 
 void CspaceFreeRegion::CspacePolytopeBilinearAlternation(
     const Eigen::Ref<const Eigen::VectorXd>& q_star,
@@ -1066,19 +1427,21 @@ void CspaceFreeRegion::CspacePolytopeBilinearAlternation(
   MatrixX<symbolic::Variable> C_var;
   VectorX<symbolic::Variable> d_var, lagrangian_gram_vars, verified_gram_vars,
       separating_plane_vars;
+  std::vector<std::vector<int>> separating_plane_to_tuples;
   GenerateTuplesForBilinearAlternation(
       q_star, filtered_collision_pairs, C_rows, &alternation_tuples,
       &d_minus_Ct, &t_lower, &t_upper, &t_minus_t_lower, &t_upper_minus_t,
       &C_var, &d_var, &lagrangian_gram_vars, &verified_gram_vars,
-      &separating_plane_vars);
+      &separating_plane_vars, &separating_plane_to_tuples);
   if (bilinear_alternation_option.compute_polytope_volume) {
     drake::log()->info(
         fmt::format("Polytope volume {}",
                     CalcCspacePolytopeVolume(C_val, d_val, t_lower, t_upper)));
   }
 
-  MatrixX<symbolic::Variable> P;
-  VectorX<symbolic::Variable> q;
+  const std::vector<bool> is_plane_active =
+      internal::IsPlaneActive(separating_planes_, filtered_collision_pairs);
+
   VectorX<symbolic::Variable> margin;
   int iter_count = 0;
   double cost_improvement = kInf;
@@ -1086,66 +1449,45 @@ void CspaceFreeRegion::CspacePolytopeBilinearAlternation(
   VerificationOption verification_option{};
   while (iter_count < bilinear_alternation_option.max_iters &&
          cost_improvement > bilinear_alternation_option.convergence_tol) {
-    auto prog_lagrangian = ConstructLagrangianProgram(
-        alternation_tuples, C_val, d_val, lagrangian_gram_vars,
+    Eigen::VectorXd lagrangian_gram_var_vals, verified_gram_var_vals,
+        separating_plane_var_vals;
+    auto clock_start = std::chrono::system_clock::now();
+    const bool find_lagrangian = internal::FindLagrangianAndSeparatingPlanes(
+        *this, alternation_tuples, C_val, d_val, lagrangian_gram_vars,
         verified_gram_vars, separating_plane_vars, t_lower, t_upper,
-        verification_option, bilinear_alternation_option.redundant_tighten, &P,
-        &q);
-    std::string cost_name;
-    switch (bilinear_alternation_option.ellipsoid_volume) {
-      case EllipsoidVolume::kLog: {
-        prog_lagrangian->AddMaximizeLogDeterminantCost(
-            P.cast<symbolic::Expression>());
-        cost_name = "log(det(P))";
-        break;
-      }
-      case EllipsoidVolume::kNthRoot: {
-        AddMaximizeEigenValueGeometricMean(prog_lagrangian.get(), P);
-        cost_name = fmt::format("power(det(P), 1/{}", SmallestPower2(P.rows()));
-        break;
-      }
-    }
-    const auto lagrangian_cost = prog_lagrangian->linear_costs()[0];
-    auto result_lagrangian =
-        solvers::Solve(*prog_lagrangian, std::nullopt, solver_options);
-    if (!result_lagrangian.is_success()) {
-      drake::log()->warn(
-          fmt::format("Find Lagrangian fails in iter {}", iter_count));
-      *separating_planes_sol =
-          GetSeparatingPlanesSolution(*this, result_lagrangian);
+        verification_option, bilinear_alternation_option.redundant_tighten,
+        solver_options, bilinear_alternation_option.verbose,
+        bilinear_alternation_option.multi_thread, separating_plane_to_tuples,
+        &lagrangian_gram_var_vals, &verified_gram_var_vals,
+        &separating_plane_var_vals, separating_planes_sol);
+    auto clock_now = std::chrono::system_clock::now();
+    drake::log()->info(fmt::format(
+        "Lagrangian step time {} s",
+        static_cast<float>(
+            std::chrono::duration_cast<std::chrono::milliseconds>(clock_now -
+                                                                  clock_start)
+                .count()) /
+            1000));
+    if (!find_lagrangian) {
       return;
+    } else {
+      *C_final = C_val;
+      *d_final = d_val;
     }
-    double lagrangian_cost_val = -result_lagrangian.get_optimal_cost();
-    if (bilinear_alternation_option.verbose) {
-      drake::log()->info(fmt::format(
-          "Iter: {}, max({})={}, solver_time {}", iter_count, cost_name,
-          -result_lagrangian.get_optimal_cost(),
-          result_lagrangian.get_solver_details<solvers::MosekSolver>()
-              .optimizer_time));
-    }
-    if (bilinear_alternation_option.lagrangian_backoff_scale > 0) {
-      result_lagrangian = BackoffProgram(
-          prog_lagrangian.get(), result_lagrangian.get_optimal_cost(),
-          bilinear_alternation_option.lagrangian_backoff_scale, solver_options);
-      lagrangian_cost_val = -result_lagrangian.EvalBinding(lagrangian_cost)(0);
-      if (bilinear_alternation_option.verbose) {
-        drake::log()->info(fmt::format(
-            "backoff with {} {}, solver time {}", cost_name,
-            lagrangian_cost_val,
-            result_lagrangian.get_solver_details<solvers::MosekSolver>()
-                .optimizer_time));
-      }
-    }
-    const Eigen::VectorXd lagrangian_gram_var_vals =
-        result_lagrangian.GetSolution(lagrangian_gram_vars);
-    const auto P_sol = result_lagrangian.GetSolution(P);
-    const auto q_sol = result_lagrangian.GetSolution(q);
-    *P_final = P_sol;
-    *q_final = q_sol;
+    // Now construct a program that finds the maximal inner ellipsoid in C*t<=d,
+    // t_lower<=t<=t_upper. This program can be solved independently from
+    // prog_lagrangian.
+    double ellipsoid_cost_val;
+    FindLargestInscribedEllipsoid(
+        C_val, d_val, t_lower, t_upper,
+        bilinear_alternation_option.lagrangian_backoff_scale,
+        bilinear_alternation_option.ellipsoid_volume, solver_options,
+        bilinear_alternation_option.verbose, P_final, q_final,
+        &ellipsoid_cost_val);
     // Update the cost.
-    cost_improvement = lagrangian_cost_val - previous_cost;
+    cost_improvement = ellipsoid_cost_val - previous_cost;
     drake::log()->info(fmt::format("cost improvement {}", cost_improvement));
-    previous_cost = lagrangian_cost_val;
+    previous_cost = ellipsoid_cost_val;
 
     // Now solve the polytope problem (fix Lagrangian).
     auto prog_polytope = ConstructPolytopeProgram(
@@ -1154,7 +1496,8 @@ void CspaceFreeRegion::CspacePolytopeBilinearAlternation(
         t_upper_minus_t, verification_option);
     // Add the constraint that the polytope contains the ellipsoid
     margin = prog_polytope->NewContinuousVariables(C_var.rows(), "margin");
-    AddOuterPolytope(prog_polytope.get(), P_sol, q_sol, C_var, d_var, margin);
+    AddOuterPolytope(prog_polytope.get(), *P_final, *q_final, C_var, d_var,
+                     margin);
 
     // We know that the verified polytope has to be contained in the box t_lower
     // <= t <= t_upper. Hence there is no point to grow the polytope such that
@@ -1208,7 +1551,7 @@ void CspaceFreeRegion::CspacePolytopeBilinearAlternation(
       drake::log()->warn(fmt::format(
           "Failed to find the polytope at iteration {}", iter_count));
       *separating_planes_sol =
-          GetSeparatingPlanesSolution(*this, result_polytope);
+          GetSeparatingPlanesSolution(*this, is_plane_active, result_polytope);
       return;
     }
 
@@ -1241,7 +1584,7 @@ void CspaceFreeRegion::CspacePolytopeBilinearAlternation(
     *C_final = C_val;
     *d_final = d_val;
     *separating_planes_sol =
-        GetSeparatingPlanesSolution(*this, result_polytope);
+        GetSeparatingPlanesSolution(*this, is_plane_active, result_polytope);
     iter_count += 1;
   }
 }
@@ -1273,11 +1616,12 @@ void CspaceFreeRegion::CspacePolytopeBinarySearch(
   MatrixX<symbolic::Variable> C_var;
   VectorX<symbolic::Variable> d_var, lagrangian_gram_vars, verified_gram_vars,
       separating_plane_vars;
+  std::vector<std::vector<int>> separating_plane_to_tuples;
   GenerateTuplesForBilinearAlternation(
       q_star, filtered_collision_pairs, C_rows, &alternation_tuples,
       &d_minus_Ct, &t_lower, &t_upper, &t_minus_t_lower, &t_upper_minus_t,
       &C_var, &d_var, &lagrangian_gram_vars, &verified_gram_vars,
-      &separating_plane_vars);
+      &separating_plane_vars, &separating_plane_to_tuples);
   std::optional<Eigen::MatrixXd> t_inner_pts;
   if (q_inner_pts.has_value()) {
     t_inner_pts->resize(q_inner_pts->rows(), q_inner_pts->cols());
@@ -1292,88 +1636,88 @@ void CspaceFreeRegion::CspacePolytopeBinarySearch(
   const Eigen::VectorXd d_max = ComputeMaxD(C, t_lower, t_upper);
 
   VerificationOption verification_option{};
+  const auto is_plane_active =
+      internal::IsPlaneActive(separating_planes_, filtered_collision_pairs);
   // Checks if C*t<=d, t_lower<=t<=t_upper is collision free.
   // This function will update d_sol when the polytope is collision free.
-  auto is_polytope_collision_free = [this, &alternation_tuples, &C,
-                                     &lagrangian_gram_vars, &verified_gram_vars,
-                                     &separating_plane_vars, &t_lower, &t_upper,
-                                     &verification_option, &solver_options,
-                                     &C_var, &d_var, &d_minus_Ct,
-                                     &t_minus_t_lower, &t_upper_minus_t,
-                                     &t_inner_pts, &inner_polytope, &d_max](
-                                        const Eigen::VectorXd& d, bool search_d,
-                                        bool compute_polytope_volume,
-                                        Eigen::VectorXd* d_sol,
-                                        solvers::MathematicalProgramResult*
-                                            solver_result) {
-    const double redundant_tighten = 0.;
-    auto prog = this->ConstructLagrangianProgram(
-        alternation_tuples, C, d, lagrangian_gram_vars, verified_gram_vars,
-        separating_plane_vars, t_lower, t_upper, verification_option,
-        redundant_tighten, nullptr, nullptr);
-    const auto result = solvers::Solve(*prog, std::nullopt, solver_options);
-    if (result.is_success()) {
-      *d_sol = d;
-      *solver_result = result;
-      if (search_d) {
-        // Now fix the Lagrangian and C, and search for d.
-        const auto lagrangian_gram_var_vals =
-            result.GetSolution(lagrangian_gram_vars);
-        auto prog_polytope = this->ConstructPolytopeProgram(
-            alternation_tuples, C_var, d_var, d_minus_Ct,
-            lagrangian_gram_var_vals, verified_gram_vars, separating_plane_vars,
-            t_minus_t_lower, t_upper_minus_t, verification_option);
-        // Calling AddBoundingBoxConstraint(C, C, C_var) for matrix C and
-        // C_var might have problem, see Drake issue #16421
-        prog_polytope->AddBoundingBoxConstraint(
-            Eigen::Map<const Eigen::VectorXd>(C.data(), C.rows() * C.cols()),
-            Eigen::Map<const Eigen::VectorXd>(C.data(), C.rows() * C.cols()),
-            Eigen::Map<const VectorX<symbolic::Variable>>(C_var.data(),
-                                                          C.rows() * C.cols()));
-        // d <= d_var <= d_max
-        prog_polytope->AddBoundingBoxConstraint(d, d_max, d_var);
-        if (t_inner_pts.has_value()) {
-          AddCspacePolytopeContainment(prog_polytope.get(), C_var, d_var,
-                                       t_inner_pts.value());
+  auto is_polytope_collision_free =
+      [this, &alternation_tuples, &C, &lagrangian_gram_vars,
+       &verified_gram_vars, &separating_plane_vars, &t_lower, &t_upper,
+       &verification_option, &solver_options, &C_var, &d_var, &d_minus_Ct,
+       &t_minus_t_lower, &t_upper_minus_t, &t_inner_pts, &inner_polytope,
+       &d_max, &is_plane_active, &separating_plane_to_tuples,
+       separating_planes_sol](const Eigen::VectorXd& d, bool search_d,
+                              bool compute_polytope_volume, bool verbose,
+                              bool multi_thread, Eigen::VectorXd* d_sol) {
+        const double redundant_tighten = 0.;
+        Eigen::VectorXd lagrangian_gram_var_vals, verified_gram_var_vals,
+            separating_plane_var_vals;
+        const bool is_success = internal::FindLagrangianAndSeparatingPlanes(
+            *this, alternation_tuples, C, d, lagrangian_gram_vars,
+            verified_gram_vars, separating_plane_vars, t_lower, t_upper,
+            verification_option, redundant_tighten, solver_options, verbose,
+            multi_thread, separating_plane_to_tuples, &lagrangian_gram_var_vals,
+            &verified_gram_var_vals, &separating_plane_var_vals,
+            separating_planes_sol);
+        if (is_success) {
+          *d_sol = d;
+          if (search_d) {
+            // Now fix the Lagrangian and C, and search for d.
+            auto prog_polytope = this->ConstructPolytopeProgram(
+                alternation_tuples, C_var, d_var, d_minus_Ct,
+                lagrangian_gram_var_vals, verified_gram_vars,
+                separating_plane_vars, t_minus_t_lower, t_upper_minus_t,
+                verification_option);
+            // Calling AddBoundingBoxConstraint(C, C, C_var) for matrix C and
+            // C_var might have problem, see Drake issue #16421
+            prog_polytope->AddBoundingBoxConstraint(
+                Eigen::Map<const Eigen::VectorXd>(C.data(),
+                                                  C.rows() * C.cols()),
+                Eigen::Map<const Eigen::VectorXd>(C.data(),
+                                                  C.rows() * C.cols()),
+                Eigen::Map<const VectorX<symbolic::Variable>>(
+                    C_var.data(), C.rows() * C.cols()));
+            // d <= d_var <= d_max
+            prog_polytope->AddBoundingBoxConstraint(d, d_max, d_var);
+            if (t_inner_pts.has_value()) {
+              AddCspacePolytopeContainment(prog_polytope.get(), C_var, d_var,
+                                           t_inner_pts.value());
+            }
+            if (inner_polytope.has_value()) {
+              AddCspacePolytopeContainment(
+                  prog_polytope.get(), C_var, d_var, inner_polytope->first,
+                  inner_polytope->second, t_lower, t_upper);
+            }
+            // maximize d_var.
+            prog_polytope->AddLinearCost(-Eigen::VectorXd::Ones(d_var.rows()),
+                                         0, d_var);
+            const auto result_polytope =
+                solvers::Solve(*prog_polytope, std::nullopt, solver_options);
+            drake::log()->info(fmt::format("search d is successful = {}",
+                                           result_polytope.is_success()));
+            if (result_polytope.is_success()) {
+              *d_sol = result_polytope.GetSolution(d_var);
+              *separating_planes_sol = GetSeparatingPlanesSolution(
+                  *this, is_plane_active, result_polytope);
+            }
+          }
         }
-        if (inner_polytope.has_value()) {
-          AddCspacePolytopeContainment(
-              prog_polytope.get(), C_var, d_var, inner_polytope->first,
-              inner_polytope->second, t_lower, t_upper);
+        if (compute_polytope_volume) {
+          drake::log()->info(
+              fmt::format("C-space polytope volume {}",
+                          CalcCspacePolytopeVolume(C, d, t_lower, t_upper)));
         }
-        // maximize d_var.
-        prog_polytope->AddLinearCost(-Eigen::VectorXd::Ones(d_var.rows()), 0,
-                                     d_var);
-        const auto result_polytope =
-            solvers::Solve(*prog_polytope, std::nullopt, solver_options);
-        drake::log()->info(fmt::format("search d is successful = {}",
-                                       result_polytope.is_success()));
-        if (result_polytope.is_success()) {
-          *d_sol = result_polytope.GetSolution(d_var);
-          *solver_result = result_polytope;
-        }
-      }
-    }
-    drake::log()->info(fmt::format(
-        "Solver time {}",
-        result.get_solver_details<solvers::MosekSolver>().optimizer_time));
-    if (compute_polytope_volume) {
-      drake::log()->info(
-          fmt::format("C-space polytope volume {}",
-                      CalcCspacePolytopeVolume(C, d, t_lower, t_upper)));
-    }
-    return result.is_success();
-  };
+        return is_success;
+      };
 
-  solvers::MathematicalProgramResult solver_result;
   if (is_polytope_collision_free(
           d_without_epsilon +
               binary_search_option.epsilon_max *
                   Eigen::VectorXd::Ones(d_without_epsilon.rows()),
           binary_search_option.search_d,
-          binary_search_option.compute_polytope_volume, d_final,
-          &solver_result)) {
-    *separating_planes_sol = GetSeparatingPlanesSolution(*this, solver_result);
+          binary_search_option.compute_polytope_volume,
+          binary_search_option.verbose, binary_search_option.multi_thread,
+          d_final)) {
     return;
   }
   if (!is_polytope_collision_free(
@@ -1381,8 +1725,9 @@ void CspaceFreeRegion::CspacePolytopeBinarySearch(
               binary_search_option.epsilon_min *
                   Eigen::VectorXd::Ones(d_without_epsilon.rows()),
           false /* don't search for d */,
-          binary_search_option.compute_polytope_volume, d_final,
-          &solver_result)) {
+          binary_search_option.compute_polytope_volume,
+          binary_search_option.verbose, binary_search_option.multi_thread,
+          d_final)) {
     throw std::runtime_error(
         fmt::format("binary search: the initial epsilon {} is infeasible",
                     binary_search_option.epsilon_min));
@@ -1395,9 +1740,11 @@ void CspaceFreeRegion::CspacePolytopeBinarySearch(
     const Eigen::VectorXd d =
         d_without_epsilon +
         eps * Eigen::VectorXd::Ones(d_without_epsilon.rows());
-    const bool is_feasible = is_polytope_collision_free(
-        d, binary_search_option.search_d,
-        binary_search_option.compute_polytope_volume, d_final, &solver_result);
+    const bool is_feasible =
+        is_polytope_collision_free(d, binary_search_option.search_d,
+                                   binary_search_option.compute_polytope_volume,
+                                   binary_search_option.verbose,
+                                   binary_search_option.multi_thread, d_final);
     if (is_feasible) {
       drake::log()->info(fmt::format("epsilon={} is feasible", eps));
       // Now we need to reset d_without_epsilon. The invariance we want is that
@@ -1419,7 +1766,6 @@ void CspaceFreeRegion::CspacePolytopeBinarySearch(
     }
     iter_count++;
   }
-  *separating_planes_sol = GetSeparatingPlanesSolution(*this, solver_result);
 }
 
 void CspaceFreeRegion::CspacePolytopeRoundRobinBisectionSearch(

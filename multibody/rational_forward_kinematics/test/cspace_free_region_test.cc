@@ -146,13 +146,14 @@ void TestCspaceFreeRegionConstructor(
         SortedPair<geometry::GeometryId>(collision_pair.first,
                                          collision_pair.second));
     EXPECT_NE(it, dut.map_polytopes_to_separating_planes().end());
-    const SeparatingPlane* separating_plane = it->second;
+    const SeparatingPlane& separating_plane =
+        dut.separating_planes()[it->second];
     EXPECT_EQ(it->first,
               SortedPair<geometry::GeometryId>(
-                  separating_plane->positive_side_polytope->get_id(),
-                  separating_plane->negative_side_polytope->get_id()));
-    const auto& a = separating_plane->a;
-    const auto& b = separating_plane->b;
+                  separating_plane.positive_side_polytope->get_id(),
+                  separating_plane.negative_side_polytope->get_id()));
+    const auto& a = separating_plane.a;
+    const auto& b = separating_plane.b;
     const symbolic::Variables t_vars(dut.rational_forward_kinematics().t());
     if (plane_order == SeparatingPlaneOrder::kConstant) {
       for (int i = 0; i < 3; ++i) {
@@ -166,12 +167,12 @@ void TestCspaceFreeRegionConstructor(
         t_for_plane = dut.rational_forward_kinematics().t();
       } else {
         t_for_plane = dut.rational_forward_kinematics().FindTOnPath(
-            separating_plane->positive_side_polytope->body_index(),
-            separating_plane->negative_side_polytope->body_index());
+            separating_plane.positive_side_polytope->body_index(),
+            separating_plane.negative_side_polytope->body_index());
       }
       // Check if a, b are affine function of t_for_plane.
       const symbolic::Variables decision_vars(
-          separating_plane->decision_variables);
+          separating_plane.decision_variables);
       EXPECT_EQ(decision_vars.size(), 4 * t_for_plane.rows() + 4);
       CheckIsAffinePolynomial(symbolic::Polynomial(b, t_vars), t_for_plane,
                               decision_vars);
@@ -311,13 +312,16 @@ void TestGenerateLinkOnOneSideOfPlaneRationals(
       q_star, filtered_collision_pairs);
   // Check the size of rationals.
   int rationals_size = 0;
-  for (const auto& [link_pair, separating_plane] :
+  for (const auto& [link_pair, separating_plane_index] :
        dut.map_polytopes_to_separating_planes()) {
     if (!IsGeometryPairCollisionIgnored(link_pair.first(), link_pair.second(),
                                         filtered_collision_pairs)) {
-      rationals_size +=
-          separating_plane->positive_side_polytope->p_BV().cols() +
-          separating_plane->negative_side_polytope->p_BV().cols();
+      rationals_size += dut.separating_planes()[separating_plane_index]
+                            .positive_side_polytope->p_BV()
+                            .cols() +
+                        dut.separating_planes()[separating_plane_index]
+                            .negative_side_polytope->p_BV()
+                            .cols();
     }
   }
   EXPECT_EQ(rationals.size(), rationals_size);
@@ -551,10 +555,11 @@ TEST_F(IiwaCspaceTest, GenerateTuplesForBilinearAlternation) {
   MatrixX<symbolic::Variable> C_var;
   VectorX<symbolic::Variable> d_var, lagrangian_gram_vars, verified_gram_vars,
       separating_plane_vars;
+  std::vector<std::vector<int>> separating_plane_to_tuples;
   dut.GenerateTuplesForBilinearAlternation(
       q_star, {}, C_rows, &alternation_tuples, &d_minus_Ct, &t_lower, &t_upper,
       &t_minus_t_lower, &t_upper_minus_t, &C_var, &d_var, &lagrangian_gram_vars,
-      &verified_gram_vars, &separating_plane_vars);
+      &verified_gram_vars, &separating_plane_vars, &separating_plane_to_tuples);
   int rational_count = 0;
   for (const auto& separating_plane : dut.separating_planes()) {
     rational_count += separating_plane.positive_side_polytope->p_BV().cols() +
@@ -614,6 +619,18 @@ TEST_F(IiwaCspaceTest, GenerateTuplesForBilinearAlternation) {
   EXPECT_EQ(separating_plane_vars.rows(), separating_plane_vars_count);
   const symbolic::Variables separating_plane_vars_set{separating_plane_vars};
   EXPECT_EQ(separating_plane_vars_set.size(), separating_plane_vars_count);
+  // Now check separating_plane_to_tuples
+  EXPECT_EQ(separating_plane_to_tuples.size(), dut.separating_planes().size());
+  std::unordered_set<int> tuple_indices_set;
+  for (const auto& tuple_indices : separating_plane_to_tuples) {
+    for (int index : tuple_indices) {
+      EXPECT_EQ(tuple_indices_set.count(index), 0);
+      tuple_indices_set.emplace(index);
+      EXPECT_LT(index, rational_count);
+      EXPECT_GE(index, 0);
+    }
+  }
+  EXPECT_EQ(tuple_indices_set.size(), rational_count);
 }
 
 void CheckPsd(const Eigen::Ref<const Eigen::MatrixXd>& mat, double tol) {
@@ -622,69 +639,19 @@ void CheckPsd(const Eigen::Ref<const Eigen::MatrixXd>& mat, double tol) {
   EXPECT_TRUE((es.eigenvalues().array() > -tol).all());
 }
 
-TEST_F(IiwaCspaceTest, ConstructLagrangianAndPolytopeProgram) {
-  // Test both ConstructLagrangianProgram and ConstructPolytopeProgram (the
-  // latter needs the result from the former).
-  ApplyFilter();
-  const CspaceFreeRegion dut(*diagram_, plant_, scene_graph_,
-                             SeparatingPlaneOrder::kAffine,
-                             CspaceRegionType::kGenericPolytope);
-  const auto& plant = dut.rational_forward_kinematics().plant();
-  auto context = plant.CreateDefaultContext();
-
-  Eigen::VectorXd q_star;
-  Eigen::MatrixXd C;
-  Eigen::VectorXd d;
-  Eigen::VectorXd q_not_in_collision;
-  ConstructInitialCspacePolytope(dut, &q_star, &C, &d, &q_not_in_collision);
-
-  CspaceFreeRegion::FilteredCollisionPairs filtered_collision_pairs{};
-  std::vector<CspaceFreeRegion::CspacePolytopeTuple> alternation_tuples;
-  VectorX<symbolic::Polynomial> d_minus_Ct;
-  Eigen::VectorXd t_lower, t_upper;
-  VectorX<symbolic::Polynomial> t_minus_t_lower, t_upper_minus_t;
-  MatrixX<symbolic::Variable> C_var;
-  VectorX<symbolic::Variable> d_var, lagrangian_gram_vars, verified_gram_vars,
-      separating_plane_vars;
-  dut.GenerateTuplesForBilinearAlternation(
-      q_star, filtered_collision_pairs, C.rows(), &alternation_tuples,
-      &d_minus_Ct, &t_lower, &t_upper, &t_minus_t_lower, &t_upper_minus_t,
-      &C_var, &d_var, &lagrangian_gram_vars, &verified_gram_vars,
-      &separating_plane_vars);
-
-  MatrixX<symbolic::Variable> P;
-  VectorX<symbolic::Variable> q;
-  auto clock_start = std::chrono::system_clock::now();
-  double redundant_tighten = 0;
-  auto prog = dut.ConstructLagrangianProgram(
-      alternation_tuples, C, d, lagrangian_gram_vars, verified_gram_vars,
-      separating_plane_vars, t_lower, t_upper, {}, redundant_tighten, &P, &q);
-  auto clock_finish = std::chrono::system_clock::now();
-  std::cout << "ConstructLagrangianProgram takes "
-            << static_cast<float>(
-                   std::chrono::duration_cast<std::chrono::milliseconds>(
-                       clock_finish - clock_start)
-                       .count()) /
-                   1000
-            << "s\n";
-  prog->AddMaximizeLogDeterminantCost(P.cast<symbolic::Expression>());
-  solvers::SolverOptions solver_options;
-  solver_options.SetOption(solvers::CommonSolverOption::kPrintToConsole, 1);
-  const auto result = solvers::Solve(*prog, std::nullopt, solver_options);
-  EXPECT_TRUE(result.is_success());
-
-  // Now check the result of finding lagrangians.
-  const double psd_tol = 1E-6;
-  const auto P_sol = result.GetSolution(P);
-  CheckPsd(P_sol, psd_tol);
-  const auto q_sol = result.GetSolution(q);
-
-  const Eigen::VectorXd lagrangian_gram_var_vals =
-      result.GetSolution(lagrangian_gram_vars);
-  Eigen::VectorXd verified_gram_var_vals =
-      result.GetSolution(verified_gram_vars);
-  const Eigen::VectorXd separating_plane_var_vals =
-      result.GetSolution(separating_plane_vars);
+void TestLagrangianResult(
+    const CspaceFreeRegion& dut,
+    const std::vector<CspaceFreeRegion::CspacePolytopeTuple>&
+        alternation_tuples,
+    const Eigen::MatrixXd& C, const Eigen::VectorXd& d,
+    const VectorX<symbolic::Variable>& separating_plane_vars,
+    const VectorX<symbolic::Polynomial>& t_minus_t_lower,
+    const VectorX<symbolic::Polynomial>& t_upper_minus_t,
+    const Eigen::VectorXd& lagrangian_gram_var_vals,
+    const Eigen::VectorXd& verified_gram_var_vals,
+    const Eigen::VectorXd& separating_plane_var_vals, double tol) {
+  // Check if the solution satisfies the PSD constraint, and the polynomials
+  // match.
   symbolic::Environment env;
   env.insert(separating_plane_vars, separating_plane_var_vals);
   VectorX<symbolic::Polynomial> d_minus_Ct_poly(C.rows());
@@ -705,6 +672,7 @@ TEST_F(IiwaCspaceTest, ConstructLagrangianAndPolytopeProgram) {
         verified_gram_var_vals.segment(
             tuple.verified_polynomial_gram_lower_start, gram_lower_size),
         &gram);
+    const double psd_tol = 1E-6;
     CheckPsd(gram, psd_tol);
     const symbolic::Polynomial verified_polynomial_expected =
         CalcPolynomialFromGram<double>(tuple.monomial_basis, gram);
@@ -741,8 +709,78 @@ TEST_F(IiwaCspaceTest, ConstructLagrangianAndPolytopeProgram) {
           t_upper_minus_t(i);
     }
     EXPECT_TRUE(verified_polynomial.CoefficientsAlmostEqual(
-        verified_polynomial_expected, 1E-5));
+        verified_polynomial_expected, tol));
   }
+}
+
+TEST_F(IiwaCspaceTest, ConstructLagrangianAndPolytopeProgram) {
+  // Test both ConstructLagrangianProgram and ConstructPolytopeProgram (the
+  // latter needs the result from the former).
+  ApplyFilter();
+  const CspaceFreeRegion dut(*diagram_, plant_, scene_graph_,
+                             SeparatingPlaneOrder::kAffine,
+                             CspaceRegionType::kGenericPolytope);
+  const auto& plant = dut.rational_forward_kinematics().plant();
+  auto context = plant.CreateDefaultContext();
+
+  Eigen::VectorXd q_star;
+  Eigen::MatrixXd C;
+  Eigen::VectorXd d;
+  Eigen::VectorXd q_not_in_collision;
+  ConstructInitialCspacePolytope(dut, &q_star, &C, &d, &q_not_in_collision);
+
+  CspaceFreeRegion::FilteredCollisionPairs filtered_collision_pairs{};
+  std::vector<CspaceFreeRegion::CspacePolytopeTuple> alternation_tuples;
+  VectorX<symbolic::Polynomial> d_minus_Ct;
+  Eigen::VectorXd t_lower, t_upper;
+  VectorX<symbolic::Polynomial> t_minus_t_lower, t_upper_minus_t;
+  MatrixX<symbolic::Variable> C_var;
+  VectorX<symbolic::Variable> d_var, lagrangian_gram_vars, verified_gram_vars,
+      separating_plane_vars;
+  std::vector<std::vector<int>> separating_plane_to_tuples;
+  dut.GenerateTuplesForBilinearAlternation(
+      q_star, filtered_collision_pairs, C.rows(), &alternation_tuples,
+      &d_minus_Ct, &t_lower, &t_upper, &t_minus_t_lower, &t_upper_minus_t,
+      &C_var, &d_var, &lagrangian_gram_vars, &verified_gram_vars,
+      &separating_plane_vars, &separating_plane_to_tuples);
+
+  MatrixX<symbolic::Variable> P;
+  VectorX<symbolic::Variable> q;
+  auto clock_start = std::chrono::system_clock::now();
+  double redundant_tighten = 0;
+  auto prog = dut.ConstructLagrangianProgram(
+      alternation_tuples, C, d, lagrangian_gram_vars, verified_gram_vars,
+      separating_plane_vars, t_lower, t_upper, {}, redundant_tighten, &P, &q);
+  auto clock_finish = std::chrono::system_clock::now();
+  std::cout << "ConstructLagrangianProgram takes "
+            << static_cast<float>(
+                   std::chrono::duration_cast<std::chrono::milliseconds>(
+                       clock_finish - clock_start)
+                       .count()) /
+                   1000
+            << "s\n";
+  prog->AddMaximizeLogDeterminantCost(P.cast<symbolic::Expression>());
+  solvers::SolverOptions solver_options;
+  solver_options.SetOption(solvers::CommonSolverOption::kPrintToConsole, 1);
+  const auto result = solvers::Solve(*prog, std::nullopt, solver_options);
+  EXPECT_TRUE(result.is_success());
+
+  // Now check the result of finding lagrangians.
+  const double psd_tol = 1E-6;
+  const auto P_sol = result.GetSolution(P);
+  CheckPsd(P_sol, psd_tol);
+  const auto q_sol = result.GetSolution(q);
+
+  const Eigen::VectorXd lagrangian_gram_var_vals =
+      result.GetSolution(lagrangian_gram_vars);
+  Eigen::VectorXd verified_gram_var_vals =
+      result.GetSolution(verified_gram_vars);
+  const Eigen::VectorXd separating_plane_var_vals =
+      result.GetSolution(separating_plane_vars);
+  TestLagrangianResult(dut, alternation_tuples, C, d, separating_plane_vars,
+                       t_minus_t_lower, t_upper_minus_t,
+                       lagrangian_gram_var_vals, verified_gram_var_vals,
+                       separating_plane_var_vals, 1E-5);
 
   // Now test ConstructPolytopeProgram using the lagrangian result.
   VectorX<symbolic::Variable> margin;
@@ -780,6 +818,7 @@ TEST_F(IiwaCspaceTest, ConstructLagrangianAndPolytopeProgram) {
   const auto C_sol = result_polytope.GetSolution(C_var);
   const auto d_sol = result_polytope.GetSolution(d_var);
   VectorX<symbolic::Polynomial> d_minus_Ct_sol(C.rows());
+  const auto& t = dut.rational_forward_kinematics().t();
   for (int i = 0; i < C.rows(); ++i) {
     d_minus_Ct_sol(i) = symbolic::Polynomial(d_sol(i) - C_sol.row(i).dot(t));
   }
@@ -875,6 +914,14 @@ TEST_F(IiwaCspaceTest, CspacePolytopeBilinearAlternation) {
       solver_options, q_not_in_collision, std::nullopt, &C_final, &d_final,
       &P_final, &q_final, &separating_planes_sol);
   EXPECT_EQ(separating_planes_sol.size(), dut.separating_planes().size());
+  const symbolic::Variables t_vars(dut.rational_forward_kinematics().t());
+  for (const auto& separating_plane_sol : separating_planes_sol) {
+    // Make sure a and b only contain t as variables.
+    for (int i = 0; i < 3; ++i) {
+      EXPECT_TRUE(separating_plane_sol.a(i).GetVariables().IsSubsetOf(t_vars));
+    }
+    EXPECT_TRUE(separating_plane_sol.b.GetVariables().IsSubsetOf(t_vars));
+  }
   const Eigen::VectorXd t_inner_pts =
       dut.rational_forward_kinematics().ComputeTValue(q_not_in_collision,
                                                       q_star);
@@ -923,6 +970,119 @@ TEST_F(IiwaCspaceTest, CspacePolytopeBinarySearch) {
                                  q_not_in_collision, std::nullopt,
                                  &d_final_search_d, &separating_planes_sol);
   EXPECT_EQ(separating_planes_sol.size(), dut.separating_planes().size());
+}
+
+void CheckSeparatingPlanesSol(
+    const CspaceFreeRegion& dut,
+    const CspaceFreeRegion::FilteredCollisionPairs& filtered_collision_pairs,
+    const std::vector<SeparatingPlane>& separating_planes_sol) {
+  const std::vector<bool> is_plane_active = internal::IsPlaneActive(
+      dut.separating_planes(), filtered_collision_pairs);
+  int active_plane_count = 0;
+  const symbolic::Variables t_vars(dut.rational_forward_kinematics().t());
+  for (int plane_index = 0;
+       plane_index < static_cast<int>(dut.separating_planes().size());
+       ++plane_index) {
+    if (is_plane_active[plane_index]) {
+      EXPECT_EQ(separating_planes_sol[active_plane_count]
+                    .positive_side_polytope->get_id(),
+                dut.separating_planes()[plane_index]
+                    .positive_side_polytope->get_id());
+      EXPECT_EQ(separating_planes_sol[active_plane_count]
+                    .negative_side_polytope->get_id(),
+                dut.separating_planes()[plane_index]
+                    .negative_side_polytope->get_id());
+      for (int i = 0; i < 3; ++i) {
+        EXPECT_TRUE(separating_planes_sol[active_plane_count]
+                        .a(i)
+                        .GetVariables()
+                        .IsSubsetOf(t_vars));
+      }
+      EXPECT_TRUE(
+          separating_planes_sol[active_plane_count].b.GetVariables().IsSubsetOf(
+              t_vars));
+      active_plane_count++;
+    }
+  }
+  EXPECT_EQ(separating_planes_sol.size(), active_plane_count);
+}
+
+TEST_F(IiwaCspaceTest, FindLagrangianAndSeparatingPlanes) {
+  // Test both the single-thread version and the multiple-thread version. Make
+  // sure the result are correct.
+  ApplyFilter();
+  const CspaceFreeRegion dut(*diagram_, plant_, scene_graph_,
+                             SeparatingPlaneOrder::kAffine,
+                             CspaceRegionType::kGenericPolytope);
+  const auto& plant = dut.rational_forward_kinematics().plant();
+  auto context = plant.CreateDefaultContext();
+
+  Eigen::VectorXd q_star;
+  Eigen::MatrixXd C;
+  Eigen::VectorXd d;
+  Eigen::VectorXd q_not_in_collision;
+  ConstructInitialCspacePolytope(dut, &q_star, &C, &d, &q_not_in_collision);
+
+  CspaceFreeRegion::FilteredCollisionPairs filtered_collision_pairs{
+      {SortedPair<geometry::GeometryId>(
+          dut.separating_planes()[0].positive_side_polytope->get_id(),
+          dut.separating_planes()[0].negative_side_polytope->get_id())}};
+  std::vector<CspaceFreeRegion::CspacePolytopeTuple> alternation_tuples;
+  VectorX<symbolic::Polynomial> d_minus_Ct;
+  Eigen::VectorXd t_lower, t_upper;
+  VectorX<symbolic::Polynomial> t_minus_t_lower, t_upper_minus_t;
+  MatrixX<symbolic::Variable> C_var;
+  VectorX<symbolic::Variable> d_var, lagrangian_gram_vars, verified_gram_vars,
+      separating_plane_vars;
+  std::vector<std::vector<int>> separating_plane_to_tuples;
+  dut.GenerateTuplesForBilinearAlternation(
+      q_star, filtered_collision_pairs, C.rows(), &alternation_tuples,
+      &d_minus_Ct, &t_lower, &t_upper, &t_minus_t_lower, &t_upper_minus_t,
+      &C_var, &d_var, &lagrangian_gram_vars, &verified_gram_vars,
+      &separating_plane_vars, &separating_plane_to_tuples);
+  const std::vector<bool> is_plane_active = internal::IsPlaneActive(
+      dut.separating_planes(), filtered_collision_pairs);
+  EXPECT_FALSE(is_plane_active[0]);
+  EXPECT_EQ(is_plane_active.size(), dut.separating_planes().size());
+  for (int i = 1; i < static_cast<int>(is_plane_active.size()); ++i) {
+    EXPECT_TRUE(is_plane_active[i]);
+  }
+  const int num_active_planes = is_plane_active.size() - 1;
+  for (const bool multi_thread : {false, true}) {
+    Eigen::VectorXd lagrangian_gram_var_vals, verified_gram_var_vals,
+        separating_plane_var_vals;
+    std::vector<SeparatingPlane> separating_planes_sol;
+    const VerificationOption verification_option{};
+    const double redundant_tighten = 0;
+    solvers::SolverOptions solver_options{};
+    const bool verbose{true};
+    bool is_success = internal::FindLagrangianAndSeparatingPlanes(
+        dut, alternation_tuples, C, d, lagrangian_gram_vars, verified_gram_vars,
+        separating_plane_vars, t_lower, t_upper, verification_option,
+        redundant_tighten, solver_options, verbose, multi_thread,
+        separating_plane_to_tuples, &lagrangian_gram_var_vals,
+        &verified_gram_var_vals, &separating_plane_var_vals,
+        &separating_planes_sol);
+    EXPECT_TRUE(is_success);
+    EXPECT_EQ(separating_planes_sol.size(), num_active_planes);
+    TestLagrangianResult(dut, alternation_tuples, C, d, separating_plane_vars,
+                         t_minus_t_lower, t_upper_minus_t,
+                         lagrangian_gram_var_vals, verified_gram_var_vals,
+                         separating_plane_var_vals, 1E-5);
+    CheckSeparatingPlanesSol(dut, filtered_collision_pairs,
+                             separating_planes_sol);
+
+    // Now increase d a lot. The SOS problem should be infeasible.
+    const Eigen::VectorXd d_infeasible = (d.array() + 1E5).matrix();
+    is_success = internal::FindLagrangianAndSeparatingPlanes(
+        dut, alternation_tuples, C, d_infeasible, lagrangian_gram_vars,
+        verified_gram_vars, separating_plane_vars, t_lower, t_upper,
+        verification_option, redundant_tighten, solver_options, verbose,
+        multi_thread, separating_plane_to_tuples, &lagrangian_gram_var_vals,
+        &verified_gram_var_vals, &separating_plane_var_vals,
+        &separating_planes_sol);
+    EXPECT_FALSE(is_success);
+  }
 }
 
 GTEST_TEST(CalcPolynomialFromGram, Test1) {

@@ -242,7 +242,17 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
           doc.CspaceFreeRegion.BilinearAlternationOption.verbose.doc)
       .def_readwrite("redundant_tighten",
           &CspaceFreeRegion::BilinearAlternationOption::redundant_tighten,
-          doc.CspaceFreeRegion.BilinearAlternationOption.redundant_tighten.doc);
+          doc.CspaceFreeRegion.BilinearAlternationOption.redundant_tighten.doc)
+      .def_readwrite("compute_polytope_volume",
+          &CspaceFreeRegion::BilinearAlternationOption::compute_polytope_volume,
+          doc.CspaceFreeRegion.BilinearAlternationOption.compute_polytope_volume
+              .doc)
+      .def_readwrite("ellipsoid_volume",
+          &CspaceFreeRegion::BilinearAlternationOption::ellipsoid_volume,
+          doc.CspaceFreeRegion.BilinearAlternationOption.ellipsoid_volume.doc)
+      .def_readwrite("multi_thread",
+          &CspaceFreeRegion::BilinearAlternationOption::multi_thread,
+          doc.CspaceFreeRegion.BilinearAlternationOption.multi_thread.doc);
 
   // BinarySearchOption
   py::class_<CspaceFreeRegion::BinarySearchOption>(
@@ -259,7 +269,15 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
           doc.CspaceFreeRegion.BinarySearchOption.max_iters.doc)
       .def_readwrite("search_d",
           &CspaceFreeRegion::BinarySearchOption::search_d,
-          doc.CspaceFreeRegion.BinarySearchOption.search_d.doc);
+          doc.CspaceFreeRegion.BinarySearchOption.search_d.doc)
+      .def_readwrite("compute_polytope_volume",
+          &CspaceFreeRegion::BinarySearchOption::compute_polytope_volume,
+          doc.CspaceFreeRegion.BinarySearchOption.compute_polytope_volume.doc)
+      .def_readwrite("verbose", &CspaceFreeRegion::BinarySearchOption::verbose,
+          doc.CspaceFreeRegion.BinarySearchOption.verbose.doc)
+      .def_readwrite("multi_thread",
+          &CspaceFreeRegion::BinarySearchOption::multi_thread,
+          doc.CspaceFreeRegion.BinarySearchOption.multi_thread.doc);
 
   // VectorBisectionSearchOption
   py::class_<CspaceFreeRegion::VectorBisectionSearchOption>(m,
@@ -381,15 +399,17 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
             VectorX<symbolic::Variable> lagrangian_gram_vars;
             VectorX<symbolic::Variable> verified_gram_vars;
             VectorX<symbolic::Variable> separating_plane_vars;
+            std::vector<std::vector<int>> separating_plane_to_tuples;
             self->GenerateTuplesForBilinearAlternation(q_star,
                 filtered_collision_pairs, C_rows, &alternation_tuples,
                 &d_minus_Ct, &t_lower, &t_upper, &t_minus_t_lower,
                 &t_upper_minus_t, &C, &d, &lagrangian_gram_vars,
-                &verified_gram_vars, &separating_plane_vars);
+                &verified_gram_vars, &separating_plane_vars,
+                &separating_plane_to_tuples);
             return std::make_tuple(alternation_tuples, d_minus_Ct, t_lower,
                 t_upper, t_minus_t_lower, t_upper_minus_t, C, d,
-                lagrangian_gram_vars, verified_gram_vars,
-                separating_plane_vars);
+                lagrangian_gram_vars, verified_gram_vars, separating_plane_vars,
+                separating_plane_to_tuples);
           },
           py::arg("q_star"), py::arg("filtered_collision_pairs"),
           py::arg("C_rows"),
