@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "drake/geometry/optimization/convex_set.h"
+#include "drake/multibody/rational_forward_kinematics/rational_forward_kinematics.h"
 #include "drake/math/autodiff_gradient.h"
 #include "drake/multibody/plant/multibody_plant.h"
 #include "drake/solvers/choose_best_solver.h"

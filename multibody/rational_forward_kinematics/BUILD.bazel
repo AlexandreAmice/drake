@@ -32,6 +32,7 @@ drake_cc_package_library(
         ":cspace_free_region",
         ":do_cspace_free_region",
         ":generate_monomial_basis_util",
+        ":maximal_epsilon_expansion",
         ":plane_side",
         ":rational_forward_kinematics_core",
         ":redundant_inequality_pruning",
@@ -139,16 +140,21 @@ drake_cc_library(
 )
 
 drake_cc_library(
-    name = "t_in_collision_constraint",
+    name = "maximal_epsilon_expansion",
     srcs = [
-        "t_in_collision_contraint.cc",
+        "maximal_epsilon_expansion.cc",
     ],
-    hdrs = ["t_in_collision_contraint.h"],
+    hdrs = ["maximal_epsilon_expansion.h"],
+    visibility = ["//visibility:public"],
     deps = [
-        "//geometry/optimization:iris",
+        ":rational_forward_kinematics_core",
+        "//geometry/optimization:convex_set",
         "//multibody/plant",
+        "//solvers:choose_best_solver",
         "//solvers:constraint",
+        "//solvers:ipopt_solver",
         "//solvers:mathematical_program",
+        "//solvers:snopt_solver",
     ],
 )
 

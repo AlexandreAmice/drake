@@ -13,6 +13,7 @@
 #include "drake/multibody/rational_forward_kinematics/rational_forward_kinematics.h"
 #include "drake/multibody/rational_forward_kinematics/rational_forward_kinematics_internal.h"
 #include "drake/multibody/rational_forward_kinematics/centrally_symmetric_hpolytope.h"
+#include "drake/multibody/rational_forward_kinematics/maximal_epsilon_expansion.h"
 
 namespace drake {
 namespace pydrake {
@@ -656,6 +657,12 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
 
   m.def("SameDimensionalAffineTransform", &SameDimensionalAffineTransform,
       py::arg("C"), py::arg("d"), py::arg("P"));
+
+  m.def("FindMaxEpsForAllIneqs", &FindMaxEpsForAllIneqs,
+        py::arg("plant"), py::arg("context"),
+        py::arg("q_star"),py::arg("C"),
+        py::arg("d"), py::arg("t_lower_limits"),
+        py::arg("t_upper_limits"), py::arg("t_guess"));
 }
 
 }  // namespace pydrake
