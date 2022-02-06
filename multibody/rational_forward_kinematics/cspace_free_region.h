@@ -532,6 +532,21 @@ class CspaceFreeRegion {
       Eigen::VectorXd* d_final,
       std::vector<SeparatingPlane>* separating_planes_sol) const;
 
+
+  void CspacePolytopeRoundRobinBisectionSearch(
+      const Eigen::Ref<const Eigen::VectorXd>& q_star,
+      const FilteredCollisionPairs& filtered_collision_pairs,
+      const Eigen::Ref<const Eigen::MatrixXd>& C,
+      const Eigen::Ref<const Eigen::VectorXd>& d_init,
+      const VectorBisectionSearchOption& vector_bisection_search_option,
+      const int num_round,
+      const solvers::SolverOptions& solver_options,
+      const std::optional<Eigen::MatrixXd>& q_inner_pts,
+      const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
+          inner_polytope,
+      Eigen::VectorXd* d_final,
+      std::vector<SeparatingPlane>* separating_planes_sol) const;
+
   /**
    * Find the C-space free polytope C*t<=d through bisection search.
    * In each iteration we check if this polytope
