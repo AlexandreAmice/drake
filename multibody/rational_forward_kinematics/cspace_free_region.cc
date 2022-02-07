@@ -1497,8 +1497,8 @@ void CspaceFreeRegion::CspacePolytopeBilinearAlternation(
         t_lower, t_upper, bilinear_alternation_option.lagrangian_backoff_scale,
         bilinear_alternation_option.ellipsoid_volume, solver_options,
         bilinear_alternation_option.verbose,
-        &(cspace_free_region_solution->P.value()),
-        &(cspace_free_region_solution->q.value()), &ellipsoid_cost_val);
+        &(cspace_free_region_solution->P),
+        &(cspace_free_region_solution->q), &ellipsoid_cost_val);
     // Update the cost.
     cost_improvement = ellipsoid_cost_val - previous_cost;
     drake::log()->info(fmt::format("cost improvement {}", cost_improvement));
@@ -1512,8 +1512,8 @@ void CspaceFreeRegion::CspacePolytopeBilinearAlternation(
     // Add the constraint that the polytope contains the ellipsoid
     margin = prog_polytope->NewContinuousVariables(C_var.rows(), "margin");
     AddOuterPolytope(
-        prog_polytope.get(), (cspace_free_region_solution->P.value()),
-        (cspace_free_region_solution->q.value()), C_var, d_var, margin);
+        prog_polytope.get(), (cspace_free_region_solution->P),
+        (cspace_free_region_solution->q), C_var, d_var, margin);
 
     // We know that the verified polytope has to be contained in the box t_lower
     // <= t <= t_upper. Hence there is no point to grow the polytope such that
@@ -1604,21 +1604,13 @@ void CspaceFreeRegion::CspacePolytopeBilinearAlternation(
     iter_count += 1;
   }
   double ellipsoid_cost_val;
-  if (not(cspace_free_region_solution->P.has_value()) or
-      not(cspace_free_region_solution->q.has_value())) {
-    // ensure intialized optional P and q
-    cspace_free_region_solution->P =
-        Eigen::MatrixXd::Zero(cspace_free_region_solution->C.cols(),
-                              cspace_free_region_solution->C.cols());
-    cspace_free_region_solution->q =
-        Eigen::VectorXd::Zero(cspace_free_region_solution->C.cols());
-  }
+
   FindLargestInscribedEllipsoid(
       (cspace_free_region_solution->C), (cspace_free_region_solution->d),
       t_lower, t_upper, bilinear_alternation_option.lagrangian_backoff_scale,
       bilinear_alternation_option.ellipsoid_volume, solver_options,
-      bilinear_alternation_option.verbose, &(cspace_free_region_solution->P.value()),
-      &(cspace_free_region_solution->q.value()), &ellipsoid_cost_val);
+      bilinear_alternation_option.verbose, &(cspace_free_region_solution->P),
+      &(cspace_free_region_solution->q), &ellipsoid_cost_val);
 }
 
 void CspaceFreeRegion::CspacePolytopeBinarySearch(
@@ -1699,22 +1691,14 @@ void CspaceFreeRegion::CspacePolytopeBinarySearch(
         cspace_free_region_solution);
     if (is_success) {
       (cspace_free_region_solution->d) = d;
-      if (not(cspace_free_region_solution->P.has_value()) or
-          not(cspace_free_region_solution->q.has_value())) {
-        // ensure intialized optional P and q
-        cspace_free_region_solution->P =
-            Eigen::MatrixXd::Zero(cspace_free_region_solution->C.cols(),
-                                  cspace_free_region_solution->C.cols());
-        cspace_free_region_solution->q =
-            Eigen::VectorXd::Zero(cspace_free_region_solution->C.cols());
-      }
+
       FindLargestInscribedEllipsoid(
           (cspace_free_region_solution->C), (cspace_free_region_solution->d),
           t_lower, t_upper, binary_search_option.lagrangian_backoff_scale,
           binary_search_option.ellipsoid_volume, solver_options,
           binary_search_option.verbose,
-          &(cspace_free_region_solution->P.value()),
-          &(cspace_free_region_solution->q.value()), &ellipsoid_cost_val);
+          &(cspace_free_region_solution->P),
+          &(cspace_free_region_solution->q), &ellipsoid_cost_val);
       if (binary_search_option.search_d) {
         // Now fix the Lagrangian and C, and search for d.
         auto prog_polytope = this->ConstructPolytopeProgram(
@@ -1751,23 +1735,15 @@ void CspaceFreeRegion::CspacePolytopeBinarySearch(
           (cspace_free_region_solution->separating_planes) =
               GetSeparatingPlanesSolution(*this, is_plane_active,
                                           result_polytope);
-          if (not(cspace_free_region_solution->P.has_value()) or
-              not(cspace_free_region_solution->q.has_value())) {
-            // ensure intialized optional P and q
-            cspace_free_region_solution->P =
-                Eigen::MatrixXd::Zero(cspace_free_region_solution->C.cols(),
-                                      cspace_free_region_solution->C.cols());
-            cspace_free_region_solution->q =
-                Eigen::VectorXd::Zero(cspace_free_region_solution->C.cols());
-          }
+
           FindLargestInscribedEllipsoid(
               (cspace_free_region_solution->C),
               (cspace_free_region_solution->d), t_lower, t_upper,
               binary_search_option.lagrangian_backoff_scale,
               binary_search_option.ellipsoid_volume, solver_options,
               binary_search_option.verbose,
-              &(cspace_free_region_solution->P.value()),
-              &(cspace_free_region_solution->q.value()), &ellipsoid_cost_val);
+              &(cspace_free_region_solution->P),
+              &(cspace_free_region_solution->q), &ellipsoid_cost_val);
         }
       }
     }
@@ -1826,21 +1802,13 @@ void CspaceFreeRegion::CspacePolytopeBinarySearch(
   }
   // TODO (Alex.Amice) get the lagrangians into this struct as well.
   double ellipsoid_cost_val;
-  if (not(cspace_free_region_solution->P.has_value()) or
-      not(cspace_free_region_solution->q.has_value())) {
-    // ensure intialized optional P and q
-    cspace_free_region_solution->P =
-        Eigen::MatrixXd::Zero(cspace_free_region_solution->C.cols(),
-                              cspace_free_region_solution->C.cols());
-    cspace_free_region_solution->q =
-        Eigen::VectorXd::Zero(cspace_free_region_solution->C.cols());
-  }
+
   FindLargestInscribedEllipsoid(
       cspace_free_region_solution->C, cspace_free_region_solution->d, t_lower,
       t_upper, binary_search_option.lagrangian_backoff_scale,
       binary_search_option.ellipsoid_volume, solver_options,
-      binary_search_option.verbose, &(cspace_free_region_solution->P.value()),
-      &(cspace_free_region_solution->q.value()), &ellipsoid_cost_val);
+      binary_search_option.verbose, &(cspace_free_region_solution->P),
+      &(cspace_free_region_solution->q), &ellipsoid_cost_val);
 }
 
 void CspaceFreeRegion::CspacePolytopeRoundRobinBisectionSearch(

@@ -219,8 +219,8 @@ int DoMain() {
       &cspace_free_region_solution);
   Eigen::MatrixXd C_final(cspace_free_region_solution.C);
   Eigen::VectorXd d_final(cspace_free_region_solution.d);
-  Eigen::MatrixXd P_final(cspace_free_region_solution.P.value());
-  Eigen::VectorXd q_final(cspace_free_region_solution.q.value());
+  Eigen::MatrixXd P_final(cspace_free_region_solution.P);
+  Eigen::VectorXd q_final(cspace_free_region_solution.q);
 
   // Now partition the certified region C_final * t <= d_final, t_lower <= t <=
   // t_upper into boxes.

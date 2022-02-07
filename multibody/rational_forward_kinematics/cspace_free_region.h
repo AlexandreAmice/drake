@@ -129,8 +129,8 @@ struct CspaceFreeRegionSolution{
    Eigen::VectorXd d;
 
    // values defining Inscribed ellipsoid {t | t = Ps + q , norm(s) <= 1}
-   std::optional<Eigen::MatrixXd> P;
-   std::optional<Eigen::VectorXd> q;
+   Eigen::MatrixXd P;
+   Eigen::VectorXd q;
 
 
    // TODO (Alex.Amice) add these polynomials back in one I figure out how to extract them
