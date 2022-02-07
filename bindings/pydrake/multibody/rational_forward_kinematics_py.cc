@@ -502,11 +502,12 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
               const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
                   inner_polytope) {
             Eigen::VectorXd d_final;
+            std::vector<SeparatingPlane> separating_planes_sol;
             self->CspacePolytopeBisectionSearchVector(q_star,
                 filtered_collision_pairs, C, d_init,
                 vector_bisection_search_option, solver_options, q_inner_pts,
-                inner_polytope, &d_final);
-            return d_final;
+                inner_polytope, &d_final,  &separating_planes_sol);
+            return std::make_tuple(d_final, separating_planes_sol);
           },
           py::arg("q_star"), py::arg("filtered_collision_pairs"), py::arg("C"),
           py::arg("d_init"), py::arg("vector_bisection_search_option"),

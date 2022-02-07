@@ -569,7 +569,8 @@ class CspaceFreeRegion {
       const std::optional<Eigen::MatrixXd>& q_inner_pts,
       const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
           inner_polytope,
-      Eigen::VectorXd* d_final) const;
+      Eigen::VectorXd* d_final,
+      std::vector<SeparatingPlane>* separating_planes_sol) const;
 
   /**
    * Search for a cspace polytope from an initial guess polytope by alternating between

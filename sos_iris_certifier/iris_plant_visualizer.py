@@ -111,7 +111,8 @@ class IrisPlantVisualizer:
 
         #region -> (collision -> plane dictionary)
         self.region_to_collision_pair_to_plane_dictionary = None
-
+        self.region_to_separating_planes_dict = None
+    
     def jupyter_cell(self,):
         display(self.vis.jupyter_cell())
         display(self.vis2.jupyter_cell())
@@ -189,18 +190,21 @@ class IrisPlantVisualizer:
     def show_res_with_planes_cpp(self, q):
         t = self.forward_kin.ComputeTValue(q, self.q_star)
         self.showres(q)
-        if self.region_to_collision_pair_to_plane_dictionary is not None:
-            for region, collision_pair_to_plane_dictionary in self.region_to_collision_pair_to_plane_dictionary.items():
+        if self.region_to_separating_planes_dict is not None:
+            for reg_idx, (region, separating_planes) in enumerate(self.region_to_separating_planes_dict.items()):
                 if region.PointInSet(t):
-                    colors = viz_utils.n_colors(len(collision_pair_to_plane_dictionary.keys()))
-                    for i, (pair, planes) in enumerate(collision_pair_to_plane_dictionary.items()):
-                        geomA, geomB = pair[0], pair[1]
-                        self.plot_plane_geom_id_cpp(geomA, geomB, collision_pair_to_plane_dictionary, t, color=colors[i],
-                                                region_name=f"region {i}")
+                    colors = viz_utils.n_colors(len(separating_planes))
 
-    def plot_plane_geom_id_cpp(self, geomA, geomB, planes_dict, cur_t, color=(0, 0, 0), region_name = ''):
-        verts_tf, p1, p2 = self.transform_plane_geom_id_cpp(geomA, geomB, planes_dict, cur_t)
+                    as_eval, bs_eval, vAs_eval, vBs_eval = self.compute_verts_and_planes_world_frame(separating_planes, t)
+                    for i, (a, b, vA, vB, plane) in enumerate(zip(as_eval, bs_eval, vAs_eval, vBs_eval, separating_planes)):
+                        self.plot_plane_geom_id_cpp(a, b, vA, vB, plane, color=colors[i],
+                                                region_name=f"region {reg_idx}")
 
+    def plot_plane_geom_id_cpp(self, a, b, vA, vB, plane, color=(0, 0, 0), region_name = ''):
+        verts_tf = self.transform(a, b, vA, vB, self.plane_verts)
+        geomA = plane.geometryA
+        geomB = plane.geometryB
+        
         mat = meshcat.geometry.MeshLambertMaterial(color=viz_utils.rgb_to_hex(color), wireframe=False)
         mat.opacity = 0.5
         self.vis[region_name]["plane"][f"{geomA.get_value()}, {geomB.get_value()}"].set_object(
@@ -208,11 +212,11 @@ class IrisPlantVisualizer:
             mat)
 
         mat.opacity = 1.0
-        viz_utils.plot_point(loc=p1, radius=0.05, mat=mat, vis=self.vis[region_name]["plane"][f"{geomA.get_value()}, {geomB.get_value()}"],
+        viz_utils.plot_point(loc=vA, radius=0.05, mat=mat, vis=self.vis[region_name]["plane"][f"{geomA.get_value()}, {geomB.get_value()}"],
                          marker_id='p1')
         mat = meshcat.geometry.MeshLambertMaterial(color=viz_utils.rgb_to_hex(color), wireframe=False)
         mat.opacity = 1.0
-        viz_utils.plot_point(loc=p2, radius=0.05, mat=mat, vis=self.vis[region_name]["plane"][f"{geomA.get_value()}, {geomB.get_value()}"],
+        viz_utils.plot_point(loc=vB, radius=0.05, mat=mat, vis=self.vis[region_name]["plane"][f"{geomA.get_value()}, {geomB.get_value()}"],
                          marker_id='p2')
 
     def plot_plane_geom_id(self, geomA, geomB, planes_dict, cur_t, color=(0, 0, 0), region_name = ''):
@@ -271,11 +275,36 @@ class IrisPlantVisualizer:
         p2 = np.array([p.Evaluate(eval_dict) for p in p2_rat])
         return self.transform(a, b, p1, p2, self.plane_verts), p1, p2
 
-    def transform_plane_geom_id_cpp(self, geomA, geomB, planes_dict, cur_t):
-        vA = self.t_space_vertex_world_position_by_geom_id[geomA][:, 0]
-        vB = self.t_space_vertex_world_position_by_geom_id[geomB][:, 0]
-        a_poly, b_poly = planes_dict[(geomA, geomB)]
-        return self.transform_at_t_cpp(cur_t, a_poly, b_poly, vA, vB)
+   
+    def compute_verts_and_planes_world_frame(self, separating_planes, t):
+
+        a_eval = []
+        b_eval = []
+        verts_A = []
+        verts_B = []
+    
+        for plane in separating_planes:
+            b = plane.b
+            a = plane.a()
+            b_eval_frame = b.Evaluate(dict(zip(b.GetVariables(), t)))
+            a_eval_frame = np.array([a_idx.Evaluate(dict(zip(a_idx.GetVariables(), t))) for a_idx in a])
+
+            X_EW = self.plant.GetBodyFromFrameId(self.plant.GetBodyFrameIdIfExists(plane.expressed_link))\
+                .body_frame().CalcPoseInWorld(self.plant_context).inverse()
+            R_EW = X_EW.rotation().matrix()
+            V_EW = X_EW.translation()
+            a_eval.append(a_eval_frame@R_EW)
+            b_eval.append(b_eval_frame - V_EW)
+            vert_A = plane.positive_side_polytope.p_BV()[:, 0]
+            vert_B = plane.negative_side_polytope.p_BV()[:, 0]
+            #vertA
+            X_WA = self.plant.GetBodyFromFrameId(self.plant.GetBodyFrameIdIfExists(plane.positive_side_polytope.body_index()))\
+                .body_frame().CalcPoseInWorld(self.plant_context)
+            verts_A.append(X_WA@vert_A)
+            X_WB = self.plant.GetBodyFromFrameId(self.plant.GetBodyFrameIdIfExists(plane.negative_side_polytope.body_index()))\
+                .body_frame().CalcPoseInWorld(self.plant_context)
+            verts_B.append(X_WB@vert_B)
+        return a_eval, b_eval, verts_A, verts_B
 
     def animate_t(self, traj, steps, runtime):
         # loop

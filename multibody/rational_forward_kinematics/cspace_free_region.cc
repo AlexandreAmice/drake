@@ -219,7 +219,8 @@ SeparatingPlane GetSeparatingPlaneSolution(
   }
   const symbolic::Expression b_sol = plane.b.EvaluatePartial(env);
   return SeparatingPlane(a_sol, b_sol, plane.positive_side_polytope,
-                         plane.negative_side_polytope, plane.expressed_link,
+                         plane.negative_side_polytope, plane.expressed_link, 
+                         plane.geometryA, plane.geometryB, 
                          plane.order, plane.decision_variables);
 }
 
@@ -1435,7 +1436,8 @@ void CspaceFreeRegion::CspacePolytopeBisectionSearchVector(
     const std::optional<Eigen::MatrixXd>& q_inner_pts,
     const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
         inner_polytope,
-    Eigen::VectorXd* d_final) const {
+    Eigen::VectorXd* d_final,
+    std::vector<SeparatingPlane>* separating_planes_sol) const {
   // The polytope region is C * t <= d_without_epsilon + epsilon. We might
   // change d_without_epsilon during the binary search process.
   Eigen::VectorXd d_without_epsilon = d_init;
@@ -1476,7 +1478,9 @@ void CspaceFreeRegion::CspacePolytopeBisectionSearchVector(
                                      &t_inner_pts, &inner_polytope](
                                         const Eigen::VectorXd& d, bool search_d,
                                         bool compute_polytope_volume,
-                                        Eigen::VectorXd* d_sol) {
+                                        Eigen::VectorXd* d_sol,
+                                        solvers::MathematicalProgramResult*
+                                            solver_result) {
     //    const double redundant_tighten = 0;
     // don't use redundant constraint
     std::optional<int> redundant_tighten = std::nullopt;
@@ -1489,6 +1493,7 @@ void CspaceFreeRegion::CspacePolytopeBisectionSearchVector(
 
     if (result.is_success()) {
       *d_sol = d;
+      *solver_result = result;
       if (search_d) {
         // Now fix the Lagrangian and C, and search for d.
         const auto lagrangian_gram_var_vals =
@@ -1541,18 +1546,21 @@ void CspaceFreeRegion::CspacePolytopeBisectionSearchVector(
     }
     return result.is_success();
   };
+
+  solvers::MathematicalProgramResult solver_result;
   if (is_polytope_collision_free(
           d_without_epsilon +
               vector_bisection_search_option.epsilon_max *
                   Eigen::VectorXd::Ones(d_without_epsilon.rows()),
           vector_bisection_search_option.search_d,
-          vector_bisection_search_option.compute_polytope_volume, d_final)) {
+          vector_bisection_search_option.compute_polytope_volume, d_final, &solver_result)) {
     return;
   }
+
   if (!is_polytope_collision_free(
           d_without_epsilon + vector_bisection_search_option.epsilon_min,
           false /* don't search for d */,
-          vector_bisection_search_option.compute_polytope_volume, d_final)) {
+          vector_bisection_search_option.compute_polytope_volume, d_final, &solver_result)) {
     throw std::runtime_error(
         fmt::format("binary search: the initial epsilon {} is infeasible",
                     vector_bisection_search_option.epsilon_min));
@@ -1577,7 +1585,7 @@ void CspaceFreeRegion::CspacePolytopeBisectionSearchVector(
     const Eigen::VectorXd d = d_without_epsilon + eps;
     const bool is_feasible = is_polytope_collision_free(
         d, vector_bisection_search_option.search_d,
-        vector_bisection_search_option.compute_polytope_volume, d_final);
+        vector_bisection_search_option.compute_polytope_volume, d_final, &solver_result);
     if (is_feasible) {
       // feasibility implies that C*t <= d + eps is collision free. As we are
       // trying to grow eps as much as possible that means we have a new
@@ -1605,6 +1613,7 @@ void CspaceFreeRegion::CspacePolytopeBisectionSearchVector(
         total_iter_count > vector_bisection_search_option.max_iters or
         feasible_iter_count > vector_bisection_search_option.max_feasible_iters;
   }
+  *separating_planes_sol = GetSeparatingPlanesSolution(*this, solver_result);
 }
 
 void CspaceFreeRegion::InterleavedCSpacePolytopeSearch(
@@ -1627,7 +1636,7 @@ void CspaceFreeRegion::InterleavedCSpacePolytopeSearch(
       CspacePolytopeBisectionSearchVector(
           q_star, filtered_collision_pairs, C, d_init,
           interleaved_region_search_option.vector_bisection_search_options,
-          solver_options, q_inner_pts, inner_polytope, d_final);
+          solver_options, q_inner_pts, inner_polytope, d_final, separating_planes_sol);
     } else {
       CspacePolytopeBinarySearch(
           q_star, filtered_collision_pairs, C, d_init,
