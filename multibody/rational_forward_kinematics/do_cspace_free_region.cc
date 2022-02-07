@@ -42,12 +42,7 @@ CspaceFreeRegionSolution DoCspaceFreeRegionSearch(
         q_inner_pts = seedpoint_q;
     }
 
-    Eigen::MatrixXd C_final;
-    Eigen::VectorXd d_final;
-    Eigen::MatrixXd P_final;
-    Eigen::VectorXd q_final;
-    std::vector<SeparatingPlane> separating_planes_sol;
-
+    CspaceFreeRegionSolution cspace_free_region_solution{C_init, d_init};
     free_region.InterleavedCSpacePolytopeSearch(
                                     q_star,
                                     filtered_collision_pairs,
@@ -56,11 +51,8 @@ CspaceFreeRegionSolution DoCspaceFreeRegionSearch(
                                     interleaved_region_search_option,
                                     solver_options,
                                     q_inner_pts,
-                                    inner_polytope,  &C_final, &d_final,
-                                    &P_final,  &q_final,
-                                    &separating_planes_sol);
-    return CspaceFreeRegionSolution{C_final, d_final, P_final, q_final, separating_planes_sol};
-
+                                    inner_polytope,  &cspace_free_region_solution);
+    return cspace_free_region_solution;
 }
 
 } //namespace multibody
