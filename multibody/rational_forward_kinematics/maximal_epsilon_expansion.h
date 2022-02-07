@@ -325,12 +325,13 @@ std::optional<double> FindMaxEpsTilCollisionForIneqForCollisionPair(
     const multibody::Frame<double>& frameA,
     const multibody::Frame<double>& frameB, const ConvexSet& setA,
     const ConvexSet& setB, const Eigen::Ref<const Eigen::VectorXd>& c_cost,
-    const double d_cost, const Eigen::Ref<const Eigen::MatrixXd>& C_constraint,
+    const double d_cost, const double eps_min,
+    const Eigen::Ref<const Eigen::MatrixXd>& C_constraint,
     const Eigen::Ref<const Eigen::VectorXd>& d_constraint,
     const Eigen::Ref<const Eigen::VectorXd>& t_lower_limits,
     const Eigen::Ref<const Eigen::VectorXd>& t_upper_limits,
     const solvers::SolverInterface& non_linear_solver,
-    const Eigen::Ref<const Eigen::VectorXd>& t_guess);
+    const Eigen::Ref<const Eigen::VectorXd>& t_sample);
 
 std::optional<double> FindMaxEpsTilCollisionForIneq(
     const std::set<std::pair<geometry::GeometryId, geometry::GeometryId>>&
@@ -343,12 +344,13 @@ std::optional<double> FindMaxEpsTilCollisionForIneq(
     const systems::Context<double>& context,
     Eigen::Ref<const Eigen::VectorXd>& q_star,
     const Eigen::Ref<const Eigen::VectorXd>& c_cost, const double d_cost,
+    const double eps_min,
     const Eigen::Ref<const Eigen::MatrixXd>& C_constraint,
     const Eigen::Ref<const Eigen::VectorXd>& d_constraint,
     const Eigen::Ref<const Eigen::VectorXd>& t_lower_limits,
     const Eigen::Ref<const Eigen::VectorXd>& t_upper_limits,
     const solvers::SolverInterface& solver,
-    const Eigen::Ref<const Eigen::VectorXd>& t_guess);
+    const Eigen::Ref<const Eigen::VectorXd>& t_sample);
 
 Eigen::VectorXd FindMaxEpsForAllIneqs(
     const multibody::MultibodyPlant<double>& plant,
@@ -356,9 +358,45 @@ Eigen::VectorXd FindMaxEpsForAllIneqs(
     Eigen::Ref<const Eigen::VectorXd>& q_star,
     const Eigen::Ref<const Eigen::MatrixXd>& C,
     const Eigen::Ref<const Eigen::VectorXd>& d,
+    const Eigen::Ref<const Eigen::VectorXd>& eps_min,
     const Eigen::Ref<const Eigen::VectorXd>& t_lower_limits,
     const Eigen::Ref<const Eigen::VectorXd>& t_upper_limits,
-    const Eigen::Ref<const Eigen::VectorXd>& t_guess) ;
+    const Eigen::Ref<const Eigen::VectorXd>& t_sample) ;
+
+/**
+ * Max epsilon such that C(t-t_center) <= eps.cwiseProduct(d) containts collision
+ * @param plant
+ * @param context
+ * @param q_star
+ * @param C
+ * @param d
+ * @param t_center
+ * @param t_lower_limits
+ * @param t_upper_limits
+ * @return
+ */
+Eigen::VectorXd FindMaxEpsScalingForAllIneqs(
+    const multibody::MultibodyPlant<double>& plant,
+    const systems::Context<double>& context,
+    Eigen::Ref<const Eigen::VectorXd>& q_star,
+    const Eigen::Ref<const Eigen::MatrixXd>& C,
+    const Eigen::Ref<const Eigen::VectorXd>& d,
+    const Eigen::Ref<const Eigen::VectorXd>& t_center,
+    const Eigen::Ref<const Eigen::VectorXd>& t_lower_limits,
+    const Eigen::Ref<const Eigen::VectorXd>& t_upper_limits
+    ) ;
+
+Eigen::VectorXd FindMaxEpsScalingForAllIneqsForCollisionPair(
+    std::shared_ptr<SamePointConstraintRational> same_point_constraint,
+    const multibody::Frame<double>& frameA,
+    const multibody::Frame<double>& frameB, const ConvexSet& setA,
+    const ConvexSet& setB,
+    const Eigen::Ref<const Eigen::MatrixXd>& C,
+    const Eigen::Ref<const Eigen::VectorXd>& d,
+    const Eigen::Ref<const Eigen::VectorXd>& t_center,
+    const Eigen::Ref<const Eigen::VectorXd>& t_lower_limits,
+    const Eigen::Ref<const Eigen::VectorXd>& t_upper_limits
+    ) ;
 
 }  // namespace multibody
 }  // namespace drake

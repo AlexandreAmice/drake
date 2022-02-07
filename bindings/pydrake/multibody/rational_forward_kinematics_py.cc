@@ -303,7 +303,12 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
           &CspaceFreeRegion::VectorBisectionSearchOption::
               max_feasible_iters,
           doc.CspaceFreeRegion.VectorBisectionSearchOption
-              .max_feasible_iters.doc);
+              .max_feasible_iters.doc)
+      .def_readwrite("multi_thread",
+          &CspaceFreeRegion::VectorBisectionSearchOption::
+              multi_thread,
+          doc.CspaceFreeRegion.VectorBisectionSearchOption
+              .multi_thread.doc);
 
   //interleavedRegionSearchOptions
    py::class_<CspaceFreeRegion::InterleavedRegionSearchOptions>(m,
@@ -553,7 +558,33 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
           py::arg("q_inner_pts") = std::nullopt,
           py::arg("inner_polytope") = std::nullopt,
           doc.CspaceFreeRegion.CspacePolytopeBilinearAlternation.doc)
-
+      .def(
+          "CspacePolytopeRoundRobinBisectionSearch",
+          [](const CspaceFreeRegion* self,
+              const Eigen::Ref<const Eigen::VectorXd>& q_star,
+              const CspaceFreeRegion::FilteredCollisionPairs&
+                  filtered_collision_pairs,
+              const Eigen::Ref<const Eigen::MatrixXd>& C,
+              const Eigen::Ref<const Eigen::VectorXd>& d_init,
+              const int num_rounds,
+              const CspaceFreeRegion::VectorBisectionSearchOption&
+                  vector_bisection_search_option,
+              const solvers::SolverOptions& solver_options,
+              const std::optional<Eigen::MatrixXd>& q_inner_pts,
+              const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
+                  inner_polytope) {
+            CspaceFreeRegionSolution cspace_free_region_solution;
+            self->CspacePolytopeRoundRobinBisectionSearch(q_star,
+                filtered_collision_pairs, C, d_init, num_rounds,
+                vector_bisection_search_option, solver_options, q_inner_pts,
+                inner_polytope, &cspace_free_region_solution);
+            return cspace_free_region_solution;
+          },
+          py::arg("q_star"), py::arg("filtered_collision_pairs"), py::arg("C"),
+          py::arg("d_init"), py::arg("num_rounds"), py::arg("vector_bisection_search_option"),
+          py::arg("solver_options"), py::arg("q_inner_pts") = std::nullopt,
+          py::arg("inner_polytope") = std::nullopt,
+          doc.CspaceFreeRegion.CspacePolytopeRoundRobinBisectionSearch.doc)
       .def("IsPostureInCollision", &CspaceFreeRegion::IsPostureInCollision,
           doc.CspaceFreeRegion.IsPostureInCollision.doc)
       .def("separating_planes", &CspaceFreeRegion::separating_planes,
@@ -673,7 +704,7 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
   m.def("FindMaxEpsForAllIneqs", &FindMaxEpsForAllIneqs,
         py::arg("plant"), py::arg("context"),
         py::arg("q_star"),py::arg("C"),
-        py::arg("d"), py::arg("t_lower_limits"),
+        py::arg("d"), py::arg("eps_min"), py::arg("t_lower_limits"),
         py::arg("t_upper_limits"), py::arg("t_guess"));
 }
 

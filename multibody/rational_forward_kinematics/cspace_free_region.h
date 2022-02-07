@@ -617,7 +617,7 @@ class CspaceFreeRegion {
    * @param C
    * @param d_init
    * @param vector_bisection_search_option
-   * @param num_round
+   * @param num_rounds
    * @param solver_options
    * @param q_inner_pts
    * @param inner_polytope
@@ -628,8 +628,8 @@ class CspaceFreeRegion {
       const FilteredCollisionPairs& filtered_collision_pairs,
       const Eigen::Ref<const Eigen::MatrixXd>& C,
       const Eigen::Ref<const Eigen::VectorXd>& d_init,
+      const int num_rounds,
       const VectorBisectionSearchOption& vector_bisection_search_option,
-      const int num_round,
       const solvers::SolverOptions& solver_options,
       const std::optional<Eigen::MatrixXd>& q_inner_pts,
       const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
