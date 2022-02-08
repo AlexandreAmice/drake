@@ -1938,7 +1938,7 @@ void CspaceFreeRegion::CspacePolytopeRoundRobinBisectionSearch(
 
   Eigen::VectorXd smallest_d = d + vector_bisection_search_option.epsilon_min;
   if (!std::get<0>(is_polytope_collision_free(smallest_d))) {
-    throw std::runtime_error(
+    throw drake::log()->warn(
         fmt::format("binary search: the initial epsilon {} is infeasible",
                     vector_bisection_search_option.epsilon_min));
   }
