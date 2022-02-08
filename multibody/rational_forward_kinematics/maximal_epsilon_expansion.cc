@@ -26,6 +26,34 @@ using systems::Context;
 const double kInf = std::numeric_limits<double>::infinity();
 
 
+std::optional<double> FindMaxEpsTilRedundant(
+    const Eigen::Ref<const Eigen::VectorXd>& c_cost,
+    const double d_cost,
+    const Eigen::Ref<const Eigen::MatrixXd>& C_constraint,
+    const Eigen::Ref<const Eigen::VectorXd>& d_constraint,
+    const Eigen::Ref<const Eigen::VectorXd>& t_lower_limits,
+    const Eigen::Ref<const Eigen::VectorXd>& t_upper_limits){
+    solvers::MathematicalProgram prog;
+
+  auto t = prog.NewContinuousVariables(C_constraint.cols(), "t");
+  prog.AddLinearConstraint(
+      C_constraint,
+      VectorXd::Constant(d_constraint.size(),
+                         -std::numeric_limits<double>::infinity()),
+      d_constraint, t);
+
+  prog.AddBoundingBoxConstraint(t_lower_limits, t_upper_limits, t);
+  // max until become redundant
+  prog.AddLinearCost(-c_cost, d_cost, t);
+  solvers::MathematicalProgramResult result = solvers::Solve(prog);
+  if (result.is_success()){return result.get_optimal_cost();}
+  else{
+    // should only happen if C_constraint *t <= d_constraint is
+    return {};
+  }
+
+}
+
 /**
  * Find the maximum amount we can move the inequality c_cost^T t <= d_cost until
  * we either collide between two collision pairs or the inequality becomes
@@ -52,32 +80,14 @@ std::optional<double> FindMaxEpsTilCollisionForIneqForCollisionPair(
     const multibody::Frame<double>& frameB, const ConvexSet& setA,
     const ConvexSet& setB, const Eigen::Ref<const Eigen::VectorXd>& c_cost,
     const double d_cost, double const eps_min,
-    const Eigen::Ref<const Eigen::MatrixXd>& C_constraint,
-    const Eigen::Ref<const Eigen::VectorXd>& d_constraint,
     const Eigen::Ref<const Eigen::VectorXd>& t_lower_limits,
     const Eigen::Ref<const Eigen::VectorXd>& t_upper_limits,
     const solvers::SolverInterface& non_linear_solver,
     const Eigen::Ref<const Eigen::VectorXd>& t_sample) {
-  solvers::MathematicalProgram lin_prog;
   solvers::MathematicalProgram non_lin_prog;
   solvers::MathematicalProgramResult result;
-//  double max_eps{-52};
-  auto t_non_lin = non_lin_prog.NewContinuousVariables(C_constraint.cols(), "t");
-  auto t_lin = lin_prog.NewContinuousVariables(C_constraint.cols(), "t");
+  auto t_non_lin = non_lin_prog.NewContinuousVariables(t_lower_limits.rows(), "t");
 
-  // hack so itll still compile
-  lin_prog.AddLinearConstraint(
-      C_constraint,
-      VectorXd::Constant(d_constraint.size(),
-                         -std::numeric_limits<double>::infinity()),
-      d_constraint, t_lin);
-
-  lin_prog.AddBoundingBoxConstraint(t_lower_limits, t_upper_limits, t_lin);
-  // max until become redundant
-  lin_prog.AddLinearCost(-c_cost, d_cost, t_lin);
-  // solve just the LP to decide when the inequality c_cost^T t_non_lin <= d_cost
-  // becomes redundant. Do this as a convex program.
-  result = solvers::Solve(lin_prog);
 
   non_lin_prog.AddBoundingBoxConstraint(t_lower_limits, t_upper_limits, t_non_lin);
 
@@ -109,8 +119,7 @@ std::optional<double> FindMaxEpsTilCollisionForIneqForCollisionPair(
   non_linear_solver.Solve(non_lin_prog, std::nullopt, std::nullopt, &result);
 
   if (result.is_success()) {
-    // return most conservative of the max_eps
-    return result.get_optimal_cost(); //std::min(result.get_optimal_cost(), max_eps);
+    return result.get_optimal_cost();
   }
   return {};
 }
@@ -144,8 +153,6 @@ std::optional<double> FindMaxEpsTilCollisionForIneq(
     Eigen::Ref<const Eigen::VectorXd>& q_star,
     const Eigen::Ref<const Eigen::VectorXd>& c_cost, const double d_cost,
     const double eps_min,
-    const Eigen::Ref<const Eigen::MatrixXd>& C_constraint,
-    const Eigen::Ref<const Eigen::VectorXd>& d_constraint,
     const Eigen::Ref<const Eigen::VectorXd>& t_lower_limits,
     const Eigen::Ref<const Eigen::VectorXd>& t_upper_limits,
     const solvers::SolverInterface& solver,
@@ -159,7 +166,7 @@ std::optional<double> FindMaxEpsTilCollisionForIneq(
     cur_val = FindMaxEpsTilCollisionForIneqForCollisionPair(
         same_point_constraint, *frames.at(pair.first), *frames.at(pair.second),
         *sets.at(pair.first), *sets.at(pair.second), c_cost, d_cost, eps_min,
-        C_constraint, d_constraint, t_lower_limits, t_upper_limits, solver,
+        t_lower_limits, t_upper_limits, solver,
         t_sample);
 
     // keep the minimum of the max epsilons as this is the tightest condition
@@ -238,32 +245,17 @@ Eigen::VectorXd FindMaxEpsForAllIneqs(
   // TODO (Alex.Amice) parallelize
   Eigen::VectorXd eps_max = Eigen::VectorXd::Zero(d.rows());
   std::optional<double> cur_ret{};
-  Eigen::MatrixXd C_constraint(C.rows() - 1, C.cols());
-  Eigen::VectorXd d_constraint(d.rows() - 1);
   Eigen::VectorXd c_cost(C.cols());
   Eigen::VectorXd t_guess(t_sample.rows());
   double d_cost{0};
   for (int i = 0; i < C.rows(); i++) {
-    for (int j = 0; j < C.rows(); j++) {
-      if (j < i) {
-        C_constraint.row(j) = C.row(j);
-        d_constraint(j) = d(j);
-      }
-      if (j == i) {
-        c_cost = C.row(j);
-        d_cost = d(j);
-      }
-      if (j > i) {
-        C_constraint.row(j-1) = C.row(j);
-        d_constraint(j-1) = d(j);
-      }
-    }
-
+    c_cost = C.row(i);
+    d_cost = d(i);
     t_guess = c_cost.transpose().bdcSvd(Eigen::ComputeThinU | Eigen::ComputeThinV).solve(d + c_cost*t_sample);
 
     cur_ret = FindMaxEpsTilCollisionForIneq(
         pairs, frames, sets, rational_forward_kinematics, context, q_star,
-        c_cost, d_cost, eps_min(i), C_constraint, d_constraint, t_lower_limits,
+        c_cost, d_cost, eps_min(i), t_lower_limits,
         t_upper_limits, *non_linear_solver, t_guess);
 
     if (cur_ret.has_value()) {
@@ -274,56 +266,18 @@ Eigen::VectorXd FindMaxEpsForAllIneqs(
   return eps_max;
 }
 
-//Eigen::VectorXd FindMaxEpsScalingForAllIneqsForCollisionPair(
-//    std::shared_ptr<SamePointConstraintRational> same_point_constraint,
-//    const multibody::Frame<double>& frameA,
-//    const multibody::Frame<double>& frameB, const ConvexSet& setA,
-//    const ConvexSet& setB,
-//    const Eigen::Ref<const Eigen::MatrixXd>& C,
-//    const Eigen::Ref<const Eigen::VectorXd>& d,
-//    const Eigen::Ref<const Eigen::VectorXd>& t_center,
-//    const Eigen::Ref<const Eigen::VectorXd>& t_lower_limits,
-//    const Eigen::Ref<const Eigen::VectorXd>& t_upper_limits
-//    ) {
-//  solvers::MathematicalProgram prog;
-//  solvers::MathematicalProgramResult result;
-//  auto t = prog.NewContinuousVariables(C.cols(), "t");
-//  auto eps = prog.NewContinuousVariables(C.rows(), "eps");
-//
-//
-//
-//  prog.AddBoundingBoxConstraint(t_lower_limits, t_upper_limits, t);
-//  prog.AddBoundingBoxConstraint(Eigen::VectorXd::Zero(eps.rows()), Eigen::VectorXd::Constant(eps.rows(), 1, kInf), eps);
-//  prog.AddLinearConstraint(C*(t-t_center) <= eps.cwiseProduct(d));
-//
-//  //TODO(Alex.Amice) add constraint that eps doesn't scale beyond bounding box
-//  prog.AddLinearCost(Eigen::MatrixXd::One(eps.rows()), 0, eps);
-//
-//  // same point constraint
-//  auto p_AA = non_lin_prog.NewContinuousVariables<3>("p_AA");
-//  auto p_BB = non_lin_prog.NewContinuousVariables<3>("p_BB");
-//  setA.AddPointInSetConstraints(&prog, p_AA);
-//  setB.AddPointInSetConstraints(&prog, p_BB);
-//
-//  same_point_constraint->set_frameA(&frameA);
-//  same_point_constraint->set_frameB(&frameB);
-//  non_lin_prog.AddConstraint(same_point_constraint, {t_non_lin, p_AA, p_BB});
-//
-//  // Help nonlinear optimizers (e.g. SNOPT) avoid trivial local minima at the
-//  // origin.
-//  non_lin_prog.SetInitialGuess(t_non_lin, t_guess);
-//  non_lin_prog.SetInitialGuess(p_AA, Vector3d::Constant(.01));
-//  non_lin_prog.SetInitialGuess(p_BB, Vector3d::Constant(.01));
-//
-//  non_linear_solver.Solve(non_lin_prog, std::nullopt, std::nullopt, &result);
-//
-//  if (result.is_success()) {
-//    // return most conservative of the max_eps
-//    return result.get_optimal_cost(); //std::min(result.get_optimal_cost(), max_eps);
-//  }
-//  return {};
-//}
-
+Eigen::MatrixXd RemoveMatrixRow(const Eigen::MatrixXd A, int i) {
+  Eigen::MatrixXd A_ret(A.rows() - 1, A.cols());
+  for (int j = 0; j < A.rows(); j++) {
+    if (j < i) {
+      A_ret.row(j) = A.row(j);
+    }
+    else if (j > i) {
+      A_ret.row(j - 1) = A.row(j);
+    }
+  }
+  return A_ret;
+}
 
 }  // namespace multibody
 }  // namespace drake

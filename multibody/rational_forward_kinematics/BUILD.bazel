@@ -115,6 +115,7 @@ drake_cc_library(
     deps = [
         ":convex_geometry",
         ":generate_monomial_basis_util",
+        ":maximal_epsilon_expansion",
         ":plane_side",
         ":rational_forward_kinematics_core",
         ":redundant_inequality_pruning",

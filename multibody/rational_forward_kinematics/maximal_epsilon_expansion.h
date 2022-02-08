@@ -3,29 +3,24 @@
 #include <memory>
 #include <vector>
 
-
-#include "drake/multibody/plant/multibody_plant.h"
-#include "drake/multibody/rational_forward_kinematics/rational_forward_kinematics.h"
-#include "drake/solvers/constraint.h"
-#include "drake/systems/framework/context.h"
-#include "drake/solvers/choose_best_solver.h"
+#include "drake/geometry/optimization/cartesian_product.h"
 #include "drake/geometry/optimization/convex_set.h"
 #include "drake/geometry/optimization/hpolyhedron.h"
 #include "drake/geometry/optimization/hyperellipsoid.h"
-#include "drake/geometry/optimization/cartesian_product.h"
 #include "drake/geometry/optimization/minkowski_sum.h"
-
-
-
-
+#include "drake/multibody/plant/multibody_plant.h"
+#include "drake/multibody/rational_forward_kinematics/rational_forward_kinematics.h"
+#include "drake/solvers/choose_best_solver.h"
+#include "drake/solvers/constraint.h"
+#include "drake/systems/framework/context.h"
 
 namespace drake {
 namespace multibody {
 using Eigen::MatrixXd;
+using Eigen::Ref;
 using Eigen::Vector3d;
 using Eigen::VectorXd;
 using geometry::optimization::ConvexSet;
-using Eigen::Ref;
 using math::RigidTransform;
 using multibody::Body;
 using multibody::Frame;
@@ -33,7 +28,6 @@ using multibody::JacobianWrtVariable;
 using multibody::MultibodyPlant;
 using symbolic::Expression;
 using systems::Context;
-
 
 // copied from geometry/optimization/iris
 // Takes q, p_AA, and p_BB and enforces that p_WA == p_WB.
@@ -43,10 +37,10 @@ class SamePointConstraint : public solvers::Constraint {
 
   SamePointConstraint(const MultibodyPlant<double>* plant,
                       const Context<double>& context)
-                      : solvers::Constraint(3, plant ? plant->num_positions() + 6 : 0,
-                                            Vector3d::Zero(), Vector3d::Zero()),
-                                            plant_(plant),
-                                            context_(plant->CreateDefaultContext()) {
+      : solvers::Constraint(3, plant ? plant->num_positions() + 6 : 0,
+                            Vector3d::Zero(), Vector3d::Zero()),
+        plant_(plant),
+        context_(plant->CreateDefaultContext()) {
     DRAKE_DEMAND(plant_ != nullptr);
     context_->SetTimeStateAndParametersFrom(context);
   }
@@ -73,7 +67,7 @@ class SamePointConstraint : public solvers::Constraint {
     DRAKE_DEMAND(frameB_ != nullptr);
     VectorXd q = x.head(plant_->num_positions());
     Vector3d p_AA = x.template segment<3>(plant_->num_positions()),
-        p_BB = x.template tail<3>();
+             p_BB = x.template tail<3>();
     Vector3d p_WA, p_WB;
     plant_->SetPositions(context_.get(), q);
     plant_->CalcPointsPositions(*context_, *frameA_, p_AA,
@@ -91,14 +85,14 @@ class SamePointConstraint : public solvers::Constraint {
     DRAKE_DEMAND(frameB_ != nullptr);
     VectorX<AutoDiffXd> q = x.head(plant_->num_positions());
     Vector3<AutoDiffXd> p_AA = x.template segment<3>(plant_->num_positions()),
-        p_BB = x.template tail<3>();
+                        p_BB = x.template tail<3>();
     plant_->SetPositions(context_.get(), ExtractDoubleOrThrow(q));
     const RigidTransform<double>& X_WA =
         plant_->EvalBodyPoseInWorld(*context_, frameA_->body());
     const RigidTransform<double>& X_WB =
         plant_->EvalBodyPoseInWorld(*context_, frameB_->body());
     Eigen::Matrix3Xd Jq_v_WA(3, plant_->num_positions()),
-    Jq_v_WB(3, plant_->num_positions());
+        Jq_v_WB(3, plant_->num_positions());
     plant_->CalcJacobianTranslationalVelocity(
         *context_, JacobianWrtVariable::kQDot, *frameA_,
         ExtractDoubleOrThrow(p_AA), plant_->world_frame(),
@@ -128,7 +122,7 @@ class SamePointConstraint : public solvers::Constraint {
         symbolic_plant_->get_frame(frameB_->index());
     VectorX<Expression> q = x.head(plant_->num_positions());
     Vector3<Expression> p_AA = x.template segment<3>(plant_->num_positions()),
-        p_BB = x.template tail<3>();
+                        p_BB = x.template tail<3>();
     Vector3<Expression> p_WA, p_WB;
     symbolic_plant_->SetPositions(symbolic_context_.get(), q);
     symbolic_plant_->CalcPointsPositions(*symbolic_context_, frameA, p_AA,
@@ -148,22 +142,20 @@ class SamePointConstraint : public solvers::Constraint {
   std::unique_ptr<Context<Expression>> symbolic_context_{nullptr};
 };
 
-
 // takes t, p_AA, and p_BB and enforces that p_WA == p_WB
-class SamePointConstraintRational : public SamePointConstraint{
+class SamePointConstraintRational : public SamePointConstraint {
  public:
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(SamePointConstraintRational)
 
-  SamePointConstraintRational(
-      const multibody::RationalForwardKinematics* rational_forward_kinematics_ptr,
-      const Eigen::Ref<const Eigen::VectorXd>& q_star,
-      const Context<double>& context)
+  SamePointConstraintRational(const multibody::RationalForwardKinematics*
+                                  rational_forward_kinematics_ptr,
+                              const Eigen::Ref<const Eigen::VectorXd>& q_star,
+                              const Context<double>& context)
       : SamePointConstraint(&rational_forward_kinematics_ptr->plant(), context),
-      rational_forward_kinematics_ptr_(rational_forward_kinematics_ptr),
-      q_star_(q_star)
-      {}
+        rational_forward_kinematics_ptr_(rational_forward_kinematics_ptr),
+        q_star_(q_star) {}
 
-      ~SamePointConstraintRational() override {}
+  ~SamePointConstraintRational() override {}
 
  private:
   void DoEval(const Eigen::Ref<const Eigen::VectorXd>& x,
@@ -173,7 +165,7 @@ class SamePointConstraintRational : public SamePointConstraint{
     VectorXd t = x.head(plant_->num_positions());
     VectorXd q = rational_forward_kinematics_ptr_->ComputeQValue(t, q_star_);
     Vector3d p_AA = x.template segment<3>(plant_->num_positions()),
-        p_BB = x.template tail<3>();
+             p_BB = x.template tail<3>();
     Vector3d p_WA, p_WB;
     plant_->SetPositions(context_.get(), q);
     plant_->CalcPointsPositions(*context_, *frameA_, p_AA,
@@ -183,25 +175,23 @@ class SamePointConstraintRational : public SamePointConstraint{
     *y = p_WA - p_WB;
   }
 
-
   void DoEval(const Eigen::Ref<const AutoDiffVecXd>& x,
               AutoDiffVecXd* y) const override {
-
     DRAKE_DEMAND(frameA_ != nullptr);
     DRAKE_DEMAND(frameB_ != nullptr);
     VectorX<AutoDiffXd> t = x.head(plant_->num_positions());
-    VectorX<AutoDiffXd> q = rational_forward_kinematics_ptr_->ComputeQValue(t, q_star_);
-
+    VectorX<AutoDiffXd> q =
+        rational_forward_kinematics_ptr_->ComputeQValue(t, q_star_);
 
     Vector3<AutoDiffXd> p_AA = x.template segment<3>(plant_->num_positions()),
-        p_BB = x.template tail<3>();
+                        p_BB = x.template tail<3>();
     plant_->SetPositions(context_.get(), ExtractDoubleOrThrow(q));
     const RigidTransform<double>& X_WA =
         plant_->EvalBodyPoseInWorld(*context_, frameA_->body());
     const RigidTransform<double>& X_WB =
         plant_->EvalBodyPoseInWorld(*context_, frameB_->body());
     Eigen::Matrix3Xd Jq_v_WA(3, plant_->num_positions()),
-    Jq_v_WB(3, plant_->num_positions());
+        Jq_v_WB(3, plant_->num_positions());
     plant_->CalcJacobianTranslationalVelocity(
         *context_, JacobianWrtVariable::kQDot, *frameA_,
         ExtractDoubleOrThrow(p_AA), plant_->world_frame(),
@@ -211,13 +201,12 @@ class SamePointConstraintRational : public SamePointConstraint{
         ExtractDoubleOrThrow(p_BB), plant_->world_frame(),
         plant_->world_frame(), &Jq_v_WB);
     Eigen::Matrix3Xd Jt_v_WA(3, plant_->num_positions()),
-    Jt_v_WB(3, plant_->num_positions());
-    for (int i = 0; i < plant_->num_positions(); i++){
+        Jt_v_WB(3, plant_->num_positions());
+    for (int i = 0; i < plant_->num_positions(); i++) {
       // dX_t_wa = J_q_WA * dq_dt
-      Jt_v_WA.col(i) = Jq_v_WA.col(i)*q(i).derivatives()(i);
-      Jt_v_WB.col(i) = Jq_v_WB.col(i)*q(i).derivatives()(i);
+      Jt_v_WA.col(i) = Jq_v_WA.col(i) * q(i).derivatives()(i);
+      Jt_v_WB.col(i) = Jq_v_WB.col(i) * q(i).derivatives()(i);
     }
-
 
     *y = X_WA.cast<AutoDiffXd>() * p_AA - X_WB.cast<AutoDiffXd>() * p_BB;
     // Now add it the dydq terms.  We don't use the standard autodiff tools
@@ -238,9 +227,10 @@ class SamePointConstraintRational : public SamePointConstraint{
     const Frame<Expression>& frameB =
         symbolic_plant_->get_frame(frameB_->index());
     VectorX<Expression> t = x.head(plant_->num_positions());
-    VectorX<Expression> q = rational_forward_kinematics_ptr_->ComputeQValue(t, q_star_);
+    VectorX<Expression> q =
+        rational_forward_kinematics_ptr_->ComputeQValue(t, q_star_);
     Vector3<Expression> p_AA = x.template segment<3>(plant_->num_positions()),
-        p_BB = x.template tail<3>();
+                        p_BB = x.template tail<3>();
     Vector3<Expression> p_WA, p_WB;
     symbolic_plant_->SetPositions(symbolic_context_.get(), q);
     symbolic_plant_->CalcPointsPositions(*symbolic_context_, frameA, p_AA,
@@ -249,46 +239,50 @@ class SamePointConstraintRational : public SamePointConstraint{
                                          symbolic_plant_->world_frame(), &p_WB);
     *y = p_WA - p_WB;
   }
+
  protected:
   const multibody::RationalForwardKinematics* rational_forward_kinematics_ptr_;
   const Eigen::VectorXd q_star_;
-
 };
 
- class IrisConvexSetMaker final : public geometry::ShapeReifier {
+class IrisConvexSetMaker final : public geometry::ShapeReifier {
  public:
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(IrisConvexSetMaker)
 
   IrisConvexSetMaker(const geometry::QueryObject<double>& query,
                      std::optional<geometry::FrameId> reference_frame)
-                     : query_{query}, reference_frame_{reference_frame} {};
+      : query_{query}, reference_frame_{reference_frame} {};
 
   void set_reference_frame(const geometry::FrameId& reference_frame) {
     DRAKE_DEMAND(reference_frame.is_valid());
     *reference_frame_ = reference_frame;
   }
 
-  void set_geometry_id(const geometry::GeometryId& geom_id) { geom_id_ = geom_id; }
+  void set_geometry_id(const geometry::GeometryId& geom_id) {
+    geom_id_ = geom_id;
+  }
 
   using ShapeReifier::ImplementGeometry;
 
   void ImplementGeometry(const geometry::Sphere&, void* data) {
     DRAKE_DEMAND(geom_id_.is_valid());
     auto& set = *static_cast<copyable_unique_ptr<ConvexSet>*>(data);
-    set = std::make_unique<geometry::optimization::Hyperellipsoid>(query_, geom_id_, reference_frame_);
+    set = std::make_unique<geometry::optimization::Hyperellipsoid>(
+        query_, geom_id_, reference_frame_);
   }
 
   void ImplementGeometry(const geometry::Cylinder&, void* data) {
     DRAKE_DEMAND(geom_id_.is_valid());
     auto& set = *static_cast<copyable_unique_ptr<ConvexSet>*>(data);
-    set =
-        std::make_unique<geometry::optimization::CartesianProduct>(query_, geom_id_, reference_frame_);
+    set = std::make_unique<geometry::optimization::CartesianProduct>(
+        query_, geom_id_, reference_frame_);
   }
 
   void ImplementGeometry(const geometry::HalfSpace&, void* data) {
     DRAKE_DEMAND(geom_id_.is_valid());
     auto& set = *static_cast<copyable_unique_ptr<ConvexSet>*>(data);
-    set = std::make_unique<geometry::optimization::HPolyhedron>(query_, geom_id_, reference_frame_);
+    set = std::make_unique<geometry::optimization::HPolyhedron>(
+        query_, geom_id_, reference_frame_);
   }
 
   void ImplementGeometry(const geometry::Box&, void* data) {
@@ -298,19 +292,22 @@ class SamePointConstraintRational : public SamePointConstraint{
     // discusses a significant performance improvement using a "least-distance
     // programming" instance from CVXGEN that exploited the VPolytope
     // representation.  So we may wish to revisit this.
-    set = std::make_unique<geometry::optimization::HPolyhedron>(query_, geom_id_, reference_frame_);
+    set = std::make_unique<geometry::optimization::HPolyhedron>(
+        query_, geom_id_, reference_frame_);
   }
 
   void ImplementGeometry(const geometry::Capsule&, void* data) {
     DRAKE_DEMAND(geom_id_.is_valid());
     auto& set = *static_cast<copyable_unique_ptr<ConvexSet>*>(data);
-    set = std::make_unique<geometry::optimization::MinkowskiSum>(query_, geom_id_, reference_frame_);
+    set = std::make_unique<geometry::optimization::MinkowskiSum>(
+        query_, geom_id_, reference_frame_);
   }
 
   void ImplementGeometry(const geometry::Ellipsoid&, void* data) {
     DRAKE_DEMAND(geom_id_.is_valid());
     auto& set = *static_cast<copyable_unique_ptr<ConvexSet>*>(data);
-    set = std::make_unique<geometry::optimization::Hyperellipsoid>(query_, geom_id_, reference_frame_);
+    set = std::make_unique<geometry::optimization::Hyperellipsoid>(
+        query_, geom_id_, reference_frame_);
   }
 
  private:
@@ -319,6 +316,23 @@ class SamePointConstraintRational : public SamePointConstraint{
   geometry::GeometryId geom_id_{};
 };
 
+/**
+ * find the max epsilon such that c_cost^T * x <= d_cost + epsilon is redundant
+ * for the polytope defined by C_constraint * t <= d_constraint
+ * @param c_cost
+ * @param d_cost
+ * @param C_constraint
+ * @param d_constraint
+ * @param t_lower_limits
+ * @param t_upper_limits
+ * @return
+ */
+std::optional<double> FindMaxEpsTilRedundant(
+    const Eigen::Ref<const Eigen::VectorXd>& c_cost, const double d_cost,
+    const Eigen::Ref<const Eigen::MatrixXd>& C_constraint,
+    const Eigen::Ref<const Eigen::VectorXd>& d_constraint,
+    const Eigen::Ref<const Eigen::VectorXd>& t_lower_limits,
+    const Eigen::Ref<const Eigen::VectorXd>& t_upper_limits);
 
 std::optional<double> FindMaxEpsTilCollisionForIneqForCollisionPair(
     std::shared_ptr<SamePointConstraintRational> same_point_constraint,
@@ -326,8 +340,6 @@ std::optional<double> FindMaxEpsTilCollisionForIneqForCollisionPair(
     const multibody::Frame<double>& frameB, const ConvexSet& setA,
     const ConvexSet& setB, const Eigen::Ref<const Eigen::VectorXd>& c_cost,
     const double d_cost, const double eps_min,
-    const Eigen::Ref<const Eigen::MatrixXd>& C_constraint,
-    const Eigen::Ref<const Eigen::VectorXd>& d_constraint,
     const Eigen::Ref<const Eigen::VectorXd>& t_lower_limits,
     const Eigen::Ref<const Eigen::VectorXd>& t_upper_limits,
     const solvers::SolverInterface& non_linear_solver,
@@ -345,8 +357,6 @@ std::optional<double> FindMaxEpsTilCollisionForIneq(
     Eigen::Ref<const Eigen::VectorXd>& q_star,
     const Eigen::Ref<const Eigen::VectorXd>& c_cost, const double d_cost,
     const double eps_min,
-    const Eigen::Ref<const Eigen::MatrixXd>& C_constraint,
-    const Eigen::Ref<const Eigen::VectorXd>& d_constraint,
     const Eigen::Ref<const Eigen::VectorXd>& t_lower_limits,
     const Eigen::Ref<const Eigen::VectorXd>& t_upper_limits,
     const solvers::SolverInterface& solver,
@@ -361,10 +371,11 @@ Eigen::VectorXd FindMaxEpsForAllIneqs(
     const Eigen::Ref<const Eigen::VectorXd>& eps_min,
     const Eigen::Ref<const Eigen::VectorXd>& t_lower_limits,
     const Eigen::Ref<const Eigen::VectorXd>& t_upper_limits,
-    const Eigen::Ref<const Eigen::VectorXd>& t_sample) ;
+    const Eigen::Ref<const Eigen::VectorXd>& t_sample);
 
 /**
- * Max epsilon such that C(t-t_center) <= eps.cwiseProduct(d) containts collision
+ * Max epsilon such that C(t-t_center) <= eps.cwiseProduct(d) containts
+ * collision
  * @param plant
  * @param context
  * @param q_star
@@ -383,21 +394,26 @@ Eigen::VectorXd FindMaxEpsScalingForAllIneqs(
     const Eigen::Ref<const Eigen::VectorXd>& d,
     const Eigen::Ref<const Eigen::VectorXd>& t_center,
     const Eigen::Ref<const Eigen::VectorXd>& t_lower_limits,
-    const Eigen::Ref<const Eigen::VectorXd>& t_upper_limits
-    ) ;
+    const Eigen::Ref<const Eigen::VectorXd>& t_upper_limits);
 
 Eigen::VectorXd FindMaxEpsScalingForAllIneqsForCollisionPair(
     std::shared_ptr<SamePointConstraintRational> same_point_constraint,
     const multibody::Frame<double>& frameA,
     const multibody::Frame<double>& frameB, const ConvexSet& setA,
-    const ConvexSet& setB,
-    const Eigen::Ref<const Eigen::MatrixXd>& C,
+    const ConvexSet& setB, const Eigen::Ref<const Eigen::MatrixXd>& C,
     const Eigen::Ref<const Eigen::VectorXd>& d,
     const Eigen::Ref<const Eigen::VectorXd>& t_center,
     const Eigen::Ref<const Eigen::VectorXd>& t_lower_limits,
-    const Eigen::Ref<const Eigen::VectorXd>& t_upper_limits
-    ) ;
+    const Eigen::Ref<const Eigen::VectorXd>& t_upper_limits);
+
+/**
+ * remove ith row of A
+ * @param A
+ * @param i
+ * @return
+ */
+Eigen::MatrixXd RemoveMatrixRow(const Eigen::MatrixXd A, int i);
+
 
 }  // namespace multibody
 }  // namespace drake
-
