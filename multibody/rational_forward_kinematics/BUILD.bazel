@@ -27,7 +27,7 @@ drake_cc_package_library(
     name = "rational_forward_kinematics",
     visibility = ["//visibility:public"],
     deps = [
-        ":convex_geometry",
+        ":collision_geometry",
         ":cspace_free_region",
         ":generate_monomial_basis_util",
         ":plane_side",
@@ -80,15 +80,14 @@ drake_cc_library(
 )
 
 drake_cc_library(
-    name = "convex_geometry",
-    srcs = ["convex_geometry.cc"],
-    hdrs = ["convex_geometry.h"],
+    name = "collision_geometry",
+    srcs = ["collision_geometry.cc"],
+    hdrs = ["collision_geometry.h"],
     deps = [
         ":plane_side",
         "//geometry:geometry_ids",
-        "//multibody/tree",
-        "//solvers:mathematical_program",
-        "//solvers:solve",
+        "//geometry/optimization:convex_set",
+        "//multibody/tree:multibody_tree_indexes",
     ],
 )
 
@@ -101,7 +100,7 @@ drake_cc_library(
         "cspace_free_region.h",
     ],
     deps = [
-        ":convex_geometry",
+        ":collision_geometry",
         ":generate_monomial_basis_util",
         ":plane_side",
         ":rational_forward_kinematics_core",
@@ -125,7 +124,7 @@ drake_cc_library(
         "//manipulation/models/iiwa_description:models",
     ],
     deps = [
-        ":convex_geometry",
+        ":collision_geometry",
         "//common:find_resource",
         "//multibody/benchmarks/kuka_iiwa_robot",
         "//multibody/parsing:parser",
@@ -133,27 +132,23 @@ drake_cc_library(
         "//solvers:solve",
         "//systems/analysis:simulator",
         "//systems/rendering:multibody_position_to_geometry_pose",
+        "@gtest//:without_main",
     ],
 )
 
 drake_cc_googletest(
     name = "cspace_free_region_test",
     timeout = "long",
+    data = [
+        "//geometry:test_obj_files",
+    ],
     deps = [
         ":cspace_free_region",
         ":rational_forward_kinematics_test_utilities",
+        "//common:find_resource",
         "//common/test_utilities:eigen_matrix_compare",
         "//common/test_utilities:symbolic_test_util",
         "//multibody/inverse_kinematics",
-    ],
-)
-
-drake_cc_googletest(
-    name = "convex_geometry_test",
-    size = "medium",
-    deps = [
-        ":convex_geometry",
-        "//common/test_utilities:eigen_matrix_compare",
     ],
 )
 

@@ -148,8 +148,8 @@ class IrisPlantVisualizer:
         self._region_to_planes_of_interest_dict = {k: [] for k in self.certified_region_solution_list}
         for certified_region_solution in self.certified_region_solution_list:
             for i, plane in enumerate(certified_region_solution.separating_planes):
-                A = plane.positive_side_polytope.get_id() if plane.positive_side_polytope is not None else None
-                B = plane.negative_side_polytope.get_id() if plane.negative_side_polytope is not None else None
+                A = plane.positive_side_geometry.id() if plane.positive_side_geometry is not None else None
+                B = plane.negative_side_geometry.id() if plane.negative_side_geometry is not None else None
                 for gid_pairs in self._collision_pairs_of_interest:
                     if (A, B) == gid_pairs or (B, A) == gid_pairs:
                         self._region_to_planes_of_interest_dict[certified_region_solution].append(plane)
@@ -269,8 +269,8 @@ class IrisPlantVisualizer:
                 body_colors = colors[num_colors:]
 
                 for i, plane in enumerate(self._region_to_planes_of_interest_dict[sol]):
-                    idA = plane.positive_side_polytope.get_id() if plane.positive_side_polytope is not None else None
-                    idB = plane.negative_side_polytope.get_id() if plane.negative_side_polytope is not None else None
+                    idA = plane.positive_side_geometry.id() if plane.positive_side_geometry is not None else None
+                    idB = plane.negative_side_geometry.id() if plane.negative_side_geometry is not None else None
                     if self._is_collision_pair_of_interest(idA, idB):
                         self._plot_plane(plane, body_colors[2*i], body_colors[2*i+1], plane_colors[i], s,
                                          region_number)
@@ -280,20 +280,20 @@ class IrisPlantVisualizer:
 
 
     def _delete_plane_from_viz(self, plane, region_number):
-        geomA = plane.positive_side_polytope.get_id()
-        geomB = plane.negative_side_polytope.get_id()
+        geomA = plane.positive_side_geometry.id()
+        geomB = plane.negative_side_geometry.id()
         self.vis[f"region{region_number}"][f"body{geomA.get_value()}"].delete()
         self.vis[f"region{region_number}"][f"body{geomB.get_value()}"].delete()
         self.vis[f"region{region_number}"]["plane"][f"{geomA.get_value()}, {geomB.get_value()}"].delete()
 
     def _plot_plane(self, plane, bodyA_color, bodyB_color, plane_color, s, region_number):
         # get the vertices of the separated bodies
-        vert_A = plane.positive_side_polytope.p_BV()[:, :]
-        vert_B = plane.negative_side_polytope.p_BV()[:, :]
+        vert_A = GetVertices(plane.positive_side_geometry)[:, :]
+        vert_B = GetVertices(plane.negative_side_geometry)[:, :]
 
         # get the geometry id of the separated bodies
-        geomA = plane.positive_side_polytope.get_id()
-        geomB = plane.negative_side_polytope.get_id()
+        geomA = plane.positive_side_geometry.id()
+        geomB = plane.negative_side_geometry.id()
 
         # get the equation of the plane
         b = plane.b
@@ -309,13 +309,13 @@ class IrisPlantVisualizer:
 
         # transform vertices of body A expressed in body A into world frame
         X_WA = self.plant.GetBodyFromFrameId(
-            self.plant.GetBodyFrameIdIfExists(plane.positive_side_polytope.body_index())) \
+            self.plant.GetBodyFrameIdIfExists(plane.positive_side_geometry.body_index())) \
             .body_frame().CalcPoseInWorld(self.plant_context)
         vert_A = X_WA @ vert_A
 
         # transform vertices of body A expressed in body B into world frame
         X_WB = self.plant.GetBodyFromFrameId(
-            self.plant.GetBodyFrameIdIfExists(plane.negative_side_polytope.body_index())) \
+            self.plant.GetBodyFrameIdIfExists(plane.negative_side_geometry.body_index())) \
             .body_frame().CalcPoseInWorld(self.plant_context)
         vert_B = X_WB @ vert_B
 

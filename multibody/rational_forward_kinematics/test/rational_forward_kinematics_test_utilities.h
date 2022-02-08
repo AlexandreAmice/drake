@@ -13,7 +13,7 @@
 
 #include "drake/math/rigid_transform.h"
 #include "drake/multibody/plant/multibody_plant.h"
-#include "drake/multibody/rational_forward_kinematics/convex_geometry.h"
+#include "drake/multibody/rational_forward_kinematics/collision_geometry.h"
 
 namespace drake {
 namespace multibody {
@@ -35,10 +35,10 @@ class IiwaTest : public ::testing::Test {
  public:
   IiwaTest();
 
-  void AddBox(const math::RigidTransform<double>& X_BG,
-              const Eigen::Vector3d& box_size, BodyIndex body_index,
-              const std::string& name,
-              std::vector<std::unique_ptr<const ConvexPolytope>>* geometries);
+  void AddBox(
+      const math::RigidTransform<double>& X_BG, const Eigen::Vector3d& box_size,
+      BodyIndex body_index, const std::string& name,
+      std::vector<std::unique_ptr<const CollisionGeometry>>* geometries);
 
  protected:
   std::unique_ptr<drake::multibody::MultibodyPlant<double>> iiwa_;

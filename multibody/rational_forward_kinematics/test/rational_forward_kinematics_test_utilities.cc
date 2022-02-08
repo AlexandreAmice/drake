@@ -9,7 +9,6 @@
 #include "drake/geometry/geometry_roles.h"
 #include "drake/multibody/benchmarks/kuka_iiwa_robot/make_kuka_iiwa_model.h"
 #include "drake/multibody/parsing/parser.h"
-#include "drake/multibody/rational_forward_kinematics/convex_geometry.h"
 #include "drake/solvers/solve.h"
 #include "drake/systems/analysis/simulator.h"
 #include "drake/systems/framework/diagram.h"
@@ -60,23 +59,6 @@ Eigen::Matrix<double, 3, 8> GenerateBoxVertices(const Eigen::Vector3d& size,
   return vertices;
 }
 
-std::vector<std::shared_ptr<const ConvexPolytope>> GenerateIiwaLinkPolytopes(
-    MultibodyPlant<double>* iiwa) {
-  DRAKE_DEMAND(!iiwa->is_finalized());
-  std::vector<std::shared_ptr<const ConvexPolytope>> link_polytopes;
-  const BodyIndex link7_idx = iiwa->GetBodyByName("iiwa_link_7").index();
-  RigidTransformd link7_box_pose = Eigen::Translation3d(0, 0, 0.05);
-  Eigen::Matrix<double, 3, 8> link7_pts =
-      GenerateBoxVertices(Eigen::Vector3d(0.04, 0.14, 0.1), link7_box_pose);
-  geometry::Box link7_box(0.04, 0.14, 0.1);
-  const geometry::GeometryId link7_box_id = iiwa->RegisterCollisionGeometry(
-      iiwa->get_body(link7_idx), link7_box_pose, link7_box, "link7_box",
-      geometry::ProximityProperties{});
-  link_polytopes.push_back(std::make_shared<const ConvexPolytope>(
-      link7_idx, link7_box_id, link7_pts));
-  return link_polytopes;
-}
-
 std::unique_ptr<MultibodyPlant<double>> ConstructDualArmIiwaPlant(
     const std::string& iiwa_sdf_name, const RigidTransformd& X_WL,
     const RigidTransformd& X_WR, ModelInstanceIndex* left_iiwa_instance,
@@ -119,13 +101,15 @@ IiwaTest::IiwaTest()
 void IiwaTest::AddBox(
     const math::RigidTransform<double>& X_BG, const Eigen::Vector3d& box_size,
     BodyIndex body_index, const std::string& name,
-    std::vector<std::unique_ptr<const ConvexPolytope>>* geometries) {
+    std::vector<std::unique_ptr<const CollisionGeometry>>* geometries) {
   const auto geometry_id = iiwa_->RegisterCollisionGeometry(
       iiwa_->get_body(body_index), X_BG,
       geometry::Box(box_size(0), box_size(1), box_size(2)), name,
       CoulombFriction<double>());
-  geometries->emplace_back(std::make_unique<const ConvexPolytope>(
-      body_index, geometry_id, GenerateBoxVertices(box_size, X_BG)));
+  const auto& model_inspector = scene_graph_->model_inspector();
+  geometries->emplace_back(std::make_unique<const CollisionGeometry>(
+      CollisionGeometryType::kPolytope,
+      &(model_inspector.GetShape(geometry_id)), body_index, geometry_id, X_BG));
 }
 
 FinalizedIiwaTest::FinalizedIiwaTest()
