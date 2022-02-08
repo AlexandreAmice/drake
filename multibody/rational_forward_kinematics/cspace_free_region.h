@@ -645,6 +645,33 @@ class CspaceFreeRegion {
           inner_polytope,
       CspaceFreeRegionSolution* cspace_free_region_solution) const;
 
+
+  /**
+   * Run round robin search for a collection of initial regions.
+   * @param q_star
+   * @param filtered_collision_pairs
+   * @param C
+   * @param d_init
+   * @param vector_bisection_search_option
+   * @param num_rounds
+   * @param solver_options
+   * @param q_inner_pts
+   * @param inner_polytope
+   * @param cspace_free_region_solution
+   */
+  void CspacePolytopeRoundRobinBisectionSearchForSeedPoints(
+      const Eigen::Ref<const Eigen::VectorXd>& q_star,
+      const FilteredCollisionPairs& filtered_collision_pairs,
+      const std::vector<Eigen::Ref<Eigen::MatrixXd>>& C_mat_vect,
+      const std::vector<Eigen::Ref<Eigen::VectorXd>>& d_init_vect,
+      const int num_rounds,
+      const std::vector<VectorBisectionSearchOption>& vector_bisection_search_option_vect,
+      const solvers::SolverOptions& solver_options,
+      const std::vector<Eigen::MatrixXd>& seed_points,
+      const std::optional<std::vector<std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>>>&
+          inner_polytope_vect,
+      std::vector<CspaceFreeRegionSolution*> cspace_free_region_solution_vect) const;
+
   /**
    * Find the C-space free polytope C*t<=d through bisection search.
    * In each iteration we check if this polytope

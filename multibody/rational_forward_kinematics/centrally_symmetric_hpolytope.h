@@ -10,7 +10,7 @@ namespace multibody {
   /**
    * Generates a symmetric HPolyhedron centered around the point @p seed_point. The polytope has
    * 2*dim(seed_point)*num_perm_dim*num_rot faces. This is achieved by rotating the unit dim(seed_point) unit box
-   * centered at seed_point around the first perm_dim axis at num_rot evenly space angles
+   * centered at seed_point around the first perm_dim axis (starting at 0) at num_rot evenly space angles
    */
    HPolyhedron GenerateSeedingPolytope(const Eigen::VectorXd seed_point, const int num_perm_dim, const int num_rot);
 

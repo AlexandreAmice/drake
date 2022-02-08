@@ -76,7 +76,7 @@ std::vector<Eigen::MatrixXd> MakeKCanonicalSOnMembers(const int k,
 
 std::vector<Eigen::MatrixXd> MakeKFirstDimSwapsOfDimN(const int k,
                                                       const int n) {
-  DRAKE_DEMAND(k < n);
+  DRAKE_DEMAND(k <= n);
   std::vector<Eigen::MatrixXd> members;
   members.reserve(k);
   Eigen::MatrixXd perm(n, n);
