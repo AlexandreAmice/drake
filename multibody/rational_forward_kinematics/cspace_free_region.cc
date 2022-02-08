@@ -2047,15 +2047,19 @@ void CspaceFreeRegion::CspacePolytopeRoundRobinBisectionSearch(
       auto set_eps_max = [&C, &d, &t_lower, &t_upper,
                           &i, &eps_max_vect, &eps_min_vect, &eps_upper_max_vect]() {
         // during binary search the minimum epsilon might exceed the value find by SNOPT
+
         if(((eps_upper_max_vect - eps_min_vect).array() < 0).any()){
           drake::log() -> info("eps_min_vect exceeds components of epsilon max in some components, increasing epsilon max");
           eps_upper_max_vect = eps_upper_max_vect.cwiseMax(eps_min_vect);
           eps_max_vect = eps_upper_max_vect.cwiseMax(eps_min_vect);
 //          eps_max_vect(i) = eps_upper_max_vect(i);
         }
+
         std::optional<double> eps_redundant_max =
-            FindMaxEpsTilRedundant(C.row(i), d(i), RemoveMatrixRow(C, i),
-                                   RemoveMatrixRow(d, i), t_lower, t_upper);
+            FindMaxEpsTilRedundant(C.row(i), d(i),
+                                   RemoveMatrixRow(C, i),
+                                   RemoveMatrixRow(d, i),
+                                   t_lower, t_upper);
         if (not eps_redundant_max.has_value()) {
           throw std::runtime_error(
               "round robin bisection search, polytope is empty");
@@ -2068,10 +2072,11 @@ void CspaceFreeRegion::CspacePolytopeRoundRobinBisectionSearch(
         }
       };
 
+      set_eps_max();
       if (eps_max_vect(i) < eps_min_vect(i)) {
         drake::log()->warn(
             fmt::format("round robin bisection search failed: epsilon max is "
-                        "less than epsilon min with {} <= {}",
+                        "less than epsilon min with {} < {}",
                         eps_max_vect(i), eps_min_vect(i)));
       }
       while (total_iter_count < vector_bisection_search_option.max_iters and
@@ -2314,7 +2319,6 @@ void CspaceFreeRegion::CspacePolytopeBisectionSearchVector(
     if (vector_bisection_search_option.compute_polytope_volume) {
       drake::log()->info(
           fmt::format("C-space polytope volume {}",
-                      CalcCspacePolytopeVolume(C, d, t_lower, t_upper)));
                       CalcCspacePolytopeVolume(C, d, t_lower, t_upper)));
     }
     return is_success;
