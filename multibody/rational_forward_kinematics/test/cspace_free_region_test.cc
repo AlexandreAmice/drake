@@ -908,14 +908,17 @@ TEST_F(IiwaCspaceTest, CspacePolytopeBilinearAlternation) {
                                    .verbose = true};
   solvers::SolverOptions solver_options;
   solver_options.SetOption(solvers::CommonSolverOption::kPrintToConsole, true);
-//  std::vector<SeparatingPlane> separating_planes_sol;
+  //  std::vector<SeparatingPlane> separating_planes_sol;
   CspaceFreeRegionSolution cspace_free_region_solution;
   dut.CspacePolytopeBilinearAlternation(
       q_star, filtered_collision_pairs, C, d, bilinear_alternation_options,
-      solver_options, q_not_in_collision, std::nullopt, &cspace_free_region_solution);
-  EXPECT_EQ(cspace_free_region_solution.separating_planes.size(), dut.separating_planes().size());
+      solver_options, q_not_in_collision, std::nullopt,
+      &cspace_free_region_solution);
+  EXPECT_EQ(cspace_free_region_solution.separating_planes.size(),
+            dut.separating_planes().size());
   const symbolic::Variables t_vars(dut.rational_forward_kinematics().t());
-  for (const auto& separating_plane_sol : cspace_free_region_solution.separating_planes) {
+  for (const auto& separating_plane_sol :
+       cspace_free_region_solution.separating_planes) {
     // Make sure a and b only contain t as variables.
     for (int i = 0; i < 3; ++i) {
       EXPECT_TRUE(separating_plane_sol.a(i).GetVariables().IsSubsetOf(t_vars));
@@ -954,13 +957,13 @@ TEST_F(IiwaCspaceTest, CspacePolytopeBinarySearch) {
   solvers::SolverOptions solver_options;
   solver_options.SetOption(solvers::CommonSolverOption::kPrintToConsole, true);
   Eigen::VectorXd d_final;
-//  std::vector<SeparatingPlane> separating_planes_sol;
   CspaceFreeRegionSolution cspace_free_region_solution;
   dut.CspacePolytopeBinarySearch(q_star, filtered_collision_pairs, C, d,
                                  binary_search_option, solver_options,
                                  q_not_in_collision, std::nullopt,
                                  &cspace_free_region_solution);
-  EXPECT_EQ(cspace_free_region_solution.separating_planes.size(), dut.separating_planes().size());
+  EXPECT_EQ(cspace_free_region_solution.separating_planes.size(),
+            dut.separating_planes().size());
 
   // Now do binary search but also look for d.
   binary_search_option.search_d = true;
@@ -968,8 +971,10 @@ TEST_F(IiwaCspaceTest, CspacePolytopeBinarySearch) {
   Eigen::VectorXd d_final_search_d;
   dut.CspacePolytopeBinarySearch(q_star, filtered_collision_pairs, C, d,
                                  binary_search_option, solver_options,
-                                 q_not_in_collision, std::nullopt,&cspace_free_region_solution);
-  EXPECT_EQ(cspace_free_region_solution.separating_planes.size(), dut.separating_planes().size());
+                                 q_not_in_collision, std::nullopt,
+                                 &cspace_free_region_solution);
+  EXPECT_EQ(cspace_free_region_solution.separating_planes.size(),
+            dut.separating_planes().size());
 }
 
 void CheckSeparatingPlanesSol(
@@ -1048,10 +1053,11 @@ TEST_F(IiwaCspaceTest, FindLagrangianAndSeparatingPlanes) {
     EXPECT_TRUE(is_plane_active[i]);
   }
   const int num_active_planes = is_plane_active.size() - 1;
-  for (const bool multi_thread : {false, true}) {
+  for (const std::optional<int> num_threads :
+       {std::optional<int>(std::nullopt), std::optional<int>(-1),
+        std::optional<int>(5)}) {
     Eigen::VectorXd lagrangian_gram_var_vals, verified_gram_var_vals,
         separating_plane_var_vals;
-//    std::vector<SeparatingPlane> separating_planes_sol;
     CspaceFreeRegionSolution cspace_free_region_solution;
     const VerificationOption verification_option{};
     const double redundant_tighten = 0;
@@ -1060,12 +1066,13 @@ TEST_F(IiwaCspaceTest, FindLagrangianAndSeparatingPlanes) {
     bool is_success = internal::FindLagrangianAndSeparatingPlanes(
         dut, alternation_tuples, C, d, lagrangian_gram_vars, verified_gram_vars,
         separating_plane_vars, t_lower, t_upper, verification_option,
-        redundant_tighten, solver_options, verbose, multi_thread,
+        redundant_tighten, solver_options, verbose, num_threads,
         separating_plane_to_tuples, &lagrangian_gram_var_vals,
         &verified_gram_var_vals, &separating_plane_var_vals,
         &cspace_free_region_solution);
     EXPECT_TRUE(is_success);
-    EXPECT_EQ(cspace_free_region_solution.separating_planes.size(), num_active_planes);
+    EXPECT_EQ(cspace_free_region_solution.separating_planes.size(),
+              num_active_planes);
     TestLagrangianResult(dut, alternation_tuples, C, d, separating_plane_vars,
                          t_minus_t_lower, t_upper_minus_t,
                          lagrangian_gram_var_vals, verified_gram_var_vals,
@@ -1079,7 +1086,7 @@ TEST_F(IiwaCspaceTest, FindLagrangianAndSeparatingPlanes) {
         dut, alternation_tuples, C, d_infeasible, lagrangian_gram_vars,
         verified_gram_vars, separating_plane_vars, t_lower, t_upper,
         verification_option, redundant_tighten, solver_options, verbose,
-        multi_thread, separating_plane_to_tuples, &lagrangian_gram_var_vals,
+        num_threads, separating_plane_to_tuples, &lagrangian_gram_var_vals,
         &verified_gram_var_vals, &separating_plane_var_vals,
         &cspace_free_region_solution);
     EXPECT_FALSE(is_success);

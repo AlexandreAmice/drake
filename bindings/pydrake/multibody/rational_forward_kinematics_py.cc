@@ -239,9 +239,9 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
       .def_readwrite("ellipsoid_volume",
           &CspaceFreeRegion::BilinearAlternationOption::ellipsoid_volume,
           doc.CspaceFreeRegion.BilinearAlternationOption.ellipsoid_volume.doc)
-      .def_readwrite("multi_thread",
-          &CspaceFreeRegion::BilinearAlternationOption::multi_thread,
-          doc.CspaceFreeRegion.BilinearAlternationOption.multi_thread.doc);
+      .def_readwrite("num_threads",
+          &CspaceFreeRegion::BilinearAlternationOption::num_threads,
+          doc.CspaceFreeRegion.BilinearAlternationOption.num_threads.doc);
 
   // BinarySearchOption
   py::class_<CspaceFreeRegion::BinarySearchOption>(
@@ -250,8 +250,7 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
       .def_readwrite("epsilon_max",
           &CspaceFreeRegion::BinarySearchOption::epsilon_max,
           doc.CspaceFreeRegion.BinarySearchOption.epsilon_max.doc)
-      .def_readwrite("verbose",
-          &CspaceFreeRegion::BinarySearchOption::verbose,
+      .def_readwrite("verbose", &CspaceFreeRegion::BinarySearchOption::verbose,
           doc.CspaceFreeRegion.BinarySearchOption.verbose.doc)
       .def_readwrite("lagrangian_backoff_scale",
           &CspaceFreeRegion::BinarySearchOption::lagrangian_backoff_scale,
@@ -270,9 +269,9 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
           doc.CspaceFreeRegion.BinarySearchOption.compute_polytope_volume.doc)
       .def_readwrite("verbose", &CspaceFreeRegion::BinarySearchOption::verbose,
           doc.CspaceFreeRegion.BinarySearchOption.verbose.doc)
-      .def_readwrite("multi_thread",
-          &CspaceFreeRegion::BinarySearchOption::multi_thread,
-          doc.CspaceFreeRegion.BinarySearchOption.multi_thread.doc);
+      .def_readwrite("num_threads",
+          &CspaceFreeRegion::BinarySearchOption::num_threads,
+          doc.CspaceFreeRegion.BinarySearchOption.num_threads.doc);
 
   //CspaceFreeRegionSolution
   py::class_<CspaceFreeRegionSolution>(m, "CspaceFreeRegionSolution", doc.CspaceFreeRegionSolution.doc)
@@ -304,11 +303,11 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
               max_feasible_iters,
           doc.CspaceFreeRegion.VectorBisectionSearchOption
               .max_feasible_iters.doc)
-      .def_readwrite("multi_thread",
+      .def_readwrite("num_threads",
           &CspaceFreeRegion::VectorBisectionSearchOption::
-              multi_thread,
+              num_threads,
           doc.CspaceFreeRegion.VectorBisectionSearchOption
-              .multi_thread.doc);
+              .num_threads.doc);
 
   //interleavedRegionSearchOptions
    py::class_<CspaceFreeRegion::InterleavedRegionSearchOptions>(m,

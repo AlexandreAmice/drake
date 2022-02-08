@@ -33,6 +33,18 @@ Later edited by hand to:
           <diffuse>0.4 0.4 0.4 1.0</diffuse>
         </material>
       </visual>
+      <collision name="link_0_coarse">
+        <geometry>
+          <mesh>
+            <drake:declare_convex/>
+            <scale> 1 1 1</scale>
+            <uri>package://drake/manipulation/models/iiwa_description/meshes/collision/link_0_coarse.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <diffuse>0.5 0.3 0.6 1.0</diffuse>
+        </material>
+      </collision>
       <gravity>1</gravity>
       <velocity_decay/>
       <self_collide>0</self_collide>
@@ -62,6 +74,18 @@ Later edited by hand to:
           <diffuse>0.4 0.4 0.4 1.0</diffuse>
         </material>
       </visual>
+      <collision name="link_1_coarse">
+        <geometry>
+          <mesh>
+            <drake:declare_convex/>
+            <scale> 1 1 1</scale>
+            <uri>package://drake/manipulation/models/iiwa_description/meshes/collision/link_1_coarse.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <diffuse>0.5 0.8 0.2 1.0</diffuse>
+        </material>
+      </collision>
       <gravity>1</gravity>
       <velocity_decay/>
       <self_collide>0</self_collide>
@@ -123,6 +147,30 @@ Later edited by hand to:
           <diffuse>1.0 0.423529411765 0.0392156862745 1.0</diffuse>
         </material>
       </visual>
+      <collision name="link_2_coarse1">
+        <geometry>
+          <mesh>
+            <drake:declare_convex/>
+            <scale> 1 1 1</scale>
+            <uri>package://drake/manipulation/models/iiwa_description/meshes/collision/link_2_coarse1.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <diffuse>0.7 0.4 0.2 1.0</diffuse>
+        </material>
+      </collision>
+      <collision name="link_2_coarse2">
+        <geometry>
+          <mesh>
+            <drake:declare_convex/>
+            <scale> 1 1 1</scale>
+            <uri>package://drake/manipulation/models/iiwa_description/meshes/collision/link_2_coarse2.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <diffuse>1.0 0.4 0.0 1.0</diffuse>
+        </material>
+      </collision>
       <gravity>1</gravity>
       <velocity_decay/>
       <self_collide>0</self_collide>
@@ -197,6 +245,18 @@ Later edited by hand to:
           <diffuse>0 0 0 1</diffuse>
         </material>
       </visual>
+      <collision name="link_3_coarse">
+        <geometry>
+          <mesh>
+            <drake:declare_convex/>
+            <scale>1 1 1</scale>
+            <uri>package://drake/manipulation/models/iiwa_description/meshes/collision/link_3_coarse.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <diffuse>0.1 0.2 0 1</diffuse>
+        </material>
+      </collision>
       <gravity>1</gravity>
       <velocity_decay/>
       <self_collide>0</self_collide>
@@ -244,6 +304,9 @@ Later edited by hand to:
             <uri>package://drake/manipulation/models/iiwa_description/meshes/collision/link_4_coarse1.obj</uri>
           </mesh>
         </geometry>
+        <material>
+          <diffuse>0.2 0.9 0.4 1.0</diffuse>
+        </material>
         <surface>
           <contact>
             <ode/>
@@ -264,6 +327,9 @@ Later edited by hand to:
             <uri>package://drake/manipulation/models/iiwa_description/meshes/collision/link_4_coarse2.obj</uri>
           </mesh>
         </geometry>
+        <material>
+          <diffuse>0.2 0.7 0.9 1.0</diffuse>
+        </material>
         <surface>
           <contact>
             <ode/>
@@ -345,6 +411,9 @@ Later edited by hand to:
             <uri>package://drake/manipulation/models/iiwa_description/meshes/collision/link_5_coarse1.obj</uri>
           </mesh>
         </geometry>
+        <material>
+          <diffuse>0.1 0.3 0.9 1.0</diffuse>
+        </material>
         <surface>
           <contact>
             <ode/>
@@ -365,6 +434,9 @@ Later edited by hand to:
             <uri>package://drake/manipulation/models/iiwa_description/meshes/collision/link_5_coarse2.obj</uri>
           </mesh>
         </geometry>
+        <material>
+          <diffuse>0.4 0.1 0.8 1.0</diffuse>
+        </material>
         <surface>
           <contact>
             <ode/>
@@ -457,6 +529,9 @@ Later edited by hand to:
             <uri>package://drake/manipulation/models/iiwa_description/meshes/collision/link_6_coarse.obj</uri>
           </mesh>
         </geometry>
+        <material>
+          <diffuse>0.3 0.5 0.9 1.0</diffuse>
+        </material>
         <surface>
           <contact>
             <ode/>

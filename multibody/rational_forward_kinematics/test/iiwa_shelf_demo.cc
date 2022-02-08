@@ -72,6 +72,19 @@ class IiwaDiagram {
         geometry::CollisionFilterDeclaration().ExcludeWithin(
             gripper_link6_geometries));
 
+    // Ignore collision between IIWA links.
+    std::vector<geometry::GeometryId> iiwa_geometry_ids;
+    for (const auto& body_index : plant_->GetBodyIndices(iiwa_instance)) {
+      const std::vector<geometry::GeometryId> body_geometry_ids =
+          plant_->GetCollisionGeometriesForBody(plant_->get_body(body_index));
+      iiwa_geometry_ids.insert(iiwa_geometry_ids.end(),
+                               body_geometry_ids.begin(),
+                               body_geometry_ids.end());
+    }
+    scene_graph_->collision_filter_manager().Apply(
+        geometry::CollisionFilterDeclaration().ExcludeWithin(
+            geometry::GeometrySet(iiwa_geometry_ids)));
+
     const std::string shelf_file_path =
         FindResourceOrThrow("drake/sos_iris_certifier/shelves.sdf");
     const auto shelf_instance =
@@ -84,7 +97,7 @@ class IiwaDiagram {
     plant_->Finalize();
 
     geometry::MeshcatVisualizerParams meshcat_params{};
-    meshcat_params.role = geometry::Role::kProximity;
+    meshcat_params.role = geometry::Role::kIllustration;
     visualizer_ = &geometry::MeshcatVisualizer<double>::AddToBuilder(
         &builder, *scene_graph_, meshcat_, meshcat_params);
     diagram_ = builder.Build();
@@ -194,69 +207,34 @@ int DoMain() {
       .epsilon_max = 0.01,
       .epsilon_min = 0.,
       .max_iters = 2,
-      .compute_polytope_volume = true,
-      .multi_thread = true};
+      .compute_polytope_volume = false,
+      .num_threads = -1};
   solvers::SolverOptions solver_options;
   solver_options.SetOption(solvers::CommonSolverOption::kPrintToConsole, false);
-  Eigen::VectorXd d_binary_search;
-//  std::vector<SeparatingPlane> separating_planes_sol;
   CspaceFreeRegionSolution cspace_free_region_solution;
   Eigen::VectorXd q_star = Eigen::Matrix<double, 7, 1>::Zero();
-  dut.CspacePolytopeBinarySearch(q_star, filtered_collision_pairs, C_init,
-                                 d_init, binary_search_option, solver_options,
-                                 q0, std::nullopt, &cspace_free_region_solution);
+  dut.CspacePolytopeBinarySearch(
+      q_star, filtered_collision_pairs, C_init, d_init, binary_search_option,
+      solver_options, q0, std::nullopt, &cspace_free_region_solution);
   CspaceFreeRegion::BilinearAlternationOption bilinear_alternation_option{
       .max_iters = 10,
       .convergence_tol = 0.001,
       .lagrangian_backoff_scale = 0.01,
       .redundant_tighten = 0.5,
-      .compute_polytope_volume = true,
-      .multi_thread = true};
+      .compute_polytope_volume = false,
+      .num_threads = -1};
 
   dut.CspacePolytopeBilinearAlternation(
-      q_star, filtered_collision_pairs, C_init, d_binary_search,
-      bilinear_alternation_option, solver_options, q0, std::nullopt,
-      &cspace_free_region_solution);
+      q_star, filtered_collision_pairs, cspace_free_region_solution.C,
+      cspace_free_region_solution.d, bilinear_alternation_option,
+      solver_options, q0, std::nullopt, &cspace_free_region_solution);
   Eigen::MatrixXd C_final(cspace_free_region_solution.C);
   Eigen::VectorXd d_final(cspace_free_region_solution.d);
   Eigen::MatrixXd P_final(cspace_free_region_solution.P);
   Eigen::VectorXd q_final(cspace_free_region_solution.q);
 
-  // Now partition the certified region C_final * t <= d_final, t_lower <= t <=
-  // t_upper into boxes.
-  const Eigen::VectorXd t_upper =
-      (iiwa_diagram.plant().GetPositionUpperLimits() / 2)
-          .array()
-          .tan()
-          .matrix();
-  const Eigen::VectorXd t_lower =
-      (iiwa_diagram.plant().GetPositionLowerLimits() / 2)
-          .array()
-          .tan()
-          .matrix();
-  const int nq = iiwa_diagram.plant().num_positions();
-  Eigen::MatrixXd C_bar(C_final.rows() + 2 * nq, nq);
-  C_bar << C_final, Eigen::MatrixXd::Identity(nq, nq),
-      -Eigen::MatrixXd::Identity(nq, nq);
-  Eigen::VectorXd d_bar(d_final.rows() + 2 * nq);
-  d_bar << d_final, t_upper, -t_lower;
-  const int num_boxes = 10;
-  geometry::optimization::FindInscribedBox find_box(C_bar, d_bar, {},
-                                                    std::nullopt);
-  find_box.MaximizeBoxVolume();
-  std::vector<geometry::optimization::AxisAlignedBox> boxes;
-  solvers::GurobiSolver gurobi_solver;
-  for (int i = 0; i < num_boxes; ++i) {
-    const auto result_box =
-        gurobi_solver.Solve(find_box.prog(), std::nullopt, solver_options);
-    geometry::optimization::AxisAlignedBox box(
-        result_box.GetSolution(find_box.box_lo()),
-        result_box.GetSolution(find_box.box_up()));
-    drake::log()->info(fmt::format("Box volume {}", box.volume()));
-    boxes.push_back(box);
-    const auto obstacle = box.Scale(0.9);
-    find_box.AddObstacle(obstacle);
-  }
+  // Compute the determinant of the final polytope.
+  drake::log()->info("det(P) {}", P_final.determinant());
 
   return 0;
 }

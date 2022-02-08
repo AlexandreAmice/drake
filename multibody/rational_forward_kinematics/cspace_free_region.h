@@ -472,9 +472,12 @@ class CspaceFreeRegion {
     // The objective function used in maximizing the volume of the inscribed
     // ellipsoid.
     EllipsoidVolume ellipsoid_volume{EllipsoidVolume::kNthRoot};
-    // If set to true, then solve the Lagrangian program through many small SOS
-    // on multiple threads. Each program for one pair of collision geometries.
-    bool multi_thread{false};
+    // If set to an integer, then solve the Lagrangian program through many
+    // small SOS with the specified number of threads (if num_thread <= 0 then
+    // we launch as many threads as possible).. Each program for one pair of
+    // collision geometries. std::nullopt means to solve a single big SOS with
+    // all the separating planes simultaneously.
+    std::optional<int> num_threads{std::nullopt};
   };
 
   /**
@@ -522,9 +525,12 @@ class CspaceFreeRegion {
     // Whether to compute and print the volume of the C-space polytope.
     bool compute_polytope_volume{false};
     bool verbose{true};
-    // If set to true, then solve the Lagrangian program through many small SOS
-    // on multiple threads. Each program for one pair of collision geometries.
-    bool multi_thread{false};
+    // If set to an integer, then solve the Lagrangian program through many
+    // small SOS with the specified number of threads (if num_threads <= 0 then
+    // we launch as many threads as possible). Each program for one pair of
+    // collision geometries. std::nullopt means to solve a single big SOS with
+    // all the separating planes simultaneously.
+    std::optional<int> num_threads{std::nullopt};
 
     // The objective function used in maximizing the volume of the inscribed
     // ellipsoid.
@@ -548,9 +554,12 @@ class CspaceFreeRegion {
     bool compute_polytope_volume{false};
 
     bool verbose{true};
-    // If set to true, then solve the Lagrangian program through many small SOS
-    // on multiple threads. Each program for one pair of collision geometries.
-    bool multi_thread{false};
+    // If set to an integer, then solve the Lagrangian program through many
+    // small SOS with the specified number of threads (if num_threads <= 0 then
+    // we launch as many threads as possible). Each program for one pair of
+    // collision geometries. std::nullopt means to solve a single big SOS with
+    // all the separating planes simultaneously.
+    std::optional<int> num_threads{std::nullopt};
 
     double lagrangian_backoff_scale{0.};
     // The objective function used in maximizing the volume of the inscribed
@@ -1079,10 +1088,11 @@ std::vector<bool> IsPlaneActive(
  * is successful, false otherwise.
  * The inputs to this function is the output of
  * GenerateTuplesForBilinearAlternation()
- * @param multi_thread If set to false, then solve a large SOS that searches for
- * the separating planes and Lagrangian multipliers for all pairs of collision
- * geometries. If set to true, then solve many small SOS in parallel, each SOS
- * for one pair of collision geometries.
+ * @param num_threads If set to std::nullopt, then solve a large SOS that
+ * searches for the separating planes and Lagrangian multipliers for all pairs
+ * of collision geometries. Otherwise, we solve many small SOS in parallel with
+ * this specified number of threads (if num_threads <= 0 then we launch as many
+ * threads as possible), each SOS for one pair of collision geometries.
  * @param If a solution is found, it is written into cspace_free_region
  */
 bool FindLagrangianAndSeparatingPlanes(
@@ -1097,7 +1107,7 @@ bool FindLagrangianAndSeparatingPlanes(
     const VerificationOption& verification_option,
     std::optional<double> redundant_tighten,
     const solvers::SolverOptions& solver_options, bool verbose,
-    bool multi_thread,
+    std::optional<int> num_threads,
     const std::vector<std::vector<int>>& separating_plane_to_tuples,
     Eigen::VectorXd* lagrangian_gram_var_vals,
     Eigen::VectorXd* verified_gram_var_vals,

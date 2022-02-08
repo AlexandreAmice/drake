@@ -3,7 +3,9 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <future>
 #include <limits>
+#include <list>
 #include <optional>
 #include <thread>
 
@@ -1170,6 +1172,20 @@ bool FindLagrangianAndSeparatingPlanesSingleThread(
   return true;
 }
 
+namespace {
+// Checks if a future has completed execution.
+// This function is taken from monte_carlo.cc. It will be used in the "thread
+// pool" implementation (which doesn't use openMP).
+template <typename T>
+bool IsFutureReady(const std::future<T>& future) {
+  // future.wait_for() is the only method to check the status of a future
+  // without waiting for it to complete.
+  const std::future_status status =
+      future.wait_for(std::chrono::milliseconds(1));
+  return (status == std::future_status::ready);
+}
+}  // namespace
+
 // Same as FindLagrangianAndSeparatingPlanesSingleThread. But instead of solving
 // one SOS with all the separating planes simultaneously, we solve many small
 // SOS in parallel, each SOS for one separating plane.
@@ -1186,7 +1202,7 @@ bool FindLagrangianAndSeparatingPlanesMultiThread(
     std::optional<double> redundant_tighten,
     const solvers::SolverOptions& solver_options, bool verbose,
     const std::vector<std::vector<int>>& separating_plane_to_tuples,
-    Eigen::VectorXd* lagrangian_gram_var_vals,
+    int num_threads, Eigen::VectorXd* lagrangian_gram_var_vals,
     Eigen::VectorXd* verified_gram_var_vals,
     Eigen::VectorXd* separating_plane_var_vals,
     std::vector<SeparatingPlane>* separating_planes_sol) {
@@ -1200,12 +1216,26 @@ bool FindLagrangianAndSeparatingPlanesMultiThread(
       num_active_planes++;
     }
   }
+
+  std::vector<int> active_plane_count_to_plane_index(num_active_planes);
+  num_active_planes = 0;
+  for (int i = 0;
+       i < static_cast<int>(cspace_free_region.separating_planes().size());
+       ++i) {
+    if (!separating_plane_to_tuples[i].empty()) {
+      active_plane_count_to_plane_index[num_active_planes] = i;
+      num_active_planes++;
+    }
+  }
+
   // Allocate memory for lagrangian_gram_var_vals;
   lagrangian_gram_var_vals->resize(lagrangian_gram_vars.rows());
   verified_gram_var_vals->resize(verified_gram_vars.rows());
   separating_plane_var_vals->resize(separating_plane_vars.rows());
   separating_planes_sol->resize(num_active_planes);
-  std::vector<bool> is_success(num_active_planes, false);
+  // is_success[i] = std::nullopt means the thread for the i'th separating plane
+  // hasn't been dispatched yet.
+  std::vector<std::optional<bool>> is_success(num_active_planes, std::nullopt);
   // To set values of separating_plane_vars, I build this map from the variable
   // to its index in separating_plane_vars.
   std::unordered_map<symbolic::Variable::Id, int> separating_plane_var_indices;
@@ -1222,10 +1252,12 @@ bool FindLagrangianAndSeparatingPlanesMultiThread(
                           &verification_option, &redundant_tighten,
                           &solver_options, &separating_plane_to_tuples,
                           &separating_plane_var_indices,
+                          &active_plane_count_to_plane_index,
                           lagrangian_gram_var_vals, separating_planes_sol,
                           verified_gram_var_vals, separating_plane_var_vals,
-                          &is_success](int active_plane_count,
-                                       int plane_index) {
+                          &is_success](int active_plane_count) {
+    const int plane_index =
+        active_plane_count_to_plane_index[active_plane_count];
     const std::vector<int>& tuple_indices =
         separating_plane_to_tuples[plane_index];
     std::vector<CspaceFreeRegion::CspacePolytopeTuple> plane_tuples;
@@ -1285,24 +1317,70 @@ bool FindLagrangianAndSeparatingPlanesMultiThread(
             var.get_id())) = result.GetSolution(var);
       }
     }
+    return active_plane_count;
   };
-  std::vector<std::thread> threads;
-  int active_plane_count = 0;
-  for (int plane_index = 0;
-       plane_index <
-       static_cast<int>(cspace_free_region.separating_planes().size());
-       ++plane_index) {
-    if (!separating_plane_to_tuples[plane_index].empty()) {
-      threads.push_back(
-          std::thread(solve_small_sos, active_plane_count, plane_index));
-      active_plane_count++;
+  if (num_threads > 0) {
+    // We implement the "thread pool" idea here, by following
+    // MonteCarloSimulationParallel class. This implementation doesn't use
+    // openMP library. Storage for active parallel SOS operations.
+    std::list<std::future<int>> active_operations;
+    // Keep track of how many SOS have been dispatched already.
+    int sos_dispatched = 0;
+    // If any SOS is infeasible, then we terminate all other SOS and report
+    // failure.
+    bool found_infeasible = false;
+    while (
+        (active_operations.size() > 0 || sos_dispatched < num_active_planes) &&
+        !found_infeasible) {
+      // Check for completed operations.
+      for (auto operation = active_operations.begin();
+           operation != active_operations.end();) {
+        if (IsFutureReady(*operation)) {
+          // This call to future.get() is necessary to propagate any exception
+          // thrown during SOS setup/solve.
+          const int active_plane_count = operation->get();
+          drake::log()->debug("SOS {} completed, is_success {}",
+                              active_plane_count,
+                              is_success[active_plane_count].value());
+          if (!(is_success[active_plane_count].value())) {
+            found_infeasible = true;
+            break;
+          }
+          // Erase returns iterator to the next node in the list.
+          operation = active_operations.erase(operation);
+        } else {
+          // Advance to next node in the list.
+          ++operation;
+        }
+      }
+
+      // Dispatch new SOS.
+      while (static_cast<int>(active_operations.size()) < num_threads &&
+             sos_dispatched < num_active_planes) {
+        active_operations.emplace_back(std::async(
+            std::launch::async, std::move(solve_small_sos), sos_dispatched));
+        drake::log()->debug("SOS {} dispatched", sos_dispatched);
+        ++sos_dispatched;
+      }
+
+      // Wait a bit before checking for completion.
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+  } else {
+    // Create as many threads as possible and join all threads.
+    std::vector<std::thread> threads;
+    for (int active_plane_count = 0; active_plane_count < num_active_planes;
+         ++active_plane_count) {
+      threads.push_back(std::thread(solve_small_sos, active_plane_count));
+    }
+    for (auto& th : threads) {
+      th.join();
     }
   }
-  for (auto& th : threads) {
-    th.join();
-  }
   if (std::all_of(is_success.begin(), is_success.end(),
-                  [](bool flag) { return flag; })) {
+                  [](std::optional<bool> flag) {
+                    return flag.has_value() && flag.value();
+                  })) {
     if (verbose) {
       drake::log()->info("Found Lagrangian multiplier and separating planes");
     }
@@ -1310,25 +1388,22 @@ bool FindLagrangianAndSeparatingPlanesMultiThread(
   } else {
     if (verbose) {
       std::string bad_pairs;
-      active_plane_count = 0;
       const auto& inspector =
           cspace_free_region.scene_graph().model_inspector();
-      for (int plane_index = 0;
-           plane_index <
-           static_cast<int>(cspace_free_region.separating_planes().size());
-           ++plane_index) {
-        if (!separating_plane_to_tuples[plane_index].empty()) {
-          if (!is_success[active_plane_count]) {
-            bad_pairs.append(fmt::format(
-                "({}, {})\n",
-                inspector.GetName(
-                    cspace_free_region.separating_planes()[plane_index]
-                        .positive_side_polytope->get_id()),
-                inspector.GetName(
-                    cspace_free_region.separating_planes()[plane_index]
-                        .negative_side_polytope->get_id())));
-          }
-          active_plane_count++;
+      for (int active_plane_count = 0; active_plane_count < num_active_planes;
+           ++active_plane_count) {
+        const int plane_index =
+            active_plane_count_to_plane_index[active_plane_count];
+        if (is_success[active_plane_count].has_value() &&
+            !(is_success[active_plane_count].value())) {
+          bad_pairs.append(fmt::format(
+              "({}, {})\n",
+              inspector.GetName(
+                  cspace_free_region.separating_planes()[plane_index]
+                      .positive_side_polytope->get_id()),
+              inspector.GetName(
+                  cspace_free_region.separating_planes()[plane_index]
+                      .negative_side_polytope->get_id())));
         }
       }
 
@@ -1352,20 +1427,21 @@ bool FindLagrangianAndSeparatingPlanes(
     const VerificationOption& verification_option,
     std::optional<double> redundant_tighten,
     const solvers::SolverOptions& solver_options, bool verbose,
-    bool multi_thread,
+    std::optional<int> num_threads,
     const std::vector<std::vector<int>>& separating_plane_to_tuples,
     Eigen::VectorXd* lagrangian_gram_var_vals,
     Eigen::VectorXd* verified_gram_var_vals,
     Eigen::VectorXd* separating_plane_var_vals,
     CspaceFreeRegionSolution* cspace_free_region_solution) {
   bool ret_val{true};
-  if (multi_thread) {
+  if (num_threads.has_value()) {
     ret_val = FindLagrangianAndSeparatingPlanesMultiThread(
         cspace_free_region, alternation_tuples, C, d, lagrangian_gram_vars,
         verified_gram_vars, separating_plane_vars, t_lower, t_upper,
         verification_option, redundant_tighten, solver_options, verbose,
-        separating_plane_to_tuples, lagrangian_gram_var_vals,
-        verified_gram_var_vals, separating_plane_var_vals,
+        separating_plane_to_tuples, num_threads.value(),
+        lagrangian_gram_var_vals, verified_gram_var_vals,
+        separating_plane_var_vals,
         &(cspace_free_region_solution->separating_planes));
     if (ret_val) {
       // ensure that the planes and polytope solutions match
@@ -1475,7 +1551,7 @@ void CspaceFreeRegion::CspacePolytopeBilinearAlternation(
         verified_gram_vars, separating_plane_vars, t_lower, t_upper,
         verification_option, bilinear_alternation_option.redundant_tighten,
         solver_options, bilinear_alternation_option.verbose,
-        bilinear_alternation_option.multi_thread, separating_plane_to_tuples,
+        bilinear_alternation_option.num_threads, separating_plane_to_tuples,
         &lagrangian_gram_var_vals, &verified_gram_var_vals,
         &separating_plane_var_vals, cspace_free_region_solution);
     auto clock_now = std::chrono::system_clock::now();
@@ -1497,7 +1573,8 @@ void CspaceFreeRegion::CspacePolytopeBilinearAlternation(
         (cspace_free_region_solution->C), (cspace_free_region_solution->d),
         t_lower, t_upper, bilinear_alternation_option.lagrangian_backoff_scale,
         bilinear_alternation_option.ellipsoid_volume, solver_options,
-        bilinear_alternation_option.verbose, &(cspace_free_region_solution->P),
+        bilinear_alternation_option.verbose,
+        &(cspace_free_region_solution->P),
         &(cspace_free_region_solution->q), &ellipsoid_cost_val);
     // Update the cost.
     cost_improvement = ellipsoid_cost_val - previous_cost;
@@ -1511,8 +1588,9 @@ void CspaceFreeRegion::CspacePolytopeBilinearAlternation(
         t_upper_minus_t, verification_option);
     // Add the constraint that the polytope contains the ellipsoid
     margin = prog_polytope->NewContinuousVariables(C_var.rows(), "margin");
-    AddOuterPolytope(prog_polytope.get(), (cspace_free_region_solution->P),
-                     (cspace_free_region_solution->q), C_var, d_var, margin);
+    AddOuterPolytope(
+        prog_polytope.get(), (cspace_free_region_solution->P),
+        (cspace_free_region_solution->q), C_var, d_var, margin);
 
     // We know that the verified polytope has to be contained in the box t_lower
     // <= t <= t_upper. Hence there is no point to grow the polytope such that
@@ -1685,7 +1763,7 @@ void CspaceFreeRegion::CspacePolytopeBinarySearch(
         *this, alternation_tuples, C, d, lagrangian_gram_vars,
         verified_gram_vars, separating_plane_vars, t_lower, t_upper,
         verification_option, redundant_tighten, solver_options,
-        binary_search_option.verbose, binary_search_option.multi_thread,
+        binary_search_option.verbose, binary_search_option.num_threads,
         separating_plane_to_tuples, &lagrangian_gram_var_vals,
         &verified_gram_var_vals, &separating_plane_var_vals,
         cspace_free_region_solution);
@@ -1740,7 +1818,8 @@ void CspaceFreeRegion::CspacePolytopeBinarySearch(
               (cspace_free_region_solution->d), t_lower, t_upper,
               binary_search_option.lagrangian_backoff_scale,
               binary_search_option.ellipsoid_volume, solver_options,
-              binary_search_option.verbose, &(cspace_free_region_solution->P),
+              binary_search_option.verbose,
+              &(cspace_free_region_solution->P),
               &(cspace_free_region_solution->q), &ellipsoid_cost_val);
         }
       }
@@ -1755,14 +1834,14 @@ void CspaceFreeRegion::CspacePolytopeBinarySearch(
 
   if (is_polytope_collision_free(
           d_without_epsilon +
-          binary_search_option.epsilon_max *
-              Eigen::VectorXd::Ones(d_without_epsilon.rows()))) {
+              binary_search_option.epsilon_max *
+                  Eigen::VectorXd::Ones(d_without_epsilon.rows()))) {
     return;
   }
   if (!is_polytope_collision_free(
           d_without_epsilon +
-          binary_search_option.epsilon_min *
-              Eigen::VectorXd::Ones(d_without_epsilon.rows()))) {
+              binary_search_option.epsilon_min *
+                  Eigen::VectorXd::Ones(d_without_epsilon.rows()))) {
     throw std::runtime_error(
         fmt::format("binary search: the initial epsilon {} is infeasible",
                     binary_search_option.epsilon_min));
@@ -1879,7 +1958,7 @@ void CspaceFreeRegion::CspacePolytopeRoundRobinBisectionSearch(
         verified_gram_vars, separating_plane_vars, t_lower, t_upper,
         verification_option, redundant_tighten, solver_options,
         vector_bisection_search_option.verbose,
-        vector_bisection_search_option.multi_thread, separating_plane_to_tuples,
+        vector_bisection_search_option.num_threads, separating_plane_to_tuples,
         &lagrangian_gram_var_vals, &verified_gram_var_vals,
         &separating_plane_var_vals, cspace_free_region_solution);
     bool search_d_success = false;
@@ -1938,7 +2017,7 @@ void CspaceFreeRegion::CspacePolytopeRoundRobinBisectionSearch(
 
   Eigen::VectorXd smallest_d = d + vector_bisection_search_option.epsilon_min;
   if (!std::get<0>(is_polytope_collision_free(smallest_d))) {
-    throw drake::log()->warn(
+    drake::log()->warn(
         fmt::format("binary search: the initial epsilon {} is infeasible",
                     vector_bisection_search_option.epsilon_min));
   }
@@ -1999,12 +2078,13 @@ void CspaceFreeRegion::CspacePolytopeRoundRobinBisectionSearch(
           drake::log()->info(fmt::format("epsilon={} is feasible", eps));
 
           eps_min_vect(i) = eps;
-          d_without_epsilon = d;
+
           // need to recompute max redundancy as other planes have moved
           if (search_d_succeeded) {
+            eps_min_vect = d- d_without_epsilon
             set_eps_max();
           }
-
+          d_without_epsilon = d;
           drake::log()->info(
               fmt::format("reset eps_min={}, eps_max={}", eps_min_vect(i), eps_max_vect(i)));
         } else {
@@ -2098,7 +2178,7 @@ void CspaceFreeRegion::CspacePolytopeBisectionSearchVector(
         verified_gram_vars, separating_plane_vars, t_lower, t_upper,
         verification_option, redundant_tighten, solver_options,
         vector_bisection_search_option.verbose,
-        vector_bisection_search_option.multi_thread, separating_plane_to_tuples,
+        vector_bisection_search_option.num_threads, separating_plane_to_tuples,
         &lagrangian_gram_var_vals, &verified_gram_var_vals,
         &separating_plane_var_vals, cspace_free_region_solution);
 
