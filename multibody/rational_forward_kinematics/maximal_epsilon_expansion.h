@@ -334,12 +334,20 @@ std::optional<double> FindMaxEpsTilRedundant(
     const Eigen::Ref<const Eigen::VectorXd>& t_lower_limits,
     const Eigen::Ref<const Eigen::VectorXd>& t_upper_limits);
 
+Eigen::VectorXd FindMaxEpsTilRedundantAllIneqs(
+    const Eigen::Ref<const Eigen::MatrixXd>& C,
+    const Eigen::Ref<const Eigen::VectorXd>& d,
+    const Eigen::Ref<const Eigen::VectorXd>& t_lower_limits,
+    const Eigen::Ref<const Eigen::VectorXd>& t_upper_limits);
+
 std::optional<double> FindMaxEpsTilCollisionForIneqForCollisionPair(
     std::shared_ptr<SamePointConstraintRational> same_point_constraint,
     const multibody::Frame<double>& frameA,
     const multibody::Frame<double>& frameB, const ConvexSet& setA,
     const ConvexSet& setB, const Eigen::Ref<const Eigen::VectorXd>& c_cost,
-    const double d_cost, const double eps_min,
+    const double d_cost, const Eigen::Ref<const Eigen::MatrixXd>& C_constraint,
+    const Eigen::Ref<const Eigen::VectorXd>& d_constraint,
+//    const double eps_min,
     const Eigen::Ref<const Eigen::VectorXd>& t_lower_limits,
     const Eigen::Ref<const Eigen::VectorXd>& t_upper_limits,
     const solvers::SolverInterface& non_linear_solver,
@@ -356,19 +364,22 @@ std::optional<double> FindMaxEpsTilCollisionForIneq(
     const systems::Context<double>& context,
     Eigen::Ref<const Eigen::VectorXd>& q_star,
     const Eigen::Ref<const Eigen::VectorXd>& c_cost, const double d_cost,
-    const double eps_min,
+    const Eigen::Ref<const Eigen::MatrixXd>& C_constraint,
+    const Eigen::Ref<const Eigen::VectorXd>& d_constraint,
+//    const double eps_min,
     const Eigen::Ref<const Eigen::VectorXd>& t_lower_limits,
     const Eigen::Ref<const Eigen::VectorXd>& t_upper_limits,
     const solvers::SolverInterface& solver,
     const Eigen::Ref<const Eigen::VectorXd>& t_sample);
 
-Eigen::VectorXd FindMaxEpsForAllIneqs(
+
+Eigen::VectorXd FindEpsTilCollisionOrRedundantForAllIneqs(
     const multibody::MultibodyPlant<double>& plant,
     const systems::Context<double>& context,
     const Eigen::Ref<const Eigen::VectorXd>& q_star,
     const Eigen::Ref<const Eigen::MatrixXd>& C,
     const Eigen::Ref<const Eigen::VectorXd>& d,
-    const Eigen::Ref<const Eigen::VectorXd>& eps_min,
+//    const Eigen::Ref<const Eigen::VectorXd>& eps_min,
     const Eigen::Ref<const Eigen::VectorXd>& t_lower_limits,
     const Eigen::Ref<const Eigen::VectorXd>& t_upper_limits,
     const Eigen::Ref<const Eigen::VectorXd>& t_sample);

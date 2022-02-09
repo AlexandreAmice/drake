@@ -273,7 +273,7 @@ CspaceFreeRegion::CspaceFreeRegion(
       plane_order_{plane_order},
       cspace_region_type_{cspace_region_type} {
   // Now create the separating planes.
-//  diagram_context_ = diagram.CreateDefaultContext();
+  //  diagram_context_ = diagram.CreateDefaultContext();
   std::map<SortedPair<BodyIndex>,
            std::vector<std::pair<const ConvexPolytope*, const ConvexPolytope*>>>
       collision_pairs;
@@ -1896,6 +1896,7 @@ void CspaceFreeRegion::CspacePolytopeRoundRobinBisectionSearch(
     const std::optional<Eigen::MatrixXd>& q_inner_pts,
     const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
         inner_polytope,
+    const std::optional<const systems::Context<double>*> context,
     CspaceFreeRegionSolution* cspace_free_region_solution) const {
   const Eigen::VectorXd d_without_epsilon = d_init;
   Eigen::VectorXd epsilon = vector_bisection_search_option.epsilon_min;
@@ -2053,38 +2054,76 @@ void CspaceFreeRegion::CspacePolytopeRoundRobinBisectionSearch(
       drake::log()->info(fmt::format("Ineq {}/{} in round {}", ineq_num + 1,
                                      indices.size(), round + 1));
       int total_iter_count = 0;
-      auto set_eps_max = [&C, &d_without_epsilon, &eps_min_vect, &t_lower,
-                          &t_upper, &i, &eps_max_absolute_informed,
-                          &eps_max_vect]() {
-        // during binary search the minimum epsilon might exceed the value find
-        // by SNOPT
+      // SNOPT version
+      //      auto set_eps_max = [&C, &d_without_epsilon, &eps_min_vect,
+      //      &t_lower,
+      //                          &t_upper, &i, &eps_max_absolute_informed,
+      //                          &eps_max_vect]() {
+      //        // during binary search the minimum epsilon might exceed the
+      //        value find
+      //        // by SNOPT
+      //        if (((eps_max_absolute_informed - eps_min_vect).array() <
+      //        0).any()) {
+      //          drake::log()->info(
+      //              "epsilon exceeds components of epsilon max in some
+      //              components, " "increasing epsilon max");
+      //          eps_max_absolute_informed =
+      //              eps_max_absolute_informed.cwiseMax(eps_min_vect);
+      //        }
+      //
+      //        std::optional<double> eps_redundant_max =
+      //        FindMaxEpsTilRedundant(
+      //            C.row(i), d_without_epsilon(i) + eps_min_vect(i),
+      //            RemoveMatrixRow(C, i),
+      //            RemoveMatrixRow(d_without_epsilon + eps_min_vect, i),
+      //            t_lower, t_upper);
+      //        if (not eps_redundant_max.has_value()) {
+      //          throw std::runtime_error(
+      //              "round robin bisection search, polytope is empty");
+      //        } else {
+      ////          eps_redundant_max.value() = std::max(eps_redundant_max,
+      /// 0.0);
+      //          drake::log()->info(fmt::format("output of eps_redundant_max is
+      //          {}",
+      //                                         eps_redundant_max.value()));
+      //          eps_max_vect = eps_min_vect;
+      //          eps_max_vect(i) =
+      //              std::min(eps_min_vect(i) + eps_redundant_max.value(),
+      //                       eps_max_absolute_informed(i));
+      //        }
+      //        eps_max_vect = eps_max_vect.cwiseMax(eps_min_vect);
+      //      };
 
-        if (((eps_max_absolute_informed - eps_min_vect).array() < 0).any()) {
-          drake::log()->info(
-              "epsilon exceeds components of epsilon max in some components, "
-              "increasing epsilon max");
-          eps_max_absolute_informed =
-              eps_max_absolute_informed.cwiseMax(eps_min_vect);
-        }
-
-        std::optional<double> eps_redundant_max = FindMaxEpsTilRedundant(
-            C.row(i), d_without_epsilon(i) + eps_min_vect(i),
-            RemoveMatrixRow(C, i),
-            RemoveMatrixRow(d_without_epsilon + eps_min_vect, i), t_lower,
-            t_upper);
-        if (not eps_redundant_max.has_value()) {
-          throw std::runtime_error(
-              "round robin bisection search, polytope is empty");
+      auto set_eps_max = [this, &C, &d_without_epsilon, &eps_min_vect, &t_lower,
+                          &t_upper, &eps_max_vect, &context, &q_star,
+                          &q_inner_pts]() {
+        const double margin{1E-2};
+        if (context.has_value() and q_inner_pts.has_value()) {
+          // this is slow so only run if eps_min exceed eps_max
+          if (((eps_max_vect - eps_min_vect).array() <= 0).any()) {
+            eps_max_vect = FindEpsTilCollisionOrRedundantForAllIneqs(
+                               this->rational_forward_kinematics_.plant(),
+                               *(context.value()), q_star, C,
+                               d_without_epsilon + eps_min_vect, t_lower,
+                               t_upper, q_inner_pts.value())
+                               .cwiseMax(Eigen::MatrixXd::Constant(
+                                   eps_max_vect.rows(), 1, margin)) +
+                           eps_min_vect;
+          }
         } else {
-//          eps_redundant_max.value() = std::max(eps_redundant_max, 0.0);
-          drake::log()->info(fmt::format("output of eps_redundant_max is {}",
-                                         eps_redundant_max.value()));
-          eps_max_vect = eps_min_vect;
-          eps_max_vect(i) =
-              std::min(eps_min_vect(i) + eps_redundant_max.value(),
-                       eps_max_absolute_informed(i));
+          eps_max_vect =
+              FindMaxEpsTilRedundantAllIneqs(
+                  C, d_without_epsilon + eps_min_vect, t_lower, t_upper)
+                  .cwiseMax(Eigen::MatrixXd::Constant(eps_max_vect.rows(), 1,
+                                                      margin)) +
+              eps_min_vect;
         }
-//        eps_max_vect = eps_max_vect.cwiseMax(eps_min_vect);
+        // grow some generous amount
+        //        eps_max_vect = eps_max_vect.cwiseMax(
+        //            Eigen::MatrixXd::Constant(eps_max_vect.rows(), 1, 1e-2));
+        // eps_max_vect is negative only if the inequality is redundant
+        //          eps_max_vect =
+        //          eps_max_vect.cwiseMax(Eigen::MatrixXd::Zero(eps_max_vect.rows(),1));
       };
 
       set_eps_max();
@@ -2094,6 +2133,8 @@ void CspaceFreeRegion::CspacePolytopeRoundRobinBisectionSearch(
             "less than epsilon min.\n difference is = \n {}",
             eps_max_vect, eps_min_vect, eps_max_vect - eps_min_vect));
       }
+      drake::log()->info(fmt::format("current gap is epsilon_gap={}",
+                                     eps_max_vect(i) - eps_min_vect(i)));
       while (total_iter_count < vector_bisection_search_option.max_iters and
              (eps_max_vect(i) - eps_min_vect(i)) > 1E-6) {
         const double eps = (eps_max_vect(i) + eps_min_vect(i)) / 2;
@@ -2110,7 +2151,8 @@ void CspaceFreeRegion::CspacePolytopeRoundRobinBisectionSearch(
 
           eps_min_vect = returned_d_plus_epsilon - d_without_epsilon;
 
-          // need to recompute max redundancy as other planes have moved
+          // need to recompute max redundancy as
+          // other planes have moved
           if (search_d_succeeded) {
             set_eps_max();
           }
@@ -2150,6 +2192,7 @@ void CspaceFreeRegion::CspacePolytopeRoundRobinBisectionSearchForSeedPoints(
     const std::optional<std::vector<
         std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>>>&
         inner_polytope_vect,
+    const std::optional<const systems::Context<double>*> context,
     std::vector<CspaceFreeRegionSolution*> cspace_free_region_solution_vect)
     const {
   //  long unsigned int num_seed_points = seed_points.size();
@@ -2170,7 +2213,7 @@ void CspaceFreeRegion::CspacePolytopeRoundRobinBisectionSearchForSeedPoints(
         seed_points.at(i),
         (inner_polytope_vect.has_value() ? inner_polytope_vect.value().at(i)
                                          : std::nullopt),
-        cspace_free_region_solution_vect.at(i)));
+        context, cspace_free_region_solution_vect.at(i)));
     //  std::cout << fmt::format("starting {}/{}", i, num_seed_points-1) <<
     //  std::endl; std::cout << "value of C_mat_vect.at(i) " << C_mat_vect.at(i)
     //  << std::endl; std::cout << "value of d_init_vect.at(i) " <<
@@ -2219,6 +2262,7 @@ void CspaceFreeRegion::InterleavedCSpacePolytopeSearchForSeedPoints(
     const std::optional<std::vector<
         std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>>>&
         inner_polytope_vect,
+    const std::optional<const systems::Context<double>*> context,
     std::vector<CspaceFreeRegionSolution*> cspace_free_region_solution_vect)
     const {
   //  long unsigned int num_seed_points = seed_points.size();
@@ -2239,7 +2283,7 @@ void CspaceFreeRegion::InterleavedCSpacePolytopeSearchForSeedPoints(
         solver_options, seed_points.at(i),
         (inner_polytope_vect.has_value() ? inner_polytope_vect.value().at(i)
                                          : std::nullopt),
-        cspace_free_region_solution_vect.at(i)));
+        std::cref(context), cspace_free_region_solution_vect.at(i)));
   }
   for (auto& th : threads) {
     th.join();
@@ -2467,10 +2511,12 @@ void CspaceFreeRegion::InterleavedCSpacePolytopeSearch(
     const Eigen::MatrixXd& seed_point_t,
     const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
         inner_polytope,
+    const std::optional<const systems::Context<double>*> context,
     CspaceFreeRegionSolution* cspace_free_region_solution) const {
   Eigen::MatrixXd C = C_init;
   Eigen::MatrixXd d = d_init;
-  InterleavedRegionSearchOptions interleaved_region_search_option = interleaved_region_search_option_arg;
+  InterleavedRegionSearchOptions interleaved_region_search_option =
+      interleaved_region_search_option_arg;
   cspace_free_region_solution->d = d_init;
   cspace_free_region_solution->C = C_init;
   Eigen::VectorXd t_lower;
@@ -2483,24 +2529,13 @@ void CspaceFreeRegion::InterleavedCSpacePolytopeSearch(
   for (int i = 0; i < interleaved_region_search_option.max_method_switch; i++) {
     d = cspace_free_region_solution->d;
     C = cspace_free_region_solution->C;
-//    interleaved_region_search_option.vector_bisection_search_options
-//        .epsilon_min = FindEpsilonLowerVector(C, d, t_lower, t_upper,
-//                                              seed_point_t, std::nullopt);
-//    interleaved_region_search_option.vector_bisection_search_options
-//        .epsilon_max = FindMaxEpsForAllIneqs(
-//        rational_forward_kinematics_.plant(),
-//        rational_forward_kinematics_.plant().GetMyMutableContextFromRoot(
-//            diagram_context_.get()),
-//        q_star, C, d,
-//        interleaved_region_search_option.vector_bisection_search_options
-//            .epsilon_min,
-//        t_lower, t_upper, seed_point_t);
+
     drake::log()->info("Starting bisections");
     if (interleaved_region_search_option.use_vector_bisection_search) {
       CspacePolytopeRoundRobinBisectionSearch(
           q_star, filtered_collision_pairs, C, d, num_round_robin_rounds,
           interleaved_region_search_option.vector_bisection_search_options,
-          solver_options, seed_point_t, inner_polytope,
+          solver_options, seed_point_t, inner_polytope, context,
           cspace_free_region_solution);
     } else {
       CspacePolytopeBinarySearch(

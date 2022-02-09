@@ -643,6 +643,7 @@ class CspaceFreeRegion {
       const std::optional<Eigen::MatrixXd>& q_inner_pts,
       const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
           inner_polytope,
+      const std::optional<const systems::Context<double>*> context,
       CspaceFreeRegionSolution* cspace_free_region_solution) const;
 
 
@@ -658,6 +659,7 @@ class CspaceFreeRegion {
    * @param q_inner_pts
    * @param inner_polytope
    * @param cspace_free_region_solution
+   * @param context: diagram context if we want to use snopt max eps
    */
   void CspacePolytopeRoundRobinBisectionSearchForSeedPoints(
       const Eigen::Ref<const Eigen::VectorXd>& q_star,
@@ -670,6 +672,7 @@ class CspaceFreeRegion {
       const std::vector<Eigen::MatrixXd>& seed_points,
       const std::optional<std::vector<std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>>>&
           inner_polytope_vect,
+      const std::optional<const systems::Context<double>*> context,
       std::vector<CspaceFreeRegionSolution*> cspace_free_region_solution_vect) const;
 
   /**
@@ -719,6 +722,7 @@ class CspaceFreeRegion {
     const Eigen::MatrixXd& seed_point_t,
     const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
         inner_polytope,
+    const std::optional<const systems::Context<double>*> context,
     CspaceFreeRegionSolution* cspace_free_region_solution) const;
    /**
     * same as above with a list of seed points
@@ -744,6 +748,7 @@ class CspaceFreeRegion {
       const std::vector<Eigen::MatrixXd>& seed_points,
       const std::optional<std::vector<std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>>>&
           inner_polytope_vect,
+      const std::optional<const systems::Context<double>*> context,
       std::vector<CspaceFreeRegionSolution*> cspace_free_region_solution_vect) const ;
 
   const RationalForwardKinematics& rational_forward_kinematics() const {
