@@ -8,6 +8,17 @@ namespace multibody {
   using HPolyhedron = geometry::optimization::HPolyhedron;
 
   /**
+   * Generates a random seeding polytope by making n copies of the scaled*unit box and randomly perturbing the faces by a
+   * Gaussian with coordinate variance of 10
+   * Returns an HPolyhedron centered at seed_point with faces
+   */
+   HPolyhedron GenerateRandomSeedingPolytope(const Eigen::VectorXd seed_point, const int num_unit_box_copies,
+                                       const double initial_box_scale,
+                                       const double gaussian_variance = 0.25);
+
+
+
+  /**
    * Generates a symmetric HPolyhedron centered around the point @p seed_point. The polytope has
    * 2*dim(seed_point)*num_perm_dim*num_rot faces. This is achieved by rotating the unit dim(seed_point) unit box
    * centered at seed_point around the first perm_dim axis (starting at 0) at num_rot evenly space angles

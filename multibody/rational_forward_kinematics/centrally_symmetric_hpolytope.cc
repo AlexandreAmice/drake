@@ -1,7 +1,30 @@
 #include "drake/multibody/rational_forward_kinematics/centrally_symmetric_hpolytope.h"
+#include<random>
 
 namespace drake {
 namespace multibody {
+
+HPolyhedron GenerateRandomSeedingPolytope(const Eigen::VectorXd seed_point,
+                                          const int num_unit_box_copies,
+                                          const double initial_box_scale,
+                                          const double gaussian_variance){
+  const int nt = seed_point.rows();
+  Eigen::MatrixXd C(2*nt*num_unit_box_copies, nt);
+  Eigen::VectorXd d(2*nt*num_unit_box_copies);
+  HPolyhedron scaled_unit_box = HPolyhedron::MakeBox(-Eigen::VectorXd::Constant(nt,1,initial_box_scale),
+                                                     Eigen::VectorXd::Constant(nt,1,initial_box_scale));
+  for (int i = 0; i < num_unit_box_copies; i++){
+    C.block(2*nt*i, 0, 2*nt, C.cols()) = scaled_unit_box.A();
+    d.block(2*nt*i, 0, 2*nt, d.cols() ) = scaled_unit_box.b();
+  }
+  static std::default_random_engine e(time(0));
+  static std::normal_distribution <double> normal(0,gaussian_variance);
+  Eigen::MatrixXd noise = Eigen::MatrixXd::Zero(C.rows(),C.cols()).unaryExpr([](double dummy){return normal( e ) +dummy;});
+  HPolyhedron default_poly = HPolyhedron(C+noise, d);
+  return SameDimensionalAffineTransform(Eigen::MatrixXd::Identity(nt,nt),
+                                        seed_point, default_poly);
+}
+
 
 HPolyhedron GenerateSeedingPolytope(const Eigen::VectorXd seed_point,
                                     const int num_perm_dim, const int num_rot) {

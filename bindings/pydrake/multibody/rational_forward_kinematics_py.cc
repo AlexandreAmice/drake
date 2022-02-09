@@ -755,6 +755,10 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
   m.def("GenerateSeedingPolytope", &GenerateSeedingPolytope,
       py::arg("seed_point"), py::arg("num_perm_dim"), py::arg("num_rot"));
 
+  m.def("GenerateRandomSeedingPolytope", &GenerateRandomSeedingPolytope,
+      py::arg("seed_point"), py::arg("num_unit_box_copies"),
+      py::arg("initial_box_scale"), py::arg("gaussian_variance"));
+
   m.def("MakeKCanonicalSOnMembers", &MakeKCanonicalSOnMembers,
       py::arg("k"), py::arg("n"));
 
