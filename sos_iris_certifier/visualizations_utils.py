@@ -2,7 +2,7 @@ import numpy as np
 from scipy.spatial import Delaunay
 import matplotlib.pyplot as plt
 import meshcat
-from pydrake.all import (MathematicalProgram, Variable, HPolyhedron, le, SnoptSolver, Solve) 
+from pydrake.all import (MathematicalProgram, Variable, HPolyhedron, le, SnoptSolver, Solve, MosekSolver)
 from functools import partial
 import mcubes
 from pydrake.all import RotationMatrix, RigidTransform
@@ -164,18 +164,28 @@ def get_AABB_limits(hpoly, dim = 3):
     for idx in range(dim):
         aabbprog = MathematicalProgram()
         x = aabbprog.NewContinuousVariables(dim, 'x')
-        cost = x[idx]
-        aabbprog.AddCost(cost)
-        aabbprog.AddConstraint(le(A@x,b))
-        solver = SnoptSolver()
+        c = np.zeros(x.shape[0])
+
+        # cost = x[idx]
+        # aabbprog.AddCost(cost)
+        # aabbprog.AddConstraint(le(A@x,b))
+        c[idx] = 1
+        aabbprog.AddLinearCost(c, 0, x)
+        aabbprog.AddLinearConstraint(A, -np.inf*np.ones(b.shape), b, x)
+        # solver = SnoptSolver()
+        solver = MosekSolver()
         result = solver.Solve(aabbprog)
         min_limits.append(result.get_optimal_cost()-0.01)
+
         aabbprog = MathematicalProgram()
         x = aabbprog.NewContinuousVariables(dim, 'x')
-        cost = -x[idx]
-        aabbprog.AddCost(cost)
-        aabbprog.AddConstraint(le(A@x,b))
-        solver = SnoptSolver()
+        c[idx] = -1
+        aabbprog.AddLinearCost(c, 0, x)
+        aabbprog.AddLinearConstraint(A, -np.inf * np.ones(b.shape), b, x)
+        # cost = -x[idx]
+        # aabbprog.AddCost(cost)
+        # aabbprog.AddConstraint(le(A@x,b))
+        # solver = SnoptSolver()
         result = solver.Solve(aabbprog)
         max_limits.append(-result.get_optimal_cost() + 0.01)
     return max_limits, min_limits

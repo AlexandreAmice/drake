@@ -769,6 +769,11 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
         py::arg("q_star"),py::arg("C"),
         py::arg("d"), py::arg("eps_min"), py::arg("t_lower_limits"),
         py::arg("t_upper_limits"), py::arg("t_guess"));
+  m.def("FindMaxEpsTilRedundant", &FindMaxEpsTilRedundant,
+        py::arg("c_cost"), py::arg("d_cost"),
+        py::arg("C_constraint"),py::arg("d_constraint"),
+        py::arg("t_lower_limits"),
+        py::arg("t_upper_limits"));
 }
 
 }  // namespace pydrake

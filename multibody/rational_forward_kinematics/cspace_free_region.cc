@@ -2482,9 +2482,9 @@ void CspaceFreeRegion::InterleavedCSpacePolytopeSearch(
   for (int i = 0; i < interleaved_region_search_option.max_method_switch; i++) {
     d = cspace_free_region_solution->d;
     C = cspace_free_region_solution->C;
-    interleaved_region_search_option.vector_bisection_search_options
-        .epsilon_min = FindEpsilonLowerVector(C, d, t_lower, t_upper,
-                                              seed_point_t, std::nullopt);
+//    interleaved_region_search_option.vector_bisection_search_options
+//        .epsilon_min = FindEpsilonLowerVector(C, d, t_lower, t_upper,
+//                                              seed_point_t, std::nullopt);
 //    interleaved_region_search_option.vector_bisection_search_options
 //        .epsilon_max = FindMaxEpsForAllIneqs(
 //        rational_forward_kinematics_.plant(),

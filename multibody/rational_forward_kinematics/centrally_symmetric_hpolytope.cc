@@ -34,7 +34,7 @@ HPolyhedron GenerateSeedingPolytope(const Eigen::VectorXd seed_point,
       }
     }
   }
-  return HPolyhedron{A_new, b_new};
+  return HPolyhedron{A_new, b_new}.ReduceInequalities();
 }
 
 HPolyhedron SameDimensionalAffineTransform(const Eigen::MatrixXd C,
