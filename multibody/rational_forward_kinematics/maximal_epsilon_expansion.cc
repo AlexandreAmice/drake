@@ -150,7 +150,7 @@ std::optional<double> FindMaxEpsTilCollisionForIneq(
                              copyable_unique_ptr<ConvexSet>>& sets,
     const RationalForwardKinematics& rational_forward_kinematics,
     const systems::Context<double>& context,
-    Eigen::Ref<const Eigen::VectorXd>& q_star,
+    const Eigen::Ref<const Eigen::VectorXd>& q_star,
     const Eigen::Ref<const Eigen::VectorXd>& c_cost, const double d_cost,
     const double eps_min,
     const Eigen::Ref<const Eigen::VectorXd>& t_lower_limits,
@@ -196,7 +196,7 @@ std::optional<double> FindMaxEpsTilCollisionForIneq(
 Eigen::VectorXd FindMaxEpsForAllIneqs(
     const multibody::MultibodyPlant<double>& plant,
     const systems::Context<double>& context,
-    Eigen::Ref<const Eigen::VectorXd>& q_star,
+    const Eigen::Ref<const Eigen::VectorXd>& q_star,
     const Eigen::Ref<const Eigen::MatrixXd>& C,
     const Eigen::Ref<const Eigen::VectorXd>& d,
     const Eigen::Ref<const Eigen::VectorXd>& eps_min,

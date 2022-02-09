@@ -365,7 +365,7 @@ std::optional<double> FindMaxEpsTilCollisionForIneq(
 Eigen::VectorXd FindMaxEpsForAllIneqs(
     const multibody::MultibodyPlant<double>& plant,
     const systems::Context<double>& context,
-    Eigen::Ref<const Eigen::VectorXd>& q_star,
+    const Eigen::Ref<const Eigen::VectorXd>& q_star,
     const Eigen::Ref<const Eigen::MatrixXd>& C,
     const Eigen::Ref<const Eigen::VectorXd>& d,
     const Eigen::Ref<const Eigen::VectorXd>& eps_min,
@@ -389,7 +389,7 @@ Eigen::VectorXd FindMaxEpsForAllIneqs(
 Eigen::VectorXd FindMaxEpsScalingForAllIneqs(
     const multibody::MultibodyPlant<double>& plant,
     const systems::Context<double>& context,
-    Eigen::Ref<const Eigen::VectorXd>& q_star,
+    const Eigen::Ref<const Eigen::VectorXd>& q_star,
     const Eigen::Ref<const Eigen::MatrixXd>& C,
     const Eigen::Ref<const Eigen::VectorXd>& d,
     const Eigen::Ref<const Eigen::VectorXd>& t_center,

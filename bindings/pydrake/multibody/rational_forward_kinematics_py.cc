@@ -542,13 +542,13 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
               const CspaceFreeRegion::InterleavedRegionSearchOptions&
                   interleaved_region_search_options,
               const solvers::SolverOptions& solver_options,
-              const std::optional<Eigen::MatrixXd>& q_inner_pts,
+              const Eigen::MatrixXd& seed_point_t,
               const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
                   inner_polytope) {
             CspaceFreeRegionSolution cspace_free_region_solution;
             self->InterleavedCSpacePolytopeSearch(q_star,
                 filtered_collision_pairs, C_init, d_init, num_round_robin_rounds,
-                interleaved_region_search_options, solver_options, q_inner_pts,
+                interleaved_region_search_options, solver_options, seed_point_t,
                 inner_polytope, &cspace_free_region_solution);
             return cspace_free_region_solution;
           },
