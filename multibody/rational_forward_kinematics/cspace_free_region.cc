@@ -2070,10 +2070,11 @@ void CspaceFreeRegion::CspacePolytopeRoundRobinBisectionSearch(
               "round robin bisection search, polytope is empty");
         }
         else{
-          std::cout << fmt::format("output of eps_redundant_max is {}", eps_redundant_max.value()) << std::endl;
+          drake::log()->info(fmt::format("output of eps_redundant_max is {}",
+                                         eps_redundant_max.value()));
           eps_max_vect = eps_min_vect;
-          eps_max_vect(i) = std::min(d_without_epsilon(i) + eps_min_vect(i)+eps_max_absolute_informed(i),
-                                     eps_redundant_max.value());
+          eps_max_vect(i) = std::min(eps_min_vect(i)+eps_redundant_max.value(),
+                                     eps_max_absolute_informed(i));
         }
       };
 
@@ -2146,23 +2147,10 @@ void CspaceFreeRegion::CspacePolytopeRoundRobinBisectionSearchForSeedPoints(
   DRAKE_DEMAND(cspace_free_region_solution_vect.size() == num_seed_points);
   if (inner_polytope_vect.has_value()){
     DRAKE_DEMAND(vector_bisection_search_option_vect.size() == num_seed_points);}
-//  std::vector<std::thread> threads;
+  std::vector<std::thread> threads;
   for (unsigned int i = 0; i < num_seed_points; i++) {
-//    threads.push_back(std::thread(&CspaceFreeRegion::CspacePolytopeRoundRobinBisectionSearch,
-//                                  this,
-//                                  q_star,
-//                                  filtered_collision_pairs,
-//                                  C_mat_vect.at(i),
-//                                  d_init_vect.at(i),
-//                                  num_rounds,
-//                                  vector_bisection_search_option_vect.at(i),
-//                                  solver_options,
-//                                  seed_points.at(i),
-//                                  (inner_polytope_vect.has_value() ? inner_polytope_vect.value().at(i) : std::nullopt),
-//                                  cspace_free_region_solution_vect.at(i)
-//                                  ));
-
-  CspacePolytopeRoundRobinBisectionSearch(
+    threads.push_back(std::thread(&CspaceFreeRegion::CspacePolytopeRoundRobinBisectionSearch,
+                                  this,
                                   q_star,
                                   filtered_collision_pairs,
                                   C_mat_vect.at(i),
@@ -2172,11 +2160,34 @@ void CspaceFreeRegion::CspacePolytopeRoundRobinBisectionSearchForSeedPoints(
                                   solver_options,
                                   seed_points.at(i),
                                   (inner_polytope_vect.has_value() ? inner_polytope_vect.value().at(i) : std::nullopt),
-                                  cspace_free_region_solution_vect.at(i));
+                                  cspace_free_region_solution_vect.at(i)
+                                  ));
+//  std::cout << fmt::format("starting {}/{}", i, num_seed_points-1) << std::endl;
+//  std::cout << "value of C_mat_vect.at(i) " << C_mat_vect.at(i) << std::endl;
+//  std::cout << "value of d_init_vect.at(i) " << d_init_vect.at(i) << std::endl;
+//  std::cout << "value of vector_bisection_search_option_vect.at(i).epsilon_max " << vector_bisection_search_option_vect.at(i).epsilon_max << std::endl;
+//  std::cout << "value of seed_points.at(i) " << seed_points.at(i) << std::endl;
+//  std::cout << "value of cspace_free_region_solution_vect.at(i) -> C " << cspace_free_region_solution_vect.at(i)->C << std::endl << std::flush;
+////  std::cout << "value of cspace_free_region_solution_vect.at(i) -> C " << cspace_free_region_solution_vect.at(i)->C << std::endl << std::flush;
+//
+////  if (i+2.0 < 0){
+//    this -> CspacePolytopeRoundRobinBisectionSearch(
+//        q_star,
+//        filtered_collision_pairs,
+//        C_mat_vect.at(i),
+//        d_init_vect.at(i),
+//        num_rounds,
+//        vector_bisection_search_option_vect.at(i),
+//        solver_options,
+//        seed_points.at(i),
+//        (inner_polytope_vect.has_value() ? inner_polytope_vect.value().at(i) : std::nullopt),
+//        cspace_free_region_solution_vect.at(i));
+////  }
+//  std::cout << fmt::format("ending {}/{}", i, num_seed_points-1) << std::endl;
   }
-//  for (auto& th : threads) {
-//      th.join();
-//    }
+  for (auto& th : threads) {
+      th.join();
+    }
 }
 
 void CspaceFreeRegion::CspacePolytopeBisectionSearchVector(

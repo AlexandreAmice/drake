@@ -46,7 +46,7 @@ std::optional<double> FindMaxEpsTilRedundant(
   // max until become redundant
   prog.AddLinearCost(-c_cost, d_cost, t);
   solvers::MathematicalProgramResult result = solvers::Solve(prog);
-  if (result.is_success()){return result.get_optimal_cost();}
+  if (result.is_success()){return -result.get_optimal_cost();}
   else{
     // should only happen if C_constraint *t <= d_constraint is
     return {};
