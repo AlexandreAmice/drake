@@ -325,10 +325,7 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
           doc.CspaceFreeRegion.InterleavedRegionSearchOptions.bilinear_alternation_options.doc)
       .def_readwrite("max_method_switch",
           &CspaceFreeRegion::InterleavedRegionSearchOptions::max_method_switch,
-          doc.CspaceFreeRegion.InterleavedRegionSearchOptions.max_method_switch.doc)
-      .def_readwrite("use_vector_bisection_search",
-          &CspaceFreeRegion::InterleavedRegionSearchOptions::use_vector_bisection_search,
-          doc.CspaceFreeRegion.InterleavedRegionSearchOptions.use_vector_bisection_search.doc);
+          doc.CspaceFreeRegion.InterleavedRegionSearchOptions.max_method_switch.doc);
 
   // CspaceFreeRegion
   py::class_<CspaceFreeRegion> cspace_cls(

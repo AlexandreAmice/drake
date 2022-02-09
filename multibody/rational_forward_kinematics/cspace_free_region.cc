@@ -2526,24 +2526,24 @@ void CspaceFreeRegion::InterleavedCSpacePolytopeSearch(
       rational_forward_kinematics_.plant().GetPositionUpperLimits(), &t_lower,
       &t_upper);
 
+  drake::log() -> info("starting binary search");
+  CspacePolytopeBinarySearch(
+          q_star, filtered_collision_pairs, C, d_init+interleaved_region_search_option.vector_bisection_search_options.epsilon_min,
+          interleaved_region_search_option.scalar_binary_search_options,
+          solver_options, seed_point_t, inner_polytope,
+          cspace_free_region_solution);
+
   for (int i = 0; i < interleaved_region_search_option.max_method_switch; i++) {
     d = cspace_free_region_solution->d;
     C = cspace_free_region_solution->C;
 
     drake::log()->info("Starting bisections");
-    if (interleaved_region_search_option.use_vector_bisection_search) {
       CspacePolytopeRoundRobinBisectionSearch(
           q_star, filtered_collision_pairs, C, d, num_round_robin_rounds,
           interleaved_region_search_option.vector_bisection_search_options,
           solver_options, seed_point_t, inner_polytope, context,
           cspace_free_region_solution);
-    } else {
-      CspacePolytopeBinarySearch(
-          q_star, filtered_collision_pairs, C, d_init,
-          interleaved_region_search_option.scalar_binary_search_options,
-          solver_options, seed_point_t, inner_polytope,
-          cspace_free_region_solution);
-    }
+
     drake::log()->info("Starting Alternations");
     d = cspace_free_region_solution->d;
     C = cspace_free_region_solution->C;

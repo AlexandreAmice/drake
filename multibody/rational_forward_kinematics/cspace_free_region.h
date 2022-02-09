@@ -580,8 +580,6 @@ class CspaceFreeRegion {
     // number of times bisection search and bilinear alternation search are themselves alternated
     int max_method_switch{2};
 
-    // whether to use VectorBisectionSearch or scalar BinarySearch
-    bool use_vector_bisection_search{true};
 
   };
 
@@ -1083,6 +1081,32 @@ bool FindLagrangianAndSeparatingPlanes(
     Eigen::VectorXd* verified_gram_var_vals,
     Eigen::VectorXd* separating_plane_var_vals,
     CspaceFreeRegionSolution* cspace_free_region_solution);
+
+struct LagrangianStepDetail {
+  public:
+
+  LagrangianStepDetail(double time):optimizer_time{time} {};
+
+  const double optimizer_time;
+
+};
+
+struct PolytopeStepDetail {
+  public:
+
+  PolytopeStepDetail(double time,
+                     double pre_volume,
+                     double post_volume):
+                     optimizer_time{time}, volume_before{pre_volume},
+                     volume_after{post_volume}, growth{post_volume-pre_volume} {};
+  const double optimizer_time;
+  const double volume_before;
+  const double volume_after;
+  const double growth;
+};
+
+
+
 }  // namespace internal
 }  // namespace multibody
 }  // namespace drake
