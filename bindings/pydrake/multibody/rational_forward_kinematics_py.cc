@@ -538,6 +538,7 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
                   filtered_collision_pairs,
               const Eigen::Ref<const Eigen::MatrixXd>& C_init,
               const Eigen::Ref<const Eigen::VectorXd>& d_init,
+              const int num_round_robin_rounds,
               const CspaceFreeRegion::InterleavedRegionSearchOptions&
                   interleaved_region_search_options,
               const solvers::SolverOptions& solver_options,
@@ -546,13 +547,13 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
                   inner_polytope) {
             CspaceFreeRegionSolution cspace_free_region_solution;
             self->InterleavedCSpacePolytopeSearch(q_star,
-                filtered_collision_pairs, C_init, d_init,
+                filtered_collision_pairs, C_init, d_init, num_round_robin_rounds,
                 interleaved_region_search_options, solver_options, q_inner_pts,
                 inner_polytope, &cspace_free_region_solution);
             return cspace_free_region_solution;
           },
           py::arg("q_star"), py::arg("filtered_collision_pairs"),
-          py::arg("C_init"), py::arg("d_init"),
+          py::arg("C_init"), py::arg("d_init"), py::arg("num_round_robin_rounds"),
           py::arg("interleaved_region_search_options"), py::arg("solver_options"),
           py::arg("q_inner_pts") = std::nullopt,
           py::arg("inner_polytope") = std::nullopt,
@@ -615,6 +616,37 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
           py::arg("solver_options"), py::arg("seed_points"),
           py::arg("inner_polytope") = std::nullopt,
           doc.CspaceFreeRegion.CspacePolytopeRoundRobinBisectionSearchForSeedPoints.doc)
+      .def(
+          "InterleavedCSpacePolytopeSearchForSeedPoints",
+          [](const CspaceFreeRegion* self,
+              const Eigen::Ref<const Eigen::VectorXd>& q_star,
+            const CspaceFreeRegion::FilteredCollisionPairs& filtered_collision_pairs,
+            const std::vector<Eigen::Ref<Eigen::MatrixXd>>& C_mat_vect,
+            const std::vector<Eigen::Ref<Eigen::VectorXd>>& d_init_vect,
+            const int num_round_robin_rounds,
+            const std::vector<CspaceFreeRegion::InterleavedRegionSearchOptions>& interleaved_region_search_option_vect,
+            const solvers::SolverOptions& solver_options,
+            const std::vector<Eigen::MatrixXd>& seed_points,
+            const std::optional<std::vector<std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>>>&
+          inner_polytope_vect) {
+            std::vector<CspaceFreeRegionSolution> cspace_free_region_solution_vect(C_mat_vect.size());
+            std::vector<CspaceFreeRegionSolution*> cspace_free_region_solution_ptrs;
+            for (long unsigned int i = 0; i < C_mat_vect.size(); i++){
+              cspace_free_region_solution_ptrs.push_back(&(cspace_free_region_solution_vect.at(i)));
+            }
+
+            self->InterleavedCSpacePolytopeSearchForSeedPoints(q_star,
+                filtered_collision_pairs, C_mat_vect, d_init_vect, num_round_robin_rounds,
+                interleaved_region_search_option_vect, solver_options, seed_points,
+                inner_polytope_vect, cspace_free_region_solution_ptrs);
+            std::cout << "returning solution" << std::endl;
+            return cspace_free_region_solution_vect;
+          },
+          py::arg("q_star"), py::arg("filtered_collision_pairs"), py::arg("C_mat_vect"),
+          py::arg("d_init_vect"), py::arg("num_round_robin_rounds"), py::arg("interleaved_region_search_option_vect"),
+          py::arg("solver_options"), py::arg("seed_points"),
+          py::arg("inner_polytope") = std::nullopt,
+          doc.CspaceFreeRegion.InterleavedCSpacePolytopeSearchForSeedPoints.doc)
 
       .def("IsPostureInCollision", &CspaceFreeRegion::IsPostureInCollision,
           doc.CspaceFreeRegion.IsPostureInCollision.doc)

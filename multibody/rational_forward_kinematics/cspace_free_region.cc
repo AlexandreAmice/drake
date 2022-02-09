@@ -2146,7 +2146,7 @@ void CspaceFreeRegion::CspacePolytopeRoundRobinBisectionSearchForSeedPoints(
   DRAKE_DEMAND(vector_bisection_search_option_vect.size() == num_seed_points);
   DRAKE_DEMAND(cspace_free_region_solution_vect.size() == num_seed_points);
   if (inner_polytope_vect.has_value()){
-    DRAKE_DEMAND(vector_bisection_search_option_vect.size() == num_seed_points);}
+    DRAKE_DEMAND(inner_polytope_vect.value().size() == num_seed_points);}
   std::vector<std::thread> threads;
   for (unsigned int i = 0; i < num_seed_points; i++) {
     threads.push_back(std::thread(&CspaceFreeRegion::CspacePolytopeRoundRobinBisectionSearch,
@@ -2188,6 +2188,48 @@ void CspaceFreeRegion::CspacePolytopeRoundRobinBisectionSearchForSeedPoints(
   for (auto& th : threads) {
       th.join();
     }
+}
+
+void CspaceFreeRegion::InterleavedCSpacePolytopeSearchForSeedPoints(
+      const Eigen::Ref<const Eigen::VectorXd>& q_star,
+      const FilteredCollisionPairs& filtered_collision_pairs,
+      const std::vector<Eigen::Ref<Eigen::MatrixXd>>& C_mat_vect,
+      const std::vector<Eigen::Ref<Eigen::VectorXd>>& d_init_vect,
+      const int num_round_robin_rounds,
+      const std::vector<InterleavedRegionSearchOptions>& interleaved_region_search_option_vect,
+      const solvers::SolverOptions& solver_options,
+      const std::vector<Eigen::MatrixXd>& seed_points,
+      const std::optional<std::vector<std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>>>&
+          inner_polytope_vect,
+      std::vector<CspaceFreeRegionSolution*> cspace_free_region_solution_vect) const {
+  //  long unsigned int num_seed_points = seed_points.size();
+  long unsigned int num_seed_points = C_mat_vect.size();
+  DRAKE_DEMAND(C_mat_vect.size() == num_seed_points);
+  DRAKE_DEMAND(d_init_vect.size() == num_seed_points);
+  DRAKE_DEMAND(interleaved_region_search_option_vect.size() == num_seed_points);
+  DRAKE_DEMAND(cspace_free_region_solution_vect.size() == num_seed_points);
+  if (inner_polytope_vect.has_value()){
+    DRAKE_DEMAND(inner_polytope_vect.value().size() == num_seed_points);}
+  std::vector<std::thread> threads;
+  for (unsigned int i = 0; i < num_seed_points; i++) {
+    threads.push_back(std::thread(&CspaceFreeRegion::InterleavedCSpacePolytopeSearch,
+                                  this,
+                                  q_star,
+                                  filtered_collision_pairs,
+                                  C_mat_vect.at(i),
+                                  d_init_vect.at(i),
+                                  num_round_robin_rounds,
+                                  interleaved_region_search_option_vect.at(i),
+                                  solver_options,
+                                  seed_points.at(i),
+                                  (inner_polytope_vect.has_value() ? inner_polytope_vect.value().at(i) : std::nullopt),
+                                  cspace_free_region_solution_vect.at(i)
+                                  ));
+  }
+  for (auto& th : threads) {
+      th.join();
+    }
+
 }
 
 void CspaceFreeRegion::CspacePolytopeBisectionSearchVector(
@@ -2405,6 +2447,7 @@ void CspaceFreeRegion::InterleavedCSpacePolytopeSearch(
     const FilteredCollisionPairs& filtered_collision_pairs,
     const Eigen::Ref<const Eigen::MatrixXd>& C_init,
     const Eigen::Ref<const Eigen::VectorXd>& d_init,
+    const int num_round_robin_rounds,
     const InterleavedRegionSearchOptions& interleaved_region_search_option,
     const solvers::SolverOptions& solver_options,
     const std::optional<Eigen::MatrixXd>& q_inner_pts,
@@ -2414,14 +2457,14 @@ void CspaceFreeRegion::InterleavedCSpacePolytopeSearch(
   Eigen::MatrixXd C = C_init;
   for (int i = 0; i < interleaved_region_search_option.max_method_switch; i++) {
     if (interleaved_region_search_option.use_vector_bisection_search) {
-      CspacePolytopeBisectionSearchVector(
-          q_star, filtered_collision_pairs, C, d_init,
+      CspacePolytopeRoundRobinBisectionSearch(
+          q_star, filtered_collision_pairs, C, d_init, num_round_robin_rounds,
           interleaved_region_search_option.vector_bisection_search_options,
           solver_options, q_inner_pts, inner_polytope,
           cspace_free_region_solution);
     } else {
       CspacePolytopeBinarySearch(
-          q_star, filtered_collision_pairs, C, d_init,
+          q_star, filtered_collision_pairs, C, 0.99*d_init,
           interleaved_region_search_option.scalar_binary_search_options,
           solver_options, q_inner_pts, inner_polytope,
           cspace_free_region_solution);

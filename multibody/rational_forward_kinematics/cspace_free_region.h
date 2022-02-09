@@ -713,12 +713,37 @@ class CspaceFreeRegion {
       const FilteredCollisionPairs& filtered_collision_pairs,
       const Eigen::Ref<const Eigen::MatrixXd>& C_init,
       const Eigen::Ref<const Eigen::VectorXd>& d_init,
+      const int num_round_robin_rounds,
       const InterleavedRegionSearchOptions& interleaved_region_search_option,
       const solvers::SolverOptions& solver_options,
       const std::optional<Eigen::MatrixXd>& q_inner_pts,
       const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
           inner_polytope, CspaceFreeRegionSolution* cspace_free_region_solution) const;
-
+   /**
+    * same as above with a list of seed points
+    * @param q_star
+    * @param filtered_collision_pairs
+    * @param C_mat_vect
+    * @param d_init_vect
+    * @param num_round_robin_rounds
+    * @param interleaved_region_search_option
+    * @param solver_options
+    * @param seed_points
+    * @param inner_polytope_vect
+    * @param cspace_free_region_solution_vect
+    */
+   void InterleavedCSpacePolytopeSearchForSeedPoints(
+      const Eigen::Ref<const Eigen::VectorXd>& q_star,
+      const FilteredCollisionPairs& filtered_collision_pairs,
+      const std::vector<Eigen::Ref<Eigen::MatrixXd>>& C_mat_vect,
+      const std::vector<Eigen::Ref<Eigen::VectorXd>>& d_init_vect,
+      const int num_round_robin_rounds,
+      const std::vector<InterleavedRegionSearchOptions>& interleaved_region_search_option,
+      const solvers::SolverOptions& solver_options,
+      const std::vector<Eigen::MatrixXd>& seed_points,
+      const std::optional<std::vector<std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>>>&
+          inner_polytope_vect,
+      std::vector<CspaceFreeRegionSolution*> cspace_free_region_solution_vect) const ;
 //   /**
 //    * do cspace region search
 //    * @return
