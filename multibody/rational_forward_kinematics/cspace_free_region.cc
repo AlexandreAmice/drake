@@ -2528,7 +2528,8 @@ void CspaceFreeRegion::InterleavedCSpacePolytopeSearch(
 
   drake::log() -> info("starting binary search");
   CspacePolytopeBinarySearch(
-          q_star, filtered_collision_pairs, C, d_init+interleaved_region_search_option.vector_bisection_search_options.epsilon_min,
+          q_star, filtered_collision_pairs, C,
+          d_init+FindEpsilonLowerVector(C, d, t_lower, t_upper, seed_point_t, std::nullopt),
           interleaved_region_search_option.scalar_binary_search_options,
           solver_options, seed_point_t, inner_polytope,
           cspace_free_region_solution);

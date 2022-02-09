@@ -1105,6 +1105,21 @@ struct PolytopeStepDetail {
   const double growth;
 };
 
+struct SolutionDetails {
+ public:
+  std::deque<LagrangianStepDetail> lagrangian_step_details;
+
+  std::deque<PolytopeStepDetail> poltope_step_details;
+
+  void log_lagrangian_step(LagrangianStepDetail lagrangian_step) {
+    lagrangian_step_details.push_back(lagrangian_step_details);
+  }
+
+  void log_polytope_step(PolytopeStepDetail poltope_step_detail) {
+    poltope_step_details.push_back(poltope_step_detail);
+  }
+};
+
 
 
 }  // namespace internal
