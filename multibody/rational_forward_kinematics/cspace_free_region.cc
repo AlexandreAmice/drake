@@ -2461,6 +2461,7 @@ void CspaceFreeRegion::InterleavedCSpacePolytopeSearch(
   for (int i = 0; i < interleaved_region_search_option.max_method_switch; i++) {
     d = cspace_free_region_solution->d;
     C = cspace_free_region_solution->C;
+    drake::log() -> info("Starting bisections");
     if (interleaved_region_search_option.use_vector_bisection_search) {
       CspacePolytopeRoundRobinBisectionSearch(
           q_star, filtered_collision_pairs, C, d, num_round_robin_rounds,
@@ -2474,10 +2475,11 @@ void CspaceFreeRegion::InterleavedCSpacePolytopeSearch(
           solver_options, q_inner_pts, inner_polytope,
           cspace_free_region_solution);
     }
+    drake::log() -> info("Starting Alternations");
     d = cspace_free_region_solution->d;
     C = cspace_free_region_solution->C;
     CspacePolytopeBilinearAlternation(
-        q_star, filtered_collision_pairs, C, 0.99*d,
+        q_star, filtered_collision_pairs, C, 0.75*d,
         interleaved_region_search_option.bilinear_alternation_options,
         solver_options, q_inner_pts, inner_polytope,
         cspace_free_region_solution);
