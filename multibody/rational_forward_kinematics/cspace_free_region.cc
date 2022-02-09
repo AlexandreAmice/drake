@@ -2042,11 +2042,11 @@ void CspaceFreeRegion::CspacePolytopeRoundRobinBisectionSearch(
   Eigen::VectorXd eps_min_vect = epsilon;
   // the max used for bisection (typically set to max eps that causes
   // redundancy)
-  Eigen::VectorXd eps_max_vect = epsilon;
+  Eigen::VectorXd eps_max_vect = vector_bisection_search_option.epsilon_max;
 
   // max epsilon for which we have information
-  Eigen::VectorXd eps_max_absolute_informed =
-      vector_bisection_search_option.epsilon_max;
+//  Eigen::VectorXd eps_max_absolute_informed =
+//      vector_bisection_search_option.epsilon_max;
 
   for (int round = 0; round < num_rounds; round++) {
     int ineq_num = 0;
@@ -2097,7 +2097,7 @@ void CspaceFreeRegion::CspacePolytopeRoundRobinBisectionSearch(
       auto set_eps_max = [this, &C, &d_without_epsilon, &eps_min_vect, &t_lower,
                           &t_upper, &eps_max_vect, &context, &q_star,
                           &q_inner_pts]() {
-        const double margin{1E-2};
+        const double margin{0};
         if (context.has_value() and q_inner_pts.has_value()) {
           // this is slow so only run if eps_min exceed eps_max
           if (((eps_max_vect - eps_min_vect).array() <= 0).any()) {
