@@ -2136,7 +2136,7 @@ void CspaceFreeRegion::CspacePolytopeRoundRobinBisectionSearch(
       drake::log()->info(fmt::format("current gap is epsilon_gap={}",
                                      eps_max_vect(i) - eps_min_vect(i)));
       while (total_iter_count < vector_bisection_search_option.max_iters and
-             (eps_max_vect(i) - eps_min_vect(i)) > 1E-6) {
+             (eps_max_vect(i) - eps_min_vect(i)) > 1E-4) {
         const double eps = (eps_max_vect(i) + eps_min_vect(i)) / 2;
         drake::log()->info(fmt::format("current gap is epsilon_gap={}",
                                        eps_max_vect(i) - eps_min_vect(i)));
@@ -2460,7 +2460,7 @@ void CspaceFreeRegion::CspacePolytopeBisectionSearchVector(
   bool exit_for_iters = false;
   //  while (total_iter_count < vector_bisection_search_option.max_iters and
   //  (eps_max - eps_min).maxCoeff() > 1e-6) {
-  while (not exit_for_iters and (eps_max - eps_min).maxCoeff() > 1e-6) {
+  while (not exit_for_iters and (eps_max - eps_min).maxCoeff() > 1e-4) {
     eps = (eps_max + eps_min) / 2;
     const Eigen::VectorXd d = d_without_epsilon + eps;
     const bool is_feasible = is_polytope_collision_free(d);
@@ -3012,7 +3012,7 @@ Eigen::VectorXd FindEpsilonUpperVector(
     double eps_max{1};
     double cur_eps{0};
     program_cost_binding.evaluator()->UpdateCoefficients(C.row(i), d(i));
-    while (eps_max - eps_min > 1e-6) {
+    while (eps_max - eps_min > 1e-4) {
       cur_eps = (eps_max + eps_min) / 2;
       redundant_constraint_binding.evaluator()->UpdateCoefficients(
           C.row(i), Eigen::VectorXd::Constant(1, -kInf),

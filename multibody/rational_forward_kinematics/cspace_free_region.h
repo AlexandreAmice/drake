@@ -1105,18 +1105,18 @@ struct PolytopeStepDetail {
   const double growth;
 };
 
-struct SolutionDetails {
+struct AlternationSolutionDetails {
  public:
   std::deque<LagrangianStepDetail> lagrangian_step_details;
 
   std::deque<PolytopeStepDetail> poltope_step_details;
 
-  void log_lagrangian_step(LagrangianStepDetail lagrangian_step) {
-    lagrangian_step_details.push_back(lagrangian_step_details);
+  void log_lagrangian_step(LagrangianStepDetail step) {
+    lagrangian_step_details.push_back(step);
   }
 
-  void log_polytope_step(PolytopeStepDetail poltope_step_detail) {
-    poltope_step_details.push_back(poltope_step_detail);
+  void log_polytope_step(PolytopeStepDetail step) {
+    poltope_step_details.push_back(step);
   }
 };
 
