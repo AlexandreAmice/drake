@@ -2076,6 +2076,7 @@ void CspaceFreeRegion::CspacePolytopeRoundRobinBisectionSearch(
           throw std::runtime_error(
               "round robin bisection search, polytope is empty");
         } else {
+//          eps_redundant_max.value() = std::max(eps_redundant_max, 0.0);
           drake::log()->info(fmt::format("output of eps_redundant_max is {}",
                                          eps_redundant_max.value()));
           eps_max_vect = eps_min_vect;
