@@ -2455,22 +2455,29 @@ void CspaceFreeRegion::InterleavedCSpacePolytopeSearch(
         inner_polytope,
     CspaceFreeRegionSolution* cspace_free_region_solution) const {
   Eigen::MatrixXd C = C_init;
+  Eigen::MatrixXd d = d_init;
+  cspace_free_region_solution->d = d_init;
+  cspace_free_region_solution->C = C_init;
   for (int i = 0; i < interleaved_region_search_option.max_method_switch; i++) {
+    d = cspace_free_region_solution->d;
+    C = cspace_free_region_solution->C;
     if (interleaved_region_search_option.use_vector_bisection_search) {
       CspacePolytopeRoundRobinBisectionSearch(
-          q_star, filtered_collision_pairs, C, d_init, num_round_robin_rounds,
+          q_star, filtered_collision_pairs, C, d, num_round_robin_rounds,
           interleaved_region_search_option.vector_bisection_search_options,
           solver_options, q_inner_pts, inner_polytope,
           cspace_free_region_solution);
     } else {
       CspacePolytopeBinarySearch(
-          q_star, filtered_collision_pairs, C, 0.99*d_init,
+          q_star, filtered_collision_pairs, C, d_init,
           interleaved_region_search_option.scalar_binary_search_options,
           solver_options, q_inner_pts, inner_polytope,
           cspace_free_region_solution);
     }
+    d = cspace_free_region_solution->d;
+    C = cspace_free_region_solution->C;
     CspacePolytopeBilinearAlternation(
-        q_star, filtered_collision_pairs, C, d_init,
+        q_star, filtered_collision_pairs, C, 0.99*d,
         interleaved_region_search_option.bilinear_alternation_options,
         solver_options, q_inner_pts, inner_polytope,
         cspace_free_region_solution);
