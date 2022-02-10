@@ -161,6 +161,22 @@ drake_jupyter_py_binary(
 )
 
 drake_jupyter_py_binary(
+    name = "iiwa_shelf",
+    add_test_rule = 0,
+    data = [
+        "//manipulation/models/iiwa_description:models",
+        "//sos_iris_certifier:models",
+    ],
+    deps = [
+        "//bindings/pydrake",
+        "//sandbox:rrtiris",
+        "//sos_iris_certifier:certified_iris_generator",
+        "//sos_iris_certifier:iris_plant_visualizer",
+        "//sos_iris_certifier:iris_utils",
+        "//sos_iris_certifier:visualizations_utils",
+    ],
+)
+drake_jupyter_py_binary(
     name = "pinball_iiwas",
     add_test_rule = 0,
     data = [
