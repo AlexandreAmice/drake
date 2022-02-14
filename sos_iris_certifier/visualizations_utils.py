@@ -220,7 +220,7 @@ def plot_3d_poly(region, vis, name, mat = None, verbose = False):
     # First, prune region
     region = region.ReduceInequalities()
 
-    region = region.ReduceInequalities()
+    #region = region.ReduceInequalities()
 
     def project_and_triangulate(pts):
         n = np.cross(pts[0,:]-pts[1,:],pts[0,:]-pts[2,:])
