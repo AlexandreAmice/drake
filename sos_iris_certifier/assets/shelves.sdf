@@ -9,6 +9,9 @@
             <size>0.3 0.016 0.783</size>
           </box>
         </geometry>
+        <material>
+          <diffuse>0.8 0.8 0.8 1.0</diffuse>
+        </material>
       </visual>
       <visual name="left_wall">
         <pose> 0 -0.292 0 0 0 0</pose>
@@ -17,6 +20,9 @@
             <size>0.3 0.016 0.783</size>
           </box>
         </geometry>
+        <material>
+          <diffuse>0.8 0.8 0.8 1.0</diffuse>
+        </material>
       </visual>
       <collision name="right_wall">
         <pose> 0 0.292 0 0 0 0</pose>
@@ -43,6 +49,9 @@
             <size>0.3 0.6 0.016</size>
           </box>
         </geometry>
+        <material>
+          <diffuse>0.8 0.8 0.8 1.0</diffuse>
+        </material>
       </visual>
       <visual name="top">
         <pose> 0 0 0.3995 0 0 0</pose>
@@ -51,22 +60,31 @@
             <size>0.3 0.6 0.016</size>
           </box>
         </geometry>
+        <material>
+          <diffuse>0.8 0.8 0.8 1.0</diffuse>
+        </material>
       </visual>
       <visual name="shelf_lower">
         <pose> 0 0 -0.13115 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.3 0.6 0.016</size>
+            <size>0.3 0.568 0.016</size>
           </box>
         </geometry>
+        <material>
+          <diffuse>0.8 0.8 0.8 1.0</diffuse>
+        </material>
       </visual>
       <visual name="shelf_upper">
         <pose> 0 0 0.13115 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.3 0.6 0.016</size>
+            <size>0.3 0.568 0.016</size>
           </box>
         </geometry>
+        <material>
+          <diffuse>0.8 0.8 0.8 1.0</diffuse>
+        </material>
       </visual>
       <collision name="bottom">
         <pose> 0 0 -0.3995 0 0 0</pose>
@@ -88,7 +106,7 @@
         <pose> 0 0 -0.13115 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.3 0.6 0.016</size>
+            <size>0.3 0.568 0.016</size>
           </box>
         </geometry>
       </collision>
@@ -96,7 +114,7 @@
         <pose> 0 0 0.13115 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.3 0.6 0.016</size>
+            <size>0.3 0.568 0.016</size>
           </box>
         </geometry>
       </collision>
