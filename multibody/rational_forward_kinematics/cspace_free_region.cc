@@ -215,54 +215,40 @@ Eigen::VectorXd ComputeMaxD(const Eigen::MatrixXd& C,
   return d_max;
 }
 
-SeparatingPlane GetSeparatingPlaneSolution(
-    const SeparatingPlane& plane,
+SeparatingPlane<double> GetSeparatingPlaneSolution(
+    const SeparatingPlane<symbolic::Variable>& plane,
     const solvers::MathematicalProgramResult& result) {
   symbolic::Environment env;
-  env.insert(plane.decision_variables,
-             result.GetSolution(plane.decision_variables));
+  const Eigen::VectorXd decision_variables_val =
+      result.GetSolution(plane.decision_variables);
+  env.insert(plane.decision_variables, decision_variables_val);
   Vector3<symbolic::Expression> a_sol;
   for (int i = 0; i < 3; ++i) {
     a_sol(i) = plane.a(i).EvaluatePartial(env);
   }
   const symbolic::Expression b_sol = plane.b.EvaluatePartial(env);
-  return SeparatingPlane(a_sol, b_sol, plane.positive_side_polytope,
-                         plane.negative_side_polytope, plane.expressed_link,
-                         plane.order, plane.decision_variables);
+  return SeparatingPlane<double>(
+      a_sol, b_sol, plane.positive_side_polytope, plane.negative_side_polytope,
+      plane.expressed_link, plane.order, decision_variables_val);
 }
 
-/**
- * @param is_plane_active: sometimes the collision between a pair of geometries
- * is ignored. is_plane_active[i] means whether the plane
- * cspace_free_region.separating_planes()[i] is active or not.
- */
-std::vector<SeparatingPlane> GetSeparatingPlanesSolution(
-    const CspaceFreeRegion& cspace_free_region,
-    const std::vector<bool>& is_plane_active,
-    const solvers::MathematicalProgramResult& result) {
-  std::vector<SeparatingPlane> planes_sol;
-  DRAKE_DEMAND(is_plane_active.size() ==
-               cspace_free_region.separating_planes().size());
-  int num_active_planes = 0;
-  for (bool flag : is_plane_active) {
-    if (flag) {
-      num_active_planes++;
-    }
-  }
-  planes_sol.reserve(num_active_planes);
-
-  for (int plane_index = 0;
-       plane_index <
-       static_cast<int>(cspace_free_region.separating_planes().size());
-       ++plane_index) {
-    if (is_plane_active[plane_index]) {
-      planes_sol.push_back(GetSeparatingPlaneSolution(
-          cspace_free_region.separating_planes()[plane_index], result));
-    }
-  }
-  return planes_sol;
-}
 }  // namespace
+
+VectorX<symbolic::Variable> GetTForPlane(
+    const BodyIndex positive_side_link, const BodyIndex negative_side_link,
+    const RationalForwardKinematics& rat_fk, CspaceRegionType region_type) {
+  switch (region_type) {
+    case CspaceRegionType::kGenericPolytope: {
+      return rat_fk.t();
+    }
+    case CspaceRegionType::kAxisAlignedBoundingBox: {
+      return rat_fk.FindTOnPath(positive_side_link, negative_side_link);
+    }
+    default: {
+      throw std::runtime_error("Unknown region type.");
+    }
+  }
+}
 
 CspaceFreeRegion::CspaceFreeRegion(
     const systems::Diagram<double>& diagram,
@@ -317,13 +303,6 @@ CspaceFreeRegion::CspaceFreeRegion(
     }
   }
   separating_planes_.reserve(num_collision_pairs);
-  // If we verify an axis-algined bounding box in the C-space, then for each
-  // pair of (link, obstacle), then we only need to consider variables t for the
-  // joints on the kinematics chain between the link and the obstacle; if we
-  // verify a generic bounding box, then we need to consider t for all joint
-  // angles.
-  std::unordered_map<SortedPair<BodyIndex>, VectorX<symbolic::Variable>>
-      map_link_obstacle_to_t;
   for (const auto& [link_pair, polytope_pairs] : collision_pairs) {
     for (const auto& polytope_pair : polytope_pairs) {
       Vector3<symbolic::Expression> a;
@@ -338,61 +317,22 @@ CspaceFreeRegion::CspaceFreeRegion(
           plane_decision_vars(3) = symbolic::Variable(
               "b" + std::to_string(separating_planes_.size()));
         }
-        a = plane_decision_vars.head<3>().cast<symbolic::Expression>();
-        b = plane_decision_vars(3);
+        CalcPlane<symbolic::Variable, symbolic::Variable, symbolic::Expression>(
+            plane_decision_vars,
+            GetTForPlane(link_pair.first(), link_pair.second(),
+                         rational_forward_kinematics_, cspace_region_type),
+            plane_order_, &a, &b);
       } else if (plane_order_ == SeparatingPlaneOrder::kAffine) {
-        VectorX<symbolic::Variable> t_for_plane;
-        if (cspace_region_type_ == CspaceRegionType::kGenericPolytope) {
-          t_for_plane = rational_forward_kinematics_.t();
-        } else if (cspace_region_type_ ==
-                   CspaceRegionType::kAxisAlignedBoundingBox) {
-          auto it = map_link_obstacle_to_t.find(link_pair);
-          if (it == map_link_obstacle_to_t.end()) {
-            t_for_plane = rational_forward_kinematics_.FindTOnPath(
-                link_pair.first(), link_pair.second());
-            map_link_obstacle_to_t.emplace_hint(it, link_pair, t_for_plane);
-          } else {
-            t_for_plane = it->second;
-          }
-        }
-        // Now create the variable a_coeff, a_constant, b_coeff, b_constant,
-        // such that a = a_coeff * t_for_plane + a_constant, and b = b_coeff *
-        // t_for_plane + b_constant.
-        Matrix3X<symbolic::Variable> a_coeff(3, t_for_plane.rows());
-        Vector3<symbolic::Variable> a_constant;
-        for (int i = 0; i < 3; ++i) {
-          a_constant(i) = symbolic::Variable(
-              fmt::format("a_constant{}({})", separating_planes_.size(), i));
-          for (int j = 0; j < t_for_plane.rows(); ++j) {
-            a_coeff(i, j) = symbolic::Variable(fmt::format(
-                "a_coeff{}({}, {})", separating_planes_.size(), i, j));
-          }
-        }
-        VectorX<symbolic::Variable> b_coeff(t_for_plane.rows());
-        for (int i = 0; i < t_for_plane.rows(); ++i) {
-          b_coeff(i) = symbolic::Variable(
-              fmt::format("b_coeff{}({})", separating_planes_.size(), i));
-        }
-        symbolic::Variable b_constant(
-            fmt::format("b_constant{}", separating_planes_.size()));
-        // Now construct a(i) = a_coeff.row(i) * t_for_plane + a_constant(i).
-        a = a_coeff * t_for_plane + a_constant;
-        b = b_coeff.cast<symbolic::Expression>().dot(t_for_plane) + b_constant;
-        // Now put a_coeff, a_constant, b_coeff, b_constant to
-        // plane_decision_vars.
+        const VectorX<symbolic::Variable> t_for_plane =
+            GetTForPlane(link_pair.first(), link_pair.second(),
+                         rational_forward_kinematics_, cspace_region_type);
         plane_decision_vars.resize(4 * t_for_plane.rows() + 4);
-        int var_count = 0;
-        for (int i = 0; i < 3; ++i) {
-          plane_decision_vars.segment(var_count, t_for_plane.rows()) =
-              a_coeff.row(i);
-          var_count += t_for_plane.rows();
+        for (int i = 0; i < plane_decision_vars.rows(); ++i) {
+          plane_decision_vars(i) =
+              symbolic::Variable(fmt::format("plane_var{}", i));
         }
-        plane_decision_vars.segment<3>(var_count) = a_constant;
-        var_count += 3;
-        plane_decision_vars.segment(var_count, t_for_plane.rows()) = b_coeff;
-        var_count += t_for_plane.rows();
-        plane_decision_vars(var_count) = b_constant;
-        var_count++;
+        CalcPlane<symbolic::Variable, symbolic::Variable, symbolic::Expression>(
+            plane_decision_vars, t_for_plane, plane_order_, &a, &b);
       }
       separating_planes_.emplace_back(
           a, b, polytope_pair.first, polytope_pair.second,
@@ -1111,7 +1051,7 @@ namespace internal {
 // Some of the separating planes will be ignored by filtered_collision_pairs.
 // Returns std::vector<bool> to indicate if each plane is active or not.
 std::vector<bool> IsPlaneActive(
-    const std::vector<SeparatingPlane>& separating_planes,
+    const std::vector<SeparatingPlane<symbolic::Variable>>& separating_planes,
     const CspaceFreeRegion::FilteredCollisionPairs& filtered_collision_pairs) {
   std::vector<bool> is_plane_active(separating_planes.size(), true);
   for (int i = 0; i < static_cast<int>(separating_planes.size()); ++i) {
@@ -1144,7 +1084,7 @@ bool FindLagrangianAndSeparatingPlanesSingleThread(
     Eigen::VectorXd* lagrangian_gram_var_vals,
     Eigen::VectorXd* verified_gram_var_vals,
     Eigen::VectorXd* separating_plane_var_vals,
-    std::vector<SeparatingPlane>* separating_planes_sol) {
+    std::vector<SeparatingPlane<double>>* separating_planes_sol) {
   auto prog_lagrangian = cspace_free_region.ConstructLagrangianProgram(
       alternation_tuples, C, d, lagrangian_gram_vars, verified_gram_vars,
       separating_plane_vars, t_lower, t_upper, verification_option,
@@ -1169,7 +1109,7 @@ bool FindLagrangianAndSeparatingPlanesSingleThread(
   *verified_gram_var_vals = result_lagrangian.GetSolution(verified_gram_vars);
   *separating_plane_var_vals =
       result_lagrangian.GetSolution(separating_plane_vars);
-  *separating_planes_sol = GetSeparatingPlanesSolution(
+  *separating_planes_sol = internal::GetSeparatingPlanesSolution(
       cspace_free_region, is_plane_active, result_lagrangian);
   return true;
 }
@@ -1207,7 +1147,7 @@ bool FindLagrangianAndSeparatingPlanesMultiThread(
     int num_threads, Eigen::VectorXd* lagrangian_gram_var_vals,
     Eigen::VectorXd* verified_gram_var_vals,
     Eigen::VectorXd* separating_plane_var_vals,
-    std::vector<SeparatingPlane>* separating_planes_sol) {
+    std::vector<SeparatingPlane<double>>* separating_planes_sol) {
   // To avoid data race, we allocate memory for lagrangian_gram_var_vals and
   // separating_planes_sol before launching the multiple threads. To
   // allocate memory for separating_planes_sol, we count the number of active
@@ -1471,6 +1411,38 @@ bool FindLagrangianAndSeparatingPlanes(
     return ret_val;
   }
 }
+
+/**
+ * @param is_plane_active: sometimes the collision between a pair of geometries
+ * is ignored. is_plane_active[i] means whether the plane
+ * cspace_free_region.separating_planes()[i] is active or not.
+ */
+std::vector<SeparatingPlane<double>> GetSeparatingPlanesSolution(
+    const CspaceFreeRegion& cspace_free_region,
+    const std::vector<bool>& is_plane_active,
+    const solvers::MathematicalProgramResult& result) {
+  std::vector<SeparatingPlane<double>> planes_sol;
+  DRAKE_DEMAND(is_plane_active.size() ==
+               cspace_free_region.separating_planes().size());
+  int num_active_planes = 0;
+  for (bool flag : is_plane_active) {
+    if (flag) {
+      num_active_planes++;
+    }
+  }
+  planes_sol.reserve(num_active_planes);
+
+  for (int plane_index = 0;
+       plane_index <
+       static_cast<int>(cspace_free_region.separating_planes().size());
+       ++plane_index) {
+    if (is_plane_active[plane_index]) {
+      planes_sol.push_back(GetSeparatingPlaneSolution(
+          cspace_free_region.separating_planes()[plane_index], result));
+    }
+  }
+  return planes_sol;
+}
 }  // namespace internal
 
 void CspaceFreeRegion::CspacePolytopeBilinearAlternation(
@@ -1679,7 +1651,8 @@ void CspaceFreeRegion::CspacePolytopeBilinearAlternation(
         cspace_free_region_solution->P.determinant());
 
     (cspace_free_region_solution->separating_planes) =
-        GetSeparatingPlanesSolution(*this, is_plane_active, result_polytope);
+        internal::GetSeparatingPlanesSolution(*this, is_plane_active,
+                                              result_polytope);
 
     iter_count += 1;
   }
@@ -1805,8 +1778,8 @@ void CspaceFreeRegion::CspacePolytopeBinarySearch(
         if (result_polytope.is_success()) {
           (cspace_free_region_solution->d) = result_polytope.GetSolution(d_var);
           (cspace_free_region_solution->separating_planes) =
-              GetSeparatingPlanesSolution(*this, is_plane_active,
-                                          result_polytope);
+              internal::GetSeparatingPlanesSolution(*this, is_plane_active,
+                                                    result_polytope);
 
           FindLargestInscribedEllipsoid(
               (cspace_free_region_solution->C),
@@ -1871,7 +1844,7 @@ void CspaceFreeRegion::CspacePolytopeBinarySearch(
     }
     iter_count++;
   }
-  // TODO (Alex.Amice) get the lagrangians into this struct as well.
+  // TODO(Alex.Amice): get the lagrangians into this struct as well.
   double ellipsoid_cost_val;
 
   FindLargestInscribedEllipsoid(
@@ -2365,40 +2338,59 @@ double CalcCspacePolytopeVolume(const Eigen::MatrixXd& C,
   return volume;
 }
 
-void WriteCspacePolytopeToFile(const Eigen::Ref<const Eigen::MatrixXd>& C,
-                               const Eigen::Ref<const Eigen::VectorXd>& d,
-                               const Eigen::Ref<const Eigen::VectorXd>& t_lower,
-                               const Eigen::Ref<const Eigen::VectorXd>& t_upper,
-                               const std::string& file_name, int precision) {
+void WriteCspacePolytopeToFile(
+    const CspaceFreeRegionSolution& solution,
+    const multibody::MultibodyPlant<double>& plant,
+    const geometry::SceneGraphInspector<double>& inspector,
+
+    const std::string& file_name, int precision) {
   std::ofstream myfile;
   myfile.open(file_name, std::ios::out);
   if (myfile.is_open()) {
-    myfile << fmt::format("{} {}\n", C.rows(), C.cols());
-    for (int i = 0; i < C.rows(); ++i) {
-      for (int j = 0; j < C.cols(); ++j) {
-        myfile << std::setprecision(precision) << C(i, j) << " ";
+    myfile << fmt::format("{} {}\n", solution.C.rows(), solution.C.cols());
+    for (int i = 0; i < solution.C.rows(); ++i) {
+      for (int j = 0; j < solution.C.cols(); ++j) {
+        myfile << std::setprecision(precision) << solution.C(i, j) << " ";
       }
       myfile << "\n";
     }
     myfile << "\n";
-    for (int i = 0; i < d.rows(); ++i) {
-      myfile << std::setprecision(precision) << d(i) << " ";
+    for (int i = 0; i < solution.d.rows(); ++i) {
+      myfile << std::setprecision(precision) << solution.d(i) << " ";
     }
     myfile << "\n";
-    for (int i = 0; i < t_lower.rows(); ++i) {
-      myfile << std::setprecision(precision) << t_lower(i) << " ";
-    }
-    myfile << "\n";
-    for (int i = 0; i < t_upper.rows(); ++i) {
-      myfile << std::setprecision(precision) << t_upper(i) << " ";
+    // Write separating planes.
+    myfile << solution.separating_planes.size() << "\n";
+    for (const auto& plane : solution.separating_planes) {
+      myfile
+          << plant.get_body(plane.positive_side_polytope->body_index()).name()
+          << "\n";
+      myfile << inspector.GetName(plane.positive_side_polytope->get_id())
+             << "\n";
+      myfile
+          << plant.get_body(plane.negative_side_polytope->body_index()).name()
+          << "\n";
+      myfile << inspector.GetName(plane.negative_side_polytope->get_id())
+             << "\n";
+      myfile << plant.get_body(plane.expressed_link).name() << "\n";
+      myfile << plane.decision_variables.rows() << "\n";
+      for (int i = 0; i < plane.decision_variables.rows(); ++i) {
+        myfile << std::setprecision(precision) << plane.decision_variables(i)
+               << " ";
+      }
+      myfile << "\n";
     }
     myfile.close();
   }
 }
 
-void ReadCspacePolytopeFromFile(const std::string& filename, Eigen::MatrixXd* C,
-                                Eigen::VectorXd* d, Eigen::VectorXd* t_lower,
-                                Eigen::VectorXd* t_upper) {
+void ReadCspacePolytopeFromFile(
+    const std::string& filename, const MultibodyPlant<double>& plant,
+    const geometry::SceneGraphInspector<double>& inspector, Eigen::MatrixXd* C,
+    Eigen::VectorXd* d,
+    std::unordered_map<SortedPair<geometry::GeometryId>,
+                       std::pair<BodyIndex, Eigen::VectorXd>>*
+        separating_planes) {
   std::ifstream infile;
   infile.open(filename, std::ios::in);
   std::string line;
@@ -2429,21 +2421,58 @@ void ReadCspacePolytopeFromFile(const std::string& filename, Eigen::MatrixXd* C,
       ss >> word;
       (*d)(i) = std::stod(word);
     }
-    // get t_lower;
+    // get separating plane.
     std::getline(infile, line);
-    t_lower->resize(C_cols);
     ss = std::istringstream(line);
-    for (int i = 0; i < C_cols; ++i) {
+    ss >> word;
+    const int num_separating_planes = std::stoi(word);
+    for (int i = 0; i < num_separating_planes; ++i) {
+      // positive side.
+      std::getline(infile, line);
+      ss = std::istringstream(line);
       ss >> word;
-      (*t_lower)(i) = std::stod(word);
-    }
-    // get t_upper;
-    std::getline(infile, line);
-    t_upper->resize(C_cols);
-    ss = std::istringstream(line);
-    for (int i = 0; i < C_cols; ++i) {
+      const geometry::FrameId positive_frame =
+          plant.GetBodyFrameIdOrThrow(plant.GetBodyByName(word).index());
+      std::getline(infile, line);
+      ss = std::istringstream(line);
       ss >> word;
-      (*t_upper)(i) = std::stod(word);
+      const geometry::GeometryId positive_geo_id =
+          inspector.GetGeometryIdByName(positive_frame,
+                                        geometry::Role::kProximity, word);
+
+      // negative side
+      std::getline(infile, line);
+      ss = std::istringstream(line);
+      ss >> word;
+      const geometry::FrameId negative_frame =
+          plant.GetBodyFrameIdOrThrow(plant.GetBodyByName(word).index());
+      std::getline(infile, line);
+      ss = std::istringstream(line);
+      ss >> word;
+      const geometry::GeometryId negative_geo_id =
+          inspector.GetGeometryIdByName(negative_frame,
+                                        geometry::Role::kProximity, word);
+
+      // expressed link
+      std::getline(infile, line);
+      ss = std::istringstream(line);
+      ss >> word;
+      const BodyIndex expressed_link = plant.GetBodyByName(word).index();
+
+      // plane decision variable values.
+      std::getline(infile, line);
+      ss = std::istringstream(line);
+      ss >> word;
+      const int num_var = std::stoi(word);
+      Eigen::VectorXd plane_vars(num_var);
+      std::getline(infile, line);
+      ss = std::istringstream(line);
+      for (int j = 0; j < num_var; ++j) {
+        ss >> word;
+        plane_vars(j) = std::stod(word);
+      }
+      separating_planes->emplace(SortedPair(positive_geo_id, negative_geo_id),
+                                 std::make_pair(expressed_link, plane_vars));
     }
   } else {
     throw std::runtime_error(

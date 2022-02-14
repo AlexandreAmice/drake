@@ -5,6 +5,7 @@
 #include "pybind11/pybind11.h"
 #include "pybind11/stl.h"
 
+#include "drake/bindings/pydrake/common/cpp_template_pybind.h"
 #include "drake/bindings/pydrake/common/default_scalars_pybind.h"
 #include "drake/bindings/pydrake/common/value_pybind.h"
 #include "drake/bindings/pydrake/pydrake_pybind.h"
@@ -31,6 +32,35 @@ void DoPoseDeclaration(py::module m, T) {
           [](const Class& self) { return self.asRigidTransformExpression(); });
 
   DefCopyAndDeepCopy(&cls);
+}
+
+// SeparatingPlane
+template <typename T>
+void DoScalarDependentDefinitions(py::module m, T) {
+  constexpr auto& doc = pydrake_doc.drake.multibody;
+  py::tuple param = GetPyParam<T>();
+  // NOLINTNEXTLINE(build/namespaces): Emulate placement in namespace.
+  {
+    using Class = multibody::SeparatingPlane<T>;
+    constexpr auto& cls_doc = doc.SeparatingPlane;
+    auto cls = DefineTemplateClassWithDefault<Class>(
+        m, "SeparatingPlane", param, cls_doc.doc)
+                   .def_readonly("a", &Class::a, py_rvp::copy, cls_doc.a.doc)
+                   .def_readonly("b", &Class::b, cls_doc.b.doc)
+                   .def_readonly("positive_side_polytope",
+                       &Class::positive_side_polytope,
+                       cls_doc.positive_side_polytope.doc)
+                   .def_readonly("negative_side_polytope",
+                       &Class::negative_side_polytope,
+                       cls_doc.negative_side_polytope.doc)
+                   .def_readonly("expressed_link", &Class::expressed_link,
+                       cls_doc.expressed_link.doc)
+                   .def_readonly("order", &Class::order, cls_doc.order.doc)
+                   .def_readonly("decision_variables",
+                       &Class::decision_variables, py_rvp::copy, cls_doc.a.doc);
+    DefCopyAndDeepCopy(&cls);
+    AddValueInstantiation<Class>(m);
+  }
 }
 
 PYBIND11_MODULE(rational_forward_kinematics, m) {
@@ -111,8 +141,6 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
 
   //  type_visit([m](auto dummy) { DoPoseDeclaration(m, dummy); },
   //      CommonScalarPack{});
-  type_pack<symbolic::Polynomial, symbolic::RationalFunction> sym_pack;
-  type_visit([m](auto dummy) { DoPoseDeclaration(m, dummy); }, sym_pack);
 
   // find link in middle of body
   m.def("FindBodyInTheMiddleOfChain",
@@ -138,23 +166,6 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
           doc.SeparatingPlaneOrder.kConstant.doc)
       .value("kAffine", multibody::SeparatingPlaneOrder::kAffine,
           doc.SeparatingPlaneOrder.kAffine.doc);
-
-  // SeparatingPlane
-  py::class_<multibody::SeparatingPlane>(
-      m, "SeparatingPlane", doc.SeparatingPlane.doc)
-      .def_readonly("a", &SeparatingPlane::a, py_rvp::copy, doc.SeparatingPlane.a.doc)
-      .def_readonly("b", &SeparatingPlane::b, doc.SeparatingPlane.b.doc)
-      .def_readonly("positive_side_polytope",
-          &SeparatingPlane::positive_side_polytope,
-          doc.SeparatingPlane.positive_side_polytope.doc)
-      .def_readonly("negative_side_polytope",
-          &SeparatingPlane::negative_side_polytope,
-          doc.SeparatingPlane.negative_side_polytope.doc)
-      .def_readonly("expressed_link", &SeparatingPlane::expressed_link,
-          doc.SeparatingPlane.expressed_link.doc)
-      .def_readonly(
-          "order", &SeparatingPlane::order, doc.SeparatingPlane.order.doc)
-      .def_readonly("decision_variables", &SeparatingPlane::decision_variables, py_rvp::copy, doc.SeparatingPlane.a.doc);
 
   // PlaneSide
   py::enum_<PlaneSide>(m, "PlaneSide", doc.PlaneSide.doc)
@@ -532,22 +543,12 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
       py::arg("d"), py::arg("t_lower"), py::arg("t_upper"),
       doc.CalcCspacePolytopeVolume.doc);
 
-  m.def("WriteCspacePolytopeToFile", &WriteCspacePolytopeToFile, py::arg("C"),
-      py::arg("d"), py::arg("t_lower"), py::arg("t_upper"),
-      py::arg("file_name"), py::arg("precision"),
-      doc.WriteCspacePolytopeToFile.doc);
-
-  m.def(
-      "ReadCspacePolytopeFromFile",
-      [](const std::string& filename) {
-        Eigen::MatrixXd C;
-        Eigen::VectorXd d, t_lower, t_upper;
-        ReadCspacePolytopeFromFile(filename, &C, &d, &t_lower, &t_upper);
-        return std::make_tuple(C, d, t_lower, t_upper);
-      },
-      py::arg("filename"), doc.ReadCspacePolytopeFromFile.doc);
-
   py::module::import("pydrake.solvers.mathematicalprogram");
+
+  type_pack<symbolic::Polynomial, symbolic::RationalFunction> sym_pack;
+  type_visit([m](auto dummy) { DoPoseDeclaration(m, dummy); }, sym_pack);
+  type_visit([m](auto dummy) { DoScalarDependentDefinitions(m, dummy); },
+      type_pack<double, symbolic::Variable>());
 }
 
 }  // namespace pydrake

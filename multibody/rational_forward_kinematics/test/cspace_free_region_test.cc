@@ -147,7 +147,7 @@ void TestCspaceFreeRegionConstructor(
         SortedPair<geometry::GeometryId>(collision_pair.first,
                                          collision_pair.second));
     EXPECT_NE(it, dut.map_polytopes_to_separating_planes().end());
-    const SeparatingPlane& separating_plane =
+    const SeparatingPlane<symbolic::Variable>& separating_plane =
         dut.separating_planes()[it->second];
     EXPECT_EQ(it->first,
               SortedPair<geometry::GeometryId>(
@@ -205,8 +205,8 @@ TEST_F(IiwaCspaceTest, TestConstructor) {
 
 void TestGenerateLinkOnOneSideOfPlaneRationalFunction(
     const RationalForwardKinematics& rational_forward_kinematics,
-    const SeparatingPlane& separating_plane, PlaneSide plane_side,
-    const Eigen::Ref<const Eigen::VectorXd>& q_star) {
+    const SeparatingPlane<symbolic::Variable>& separating_plane,
+    PlaneSide plane_side, const Eigen::Ref<const Eigen::VectorXd>& q_star) {
   const ConvexPolytope* link_polytope;
   const ConvexPolytope* other_side_polytope;
   if (plane_side == PlaneSide::kPositive) {
@@ -543,6 +543,34 @@ TEST_F(IiwaCspaceTest, ConstructProgramForCspacePolytope) {
   EXPECT_TRUE(result.is_success());
 }
 
+void CheckReadAndWriteCspacePolytope(const CspaceFreeRegion& dut,
+                                     const CspaceFreeRegionSolution& solution) {
+  const std::string file_name = temp_directory() + "/cspace_polytope.txt";
+  WriteCspacePolytopeToFile(solution, dut.rational_forward_kinematics().plant(),
+                            dut.scene_graph().model_inspector(), file_name, 10);
+  Eigen::MatrixXd C;
+  Eigen::VectorXd d;
+  std::unordered_map<SortedPair<geometry::GeometryId>,
+                     std::pair<BodyIndex, Eigen::VectorXd>>
+      separating_planes;
+  ReadCspacePolytopeFromFile(
+      file_name, dut.rational_forward_kinematics().plant(),
+      dut.scene_graph().model_inspector(), &C, &d, &separating_planes);
+  const double tol = 1E-7;
+  EXPECT_TRUE(CompareMatrices(solution.C, C, tol));
+  EXPECT_TRUE(CompareMatrices(solution.d, d, tol));
+  EXPECT_EQ(solution.separating_planes.size(), separating_planes.size());
+  for (const auto& plane : solution.separating_planes) {
+    auto it = separating_planes.find(SortedPair<geometry::GeometryId>(
+        plane.positive_side_polytope->get_id(),
+        plane.negative_side_polytope->get_id()));
+    EXPECT_NE(it, separating_planes.end());
+    EXPECT_EQ(it->second.first, plane.expressed_link);
+    EXPECT_TRUE(
+        CompareMatrices(it->second.second, plane.decision_variables, tol));
+  }
+}
+
 TEST_F(IiwaCspaceTest, GenerateTuplesForBilinearAlternation) {
   const CspaceFreeRegion dut(*diagram_, plant_, scene_graph_,
                              SeparatingPlaneOrder::kAffine,
@@ -782,6 +810,13 @@ TEST_F(IiwaCspaceTest, ConstructLagrangianAndPolytopeProgram) {
                        t_minus_t_lower, t_upper_minus_t,
                        lagrangian_gram_var_vals, verified_gram_var_vals,
                        separating_plane_var_vals, 1E-5);
+  const std::vector<bool> is_plane_active = internal::IsPlaneActive(
+      dut.separating_planes(), filtered_collision_pairs);
+  const std::vector<SeparatingPlane<double>> separating_planes_sol =
+      internal::GetSeparatingPlanesSolution(dut, is_plane_active, result);
+  CspaceFreeRegionSolution cspace_free_region_solution(C, d, P_sol, q_sol,
+                                                       separating_planes_sol);
+  CheckReadAndWriteCspacePolytope(dut, cspace_free_region_solution);
 
   // Now test ConstructPolytopeProgram using the lagrangian result.
   VectorX<symbolic::Variable> margin;
@@ -983,7 +1018,7 @@ TEST_F(IiwaCspaceTest, CspacePolytopeBinarySearch) {
 void CheckSeparatingPlanesSol(
     const CspaceFreeRegion& dut,
     const CspaceFreeRegion::FilteredCollisionPairs& filtered_collision_pairs,
-    const std::vector<SeparatingPlane>& separating_planes_sol) {
+    const std::vector<SeparatingPlane<double>>& separating_planes_sol) {
   const std::vector<bool> is_plane_active = internal::IsPlaneActive(
       dut.separating_planes(), filtered_collision_pairs);
   int active_plane_count = 0;
@@ -1548,25 +1583,6 @@ GTEST_TEST(AddCspacePolytopeContainment, Test2) {
     EXPECT_TRUE(
         ((C_sol * inner_pts.col(i)).array() <= d_sol.array() + 1E-6).all());
   }
-}
-
-GTEST_TEST(ReadAndWriteCspacePolytopeFile, Test) {
-  Eigen::Matrix<double, 2, 3> C;
-  C << 1.0, -0.000001, 0.5, -0.2, 5E3, 0.001;
-  Eigen::Vector2d d(1, 100000000000);
-  Eigen::Vector3d t_lower(1, -0.005, 10000);
-  Eigen::Vector3d t_upper(1000, 1E-8, 100000);
-  const std::string file_name = temp_directory() + "/cspace_polytope.txt";
-  WriteCspacePolytopeToFile(C, d, t_lower, t_upper, file_name, 10);
-  Eigen::MatrixXd C_read;
-  Eigen::VectorXd d_read, t_lower_read, t_upper_read;
-  ReadCspacePolytopeFromFile(file_name, &C_read, &d_read, &t_lower_read,
-                             &t_upper_read);
-  const double tol = 1E-9;
-  EXPECT_TRUE(CompareMatrices(C, C_read, tol));
-  EXPECT_TRUE(CompareMatrices(d, d_read, tol));
-  EXPECT_TRUE(CompareMatrices(t_lower, t_lower_read, tol));
-  EXPECT_TRUE(CompareMatrices(t_upper, t_upper_read, tol));
 }
 
 }  // namespace multibody

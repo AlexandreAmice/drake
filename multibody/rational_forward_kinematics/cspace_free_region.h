@@ -39,20 +39,23 @@ enum class SeparatingPlaneOrder {
  * One polytope is on the "positive" side of the separating plane, namely {x|
  * aᵀx + b ≥ 1}, and the other polytope is on the "negative" side of the
  * separating plane, namely {x|aᵀx+b ≤ −1}.
+ * @tparam T The type of decision_variables. By default T=symbolic::Variable,
+ * but when we store the solution to the separating plane, T=double.
  */
+template <typename T = symbolic::Variable>
 struct SeparatingPlane {
  public:
   DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(SeparatingPlane)
 
   SeparatingPlane() = default;
 
-  SeparatingPlane(
-      drake::Vector3<symbolic::Expression> m_a, symbolic::Expression m_b,
-      const ConvexPolytope* m_positive_side_polytope,
-      const ConvexPolytope* m_negative_side_polytope,
-      multibody::BodyIndex m_expressed_link, SeparatingPlaneOrder m_order,
-      const Eigen::Ref<const drake::VectorX<drake::symbolic::Variable>>&
-          m_decision_variables)
+  SeparatingPlane(drake::Vector3<symbolic::Expression> m_a,
+                  symbolic::Expression m_b,
+                  const ConvexPolytope* m_positive_side_polytope,
+                  const ConvexPolytope* m_negative_side_polytope,
+                  multibody::BodyIndex m_expressed_link,
+                  SeparatingPlaneOrder m_order,
+                  const Eigen::Ref<const VectorX<T>>& m_decision_variables)
       : a{std::move(m_a)},
         b{std::move(m_b)},
         positive_side_polytope{m_positive_side_polytope},
@@ -67,8 +70,46 @@ struct SeparatingPlane {
   const ConvexPolytope* negative_side_polytope;
   multibody::BodyIndex expressed_link;
   SeparatingPlaneOrder order;
-  VectorX<symbolic::Variable> decision_variables;
+  VectorX<T> decision_variables;
 };
+
+/**
+ * Compute a and b.
+ */
+template <typename T, typename U, typename V>
+void CalcPlane(const VectorX<T>& decision_variables,
+               const VectorX<U>& t_for_plane, SeparatingPlaneOrder order,
+               Vector3<V>* a_val, V* b_val) {
+  switch (order) {
+    case SeparatingPlaneOrder::kConstant: {
+      DRAKE_DEMAND(decision_variables.rows() == 4);
+      *a_val = decision_variables.template head<3>().template cast<V>();
+      *b_val = V(decision_variables(3));
+      return;
+    }
+    case SeparatingPlaneOrder::kAffine: {
+      Eigen::Matrix<T, 3, Eigen::Dynamic> a_coeff(3, t_for_plane.rows());
+      int var_count = 0;
+      for (int i = 0; i < 3; ++i) {
+        a_coeff.row(i) =
+            decision_variables.segment(var_count, t_for_plane.rows());
+        var_count += t_for_plane.rows();
+      }
+      const Vector3<T> a_constant =
+          decision_variables.template segment<3>(var_count);
+      var_count += 3;
+      const VectorX<T> b_coeff =
+          decision_variables.segment(var_count, t_for_plane.rows());
+      var_count += t_for_plane.rows();
+      const T& b_constant = decision_variables(var_count);
+      var_count++;
+      DRAKE_DEMAND(decision_variables.rows() == var_count);
+      *a_val = a_coeff * t_for_plane.template cast<V>() + a_constant;
+      *b_val = b_coeff.dot(t_for_plane.template cast<V>()) + b_constant;
+      return;
+    }
+  }
+}
 
 /**
  * We need to verify that C * t <= d implies p(t) >= 0, where p(t) is the
@@ -101,7 +142,7 @@ struct CspaceFreeRegionSolution {
       //     const std::vector<VectorX<symbolic::Polynomial>>
       //     m_t_upper_lagrangians, const std::vector<symbolic::Polynomial>
       //     m_verified_polynomials,
-      std::vector<SeparatingPlane> m_separating_planes)
+      std::vector<SeparatingPlane<double>> m_separating_planes)
       : C{std::move(m_C)},
         d{std::move(m_d)},
         P{std::move(m_P)},
@@ -142,7 +183,7 @@ struct CspaceFreeRegionSolution {
   //    std::vector<symbolic::Polynomial> verified_polynomials;
 
   // Separating hyperplanes that are the certificate
-  std::vector<SeparatingPlane> separating_planes;
+  std::vector<SeparatingPlane<double>> separating_planes;
 };
 
 /**
@@ -177,6 +218,11 @@ struct LinkVertexOnPlaneSideRational {
 };
 
 enum class CspaceRegionType { kGenericPolytope, kAxisAlignedBoundingBox };
+
+/** Get t (the stereographic projection variable) for the separating plane */
+VectorX<symbolic::Variable> GetTForPlane(
+    const BodyIndex positive_side_link, const BodyIndex negative_side_link,
+    const RationalForwardKinematics& rat_fk, CspaceRegionType region_type);
 
 /**
  * When we maximize the inscribed ellipsoid, we can measure the size of the
@@ -573,7 +619,8 @@ class CspaceFreeRegion {
     return *scene_graph_;
   }
 
-  const std::vector<SeparatingPlane>& separating_planes() const {
+  const std::vector<SeparatingPlane<symbolic::Variable>>& separating_planes()
+      const {
     return separating_planes_;
   }
 
@@ -590,7 +637,7 @@ class CspaceFreeRegion {
 
   SeparatingPlaneOrder plane_order_;
   CspaceRegionType cspace_region_type_;
-  std::vector<SeparatingPlane> separating_planes_;
+  std::vector<SeparatingPlane<symbolic::Variable>> separating_planes_;
 
   // separating_planes_[(geometry1_id, geometry2_id)] is the separating plane
   // that separates geometry1 and geometry 2.
@@ -810,21 +857,33 @@ void AddCspacePolytopeContainment(
                                               const Eigen::VectorXd& t_lower,
                                               const Eigen::VectorXd& t_upper);
 
-void WriteCspacePolytopeToFile(const Eigen::Ref<const Eigen::MatrixXd>& C,
-                               const Eigen::Ref<const Eigen::VectorXd>& d,
-                               const Eigen::Ref<const Eigen::VectorXd>& t_lower,
-                               const Eigen::Ref<const Eigen::VectorXd>& t_upper,
-                               const std::string& file_name, int precision);
+/**
+ * @param precision The precision (number of digits) to write double value to
+ * txt file.
+ */
+void WriteCspacePolytopeToFile(
+    const CspaceFreeRegionSolution& solution,
+    const MultibodyPlant<double>& plant,
+    const geometry::SceneGraphInspector<double>& inspector,
+    const std::string& file_name, int precision);
 
-void ReadCspacePolytopeFromFile(const std::string& filename, Eigen::MatrixXd* C,
-                                Eigen::VectorXd* d, Eigen::VectorXd* t_lower,
-                                Eigen::VectorXd* t_upper);
+/**
+ * @param[out] separating_planes is a mapping from the pair of geometry IDs to
+ * the expressed link and the decision variable values.
+ */
+void ReadCspacePolytopeFromFile(
+    const std::string& filename, const MultibodyPlant<double>& plant,
+    const geometry::SceneGraphInspector<double>& inspector, Eigen::MatrixXd* C,
+    Eigen::VectorXd* d,
+    std::unordered_map<SortedPair<geometry::GeometryId>,
+                       std::pair<BodyIndex, Eigen::VectorXd>>*
+        separating_planes);
 
 namespace internal {
 // Some of the separating planes will be ignored by filtered_collision_pairs.
 // Returns std::vector<bool> to indicate if each plane is active or not.
 std::vector<bool> IsPlaneActive(
-    const std::vector<SeparatingPlane>& separating_planes,
+    const std::vector<SeparatingPlane<symbolic::Variable>>& separating_planes,
     const CspaceFreeRegion::FilteredCollisionPairs& filtered_collision_pairs);
 
 /** For a given polytopic C-space region C * t <= d, t_lower <= t <= t_upper,
@@ -858,6 +917,16 @@ bool FindLagrangianAndSeparatingPlanes(
     Eigen::VectorXd* verified_gram_var_vals,
     Eigen::VectorXd* separating_plane_var_vals,
     CspaceFreeRegionSolution* cspace_free_region_solution);
+
+/**
+ * @param is_plane_active: sometimes the collision between a pair of geometries
+ * is ignored. is_plane_active[i] means whether the plane
+ * cspace_free_region.separating_planes()[i] is active or not.
+ */
+std::vector<SeparatingPlane<double>> GetSeparatingPlanesSolution(
+    const CspaceFreeRegion& cspace_free_region,
+    const std::vector<bool>& is_plane_active,
+    const solvers::MathematicalProgramResult& result);
 }  // namespace internal
 }  // namespace multibody
 }  // namespace drake

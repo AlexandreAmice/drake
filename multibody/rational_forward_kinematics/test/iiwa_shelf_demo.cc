@@ -249,9 +249,12 @@ void SearchCspacePolytope(
   Eigen::MatrixXd C_init;
   Eigen::VectorXd d_init;
   if (read_file.has_value()) {
-    Eigen::VectorXd t_lower_dummy, t_upper_dummy;
-    ReadCspacePolytopeFromFile(read_file.value(), &C_init, &d_init,
-                               &t_lower_dummy, &t_upper_dummy);
+    std::unordered_map<SortedPair<geometry::GeometryId>,
+                       std::pair<BodyIndex, Eigen::VectorXd>>
+        separating_planes;
+    ReadCspacePolytopeFromFile(read_file.value(), iiwa_diagram.plant(),
+                               iiwa_diagram.scene_graph().model_inspector(),
+                               &C_init, &d_init, &separating_planes);
   } else {
     BuildCandidateCspacePolytope(q0, &C_init, &d_init);
   }
@@ -309,7 +312,9 @@ void SearchCspacePolytope(
           .tan()
           .matrix();
 
-  WriteCspacePolytopeToFile(C_final, d_final, t_lower, t_upper, write_file, 10);
+  WriteCspacePolytopeToFile(cspace_free_region_solution, iiwa_diagram.plant(),
+                            iiwa_diagram.scene_graph().model_inspector(),
+                            write_file, 10);
   drake::log()->info("polytope volumes {}",
                      Eigen::Map<Eigen::RowVectorXd>(polytope_volumes.data(),
                                                     polytope_volumes.size()));
@@ -320,13 +325,28 @@ void SearchCspacePolytope(
 }
 
 void VisualizePostures(const std::string& read_file) {
+  IiwaDiagram single_iiwa_diagram(1);
   Eigen::MatrixXd C;
-  Eigen::VectorXd d, t_lower, t_upper;
-  ReadCspacePolytopeFromFile(read_file, &C, &d, &t_lower, &t_upper);
+  Eigen::VectorXd d;
+  std::unordered_map<SortedPair<geometry::GeometryId>,
+                     std::pair<BodyIndex, Eigen::VectorXd>>
+      separating_planes;
+  ReadCspacePolytopeFromFile(
+      read_file, single_iiwa_diagram.plant(),
+      single_iiwa_diagram.scene_graph().model_inspector(), &C, &d,
+      &separating_planes);
   const int num_postures = 3;
   // Solve a program such that the sum of inter-posture distance is maximized.
   solvers::MathematicalProgram prog;
   auto t = prog.NewContinuousVariables(7, num_postures);
+  const Eigen::VectorXd t_lower =
+      (single_iiwa_diagram.plant().GetPositionLowerLimits().array() / 2)
+          .tan()
+          .matrix();
+  const Eigen::VectorXd t_upper =
+      (single_iiwa_diagram.plant().GetPositionUpperLimits().array() / 2)
+          .tan()
+          .matrix();
   for (int i = 0; i < num_postures; ++i) {
     prog.AddLinearConstraint(C, Eigen::VectorXd::Constant(d.rows(), -kInf), d,
                              t.col(i));

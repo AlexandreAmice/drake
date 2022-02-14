@@ -360,7 +360,7 @@ drake_py_unittest(
 
 drake_py_unittest(
     name = "rational_forward_kinematics_test",
-    size = "medium",
+    size = "large",
     data = [
         "//manipulation/models/iiwa_description:models",
     ],
