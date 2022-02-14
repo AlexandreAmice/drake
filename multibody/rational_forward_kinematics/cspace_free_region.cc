@@ -1329,10 +1329,11 @@ bool FindLagrangianAndSeparatingPlanesMultiThread(
     int sos_dispatched = 0;
     // If any SOS is infeasible, then we terminate all other SOS and report
     // failure.
-    bool found_infeasible = false;
+    // bool found_infeasible = false;
     while (
-        (active_operations.size() > 0 || sos_dispatched < num_active_planes) &&
-        !found_infeasible) {
+        // (active_operations.size() > 0 || sos_dispatched < num_active_planes) &&
+        // !found_infeasible) {
+        (active_operations.size() > 0 || sos_dispatched < num_active_planes)) {  
       // Check for completed operations.
       for (auto operation = active_operations.begin();
            operation != active_operations.end();) {
@@ -1343,10 +1344,10 @@ bool FindLagrangianAndSeparatingPlanesMultiThread(
           drake::log()->debug("SOS {} completed, is_success {}",
                               active_plane_count,
                               is_success[active_plane_count].value());
-          if (!(is_success[active_plane_count].value())) {
-            found_infeasible = true;
-            break;
-          }
+          // if (!(is_success[active_plane_count].value())) {
+          //   found_infeasible = true;
+          //   break;
+          // }
           // Erase returns iterator to the next node in the list.
           operation = active_operations.erase(operation);
         } else {
