@@ -1480,7 +1480,7 @@ void CspaceFreeRegion::CspacePolytopeBilinearAlternation(
     const CspaceFreeRegion::BilinearAlternationOption&
         bilinear_alternation_option,
     const solvers::SolverOptions& solver_options,
-    const std::optional<Eigen::MatrixXd>& q_inner_pts,
+    const std::optional<Eigen::MatrixXd>& t_inner_pts,
     const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
         inner_polytope,
     CspaceFreeRegionSolution* cspace_free_region_solution) const {
@@ -1603,18 +1603,13 @@ void CspaceFreeRegion::CspacePolytopeBilinearAlternation(
     const double margin_upper_bound = (t_upper - t_lower).norm();
     prog_polytope->AddBoundingBoxConstraint(0, margin_upper_bound, margin);
     // Add the constraint that the polytope contains the t_inner_pts.
-    if (q_inner_pts.has_value()) {
-      Eigen::MatrixXd t_inner_pts(q_inner_pts->rows(), q_inner_pts->cols());
-      for (int i = 0; i < q_inner_pts->cols(); ++i) {
-        t_inner_pts.col(i) = rational_forward_kinematics_.ComputeTValue(
-            q_inner_pts->col(i), q_star);
-      }
-      for (int i = 0; i < t_inner_pts.cols(); ++i) {
-        DRAKE_DEMAND((t_inner_pts.col(i).array() <= t_upper.array()).all());
-        DRAKE_DEMAND((t_inner_pts.col(i).array() >= t_lower.array()).all());
+    if (t_inner_pts.has_value()) {
+      for (int i = 0; i < t_inner_pts->cols(); ++i) {
+        DRAKE_DEMAND((t_inner_pts->col(i).array() <= t_upper.array()).all());
+        DRAKE_DEMAND((t_inner_pts->col(i).array() >= t_lower.array()).all());
       }
       AddCspacePolytopeContainment(prog_polytope.get(), C_var, d_var,
-                                   t_inner_pts);
+                                   t_inner_pts.value());
     }
     // Add the constraint that the polytope contains the inner polytope.
     if (inner_polytope.has_value()) {
@@ -1696,7 +1691,7 @@ void CspaceFreeRegion::CspacePolytopeBinarySearch(
     const Eigen::Ref<const Eigen::VectorXd>& d_init,
     const BinarySearchOption& binary_search_option,
     const solvers::SolverOptions& solver_options,
-    const std::optional<Eigen::MatrixXd>& q_inner_pts,
+    const std::optional<Eigen::MatrixXd>& t_inner_pts,
     const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
         inner_polytope,
     CspaceFreeRegionSolution* cspace_free_region_solution) const {
@@ -1723,14 +1718,7 @@ void CspaceFreeRegion::CspacePolytopeBinarySearch(
       &d_minus_Ct, &t_lower, &t_upper, &t_minus_t_lower, &t_upper_minus_t,
       &C_var, &d_var, &lagrangian_gram_vars, &verified_gram_vars,
       &separating_plane_vars, &separating_plane_to_tuples);
-  std::optional<Eigen::MatrixXd> t_inner_pts;
-  if (q_inner_pts.has_value()) {
-    t_inner_pts->resize(q_inner_pts->rows(), q_inner_pts->cols());
-    for (int i = 0; i < q_inner_pts->cols(); ++i) {
-      t_inner_pts->col(i) = rational_forward_kinematics_.ComputeTValue(
-          q_inner_pts->col(i), q_star);
-    }
-  }
+  
   DRAKE_DEMAND(binary_search_option.epsilon_min >=
                FindEpsilonLower(C, d_init, t_lower, t_upper, t_inner_pts,
                                 inner_polytope));

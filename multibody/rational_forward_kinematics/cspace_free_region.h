@@ -488,9 +488,9 @@ class CspaceFreeRegion {
    * t_lower/t_upper ar the lower and upper bounds of t computed from joint
    * limits.
    * @param q_star t = tan((q - q_star)/2)
-   * @param q_inner_pts If this input is not empty, then the searched polytope
-   * {C*t<=d, t_lower<=t<=t_upper} needs to contain the t computed from each
-   * column of q_inner_pts.
+   * @param t_inner_pts If this input is not empty, then the searched polytope
+   * {C*t<=d, t_lower<=t<=t_upper} needs to contain each
+   * column of t_inner_pts.
    * @param inner_polytope (C_inner, d_inner) If this input is not empty, then
    * the searched polytope {C*t<=d} needs to contain {C_inner * t <= d_inner,
    * t_lower <= t <= t_upper}.
@@ -508,7 +508,7 @@ class CspaceFreeRegion {
       const Eigen::Ref<const Eigen::VectorXd>& d_init,
       const BilinearAlternationOption& bilinear_alternation_option,
       const solvers::SolverOptions& solver_options,
-      const std::optional<Eigen::MatrixXd>& q_inner_pts,
+      const std::optional<Eigen::MatrixXd>& t_inner_pts,
       const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
           inner_polytope,
       CspaceFreeRegionSolution* cspace_free_region_solution) const;
@@ -596,9 +596,9 @@ class CspaceFreeRegion {
    * Lagrangian multiplier and search d, and denote the newly found d as
    * d_reset. We then reset ε to zero and find the collision free region C*t <=
    * d_reset + ε through binary search.
-   * @param q_inner_pts If this input is not empty, then the searched polytope
-   * {C*t<=d, t_lower<=t<=t_upper} needs to contain the t computed from each
-   * column of q_inner_pts.
+   * @param t_inner_pts If this input is not empty, then the searched polytope
+   * {C*t<=d, t_lower<=t<=t_upper} needs to contain each
+   * column of t_inner_pts.
    * @param inner_polytope (C_inner, d_inner) If this input is not empty, then
    * the searched polytope {C*t<=d} needs to contain {C_inner * t <= d_inner,
    * t_lower <= t <= t_upper}.
@@ -610,7 +610,7 @@ class CspaceFreeRegion {
       const Eigen::Ref<const Eigen::VectorXd>& d_init,
       const BinarySearchOption& binary_search_option,
       const solvers::SolverOptions& solver_options,
-      const std::optional<Eigen::MatrixXd>& q_inner_pts,
+      const std::optional<Eigen::MatrixXd>& t_inner_pts,
       const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
           inner_polytope,
       CspaceFreeRegionSolution* cspace_free_region_solution) const;

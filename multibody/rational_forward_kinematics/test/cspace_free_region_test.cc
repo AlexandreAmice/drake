@@ -908,12 +908,16 @@ TEST_F(IiwaCspaceTest, CspacePolytopeBilinearAlternation) {
                                    .verbose = true};
   solvers::SolverOptions solver_options;
   solver_options.SetOption(solvers::CommonSolverOption::kPrintToConsole, true);
+  const Eigen::VectorXd t_inner_pts =
+      dut.rational_forward_kinematics().ComputeTValue(q_not_in_collision,
+                                                      q_star);
   //  std::vector<SeparatingPlane> separating_planes_sol;
+  std::vector<double> polytope_volumes, ellipsoid_determinants;
   CspaceFreeRegionSolution cspace_free_region_solution;
   dut.CspacePolytopeBilinearAlternation(
       q_star, filtered_collision_pairs, C, d, bilinear_alternation_options,
-      solver_options, q_not_in_collision, std::nullopt,
-      &cspace_free_region_solution);
+      solver_options, t_inner_pts, std::nullopt, &cspace_free_region_solution,
+      &polytope_volumes, &ellipsoid_determinants);
   EXPECT_EQ(cspace_free_region_solution.separating_planes.size(),
             dut.separating_planes().size());
   const symbolic::Variables t_vars(dut.rational_forward_kinematics().t());
@@ -925,9 +929,7 @@ TEST_F(IiwaCspaceTest, CspacePolytopeBilinearAlternation) {
     }
     EXPECT_TRUE(separating_plane_sol.b.GetVariables().IsSubsetOf(t_vars));
   }
-  const Eigen::VectorXd t_inner_pts =
-      dut.rational_forward_kinematics().ComputeTValue(q_not_in_collision,
-                                                      q_star);
+
   EXPECT_TRUE(((C_final * t_inner_pts).array() <= d_final.array()).all());
 }
 
@@ -958,10 +960,12 @@ TEST_F(IiwaCspaceTest, CspacePolytopeBinarySearch) {
   solver_options.SetOption(solvers::CommonSolverOption::kPrintToConsole, true);
   Eigen::VectorXd d_final;
   CspaceFreeRegionSolution cspace_free_region_solution;
-  dut.CspacePolytopeBinarySearch(q_star, filtered_collision_pairs, C, d,
-                                 binary_search_option, solver_options,
-                                 q_not_in_collision, std::nullopt,
-                                 &cspace_free_region_solution);
+  const Eigen::VectorXd t_inner_pts =
+      dut.rational_forward_kinematics().ComputeTValue(q_not_in_collision,
+                                                      q_star);
+  dut.CspacePolytopeBinarySearch(
+      q_star, filtered_collision_pairs, C, d, binary_search_option,
+      solver_options, t_inner_pts, std::nullopt, &cspace_free_region_solution);
   EXPECT_EQ(cspace_free_region_solution.separating_planes.size(),
             dut.separating_planes().size());
 
@@ -969,10 +973,9 @@ TEST_F(IiwaCspaceTest, CspacePolytopeBinarySearch) {
   binary_search_option.search_d = true;
   binary_search_option.max_iters = 2;
   Eigen::VectorXd d_final_search_d;
-  dut.CspacePolytopeBinarySearch(q_star, filtered_collision_pairs, C, d,
-                                 binary_search_option, solver_options,
-                                 q_not_in_collision, std::nullopt,
-                                 &cspace_free_region_solution);
+  dut.CspacePolytopeBinarySearch(
+      q_star, filtered_collision_pairs, C, d, binary_search_option,
+      solver_options, t_inner_pts, std::nullopt, &cspace_free_region_solution);
   EXPECT_EQ(cspace_free_region_solution.separating_planes.size(),
             dut.separating_planes().size());
 }
