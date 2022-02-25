@@ -9,7 +9,7 @@ from functools import partial
 import mcubes
 import sos_iris_certifier.visualizations_utils as viz_utils
 import pydrake.symbolic as sym
-
+import time
 
 
 class IrisPlantVisualizer:
@@ -28,17 +28,15 @@ class IrisPlantVisualizer:
 
         # Construct Rational Forward Kinematics
         self.forward_kin = RationalForwardKinematics(plant)
-        self.t_variables = sym.Variables(self.forward_kin.t())
-        self.t_array = self.forward_kin.t()
+        self.s_variables = sym.Variables(self.forward_kin.t())
+        self.s_array = self.forward_kin.t()
         self.num_joints = self.plant.num_positions()
         # the point around which we construct the stereographic projection
         self.q_star = kwargs.get('q_star', np.zeros(self.num_joints))
         self.q_lower_limits = plant.GetPositionLowerLimits()
-        self.t_lower_limits = self.forward_kin.ComputeTValue(self.q_lower_limits, self.q_star)
+        self.s_lower_limits = self.forward_kin.ComputeTValue(self.q_lower_limits, self.q_star)
         self.q_upper_limits = plant.GetPositionUpperLimits()
-        self.t_upper_limits = self.forward_kin.ComputeTValue(self.q_upper_limits, self.q_star)
-
-
+        self.s_upper_limits = self.forward_kin.ComputeTValue(self.q_upper_limits, self.q_star)
 
 
         visualizer = ConnectMeshcatVisualizer(self.builder, scene_graph, zmq_url=zmq_url,
@@ -48,48 +46,49 @@ class IrisPlantVisualizer:
         self.diagram_context = self.diagram.CreateDefaultContext()
         self.plant_context = plant.GetMyContextFromRoot(self.diagram_context)
         self.diagram.Publish(self.diagram_context)
-        #
-        # # construct collision pairs
-        # self.query = self.scene_graph.get_query_output_port().Eval(
-        #     self.scene_graph.GetMyContextFromRoot(self.diagram_context))
-        # self.inspector = self.query.inspector()
-        # self.pairs = self.inspector.GetCollisionCandidates()
-        #
-        # # only gets kProximity pairs. Might be more efficient?
-        # # geom_ids = inspector.GetGeometryIds(GeometrySet(inspector.GetAllGeometryIds()), Role.kProximity)
-        # pair_set = set()
-        # for p in self.pairs:
-        #     pair_set.add(p[0])
-        #     pair_set.add(p[1])
-        # self.geom_ids = self.inspector.GetGeometryIds(GeometrySet(list(pair_set)))
-        # self.link_poses_by_body_index_rat_pose = self.forward_kin.CalcLinkPoses(self.q_star,
-        #                                                                         self.plant.world_body().index())
-        # self.X_WA_list = [p.asRigidTransformExpr() for p in self.link_poses_by_body_index_rat_pose]
-        # self.body_indexes_by_geom_id = {geom:
-        #                                     plant.GetBodyFromFrameId(self.inspector.GetFrameId(geom)).index() for geom
-        #                                 in
-        #                                 self.geom_ids}
-        # self.hpoly_sets_in_self_frame_by_geom_id = {
-        #     geom: iris_utils.MakeFromHPolyhedronSceneGraph(self.query, geom, self.inspector.GetFrameId(geom))
-        #     for geom in self.geom_ids}
-        # self.vpoly_sets_in_self_frame_by_geom_id = {
-        #     geom: iris_utils.MakeFromVPolytopeSceneGraph(self.query, geom, self.inspector.GetFrameId(geom))
-        #     for geom in self.geom_ids}
-        #
-        # self.t_space_vertex_world_position_by_geom_id = {}
-        # for geom in self.geom_ids:
-        #     VPoly = self.vpoly_sets_in_self_frame_by_geom_id[geom]
-        #     num_verts = VPoly.vertices().shape[1]
-        #     X_WA = self.X_WA_list[int(self.body_indexes_by_geom_id[geom])]
-        #     R_WA = X_WA.rotation().matrix()
-        #     p_WA = X_WA.translation()
-        #     vert_pos = R_WA @ (VPoly.vertices()) + np.repeat(p_WA[:, np.newaxis], num_verts, 1)
-        #     self.t_space_vertex_world_position_by_geom_id[geom] = vert_pos
 
         self.ik = InverseKinematics(plant, self.plant_context)
         self.collision_constraint = self.ik.AddMinimumDistanceConstraint(1e-4, 0.01)
         self.col_func_handle = partial(self.eval_cons, c=self.collision_constraint, tol=0.01)
         self.col_func_handle_rational = partial(self.eval_cons_rational)
+
+        # construct collision pairs
+        self.query = self.scene_graph.get_query_output_port().Eval(
+            self.scene_graph.GetMyContextFromRoot(self.diagram_context))
+        self.inspector = self.query.inspector()
+        self.pairs = self.inspector.GetCollisionCandidates()
+
+        # transforms for plotting planes
+        # only gets kProximity pairs. Might be more efficient?
+        # geom_ids = inspector.GetGeometryIds(GeometrySet(inspector.GetAllGeometryIds()), Role.kProximity)
+        pair_set = set()
+        for p in self.pairs:
+            pair_set.add(p[0])
+            pair_set.add(p[1])
+        self.geom_ids = self.inspector.GetGeometryIds(GeometrySet(list(pair_set)))
+        self.link_poses_by_body_index_rat_pose = self.forward_kin.CalcLinkPoses(self.q_star,
+                                                                                self.plant.world_body().index())
+        self.X_WA_list = [p.asRigidTransformExpr() for p in self.link_poses_by_body_index_rat_pose]
+        self.body_indexes_by_geom_id = {geom:
+                                            plant.GetBodyFromFrameId(self.inspector.GetFrameId(geom)).index() for geom
+                                        in
+                                        self.geom_ids}
+        self.hpoly_sets_in_self_frame_by_geom_id = {
+            geom: self.MakeFromHPolyhedronSceneGraph(self.query, geom, self.inspector.GetFrameId(geom))
+            for geom in self.geom_ids}
+        self.vpoly_sets_in_self_frame_by_geom_id = {
+            geom: self.MakeFromVPolytopeSceneGraph(self.query, geom, self.inspector.GetFrameId(geom))
+            for geom in self.geom_ids}
+
+        self.s_space_vertex_world_position_by_geom_id = {}
+        for geom in self.geom_ids:
+            VPoly = self.vpoly_sets_in_self_frame_by_geom_id[geom]
+            num_verts = VPoly.vertices().shape[1]
+            X_WA = self.X_WA_list[int(self.body_indexes_by_geom_id[geom])]
+            R_WA = X_WA.rotation().matrix()
+            p_WA = X_WA.translation()
+            vert_pos = R_WA @ (VPoly.vertices()) + np.repeat(p_WA[:, np.newaxis], num_verts, 1)
+            self.s_space_vertex_world_position_by_geom_id[geom] = vert_pos
 
         #plotting planes setup
         x = np.linspace(-1, 1, 3)
@@ -111,9 +110,9 @@ class IrisPlantVisualizer:
     def eval_cons(self, q, c, tol):
         return 1 - 1 * float(c.evaluator().CheckSatisfied(q, tol))
 
-    def eval_cons_rational(self, *t):
-        t = np.array(t)
-        q = self.forward_kin.ComputeQValue(np.array(t).reshape(1, -1), self.q_star).squeeze()
+    def eval_cons_rational(self, *s):
+        s = np.array(s)
+        q = self.forward_kin.ComputeQValue(np.array(s), self.q_star)
         return self.col_func_handle(q)
 
     def visualize_collision_constraint(self, N = 50):
@@ -121,8 +120,8 @@ class IrisPlantVisualizer:
         :param N: N is density of marchingcubes grid. Runtime scales cubically in N
         :return:
         """
-        vertices, triangles = mcubes.marching_cubes_func(tuple(self.t_lower_limits),
-                                                         tuple(self.t_upper_limits),
+        vertices, triangles = mcubes.marching_cubes_func(tuple(self.s_lower_limits),
+                                                         tuple(self.s_upper_limits),
                                                          N, N, N, self.col_func_handle_rational, 0.5)
 
         self.vis2["collision_constraint"].set_object(
@@ -142,37 +141,37 @@ class IrisPlantVisualizer:
     def showres(self,q):
         self.plant.SetPositions(self.plant_context, q)
         col = self.col_func_handle(q)
-        t = self.forward_kin.ComputeTValue(np.array(q).reshape(1, -1)).squeeze()
+        s = self.forward_kin.ComputeTValue(np.array(q), self.q_star)
         if col:
-            self.vis2["t"].set_object(
+            self.vis2["s"].set_object(
                 meshcat.geometry.Sphere(0.1), meshcat.geometry.MeshLambertMaterial(color=0xFFB900))
-            self.vis2["t"].set_transform(
-                meshcat.transformations.translation_matrix(t))
+            self.vis2["s"].set_transform(
+                meshcat.transformations.translation_matrix(s))
         else:
-            self.vis2["t"].set_object(
+            self.vis2["s"].set_object(
                 meshcat.geometry.Sphere(0.1), meshcat.geometry.MeshLambertMaterial(color=0x3EFF00))
-            self.vis2["t"].set_transform(
-                meshcat.transformations.translation_matrix(t))
+            self.vis2["s"].set_transform(
+                meshcat.transformations.translation_matrix(s))
         self.diagram.Publish(self.diagram_context)
 
-    def showres_t(self, t):
-        q = self.forward_kin.ComputeQValue(t, self.q_star)
+    def showres_s(self, s):
+        q = self.forward_kin.ComputeQValue(s, self.q_star)
         self.showres(q)
 
     def show_res_with_planes(self, q):
-        t = self.forward_kin.ComputeTValue(q, self.q_star)
+        s = self.forward_kin.ComputeTValue(q, self.q_star)
         self.showres(q)
         if self.region_to_collision_pair_to_plane_dictionary is not None:
             for region, collision_pair_to_plane_dictionary in self.region_to_collision_pair_to_plane_dictionary.items():
-                if region.PointInSet(t):
+                if region.PointInSet(s):
                     colors = viz_utils.n_colors(len(collision_pair_to_plane_dictionary.keys()))
                     for i, (pair, planes) in enumerate(collision_pair_to_plane_dictionary.items()):
                         geomA, geomB = pair[0], pair[1]
-                        self.plot_plane_geom_id(geomA, geomB, collision_pair_to_plane_dictionary, t, color=colors[i],
+                        self.plot_plane_geom_id(geomA, geomB, collision_pair_to_plane_dictionary, s, color=colors[i],
                                                 region_name=f"region {i}")
 
-    def plot_plane_geom_id(self, geomA, geomB, planes_dict, cur_t, color=(0, 0, 0), region_name = ''):
-        verts_tf, p1, p2 = self.transform_plane_geom_id(geomA, geomB, planes_dict, cur_t)
+    def plot_plane_geom_id(self, geomA, geomB, planes_dict, cur_s, color=(0, 0, 0), region_name =''):
+        verts_tf, p1, p2 = self.transform_plane_geom_id(geomA, geomB, planes_dict, cur_s)
 
         mat = meshcat.geometry.MeshLambertMaterial(color=viz_utils.rgb_to_hex(color), wireframe=False)
         mat.opacity = 0.5
@@ -203,22 +202,22 @@ class IrisPlantVisualizer:
         verts_tf = (R @ plane_verts.T).T + offset
         return verts_tf
 
-    def transform_at_t(self, cur_t, a_poly, b_poly, p1_rat, p2_rat):
-        eval_dict = dict(zip(b_poly.indeterminates(), cur_t))
+    def transform_at_s(self, cur_s, a_poly, b_poly, p1_rat, p2_rat):
+        eval_dict = dict(zip(b_poly.indeterminates(), cur_s))
         a, b = self.EvaluatePlanePair((a_poly, b_poly), eval_dict)
-        eval_dict = dict(zip(self.t_variables, cur_t))
+        eval_dict = dict(zip(self.s_variables, cur_s))
         #     print(f"{a}, {b}")
         p1 = np.array([p.Evaluate(eval_dict) for p in p1_rat])
         p2 = np.array([p.Evaluate(eval_dict) for p in p2_rat])
         return self.transform(a, b, p1, p2, self.plane_verts), p1, p2
 
     def transform_plane_geom_id(self, geomA, geomB, planes_dict, cur_t):
-        vA = self.t_space_vertex_world_position_by_geom_id[geomA][:, 0]
-        vB = self.t_space_vertex_world_position_by_geom_id[geomB][:, 0]
+        vA = self.s_space_vertex_world_position_by_geom_id[geomA][:, 0]
+        vB = self.s_space_vertex_world_position_by_geom_id[geomB][:, 0]
         a_poly, b_poly = planes_dict[(geomA, geomB)]
-        return self.transform_at_t(cur_t, a_poly, b_poly, vA, vB)
+        return self.transform_at_s(cur_t, a_poly, b_poly, vA, vB)
 
-    def animate_t(self, traj, steps, runtime):
+    def animate_s(self, traj, steps, runtime):
         # loop
         idx = 0
         going_fwd = True
@@ -244,42 +243,17 @@ class IrisPlantVisualizer:
                     going_fwd = True
                     idx += 1
 
-    def draw_traj_tspace(self, traj, maxit, name):
+
+    def draw_traj_s_space(self, traj, maxit, name):
         # evals end twice fix later
         for it in range(maxit):
             pt = traj.value(it * traj.end_time() / maxit)
             pt_nxt = traj.value((it + 1) * traj.end_time() / maxit)
 
-            pt_q = self.forward_kin.ComputeQValue(pt, self.q_star)
-
             mat = meshcat.geometry.MeshLambertMaterial(color=0xFFF812)
             mat.reflectivity = 1.0
             self.vis2[name]['traj']['points' + str(it)].set_object(viz_utils.meshcat_line(pt.squeeze(), pt_nxt.squeeze(), width=0.03),
                                                               mat)
-            #
-            # set_joint_angles(pt_q.reshape(-1, ))
-            # tf_l2 = self.plant.EvalBodyPoseInWorld(self.plant_context,
-            #                                        self.plant.get_body(pydrake.multibody.tree.BodyIndex(3)))
-            # R_l2 = tf_l2.rotation()
-            # tl_l2 = R_l2 @ np.array([0, 0, 0.9]) + tf_l2.translation()
-            #
-            # tf_la = self.plant.EvalBodyPoseInWorld(self.plant_context,
-            #                                        self.plant.get_body(pydrake.multibody.tree.BodyIndex(4)))
-            # R_la = tf_la.rotation()
-            # tl_la = R_la @ np.array([0, 0, 1.2]) + tf_la.translation()
-            #
-            # mat = meshcat.geometry.MeshLambertMaterial(color=0x0029F1)
-            # mat.reflectivity = 1.0
-            # self.vis[name]['traj']['link2']['points' + str(it)].set_object(
-            #     meshcat.geometry.Sphere(0.02), mat)
-            # self.vis[name]['traj']['link2']['points' + str(it)].set_transform(
-            #     meshcat.transformations.translation_matrix(tl_l2))
-            # mat = meshcat.geometry.MeshLambertMaterial(color=0x07F100)
-            # mat.reflectivity = 1.0
-            # vis[name]['traj']['linka']['points' + str(it)].set_object(
-            #     meshcat.geometry.Sphere(0.02), mat)
-            # vis[name]['traj']['linka']['points' + str(it)].set_transform(
-            #     meshcat.transformations.translation_matrix(tl_la))
 
     def EvaluatePlanePair(self, plane_pair, eval_dict):
         a_res = []
@@ -293,7 +267,7 @@ class IrisPlantVisualizer:
             raise ValueError(f"Sphere or Ellipsoid not Supported")
         return HPolyhedron(query, geom, expressed_in)
 
-    def MakeFromVPolytopeSceneGraph(query, geom, expressed_in=None):
+    def MakeFromVPolytopeSceneGraph(self, query, geom, expressed_in=None):
         shape = query.inspector().GetShape(geom)
         if isinstance(shape, (Sphere, Ellipsoid)):
             raise ValueError(f"Sphere or Ellipsoid not Supported")

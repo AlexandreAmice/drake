@@ -75,6 +75,7 @@ class CertifiedIrisRegionGenerator():
         self.ellipses = None
 
         #construct certification problems
+        # Dictionary mapping HPolyhedron Object -> RegionCertificationProblem
         self.certification_problems = None
 
         self.linesearch_regions = None
@@ -208,7 +209,6 @@ class CertifiedIrisRegionGenerator():
     #endregion
 
     # region certification
-    # region certification intialization
     def certify_and_adjust_regions_by_linesearch(self, convergence_threshold = 1e-5):
         if self.certification_problems is None:
             raise ValueError("initialize certifier before calling this method")
@@ -251,6 +251,7 @@ class CertifiedIrisRegionGenerator():
         self.alternation_search_regions = new_regions_by_alternation
         self.alternation_search_regions_to_certificates_by_collision_pair_map = certificates_by_new_region
 
+    # region certification intialization
     def initalize_certifier(self, plane_order = -1, strict_pos_tol = 1e-5, penalize_coeffs = True):
         if self.regions is None:
             raise ValueError("generate iris regions before attempting certification")
@@ -405,7 +406,8 @@ class CertifiedIrisRegionGenerator():
         geometries
         :param geomA: Geometry A
         :param geomB: Geometry B
-        :param plane_order:  order of desired separating hyperplane polynomial
+        :param plane_order:  polynomial degree of desired separating hyperplane polynomial.
+        -1 leads to the square of the multlinear basis
         :param strict_pos_tol: tolerance for p(x) >= strict_pos_tol > 0
         :return: (a_poly, b_poly) -> polynomials defining a^Tx+b = 0
         (plane_constraint_polynomials_A, plane_constraint_polynomials_B) -> polynomials which must be positive to certify
