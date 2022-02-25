@@ -5,9 +5,9 @@
 #include <utility>
 
 #include "drake/common/find_resource.h"
-#include "drake/geometry/geometry_roles.h"
 #include "drake/multibody/benchmarks/kuka_iiwa_robot/make_kuka_iiwa_model.h"
 #include "drake/multibody/parsing/parser.h"
+#include "drake/multibody/rational_forward_kinematics/convex_geometry.h"
 #include "drake/solvers/solve.h"
 #include "drake/systems/analysis/simulator.h"
 #include "drake/systems/framework/diagram.h"
@@ -58,23 +58,6 @@ Eigen::Matrix<double, 3, 8> GenerateBoxVertices(const Eigen::Vector3d& size,
   return vertices;
 }
 
-std::vector<std::shared_ptr<const ConvexPolytope>> GenerateIiwaLinkPolytopes(
-    MultibodyPlant<double>* iiwa) {
-  DRAKE_DEMAND(!iiwa->is_finalized());
-  std::vector<std::shared_ptr<const ConvexPolytope>> link_polytopes;
-  const BodyIndex link7_idx = iiwa->GetBodyByName("iiwa_link_7").index();
-  RigidTransformd link7_box_pose = Eigen::Translation3d(0, 0, 0.05);
-  Eigen::Matrix<double, 3, 8> link7_pts =
-      GenerateBoxVertices(Eigen::Vector3d(0.04, 0.14, 0.1), link7_box_pose);
-  geometry::Box link7_box(0.04, 0.14, 0.1);
-  const geometry::GeometryId link7_box_id = iiwa->RegisterCollisionGeometry(
-      iiwa->get_body(link7_idx), link7_box_pose, link7_box, "link7_box",
-      geometry::ProximityProperties{});
-  link_polytopes.push_back(std::make_shared<const ConvexPolytope>(
-      link7_idx, link7_box_id, link7_pts));
-  return link_polytopes;
-}
-
 std::unique_ptr<MultibodyPlant<double>> ConstructDualArmIiwaPlant(
     const std::string& iiwa_sdf_name, const RigidTransformd& X_WL,
     const RigidTransformd& X_WR, ModelInstanceIndex* left_iiwa_instance,
@@ -102,29 +85,10 @@ std::unique_ptr<MultibodyPlant<double>> ConstructDualArmIiwaPlant(
 
 IiwaTest::IiwaTest()
     : iiwa_(ConstructIiwaPlant("iiwa14_no_collision.sdf", false)),
-      world_{iiwa_->world_body().index()} {
-  for (int i = 0; i < 8; ++i) {
-    iiwa_link_[i] =
-        iiwa_->GetBodyByName("iiwa_link_" + std::to_string(i)).index();
-  }
-}
-
-void IiwaTest::AddBox(
-    const math::RigidTransform<double>& X_BG, const Eigen::Vector3d& box_size,
-    BodyIndex body_index, const std::string& name,
-    std::vector<std::shared_ptr<const ConvexPolytope>>* geometries) {
-  const auto geometry_id = iiwa_->RegisterCollisionGeometry(
-      iiwa_->get_body(body_index), X_BG,
-      geometry::Box(box_size(0), box_size(1), box_size(2)), name,
-      CoulombFriction<double>());
-  geometries->emplace_back(std::make_shared<const ConvexPolytope>(
-      body_index, geometry_id, GenerateBoxVertices(box_size, X_BG)));
-}
-
-FinalizedIiwaTest::FinalizedIiwaTest()
-    : iiwa_(ConstructIiwaPlant("iiwa14_no_collision.sdf", true)),
+      scene_graph_{new geometry::SceneGraph<double>()},
       iiwa_tree_(drake::multibody::internal::GetInternalTree(*iiwa_)),
       world_{iiwa_->world_body().index()} {
+  iiwa_->RegisterAsSourceForSceneGraph(scene_graph_.get());
   for (int i = 0; i < 8; ++i) {
     iiwa_link_[i] =
         iiwa_->GetBodyByName("iiwa_link_" + std::to_string(i)).index();
@@ -133,11 +97,24 @@ FinalizedIiwaTest::FinalizedIiwaTest()
   }
 }
 
+void IiwaTest::AddBox(
+    const math::RigidTransform<double>& X_BG, const Eigen::Vector3d& box_size,
+    BodyIndex body_index, const std::string& name,
+    std::vector<std::unique_ptr<const ConvexPolytope>>* geometries) {
+  const auto geometry_id = iiwa_->RegisterCollisionGeometry(
+      iiwa_->get_body(body_index), X_BG,
+      geometry::Box(box_size(0), box_size(1), box_size(2)), name,
+      CoulombFriction<double>());
+  geometries->emplace_back(std::make_unique<const ConvexPolytope>(
+      body_index, geometry_id, GenerateBoxVertices(box_size, X_BG)));
+}
+
 void AddIiwaWithSchunk(const RigidTransformd& X_7S,
                        MultibodyPlant<double>* plant) {
   DRAKE_DEMAND(plant != nullptr);
   const std::string file_path =
-      "drake/manipulation/models/iiwa_description/sdf/iiwa14_no_collision.sdf";
+      "drake/manipulation/models/iiwa_description/sdf/"
+      "iiwa14_no_collision.sdf";
   Parser(plant).AddModelFromFile(drake::FindResourceOrThrow(file_path));
   Parser(plant).AddModelFromFile(
       FindResourceOrThrow("models/schunk/schunk_wsg_50_fixed_joint.sdf"));
@@ -153,7 +130,8 @@ void AddDualArmIiwa(const RigidTransformd& X_WL, const RigidTransformd& X_WR,
                     ModelInstanceIndex* right_iiwa_instance) {
   DRAKE_DEMAND(plant != nullptr);
   const std::string file_path =
-      "drake/manipulation/models/iiwa_description/sdf/iiwa14_no_collision.sdf";
+      "drake/manipulation/models/iiwa_description/sdf/"
+      "iiwa14_no_collision.sdf";
   *left_iiwa_instance = Parser(plant).AddModelFromFile(
       drake::FindResourceOrThrow(file_path), "left_iiwa");
   *right_iiwa_instance = Parser(plant).AddModelFromFile(

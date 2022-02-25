@@ -113,33 +113,7 @@ drake_cc_library(
     ],
 )
 
-drake_cc_library(
-    name = "configuration_space_collision_free_region",
-    srcs = [
-        "configuration_space_collision_free_region.cc",
-        "filtered_collision_pairs.cc",
-    ],
-    hdrs = [
-        "configuration_space_collision_free_region.h",
-    ],
-    tags = [
-        # Don't add this library to "rational_forward_kinematics", as this
-        # library will be replaced by cspace_free_region
-        "exclude_from_package",
-    ],
-    deps = [
-        ":convex_geometry",
-        ":generate_monomial_basis_util",
-        ":plane_side",
-        ":rational_forward_kinematics_core",
-        "//solvers:mathematical_program",
-        "//solvers:mathematical_program_result",
-        "//solvers:mosek_solver",
-    ],
-)
-
 # === test/ ===
-
 drake_cc_library(
     name = "rational_forward_kinematics_test_utilities",
     testonly = 1,
@@ -151,28 +125,6 @@ drake_cc_library(
         "//manipulation/models/iiwa_description:models",
     ],
     deps = [
-        ":configuration_space_collision_free_region",
-        "//common:find_resource",
-        "//multibody/benchmarks/kuka_iiwa_robot",
-        "//multibody/parsing:parser",
-        "//multibody/plant",
-        "//solvers:solve",
-        "//systems/analysis:simulator",
-        "//systems/rendering:multibody_position_to_geometry_pose",
-    ],
-)
-
-drake_cc_library(
-    name = "rational_forward_kinematics_test_utilities2",
-    testonly = 1,
-    srcs = ["test/rational_forward_kinematics_test_utilities2.cc"],
-    hdrs = ["test/rational_forward_kinematics_test_utilities2.h"],
-    data = [
-        ":models",
-        "//examples/kuka_iiwa_arm:models",
-        "//manipulation/models/iiwa_description:models",
-    ],
-    deps = [
         ":convex_geometry",
         "//common:find_resource",
         "//multibody/benchmarks/kuka_iiwa_robot",
@@ -185,23 +137,11 @@ drake_cc_library(
 )
 
 drake_cc_googletest(
-    name = "configuration_space_collision_free_region_test",
-    timeout = "long",
-    deps = [
-        ":configuration_space_collision_free_region",
-        ":rational_forward_kinematics_test_utilities",
-        "//common/test_utilities:eigen_matrix_compare",
-        "//common/test_utilities:symbolic_test_util",
-        "//multibody/inverse_kinematics",
-    ],
-)
-
-drake_cc_googletest(
     name = "cspace_free_region_test",
     timeout = "long",
     deps = [
         ":cspace_free_region",
-        ":rational_forward_kinematics_test_utilities2",
+        ":rational_forward_kinematics_test_utilities",
         "//common/test_utilities:eigen_matrix_compare",
         "//common/test_utilities:symbolic_test_util",
         "//multibody/inverse_kinematics",
@@ -221,25 +161,6 @@ drake_cc_googletest(
     name = "generate_monomial_basis_util_test",
     deps = [
         ":generate_monomial_basis_util",
-    ],
-)
-
-drake_cc_googletest(
-    name = "rational_forward_kinematics_test",
-    timeout = "moderate",
-    deps = [
-        ":rational_forward_kinematics_core",
-        ":rational_forward_kinematics_test_utilities",
-        "//common/test_utilities:eigen_matrix_compare",
-        "//common/test_utilities:symbolic_test_util",
-    ],
-)
-
-drake_cc_googletest(
-    name = "rational_forward_kinematics_internal_test",
-    deps = [
-        ":rational_forward_kinematics_core",
-        ":rational_forward_kinematics_test_utilities",
     ],
 )
 

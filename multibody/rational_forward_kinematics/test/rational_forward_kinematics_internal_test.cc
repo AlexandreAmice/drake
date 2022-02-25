@@ -2,7 +2,6 @@
 
 #include <gtest/gtest.h>
 
-#include "drake/multibody/rational_forward_kinematics/test/rational_forward_kinematics_test_utilities.h"
 
 namespace drake {
 namespace multibody {

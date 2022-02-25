@@ -13,7 +13,7 @@
 #include "drake/multibody/plant/coulomb_friction.h"
 #include "drake/multibody/rational_forward_kinematics/rational_forward_kinematics.h"
 #include "drake/multibody/rational_forward_kinematics/rational_forward_kinematics_internal.h"
-#include "drake/multibody/rational_forward_kinematics/test/rational_forward_kinematics_test_utilities2.h"
+#include "drake/multibody/rational_forward_kinematics/test/rational_forward_kinematics_test_utilities.h"
 #include "drake/solvers/common_solver_option.h"
 #include "drake/solvers/mathematical_program.h"
 #include "drake/solvers/mosek_solver.h"

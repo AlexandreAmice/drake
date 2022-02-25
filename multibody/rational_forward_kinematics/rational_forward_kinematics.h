@@ -44,7 +44,6 @@ class RationalForwardKinematics {
     Eigen::Matrix<T, 3, 3> R_AB;
 
     drake::multibody::BodyIndex frame_A_index;
-    int one() { return 1; }
     drake::math::RigidTransform<drake::symbolic::Expression>
     asRigidTransformExpression() const {
       Eigen::Matrix<drake::symbolic::Expression, 3, 3> R_AB_expr;
@@ -60,19 +59,6 @@ class RationalForwardKinematics {
                                              p_AB.coeff(2).ToExpression()};
       return drake::math::RigidTransform(R, p);
     }
-    // drake::math::RigidTransform<T> asRigidTransform() const{
-    //     Eigen::Matrix<T,3,3>  R_AB_expr;
-    //     R_AB_expr <<
-    //         R_AB.coeff(0,0), R_AB.coeff(0,1), R_AB.coeff(0,2),
-    //         R_AB.coeff(1,0), R_AB.coeff(1,1), R_AB.coeff(1,2),
-    //         R_AB.coeff(2,0), R_AB.coeff(2,1), R_AB.coeff(2,2)
-    //         ;
-    //     math::RotationMatrix<T>  R(R_AB_expr);
-
-    //     Vector3<T> p {
-    //     p_AB.coeff(0), p_AB.coeff(1), p_AB.coeff(2)
-    //     };
-    // return drake::math::RigidTransform(R, p);
   };
 
   struct LinkPoints {

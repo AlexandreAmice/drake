@@ -4,7 +4,6 @@
 
 #include "drake/common/test_utilities/eigen_matrix_compare.h"
 #include "drake/common/test_utilities/symbolic_test_util.h"
-#include "drake/multibody/rational_forward_kinematics/test/rational_forward_kinematics_test_utilities.h"
 
 namespace drake {
 namespace multibody {

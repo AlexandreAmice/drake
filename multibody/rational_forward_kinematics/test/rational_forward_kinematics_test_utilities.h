@@ -12,19 +12,16 @@
 
 #include "drake/math/rigid_transform.h"
 #include "drake/multibody/plant/multibody_plant.h"
-#include "drake/multibody/rational_forward_kinematics/configuration_space_collision_free_region.h"
+#include "drake/multibody/rational_forward_kinematics/convex_geometry.h"
 
 namespace drake {
 namespace multibody {
 
 std::unique_ptr<drake::multibody::MultibodyPlant<double>> ConstructIiwaPlant(
-    const std::string& iiwa_sdf_name, bool finalize = true);
+    const std::string& iiwa_sdf_name, bool finalize);
 
 Eigen::Matrix<double, 3, 8> GenerateBoxVertices(
     const Eigen::Vector3d& size, const drake::math::RigidTransformd& pose);
-
-std::vector<std::shared_ptr<const ConvexPolytope>> GenerateIiwaLinkPolytopes(
-    drake::multibody::MultibodyPlant<double>* iiwa);
 
 std::unique_ptr<drake::multibody::MultibodyPlant<double>>
 ConstructDualArmIiwaPlant(
@@ -33,9 +30,6 @@ ConstructDualArmIiwaPlant(
     drake::multibody::ModelInstanceIndex* left_iiwa_instance,
     drake::multibody::ModelInstanceIndex* right_iiwa_instance);
 
-/** The iiwa plant here is not finalized, so that the user can add more
- * collision geometries.
- */
 class IiwaTest : public ::testing::Test {
  public:
   IiwaTest();
@@ -43,23 +37,11 @@ class IiwaTest : public ::testing::Test {
   void AddBox(const math::RigidTransform<double>& X_BG,
               const Eigen::Vector3d& box_size, BodyIndex body_index,
               const std::string& name,
-              std::vector<std::shared_ptr<const ConvexPolytope>>* geometries);
+              std::vector<std::unique_ptr<const ConvexPolytope>>* geometries);
 
  protected:
   std::unique_ptr<drake::multibody::MultibodyPlant<double>> iiwa_;
-  const drake::multibody::BodyIndex world_;
-  std::array<drake::multibody::BodyIndex, 8> iiwa_link_;
-};
-
-/**
- * The iiwa plant is finalized at the test construction.
- */
-class FinalizedIiwaTest : public ::testing::Test {
- public:
-  FinalizedIiwaTest();
-
- protected:
-  std::unique_ptr<drake::multibody::MultibodyPlant<double>> iiwa_;
+  std::unique_ptr<drake::geometry::SceneGraph<double>> scene_graph_;
   const drake::multibody::internal::MultibodyTree<double>& iiwa_tree_;
   const drake::multibody::BodyIndex world_;
   std::array<drake::multibody::BodyIndex, 8> iiwa_link_;
