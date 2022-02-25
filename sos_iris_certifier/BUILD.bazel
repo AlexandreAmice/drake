@@ -36,70 +36,8 @@ filegroup(
 )
 
 ##########################################################
-# NOTEBOOKS
-##########################################################
-
-drake_jupyter_py_binary(
-    name = "sos_iris_example",
-    add_test_rule = 0,
-    data = [
-        "//manipulation/models/iiwa_description:models",
-        "//sos_iris_certifier:models",
-    ],
-    deps = [
-        "//bindings/pydrake",
-        "//sos_iris_certifier:certified_iris_generator",
-        "//sos_iris_certifier:iris_plant_visualizer",
-        "//sos_iris_certifier:iris_utils",
-        "//sos_iris_certifier:visualizations_utils",
-    ],
-)
-
-drake_jupyter_py_binary(
-    name = "redundant_face_detector",
-    add_test_rule = 0,
-    data = [
-        "//manipulation/models/iiwa_description:models",
-        "//sos_iris_certifier:models",
-    ],
-    deps = [
-        "//bindings/pydrake",
-        "//sos_iris_certifier:certified_iris_generator",
-        "//sos_iris_certifier:iris_plant_visualizer",
-        "//sos_iris_certifier:iris_utils",
-        "//sos_iris_certifier:visualizations_utils",
-    ],
-)
-
-##########################################################
 # LIBRARIES
 ##########################################################
-drake_py_library(
-    name = "certified_iris_generator",
-    srcs = [
-        "certified_iris_generator.py",
-    ],
-    visibility = ["//visibility:public"],
-    deps = [
-        "//sos_iris_certifier:iris_utils",
-    ],
-)
-
-drake_py_library(
-    name = "iris_utils",
-    srcs = [
-        "iris_utils.py",
-    ],
-    visibility = ["//visibility:public"],
-)
-
-drake_py_library(
-    name = "t_space_utils",
-    srcs = [
-        "t_space_utils.py",
-    ],
-    visibility = ["//visibility:public"],
-)
 
 drake_py_library(
     name = "visualizations_utils",
@@ -119,17 +57,6 @@ drake_py_library(
 )
 
 drake_py_library(
-    name = "iris_t_space",
-    srcs = [
-        "iris_t_space.py",
-    ],
-    visibility = ["//visibility:public"],
-    deps = [
-        "//bindings/pydrake",
-    ],
-)
-
-drake_py_library(
     name = "iris_plant_visualizer",
     srcs = [
         "iris_plant_visualizer.py",
@@ -137,7 +64,5 @@ drake_py_library(
     visibility = ["//visibility:public"],
     deps = [
         "//bindings/pydrake",
-        "//sos_iris_certifier:iris_utils",
-        "//sos_iris_certifier:t_space_utils",
     ],
 )

@@ -1,14 +1,14 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import meshcat
-from pydrake.all import (MathematicalProgram, Variable, HPolyhedron, le, SnoptSolver) 
+from pydrake.all import (MathematicalProgram, le, SnoptSolver)
 from functools import partial
 import mcubes
 from pydrake.all import RotationMatrix, RigidTransform
 import colorsys
 import itertools
 from fractions import Fraction
-from t_space_utils import convert_t_to_q, convert_q_to_t
+
 
 def infinite_hues():
     yield Fraction(0)

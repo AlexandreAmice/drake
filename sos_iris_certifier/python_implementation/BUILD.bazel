@@ -1,0 +1,97 @@
+# -*- python -*-
+# This file contains rules for Bazel; see drake/doc/bazel.rst.
+
+load(
+    "@drake//tools/skylark:drake_cc.bzl",
+    "drake_cc_binary",
+    "drake_cc_googletest",
+    "drake_cc_library",
+    "drake_cc_package_library",
+)
+load("//tools/jupyter:jupyter_py.bzl", "drake_jupyter_py_binary")
+load(
+    "//tools/skylark:drake_py.bzl",
+    "drake_py_library",
+    "drake_py_unittest",
+)
+#
+#filegroup(
+#    name = "models",
+#    data = [
+#        "assets/box.urdf",
+#        "assets/doublerob.urdf",
+#        "assets/ground.urdf",
+#        "assets/lid.urdf",
+#        "assets/shelves.sdf",
+#        "assets/shelves2.sdf",
+#        "assets/shelves3.sdf",
+#        "assets/shelves4.sdf",
+#        "planar_iiwa14_one_sphere.urdf",
+#        "planar_iiwa_dense_collision_welded_gripper.yaml",
+#        "planar_iiwa_simple_collision_welded_gripper.yaml",
+#        "schunk_wsg_50_welded_fingers.sdf",
+#        "shelves.sdf",
+#    ],
+#    visibility = ["//visibility:public"],
+#)
+
+##########################################################
+# NOTEBOOKS
+##########################################################
+
+drake_jupyter_py_binary(
+    name = "sos_iris_python_example",
+    add_test_rule = 0,
+    data = [
+        "//manipulation/models/iiwa_description:models",
+        "//sos_iris_certifier:models",
+    ],
+    deps = [
+        "//bindings/pydrake",
+        "//sos_iris_certifier:iris_plant_visualizer",
+        "//sos_iris_certifier:visualizations_utils",
+        "//sos_iris_certifier/python_implementation:certified_iris_generator",
+        "//sos_iris_certifier/python_implementation:iris_utils",
+    ],
+)
+
+##########################################################
+# LIBRARIES
+##########################################################
+drake_py_library(
+    name = "certified_iris_generator",
+    srcs = [
+        "certified_iris_generator.py",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//sos_iris_certifier/python_implementation:iris_utils",
+    ],
+)
+
+drake_py_library(
+    name = "iris_t_space",
+    srcs = [
+        "iris_t_space.py",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//bindings/pydrake",
+    ],
+)
+
+drake_py_library(
+    name = "t_space_utils",
+    srcs = [
+        "t_space_utils.py",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+drake_py_library(
+    name = "iris_utils",
+    srcs = [
+        "iris_utils.py",
+    ],
+    visibility = ["//visibility:public"],
+)

@@ -3,15 +3,14 @@ import scipy
 from meshcat.servers.zmqserver import start_zmq_server_as_subprocess
 from meshcat import Visualizer
 import meshcat
-from pydrake.all import ConnectMeshcatVisualizer
-from t_space_utils import convert_q_to_t, convert_t_to_q, EvaluatePlanePair
-from pydrake.all import InverseKinematics
+from pydrake.all import (ConnectMeshcatVisualizer, HPolyhedron, VPolytope, Sphere, Ellipsoid, InverseKinematics,
+                         RationalForwardKinematics, GeometrySet)
 from functools import partial
 import mcubes
-import visualizations_utils as viz_utils
-from pydrake.all import RationalForwardKinematics, GeometrySet
+import sos_iris_certifier.visualizations_utils as viz_utils
 import pydrake.symbolic as sym
-import iris_utils
+
+
 
 class IrisPlantVisualizer:
     def __init__(self, plant, builder, scene_graph, **kwargs):
@@ -35,9 +34,9 @@ class IrisPlantVisualizer:
         # the point around which we construct the stereographic projection
         self.q_star = kwargs.get('q_star', np.zeros(self.num_joints))
         self.q_lower_limits = plant.GetPositionLowerLimits()
-        self.t_lower_limits = convert_q_to_t(self.q_lower_limits, self.q_star)
+        self.t_lower_limits = self.forward_kin.ComputeTValue(self.q_lower_limits, self.q_star)
         self.q_upper_limits = plant.GetPositionUpperLimits()
-        self.t_upper_limits = convert_q_to_t(self.q_upper_limits, self.q_star)
+        self.t_upper_limits = self.forward_kin.ComputeTValue(self.q_upper_limits, self.q_star)
 
 
 
@@ -49,43 +48,43 @@ class IrisPlantVisualizer:
         self.diagram_context = self.diagram.CreateDefaultContext()
         self.plant_context = plant.GetMyContextFromRoot(self.diagram_context)
         self.diagram.Publish(self.diagram_context)
-
-        # construct collision pairs
-        self.query = self.scene_graph.get_query_output_port().Eval(
-            self.scene_graph.GetMyContextFromRoot(self.diagram_context))
-        self.inspector = self.query.inspector()
-        self.pairs = self.inspector.GetCollisionCandidates()
-
-        # only gets kProximity pairs. Might be more efficient?
-        # geom_ids = inspector.GetGeometryIds(GeometrySet(inspector.GetAllGeometryIds()), Role.kProximity)
-        pair_set = set()
-        for p in self.pairs:
-            pair_set.add(p[0])
-            pair_set.add(p[1])
-        self.geom_ids = self.inspector.GetGeometryIds(GeometrySet(list(pair_set)))
-        self.link_poses_by_body_index_rat_pose = self.forward_kin.CalcLinkPoses(self.q_star,
-                                                                                self.plant.world_body().index())
-        self.X_WA_list = [p.asRigidTransformExpr() for p in self.link_poses_by_body_index_rat_pose]
-        self.body_indexes_by_geom_id = {geom:
-                                            plant.GetBodyFromFrameId(self.inspector.GetFrameId(geom)).index() for geom
-                                        in
-                                        self.geom_ids}
-        self.hpoly_sets_in_self_frame_by_geom_id = {
-            geom: iris_utils.MakeFromHPolyhedronSceneGraph(self.query, geom, self.inspector.GetFrameId(geom))
-            for geom in self.geom_ids}
-        self.vpoly_sets_in_self_frame_by_geom_id = {
-            geom: iris_utils.MakeFromVPolytopeSceneGraph(self.query, geom, self.inspector.GetFrameId(geom))
-            for geom in self.geom_ids}
-
-        self.t_space_vertex_world_position_by_geom_id = {}
-        for geom in self.geom_ids:
-            VPoly = self.vpoly_sets_in_self_frame_by_geom_id[geom]
-            num_verts = VPoly.vertices().shape[1]
-            X_WA = self.X_WA_list[int(self.body_indexes_by_geom_id[geom])]
-            R_WA = X_WA.rotation().matrix()
-            p_WA = X_WA.translation()
-            vert_pos = R_WA @ (VPoly.vertices()) + np.repeat(p_WA[:, np.newaxis], num_verts, 1)
-            self.t_space_vertex_world_position_by_geom_id[geom] = vert_pos
+        #
+        # # construct collision pairs
+        # self.query = self.scene_graph.get_query_output_port().Eval(
+        #     self.scene_graph.GetMyContextFromRoot(self.diagram_context))
+        # self.inspector = self.query.inspector()
+        # self.pairs = self.inspector.GetCollisionCandidates()
+        #
+        # # only gets kProximity pairs. Might be more efficient?
+        # # geom_ids = inspector.GetGeometryIds(GeometrySet(inspector.GetAllGeometryIds()), Role.kProximity)
+        # pair_set = set()
+        # for p in self.pairs:
+        #     pair_set.add(p[0])
+        #     pair_set.add(p[1])
+        # self.geom_ids = self.inspector.GetGeometryIds(GeometrySet(list(pair_set)))
+        # self.link_poses_by_body_index_rat_pose = self.forward_kin.CalcLinkPoses(self.q_star,
+        #                                                                         self.plant.world_body().index())
+        # self.X_WA_list = [p.asRigidTransformExpr() for p in self.link_poses_by_body_index_rat_pose]
+        # self.body_indexes_by_geom_id = {geom:
+        #                                     plant.GetBodyFromFrameId(self.inspector.GetFrameId(geom)).index() for geom
+        #                                 in
+        #                                 self.geom_ids}
+        # self.hpoly_sets_in_self_frame_by_geom_id = {
+        #     geom: iris_utils.MakeFromHPolyhedronSceneGraph(self.query, geom, self.inspector.GetFrameId(geom))
+        #     for geom in self.geom_ids}
+        # self.vpoly_sets_in_self_frame_by_geom_id = {
+        #     geom: iris_utils.MakeFromVPolytopeSceneGraph(self.query, geom, self.inspector.GetFrameId(geom))
+        #     for geom in self.geom_ids}
+        #
+        # self.t_space_vertex_world_position_by_geom_id = {}
+        # for geom in self.geom_ids:
+        #     VPoly = self.vpoly_sets_in_self_frame_by_geom_id[geom]
+        #     num_verts = VPoly.vertices().shape[1]
+        #     X_WA = self.X_WA_list[int(self.body_indexes_by_geom_id[geom])]
+        #     R_WA = X_WA.rotation().matrix()
+        #     p_WA = X_WA.translation()
+        #     vert_pos = R_WA @ (VPoly.vertices()) + np.repeat(p_WA[:, np.newaxis], num_verts, 1)
+        #     self.t_space_vertex_world_position_by_geom_id[geom] = vert_pos
 
         self.ik = InverseKinematics(plant, self.plant_context)
         self.collision_constraint = self.ik.AddMinimumDistanceConstraint(1e-4, 0.01)
@@ -114,7 +113,7 @@ class IrisPlantVisualizer:
 
     def eval_cons_rational(self, *t):
         t = np.array(t)
-        q = convert_t_to_q(np.array(t).reshape(1, -1)).squeeze()
+        q = self.forward_kin.ComputeQValue(np.array(t).reshape(1, -1), self.q_star).squeeze()
         return self.col_func_handle(q)
 
     def visualize_collision_constraint(self, N = 50):
@@ -143,7 +142,7 @@ class IrisPlantVisualizer:
     def showres(self,q):
         self.plant.SetPositions(self.plant_context, q)
         col = self.col_func_handle(q)
-        t = convert_q_to_t(np.array(q).reshape(1, -1)).squeeze()
+        t = self.forward_kin.ComputeTValue(np.array(q).reshape(1, -1)).squeeze()
         if col:
             self.vis2["t"].set_object(
                 meshcat.geometry.Sphere(0.1), meshcat.geometry.MeshLambertMaterial(color=0xFFB900))
@@ -157,11 +156,11 @@ class IrisPlantVisualizer:
         self.diagram.Publish(self.diagram_context)
 
     def showres_t(self, t):
-        q = convert_t_to_q(t)
+        q = self.forward_kin.ComputeQValue(t, self.q_star)
         self.showres(q)
 
     def show_res_with_planes(self, q):
-        t = convert_q_to_t(q)
+        t = self.forward_kin.ComputeTValue(q, self.q_star)
         self.showres(q)
         if self.region_to_collision_pair_to_plane_dictionary is not None:
             for region, collision_pair_to_plane_dictionary in self.region_to_collision_pair_to_plane_dictionary.items():
@@ -206,7 +205,7 @@ class IrisPlantVisualizer:
 
     def transform_at_t(self, cur_t, a_poly, b_poly, p1_rat, p2_rat):
         eval_dict = dict(zip(b_poly.indeterminates(), cur_t))
-        a, b = EvaluatePlanePair((a_poly, b_poly), eval_dict)
+        a, b = self.EvaluatePlanePair((a_poly, b_poly), eval_dict)
         eval_dict = dict(zip(self.t_variables, cur_t))
         #     print(f"{a}, {b}")
         p1 = np.array([p.Evaluate(eval_dict) for p in p1_rat])
@@ -227,7 +226,7 @@ class IrisPlantVisualizer:
 
         for _ in range(runtime):
             # print(idx)
-            q = convert_t_to_q(traj.value(time_points[idx]).reshape(1, -1)).squeeze()
+            q = self.forward_kin.ComputeQValue(traj.value(time_points[idx]), self.q_star)
             if self.region_to_collision_pair_to_plane_dictionary is not None:
                 self.show_res_with_planes(q)
             else:
@@ -251,7 +250,7 @@ class IrisPlantVisualizer:
             pt = traj.value(it * traj.end_time() / maxit)
             pt_nxt = traj.value((it + 1) * traj.end_time() / maxit)
 
-            pt_q = convert_t_to_q(pt.reshape(1, -1)).squeeze()
+            pt_q = self.forward_kin.ComputeQValue(pt, self.q_star)
 
             mat = meshcat.geometry.MeshLambertMaterial(color=0xFFF812)
             mat.reflectivity = 1.0
@@ -281,3 +280,21 @@ class IrisPlantVisualizer:
             #     meshcat.geometry.Sphere(0.02), mat)
             # vis[name]['traj']['linka']['points' + str(it)].set_transform(
             #     meshcat.transformations.translation_matrix(tl_la))
+
+    def EvaluatePlanePair(self, plane_pair, eval_dict):
+        a_res = []
+        for ai in plane_pair[0]:
+            a_res.append(ai.Evaluate(eval_dict))
+        return (np.array(a_res), plane_pair[1].Evaluate(eval_dict))
+
+    def MakeFromHPolyhedronSceneGraph(self, query, geom, expressed_in=None):
+        shape = query.inspector().GetShape(geom)
+        if isinstance(shape, (Sphere, Ellipsoid)):
+            raise ValueError(f"Sphere or Ellipsoid not Supported")
+        return HPolyhedron(query, geom, expressed_in)
+
+    def MakeFromVPolytopeSceneGraph(query, geom, expressed_in=None):
+        shape = query.inspector().GetShape(geom)
+        if isinstance(shape, (Sphere, Ellipsoid)):
+            raise ValueError(f"Sphere or Ellipsoid not Supported")
+        return VPolytope(query, geom, expressed_in)
