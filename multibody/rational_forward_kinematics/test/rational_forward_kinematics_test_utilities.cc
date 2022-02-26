@@ -2,9 +2,11 @@
 
 #include <algorithm>
 #include <limits>
+#include <optional>
 #include <utility>
 
 #include "drake/common/find_resource.h"
+#include "drake/geometry/geometry_roles.h"
 #include "drake/multibody/benchmarks/kuka_iiwa_robot/make_kuka_iiwa_model.h"
 #include "drake/multibody/parsing/parser.h"
 #include "drake/multibody/rational_forward_kinematics/convex_geometry.h"
@@ -58,6 +60,23 @@ Eigen::Matrix<double, 3, 8> GenerateBoxVertices(const Eigen::Vector3d& size,
   return vertices;
 }
 
+std::vector<std::shared_ptr<const ConvexPolytope>> GenerateIiwaLinkPolytopes(
+    MultibodyPlant<double>* iiwa) {
+  DRAKE_DEMAND(!iiwa->is_finalized());
+  std::vector<std::shared_ptr<const ConvexPolytope>> link_polytopes;
+  const BodyIndex link7_idx = iiwa->GetBodyByName("iiwa_link_7").index();
+  RigidTransformd link7_box_pose = Eigen::Translation3d(0, 0, 0.05);
+  Eigen::Matrix<double, 3, 8> link7_pts =
+      GenerateBoxVertices(Eigen::Vector3d(0.04, 0.14, 0.1), link7_box_pose);
+  geometry::Box link7_box(0.04, 0.14, 0.1);
+  const geometry::GeometryId link7_box_id = iiwa->RegisterCollisionGeometry(
+      iiwa->get_body(link7_idx), link7_box_pose, link7_box, "link7_box",
+      geometry::ProximityProperties{});
+  link_polytopes.push_back(std::make_shared<const ConvexPolytope>(
+      link7_idx, link7_box_id, link7_pts));
+  return link_polytopes;
+}
+
 std::unique_ptr<MultibodyPlant<double>> ConstructDualArmIiwaPlant(
     const std::string& iiwa_sdf_name, const RigidTransformd& X_WL,
     const RigidTransformd& X_WR, ModelInstanceIndex* left_iiwa_instance,
@@ -109,6 +128,18 @@ void IiwaTest::AddBox(
       body_index, geometry_id, GenerateBoxVertices(box_size, X_BG)));
 }
 
+FinalizedIiwaTest::FinalizedIiwaTest()
+    : iiwa_(ConstructIiwaPlant("iiwa14_no_collision.sdf", true)),
+      iiwa_tree_(drake::multibody::internal::GetInternalTree(*iiwa_)),
+      world_{iiwa_->world_body().index()} {
+  for (int i = 0; i < 8; ++i) {
+    iiwa_link_[i] =
+        iiwa_->GetBodyByName("iiwa_link_" + std::to_string(i)).index();
+    iiwa_joint_[i] =
+        iiwa_tree_.get_topology().get_body(iiwa_link_[i]).inboard_mobilizer;
+  }
+}
+
 void AddIiwaWithSchunk(const RigidTransformd& X_7S,
                        MultibodyPlant<double>* plant) {
   DRAKE_DEMAND(plant != nullptr);
@@ -153,6 +184,53 @@ void AddDualArmIiwa(const RigidTransformd& X_WL, const RigidTransformd& X_WR,
                     plant->GetFrameByName("body", left_schunk_instance), X_7S);
   plant->WeldFrames(plant->GetFrameByName("iiwa_link_7", *right_iiwa_instance),
                     plant->GetFrameByName("body", right_schunk_instance), X_7S);
+}
+
+void SetDiffuse(const MultibodyPlant<double>& plant,
+                geometry::SceneGraph<double>* scene_graph,
+                const BodyIndex body_index,
+                const std::optional<std::string>& geometry_name,
+                std::optional<double> rgba_r, std::optional<double> rgba_g,
+                std::optional<double> rgba_b, std::optional<double> rgba_a) {
+  const auto& inspector = scene_graph->model_inspector();
+  const std::optional<geometry::FrameId> frame_id =
+      plant.GetBodyFrameIdIfExists(body_index);
+  if (frame_id.has_value()) {
+    for (const auto& geometry_id : inspector.GetGeometries(
+             frame_id.value(), geometry::Role::kIllustration)) {
+      if (geometry_name.has_value()) {
+        if (inspector.GetName(geometry_id) != *geometry_name) {
+          continue;
+        }
+      }
+      const geometry::GeometryProperties* props =
+          inspector.GetProperties(geometry_id, geometry::Role::kIllustration);
+      if (props == nullptr || !props->HasProperty("phong", "diffuse")) {
+        DRAKE_DEMAND(rgba_r.has_value());
+        DRAKE_DEMAND(rgba_g.has_value());
+        DRAKE_DEMAND(rgba_b.has_value());
+        DRAKE_DEMAND(rgba_a.has_value());
+        geometry::IllustrationProperties new_props =
+            geometry::MakePhongIllustrationProperties(
+                Eigen::Vector4d(rgba_r.value(), rgba_g.value(), rgba_b.value(),
+                                rgba_a.value()));
+        scene_graph->AssignRole(*plant.get_source_id(), geometry_id, new_props,
+                                geometry::RoleAssign::kReplace);
+      } else {
+        const auto old_rgba =
+            props->GetProperty<geometry::Rgba>("phong", "diffuse");
+        double rgba_r_val = rgba_r.has_value() ? rgba_r.value() : old_rgba.r();
+        double rgba_g_val = rgba_g.has_value() ? rgba_g.value() : old_rgba.g();
+        double rgba_b_val = rgba_b.has_value() ? rgba_b.value() : old_rgba.b();
+        double rgba_a_val = rgba_a.has_value() ? rgba_a.value() : old_rgba.a();
+        geometry::IllustrationProperties new_props =
+            geometry::MakePhongIllustrationProperties(Eigen::Vector4d(
+                rgba_r_val, rgba_g_val, rgba_b_val, rgba_a_val));
+        scene_graph->AssignRole(*plant.get_source_id(), geometry_id, new_props,
+                                geometry::RoleAssign::kReplace);
+      }
+    }
+  }
 }
 
 }  // namespace multibody

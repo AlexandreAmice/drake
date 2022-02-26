@@ -1871,7 +1871,7 @@ void CspaceFreeRegion::CspacePolytopeBinarySearch(
     }
     iter_count++;
   }
-  // TODO (Alex.Amice) get the lagrangians into this struct as well.
+  // TODO(Alex.Amice) get the lagrangians into this struct as well.
   double ellipsoid_cost_val;
 
   FindLargestInscribedEllipsoid(

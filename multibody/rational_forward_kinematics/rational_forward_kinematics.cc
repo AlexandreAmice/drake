@@ -547,7 +547,7 @@ Eigen::VectorXd RationalForwardKinematics::ComputeQValue(
       const int q_index = mobilizer.position_start_in_q();
       q_val(q_index) = std::atan2(2 * t_val(i) / (1 + std::pow(t_val(i), 2)),
                                   (1 - std::pow(t_val(i), 2)) /
-                                           (1 + std::pow(t_val(i), 2))) +
+                                      (1 + std::pow(t_val(i), 2))) +
                        q_star_val(q_index);
     } else {
       throw std::runtime_error("Other joint types are not supported yet.");
@@ -565,10 +565,11 @@ VectorX<symbolic::Expression> RationalForwardKinematics::ComputeQValue(
         map_t_to_mobilizer_.at(t_(i).get_id()));
     if (dynamic_cast<const RevoluteMobilizer<double>*>(&mobilizer) != nullptr) {
       const int q_index = mobilizer.position_start_in_q();
-      q_val(q_index) = symbolic::atan2(2 * t_val(i) / (1 + symbolic::pow(t_val(i), 2)),
-                                  (1 - symbolic::pow(t_val(i), 2)) /
-                                           (1 + symbolic::pow(t_val(i), 2))) +
-                       q_star_val(q_index);
+      q_val(q_index) =
+          symbolic::atan2(2 * t_val(i) / (1 + symbolic::pow(t_val(i), 2)),
+                          (1 - symbolic::pow(t_val(i), 2)) /
+                              (1 + symbolic::pow(t_val(i), 2))) +
+          q_star_val(q_index);
     } else {
       throw std::runtime_error("Other joint types are not supported yet.");
     }
@@ -586,8 +587,7 @@ VectorX<AutoDiffXd> RationalForwardKinematics::ComputeQValue(
     if (dynamic_cast<const RevoluteMobilizer<double>*>(&mobilizer) != nullptr) {
       const int q_index = mobilizer.position_start_in_q();
       q_val(q_index) = atan2(2 * t_val(i) / (1 + pow(t_val(i), 2)),
-                                  (1 - pow(t_val(i), 2)) /
-                                           (1 + pow(t_val(i), 2))) +
+                             (1 - pow(t_val(i), 2)) / (1 + pow(t_val(i), 2))) +
                        q_star_val(q_index);
     } else {
       throw std::runtime_error("Other joint types are not supported yet.");

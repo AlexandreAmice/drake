@@ -3,6 +3,7 @@
 #include <array>
 #include <list>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -49,6 +50,21 @@ class IiwaTest : public ::testing::Test {
 };
 
 /**
+ * The iiwa plant is finalized at the test construction.
+ */
+class FinalizedIiwaTest : public ::testing::Test {
+ public:
+  FinalizedIiwaTest();
+
+ protected:
+  std::unique_ptr<drake::multibody::MultibodyPlant<double>> iiwa_;
+  const drake::multibody::internal::MultibodyTree<double>& iiwa_tree_;
+  const drake::multibody::BodyIndex world_;
+  std::array<drake::multibody::BodyIndex, 8> iiwa_link_;
+  std::array<drake::multibody::internal::MobilizerIndex, 8> iiwa_joint_;
+};
+
+/**
  * @param X_7S The transformation from schunk frame to iiwa link 7.
  * @note the plant is not finalized.
  */
@@ -65,6 +81,20 @@ void AddDualArmIiwa(const drake::math::RigidTransformd& X_WL,
                     drake::multibody::MultibodyPlant<double>* plant,
                     drake::multibody::ModelInstanceIndex* left_iiwa_instance,
                     drake::multibody::ModelInstanceIndex* right_iiwa_instance);
+
+/**
+ * Set diffuse for all the illustration geometries on a given body_index.
+ * If geometry_name is not std::nullopt, then we only set the diffuse for the
+ * geometry on that body with the maching name.
+ * @param rgba_r If not std::nullopt, then set red to this value, otherwise keep
+ * it unchanged.
+ */
+void SetDiffuse(const MultibodyPlant<double>& plant,
+                geometry::SceneGraph<double>* scene_graph,
+                const BodyIndex body_index,
+                const std::optional<std::string>& geometry_name,
+                std::optional<double> rgba_r, std::optional<double> rgba_g,
+                std::optional<double> rgba_b, std::optional<double> rgba_a);
 
 }  // namespace multibody
 }  // namespace drake

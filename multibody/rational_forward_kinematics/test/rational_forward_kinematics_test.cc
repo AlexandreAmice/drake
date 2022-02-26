@@ -4,6 +4,7 @@
 
 #include "drake/common/test_utilities/eigen_matrix_compare.h"
 #include "drake/common/test_utilities/symbolic_test_util.h"
+#include "drake/multibody/rational_forward_kinematics/test/rational_forward_kinematics_test_utilities.h"
 
 namespace drake {
 namespace multibody {
@@ -381,6 +382,34 @@ TEST_F(FinalizedIiwaTest, FindTOnPath) {
                    {iiwa_joint_[2], iiwa_joint_[3], iiwa_joint_[4]});
   CheckFindTOnPath(rational_forward_kinematics, iiwa_link_[4], iiwa_link_[1],
                    {iiwa_joint_[4], iiwa_joint_[3], iiwa_joint_[2]});
+}
+
+TEST_F(FinalizedIiwaTest, TestTAndQConversion) {
+  RationalForwardKinematics rational_forward_kinematics(*iiwa_);
+  EXPECT_EQ(rational_forward_kinematics.t().rows(), 7);
+
+  // Non-zero q_val and zero q_star_val.
+  Eigen::VectorXd q_val(7);
+  // arbitrary value
+  q_val << 0.2, 0.3, 0.5, -0.1, 1.2, 2.3, -0.5;
+  Eigen::VectorXd t_val = (q_val / 2).array().tan().matrix();
+  CheckLinkKinematics(rational_forward_kinematics, q_val,
+                      Eigen::VectorXd::Zero(7), t_val, world_);
+
+  // Non-zero q_val and non-zero q_star_val.
+  Eigen::VectorXd q_star_val(7);
+  q_star_val << 1.2, -0.4, 0.3, -0.5, 0.4, 1, 0.2;
+  Eigen::VectorXd t_val_expected =
+      ((q_val - q_star_val) / 2).array().tan().matrix();
+
+  const double tol{1E-12};
+  EXPECT_TRUE(CompareMatrices(
+      t_val_expected,
+      rational_forward_kinematics.ComputeTValue(q_val, q_star_val), tol));
+  EXPECT_TRUE(CompareMatrices(
+      q_val,
+      rational_forward_kinematics.ComputeQValue(t_val_expected, q_star_val),
+      tol));
 }
 
 }  // namespace

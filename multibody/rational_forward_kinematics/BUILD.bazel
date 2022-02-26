@@ -165,6 +165,25 @@ drake_cc_googletest(
 )
 
 drake_cc_googletest(
+    name = "rational_forward_kinematics_test",
+    timeout = "moderate",
+    deps = [
+        ":rational_forward_kinematics_core",
+        ":rational_forward_kinematics_test_utilities",
+        "//common/test_utilities:eigen_matrix_compare",
+        "//common/test_utilities:symbolic_test_util",
+    ],
+)
+
+drake_cc_googletest(
+    name = "rational_forward_kinematics_internal_test",
+    deps = [
+        ":rational_forward_kinematics_core",
+        ":rational_forward_kinematics_test_utilities",
+    ],
+)
+
+drake_cc_googletest(
     name = "redundant_inequality_pruning_test",
     deps = [
         ":redundant_inequality_pruning",
@@ -173,6 +192,7 @@ drake_cc_googletest(
 
 drake_cc_binary(
     name = "iiwa_shelf_demo",
+    testonly = 1,
     srcs = ["test/iiwa_shelf_demo.cc"],
     data = [
         "//examples/kuka_iiwa_arm:models",
@@ -182,6 +202,7 @@ drake_cc_binary(
     ],
     deps = [
         ":cspace_free_region",
+        ":rational_forward_kinematics_test_utilities",
         "//common:find_resource",
         "//geometry:meshcat_visualizer",
         "//geometry/optimization:polytope_cover",

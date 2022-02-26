@@ -154,7 +154,6 @@ def rgb_to_hex(rgb):
     return '0x%02x%02x%02x' % rgb
 
 def get_AABB_limits(hpoly, dim = 3):
-    #im using snopt, sue me
     max_limits = []
     min_limits = []
     A = hpoly.A()

@@ -114,12 +114,7 @@ struct CspaceFreeRegionSolution {
   //
   CspaceFreeRegionSolution(Eigen::MatrixXd m_C, Eigen::MatrixXd m_d)
       : C{m_C},
-        d{m_d}  //        polytope_lagrangians{num_pairs},
-                //        t_lower_lagrangians{num_pairs},
-                //        t_upper_lagrangians{num_pairs},
-                //        verified_polynomials{num_pairs},
-                //        separating_planes{num_pairs}
-  {}
+        d{m_d} {}
 
   // values defining Hpolyhedron Ct <= d
   Eigen::MatrixXd C;
@@ -129,7 +124,7 @@ struct CspaceFreeRegionSolution {
   Eigen::MatrixXd P;
   Eigen::VectorXd q;
 
-  // TODO (Alex.Amice) add these polynomials back in one I figure out how to
+  // TODO(Alex.Amice) add these polynomials back in one I figure out how to
   // extract them
   //    // multipliers for C*t <= d
   //    std::vector<VectorX<symbolic::Polynomial>> polytope_lagrangians;

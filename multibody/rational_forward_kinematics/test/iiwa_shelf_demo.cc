@@ -9,6 +9,7 @@
 #include "drake/multibody/inverse_kinematics/inverse_kinematics.h"
 #include "drake/multibody/parsing/parser.h"
 #include "drake/multibody/rational_forward_kinematics/cspace_free_region.h"
+#include "drake/multibody/rational_forward_kinematics/test/rational_forward_kinematics_test_utilities.h"
 #include "drake/solvers/common_solver_option.h"
 #include "drake/solvers/gurobi_solver.h"
 #include "drake/solvers/mosek_solver.h"
@@ -24,7 +25,7 @@ class IiwaDiagram {
   // @param num_iiwas We use num_iiwas != 1 purely for visualizaing multiple
   // postures of the same IIWA simultaneously. Don't use num_iiwas!=1 for
   // computing cspace region
-  IiwaDiagram(int num_iiwas = 1)
+  explicit IiwaDiagram(int num_iiwas = 1)
       : meshcat_{std::make_shared<geometry::Meshcat>()} {
     systems::DiagramBuilder<double> builder;
     auto [plant, sg] = AddMultibodyPlantSceneGraph(&builder, 0.);
@@ -53,6 +54,7 @@ class IiwaDiagram {
           Eigen::Vector3d(0, 0, 0.114));
       const auto wsg_instance = parser.AddModelFromFile(
           schunk_file_path, fmt::format("gripper{}", iiwa_count));
+      wsg_instances_.push_back(wsg_instance);
       const auto& schunk_frame = plant_->GetFrameByName("body", wsg_instance);
       plant_->WeldFrames(link7, schunk_frame, X_7G);
       // SceneGraph should ignore the collision between any geometries on the
@@ -106,6 +108,34 @@ class IiwaDiagram {
     plant_->WeldFrames(plant_->world_frame(), shelf_frame, X_WShelf);
 
     plant_->Finalize();
+    // If we have multiple IIWAs, then color them differently
+    for (int iiwa_count = 1;
+         iiwa_count < static_cast<int>(iiwa_instances_.size()); ++iiwa_count) {
+      double rgba_r = 0.5;
+      double rgba_g = 0.4;
+      double rgba_b = 0.2;
+      double rgba_a = 0.7;
+      if (iiwa_count > 1) {
+        rgba_r = 0.3;
+        rgba_g = 0.4;
+        rgba_b = 0.6;
+      }
+      for (const auto& body_index :
+           plant_->GetBodyIndices(iiwa_instances_[iiwa_count])) {
+        SetDiffuse(*plant_, scene_graph_, body_index, std::nullopt, rgba_r,
+                   rgba_g, rgba_b, rgba_a);
+      }
+      for (const auto& body_index :
+           plant_->GetBodyIndices(wsg_instances_[iiwa_count])) {
+        SetDiffuse(*plant_, scene_graph_, body_index, std::nullopt, rgba_r,
+                   rgba_g, rgba_b, rgba_a);
+      }
+    }
+
+    for (const auto& body_index : plant_->GetBodyIndices(shelf_instance)) {
+      SetDiffuse(*plant_, scene_graph_, body_index, std::nullopt, 0.2, 0.2, 0.2,
+                 1);
+    }
 
     geometry::MeshcatVisualizerParams meshcat_params{};
     meshcat_params.role = geometry::Role::kIllustration;
@@ -133,6 +163,7 @@ class IiwaDiagram {
   std::shared_ptr<geometry::Meshcat> meshcat_;
   geometry::MeshcatVisualizer<double>* visualizer_;
   std::vector<ModelInstanceIndex> iiwa_instances_;
+  std::vector<ModelInstanceIndex> wsg_instances_;
 };
 
 Eigen::VectorXd FindInitialPosture(const MultibodyPlant<double>& plant,
@@ -292,7 +323,7 @@ void VisualizePostures(const std::string& read_file) {
   Eigen::MatrixXd C;
   Eigen::VectorXd d, t_lower, t_upper;
   ReadCspacePolytopeFromFile(read_file, &C, &d, &t_lower, &t_upper);
-  const int num_postures = 2;
+  const int num_postures = 3;
   // Solve a program such that the sum of inter-posture distance is maximized.
   solvers::MathematicalProgram prog;
   auto t = prog.NewContinuousVariables(7, num_postures);
@@ -337,10 +368,10 @@ void VisualizePostures(const std::string& read_file) {
 }
 
 int DoMain() {
-  const std::string write_file = "iiwa_shelf_cspace_polytope4.txt";
+  const std::string write_file = "iiwa_shelf_cspace_polytope6.txt";
   // const std::string read_file = "iiwa_shelf_cspace_polytope2.txt";
-  SearchCspacePolytope(write_file);
-  // VisualizePostures(write_file);
+  // SearchCspacePolytope(write_file);
+  VisualizePostures(write_file);
   return 0;
 }
 }  // namespace multibody
