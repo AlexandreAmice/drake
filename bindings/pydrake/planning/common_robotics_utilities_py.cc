@@ -81,6 +81,17 @@ PYBIND11_MODULE(common_robotics_utilities, m) {
       &simple_rrt_planner::MakeKinematicLinearBiRRTNearestNeighborsFunction<T>,
       py::arg("distance_fn"), py::arg("use_parallel") = true, "");
 
+  m.def("MakeKinematicBiRRTExtendPropagationFunction",
+      &simple_rrt_planner::MakeKinematicBiRRTExtendPropagationFunction<T>,
+      py::arg("distance_fn"), py::arg("state_interpolation_fn"),
+      py::arg("edge_validity_check_fn"), py::arg("step_size"), "");
+
+  m.def("MakeKinematicBiRRTConnectPropagationFunction",
+      &simple_rrt_planner::MakeKinematicBiRRTConnectPropagationFunction<T>,
+      py::arg("distance_fn"), py::arg("state_interpolation_fn"),
+      py::arg("edge_validity_check_fn"), py::arg("step_size"), "");
+
+
   m.def("MakeRRTTimeoutTerminationFunction",
       &simple_rrt_planner::MakeRRTTimeoutTerminationFunction,
       py::arg("planning_timeout"), "");
