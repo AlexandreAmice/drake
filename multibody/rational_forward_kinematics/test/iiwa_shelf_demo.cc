@@ -99,7 +99,8 @@ class IiwaDiagram {
     }
 
     const std::string shelf_file_path =
-        FindResourceOrThrow("drake/sos_iris_certifier/shelves.sdf");
+        FindResourceOrThrow("drake/multibody/"
+                            "rational_forward_kinematics/test/shelves.sdf");
     const auto shelf_instance =
         parser.AddModelFromFile(shelf_file_path, "shelves");
     const auto& shelf_frame =
