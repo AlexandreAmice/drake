@@ -198,7 +198,6 @@ drake_cc_binary(
         "//examples/kuka_iiwa_arm:models",
         "//manipulation/models/iiwa_description:models",
         "//manipulation/models/wsg_50_description:models",
-        "//sos_iris_certifier:models",
     ],
     deps = [
         ":cspace_free_region",
