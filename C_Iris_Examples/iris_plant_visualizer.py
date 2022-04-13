@@ -7,7 +7,7 @@ from pydrake.all import (ConnectMeshcatVisualizer, HPolyhedron, VPolytope, Spher
                          RationalForwardKinematics, GeometrySet)
 from functools import partial
 import mcubes
-import sos_iris_certifier.visualizations_utils as viz_utils
+import C_Iris_Examples.visualizations_utils as viz_utils
 import pydrake.symbolic as sym
 import time
 

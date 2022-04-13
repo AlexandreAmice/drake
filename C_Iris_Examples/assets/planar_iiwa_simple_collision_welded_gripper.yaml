@@ -5,7 +5,7 @@ directives:
 # Add iiwa
 - add_model:
     name: iiwa
-    file: package://drake/sos_iris_certifier/planar_iiwa14_one_sphere.urdf
+    file: package://drake/C_Iris_Examples/planar_iiwa14_one_sphere.urdf
 
 - add_weld:
     parent: world
@@ -14,7 +14,7 @@ directives:
 # Add schunk
 - add_model:
     name: wsg
-    file: package://drake/sos_iris_certifier/schunk_wsg_50_welded_fingers.sdf
+    file: package://drake/C_Iris_Examples/schunk_wsg_50_welded_fingers.sdf
     # file: package://drake/manipulation/models/wsg_50_description/sdf/schunk_wsg_50_no_tip.sdf
 
 - add_frame:
@@ -31,7 +31,7 @@ directives:
 # Add shelves
 - add_model:
     name: shelves
-    file: package://drake/sos_iris_certifier/shelves.sdf
+    file: package://drake/C_Iris_Examples/shelves.sdf
 
 - add_frame:
     name: shelf_origin

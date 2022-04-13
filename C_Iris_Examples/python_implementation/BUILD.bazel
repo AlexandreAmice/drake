@@ -1,0 +1,59 @@
+## -*- python -*-
+## This file contains rules for Bazel; see drake/doc/bazel.rst.
+#
+#load(
+#    "@drake//tools/skylark:drake_cc.bzl",
+#    "drake_cc_binary",
+#    "drake_cc_googletest",
+#    "drake_cc_library",
+#    "drake_cc_package_library",
+#)
+#load("//tools/jupyter:jupyter_py.bzl", "drake_jupyter_py_binary")
+#load(
+#    "//tools/skylark:drake_py.bzl",
+#    "drake_py_library",
+#    "drake_py_unittest",
+#)
+#
+###########################################################
+## NOTEBOOKS
+###########################################################
+#
+#drake_jupyter_py_binary(
+#    name = "C_Iris_python_example",
+#    add_test_rule = 0,
+#    data = [
+#        "//C_Iris_certifier:models",
+#        "//manipulation/models/iiwa_description:models",
+#    ],
+#    deps = [
+#        "//C_Iris_certifier:iris_plant_visualizer",
+#        "//C_Iris_certifier:spp",
+#        "//C_Iris_certifier:visualizations_utils",
+#        "//C_Iris_certifier/python_implementation:certified_iris_generator",
+#        "//C_Iris_certifier/python_implementation:iris_utils",
+#        "//bindings/pydrake",
+#    ],
+#)
+#
+###########################################################
+## LIBRARIES
+###########################################################
+#drake_py_library(
+#    name = "certified_iris_generator",
+#    srcs = [
+#        "certified_iris_generator.py",
+#    ],
+#    visibility = ["//visibility:public"],
+#    deps = [
+#        "//C_Iris_certifier/python_implementation:iris_utils",
+#    ],
+#)
+#
+#drake_py_library(
+#    name = "iris_utils",
+#    srcs = [
+#        "iris_utils.py",
+#    ],
+#    visibility = ["//visibility:public"],
+#)
