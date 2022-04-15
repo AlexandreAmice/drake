@@ -19,9 +19,11 @@ filegroup(
     name = "models",
     data = [
         "assets/box.urdf",
+        "assets/box_small.urdf",
         "assets/doublerob.urdf",
         "assets/ground.urdf",
         "assets/lid.urdf",
+        "assets/oneDOF_iiwa7_with_box_collision.sdf",
         "assets/planar_iiwa14_one_sphere.urdf",
         "assets/planar_iiwa_dense_collision_welded_gripper.yaml",
         "assets/planar_iiwa_simple_collision_welded_gripper.yaml",
@@ -30,8 +32,28 @@ filegroup(
         "assets/shelves2.sdf",
         "assets/shelves3.sdf",
         "assets/shelves4.sdf",
+        "assets/twoDOF_iiwa7_with_box_collision.sdf",
     ],
     visibility = ["//visibility:public"],
+)
+
+##########################################################
+# NOTEBOOKS
+##########################################################
+
+drake_jupyter_py_binary(
+    name = "pinball_iiwas_snopt_iris",
+    add_test_rule = 0,
+    data = [
+        "//manipulation/models/iiwa_description:models",
+        "//sos_iris_certifier:models",
+    ],
+    deps = [
+        "//bindings/pydrake",
+        "//sos_iris_certifier:iris_plant_visualizer",
+        "//sos_iris_certifier:spp",
+        "//sos_iris_certifier:visualizations_utils",
+    ],
 )
 
 ##########################################################
