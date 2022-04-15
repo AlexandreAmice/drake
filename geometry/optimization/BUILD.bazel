@@ -70,6 +70,7 @@ drake_cc_library(
         ":convex_set",
         "//geometry:scene_graph",
         "//multibody/plant",
+        "//multibody/rational_forward_kinematics",
         "//solvers:ibex_solver",
         "//solvers:ipopt_solver",
         "//solvers:snopt_solver",

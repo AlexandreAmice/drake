@@ -401,7 +401,7 @@ GTEST_TEST(DeprecatedIrisInConfigurationSpaceTest, JointLimits) {
 namespace {
 
 // Helper method for testing IrisInConfigurationSpace from a urdf string.
-HPolyhedron IrisFromUrdf(const std::string urdf,
+HPolyhedron IrisFromUrdf(const std::string& urdf,
                          const Eigen::Ref<const Eigen::VectorXd>& sample,
                          const IrisOptions& options) {
   systems::DiagramBuilder<double> builder;
@@ -416,6 +416,23 @@ HPolyhedron IrisFromUrdf(const std::string urdf,
   return IrisInConfigurationSpace(plant, plant.GetMyContextFromRoot(*context),
                                   options);
 }
+
+// Helper method for testing IrisInRationalConfigurationSpace from a urdf string.
+//HPolyhedron IrisRationalFromUrdf(const std::string& urdf,
+//                         const Eigen::Ref<const Eigen::VectorXd>& sample,
+//                         const IrisOptionsRationalSpace& options) {
+//  systems::DiagramBuilder<double> builder;
+//  multibody::MultibodyPlant<double>& plant =
+//      multibody::AddMultibodyPlantSceneGraph(&builder, 0.0);
+//  multibody::Parser(&plant).AddModelFromString(urdf, "urdf");
+//  plant.Finalize();
+//  auto diagram = builder.Build();
+//
+//  auto context = diagram->CreateDefaultContext();
+//  plant.SetPositions(&plant.GetMyMutableContextFromRoot(context.get()), sample);
+//  return IrisInRationalConfigurationSpace(plant, plant.GetMyContextFromRoot(*context),
+//                                  options);
+//}
 
 }  // namespace
 

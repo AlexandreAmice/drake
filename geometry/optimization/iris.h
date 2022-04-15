@@ -9,6 +9,8 @@
 #include "drake/geometry/optimization/convex_set.h"
 #include "drake/geometry/optimization/hpolyhedron.h"
 #include "drake/multibody/plant/multibody_plant.h"
+#include "drake/multibody/rational_forward_kinematics/rational_forward_kinematics.h"
+
 
 namespace drake {
 namespace geometry {
@@ -55,6 +57,11 @@ struct IrisOptions {
   demanding, so we allow it to be disabled for a faster algorithm for obtaining
   regions without the rigorous guarantee. */
   bool enable_ibex = true;
+
+  /** Maximum number of faces added per collision pair, per iteration. Setting this option to -1
+      imposes no limit. Default value is -1. */
+  int max_faces_per_collision_pair{-1};
+
 };
 
 /** The IRIS (Iterative Region Inflation by Semidefinite programming) algorithm,
@@ -144,6 +151,56 @@ HPolyhedron IrisInConfigurationSpace(
     const systems::Context<double>& context,
     const Eigen::Ref<const Eigen::VectorXd>& sample,
     const IrisOptions& options = IrisOptions());
+
+struct IrisOptionsRationalSpace : public IrisOptions {
+  IrisOptionsRationalSpace() = default;
+
+
+  /** For IRIS in rational configuration space, we can certify that the regions are truly
+   * collision free using SOS programming at the methods in
+   * multibody/rational_forward_kinematics. Whether to do the certification
+   * steps in the loop or not is an option*/
+  bool certify_region_with_sos_during_generation = false;
+
+  /** For IRIS in rational configuration space, we can certify that the regions are truly
+   * collision free using SOS programming at the methods in
+   * multibody/rational_forward_kinematics. We can do the certification
+   * adjustments at one time at the end
+   * TODO (amice): enforce that only one of certify_region_during_generation and certify_region_after_generation is true
+   * TODO (amice): enforce that one of certify with ibex and certify with sos true
+   * TODO (amice): set default true once we have the integration
+   * */
+  bool certify_region_with_sos_after_generation = false;
+
+  /** For IRIS in rational configuration space we need a point around which to perform the stereographic projection
+   * */
+  std::optional<Eigen::VectorXd> q_star;
+};
+
+/** A variation of the Iris (Iterative Region Inflation by Semidefinite
+programming) algorithm which finds collision-free regions in the *rational
+parametrization of the configuration space* of @p plant. @see Iris for details
+on the original algorithm. This is a reimplementation of
+IrisInConfigurationSpace for the rational reparametrization
+
+@param plant describes the kinematics of configuration space.  It must be
+connected to a SceneGraph in a systems::Diagram.
+@param context is a context of the @p plant. The context must have the positions
+of the plant set to the initial IRIS seed configuration.
+@param options provides additional configuration options.  In particular,
+`options.certify_region_during_generation` vs
+`options.certify_region_after_generation' can have an impact on computation time
+@param starting_hpolyhedron is an optional argument to constrain the initial iris search. This defaults to the joint
+ limits of the plants, but if there is a reason to constrain it further this option is provided.
+@ingroup geometry_optimization
+*/
+HPolyhedron IrisInRationalConfigurationSpace(const multibody::MultibodyPlant<double> &plant,
+                                             const systems::Context<double> &context,
+                                             const IrisOptionsRationalSpace &options = IrisOptionsRationalSpace(),
+                                             const std::optional<HPolyhedron> &starting_hpolyhedron = std::nullopt);
+
+
+
 
 }  // namespace optimization
 }  // namespace geometry
