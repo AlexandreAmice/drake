@@ -13,7 +13,6 @@
 #include "drake/multibody/rational_forward_kinematics/generate_monomial_basis_util.h"
 #include "drake/multibody/rational_forward_kinematics/rational_forward_kinematics.h"
 #include "drake/multibody/rational_forward_kinematics/rational_forward_kinematics_internal.h"
-#include "drake/multibody/rational_forward_kinematics/centrally_symmetric_hpolytope.h"
 
 namespace drake {
 namespace pydrake {
