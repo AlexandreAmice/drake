@@ -101,6 +101,12 @@ void DefineGeometryOptimization(py::module m) {
             py::arg("reference_frame") = std::nullopt, cls_doc.ctor.doc_3args)
         .def("A", &HPolyhedron::A, cls_doc.A.doc)
         .def("b", &HPolyhedron::b, cls_doc.b.doc)
+        .def("ContainedInOtherHPolyhedron", &HPolyhedron::ContainedInOtherHPolyhedron, py::arg("other"),
+             cls_doc.ContainedInOtherHPolyhedron.doc)
+        .def("IrredundantIntersection", &HPolyhedron::IrredundantIntersection, py::arg("other"),
+             cls_doc.IrredundantIntersection.doc)
+        .def("ReduceInequalities", &HPolyhedron::ReduceInequalities,
+             cls_doc.ReduceInequalities.doc)
         .def("MaximumVolumeInscribedEllipsoid",
             &HPolyhedron::MaximumVolumeInscribedEllipsoid,
             cls_doc.MaximumVolumeInscribedEllipsoid.doc)
