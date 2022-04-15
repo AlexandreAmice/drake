@@ -56,14 +56,14 @@ class HPolyhedron final : public ConvexSet {
    * other. This is done by checking whether every inequality in @p other is
    * redundant when added to this.
    */
-  bool ContainedInOtherHPolyhedron(const HPolyhedron& other) const;
+  bool ContainedIn(const HPolyhedron& other) const;
 
   /**
    * Construct the intersection of two HPolyhedron by adding the rows of
    * inequalities from @p other to this HPolyhedron if the inequality is not
    * implied by the inequalities from this HPolyhedron.
    */
-  HPolyhedron IrredundantIntersection(const HPolyhedron& other) const;
+  HPolyhedron Intersection(const HPolyhedron& other) const;
 
   /**
    * Traverses the inequalities of the HPolyhedron in order and removes

@@ -178,7 +178,7 @@ bool HPolyhedron::DoIsBounded() const {
   return result.is_success();
 }
 
-bool HPolyhedron::ContainedInOtherHPolyhedron(const HPolyhedron& other) const {
+bool HPolyhedron::ContainedIn(const HPolyhedron& other) const {
   DRAKE_DEMAND(other.A().cols() == A_.cols());
   const double kInf = std::numeric_limits<double>::infinity();
   solvers::MathematicalProgram prog;
@@ -232,7 +232,7 @@ bool HPolyhedron::ContainedInOtherHPolyhedron(const HPolyhedron& other) const {
   return true;
 }
 
-HPolyhedron HPolyhedron::IrredundantIntersection(
+HPolyhedron HPolyhedron::Intersection(
     const HPolyhedron& other) const {
   DRAKE_DEMAND(other.A().cols() == A_.cols());
   const double kInf = std::numeric_limits<double>::infinity();
