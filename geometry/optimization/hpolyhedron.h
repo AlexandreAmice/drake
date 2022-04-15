@@ -52,6 +52,27 @@ class HPolyhedron final : public ConvexSet {
   alternatives). */
   using ConvexSet::IsBounded;
 
+  /** Returns true iff this HPolyhedron is entirely contained in the HPolyhedron
+   * other. This is done by checking whether every inequality in @p other is
+   * redundant when added to this.
+   */
+  bool ContainedIn(const HPolyhedron& other) const;
+
+  /**
+   * Construct the intersection of two HPolyhedron by adding the rows of
+   * inequalities from @p other to this HPolyhedron if the inequality is not
+   * implied by the inequalities from this HPolyhedron.
+   */
+  HPolyhedron Intersection(const HPolyhedron& other) const;
+
+  /**
+   * Traverses the inequalities of the HPolyhedron in order and removes
+   * inequalities which are redundant. This is not guaranteed to give the
+   * minimal representation of a polytope but is a relatively fast way to reduce
+   * the number of inequalities
+   */
+  HPolyhedron ReduceInequalities() const;
+
   /** Solves a semi-definite program to compute the inscribed ellipsoid.
   From Section 8.4.2 in Boyd and Vandenberghe, 2004, we solve
   @verbatim
