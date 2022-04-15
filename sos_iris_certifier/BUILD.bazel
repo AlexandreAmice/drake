@@ -40,9 +40,8 @@ filegroup(
 ##########################################################
 # NOTEBOOKS
 ##########################################################
-
 drake_jupyter_py_binary(
-    name = "pinball_iiwas_snopt_iris",
+    name = "pinball_iiwas",
     add_test_rule = 0,
     data = [
         "//manipulation/models/iiwa_description:models",
