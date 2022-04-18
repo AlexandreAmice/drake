@@ -695,6 +695,86 @@ HPolyhedron IrisInConfigurationSpace(const MultibodyPlant<double>& plant,
   return P;
 }
 
+HPolyhedron AddPlanes(IrisFramesSetsPairs frames_sets_pairs,
+                    SamePointConstraint same_point_constraint,
+                    IrisOptions options,
+                    Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>* A,
+                    VectorXd* b,
+                    int* num_constraints){
+  const int N = static_cast<int>(frames_sets_pairs.sorted_pairs.size());
+  auto solver = solvers::MakeFirstAvailableSolver(
+      {solvers::SnoptSolver::id(), solvers::IpoptSolver::id()});
+
+  VectorXd closest((*A)().cols());
+  while (true) {
+    bool sample_point_requirement = true;
+    DRAKE_ASSERT(best_volume > 0);
+    // Find separating hyperplanes
+
+    // First use a fast nonlinear optimizer to add as many constraint as it
+    // can find.
+    for (const auto& pair : sorted_pairs) {
+      while (sample_point_requirement &&
+             FindClosestCollision(
+                 same_point_constraint, *frames.at(pair.geomA),
+                 *frames.at(pair.geomB), *sets.at(pair.geomA),
+                 *sets.at(pair.geomB), E, A.topRows(num_constraints),
+                 b.head(num_constraints), *solver, sample, &closest)) {
+        AddTangentToPolytope(E, closest, options, &A, &b, &num_constraints);
+        if (options.require_sample_point_is_contained) {
+          sample_point_requirement =
+              A.row(num_constraints - 1) * sample <= b(num_constraints - 1);
+        }
+      }
+    }
+
+    if (options.enable_ibex) {
+      // Now loop back through and use Ibex for rigorous certification.
+      // TODO(russt): Consider (re-)implementing a "feasibility only" version of
+      // the IRIS check + nonlinear optimization to improve.
+      for (const auto& pair : sorted_pairs) {
+        int num_faces = 0;
+        while (sample_point_requirement &&
+               FindClosestCollision(
+                   same_point_constraint, *frames.at(pair.geomA),
+                   *frames.at(pair.geomB), *sets.at(pair.geomA),
+                   *sets.at(pair.geomB), E, A.topRows(num_constraints),
+                   b.head(num_constraints), *ibex, sample, &closest) &&
+                   ((options.max_faces_per_collision_pair<0) || num_faces <= options.max_faces_per_collision_pair)) {
+          AddTangentToPolytope(E, closest, options, &A, &b, &num_constraints);
+          if (options.require_sample_point_is_contained) {
+            sample_point_requirement =
+                A.row(num_constraints - 1) * sample <= b(num_constraints - 1);
+          }
+          num_faces++;
+        }
+      }
+    }
+
+    if (!sample_point_requirement) {
+      break;
+    }
+    P = HPolyhedron(A.topRows(num_constraints), b.head(num_constraints));
+
+    iteration++;
+    if (iteration >= options.iteration_limit) {
+      break;
+    }
+
+    E = P.MaximumVolumeInscribedEllipsoid();
+    const double volume = E.Volume();
+    const double delta_volume = volume - best_volume;
+    if (delta_volume <= options.termination_threshold) {
+      break;
+    }
+    if (delta_volume / best_volume <= options.relative_termination_threshold) {
+      break;
+    }
+    best_volume = volume;
+  }
+  return P;
+
+}
 
 HPolyhedron IrisInRationalConfigurationSpace(const multibody::MultibodyPlant<double> &plant,
                                              const systems::Context<double> &context,
@@ -743,43 +823,11 @@ HPolyhedron IrisInRationalConfigurationSpace(const multibody::MultibodyPlant<dou
 
   // Make all of the convex sets and supporting quantities.
   // TODO(amice): should we provide a way that we don't have to run this for every t_sample point?
-  auto query_object =
-      plant.get_geometry_query_input_port().Eval<QueryObject<double>>(context);
-  const SceneGraphInspector<double>& inspector = query_object.inspector();
-  IrisConvexSetMaker maker(query_object, inspector.world_frame_id());
-  std::unordered_map<GeometryId, copyable_unique_ptr<ConvexSet>> sets{};
-  std::unordered_map<GeometryId, const multibody::Frame<double>*> frames{};
-  const std::unordered_set<GeometryId> geom_ids = inspector.GetGeometryIds(
-      GeometrySet(inspector.GetAllGeometryIds()), Role::kProximity);
-  copyable_unique_ptr<ConvexSet> temp_set;
-  for (GeometryId geom_id : geom_ids) {
-    // Make all sets in the local geometry frame.
-    FrameId frame_id = inspector.GetFrameId(geom_id);
-    maker.set_reference_frame(frame_id);
-    maker.set_geometry_id(geom_id);
-    inspector.GetShape(geom_id).Reify(&maker, &temp_set);
-    sets.emplace(geom_id, std::move(temp_set));
-    frames.emplace(geom_id, &plant.GetBodyFromFrameId(frame_id)->body_frame());
-  }
-
-  auto pairs = inspector.GetCollisionCandidates();
-  const int N = static_cast<int>(pairs.size());
+  IrisFrameSetsPairs frames_sets_pairs = MakeIrisFramesSetsPairs(plant, context);
 
   auto same_point_constraint =
       std::make_shared<SamePointConstraintRational>(&rational_forward_kinematics, q_star, context);
 
-  // As a surrogate for the true objective, the pairs are sorted by the distance
-  // between each collision pair from the t_sample point configuration. This could
-  // improve computation times in Ibex here and produce regions with fewer
-  // faces.
-  std::vector<GeometryPairWithDistance> sorted_pairs;
-  for (const auto& [geomA, geomB] : pairs) {
-    sorted_pairs.emplace_back(
-        geomA, geomB,
-        query_object.ComputeSignedDistancePairClosestPoints(geomA, geomB)
-            .distance);
-  }
-  std::sort(sorted_pairs.begin(), sorted_pairs.end());
 
 
   // On each iteration, we will build the collision-free polytope represented as
@@ -890,7 +938,44 @@ HPolyhedron IrisInRationalConfigurationSpace(const multibody::MultibodyPlant<dou
   return P;
 }
 
+IrisFrameSetsPair MakeIrisFramesSetsPairs(const MultibodyPlant<double>& plant,
+                                     const Context<double>& context){
+  auto query_object =
+      plant.get_geometry_query_input_port().Eval<QueryObject<double>>(context);
+  const SceneGraphInspector<double>& inspector = query_object.inspector();
+  IrisConvexSetMaker maker(query_object, inspector.world_frame_id());
+  std::unordered_map<GeometryId, copyable_unique_ptr<ConvexSet>> sets{};
+  std::unordered_map<GeometryId, const multibody::Frame<double>*> frames{};
+  const std::unordered_set<GeometryId> geom_ids = inspector.GetGeometryIds(
+      GeometrySet(inspector.GetAllGeometryIds()), Role::kProximity);
+  copyable_unique_ptr<ConvexSet> temp_set;
+  for (GeometryId geom_id : geom_ids) {
+    // Make all sets in the local geometry frame.
+    FrameId frame_id = inspector.GetFrameId(geom_id);
+    maker.set_reference_frame(frame_id);
+    maker.set_geometry_id(geom_id);
+    inspector.GetShape(geom_id).Reify(&maker, &temp_set);
+    sets.emplace(geom_id, std::move(temp_set));
+    frames.emplace(geom_id, &plant.GetBodyFromFrameId(frame_id)->body_frame());
+  }
 
+  auto pairs = inspector.GetCollisionCandidates();
+
+  // As a surrogate for the true objective, the pairs are sorted by the distance
+  // between each collision pair from the t_sample point configuration. This could
+  // improve computation times in Ibex here and produce regions with fewer
+  // faces.
+  std::vector<GeometryPairWithDistance> sorted_pairs;
+  for (const auto& [geomA, geomB] : pairs) {
+    sorted_pairs.emplace_back(
+        geomA, geomB,
+        query_object.ComputeSignedDistancePairClosestPoints(geomA, geomB)
+            .distance);
+  }
+  std::sort(sorted_pairs.begin(), sorted_pairs.end());
+  IrisFrameSetsPair dut(frames, sets, sorted_pairs);
+  return dut;
+}
 
 
 }  // namespace optimization
