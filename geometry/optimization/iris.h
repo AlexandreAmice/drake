@@ -15,6 +15,18 @@ namespace drake {
 namespace geometry {
 namespace optimization {
 
+using Eigen::MatrixXd;
+using Eigen::Ref;
+using Eigen::Vector3d;
+using Eigen::VectorXd;
+using math::RigidTransform;
+using multibody::Body;
+using multibody::Frame;
+using multibody::JacobianWrtVariable;
+using multibody::MultibodyPlant;
+using symbolic::Expression;
+using systems::Context;
+
 /** Configuration options for the IRIS algorithm.
 
 @ingroup geometry_optimization
@@ -60,6 +72,245 @@ struct IrisOptions {
   /** Maximum number of faces added per collision pair, per iteration. Setting
      this option to -1 imposes no limit. Default value is -1. */
   int max_faces_per_collision_pair{-1};
+};
+
+struct IrisOptionsRationalSpace : public IrisOptions {
+  IrisOptionsRationalSpace() = default;
+
+  /** For IRIS in rational configuration space, we can certify that the regions
+   * are truly collision free using SOS programming and the methods in
+   * multibody/rational_forward_kinematics. Turning this option on
+   * certifies the regions everytime a set of hyperplanes is added
+   * TODO(Alex.Amice) support turning this option on */
+  bool certify_region_with_sos_during_generation = false;
+
+  /** For IRIS in rational configuration space, we can certify that the regions
+   * are truly collision free using SOS programming and the methods in
+   * multibody/rational_forward_kinematics. Turning this option on
+   * certifies the regions at the end of the loop
+   * TODO(Alex.Amice) support turning this option on */
+  bool certify_region_with_sos_after_generation = false;
+
+  /** For IRIS in rational configuration space we need a point around which to
+   * perform the stereographic projection
+   * */
+  std::optional<Eigen::VectorXd> q_star;
+};
+
+
+// Takes q, p_AA, and p_BB and enforces that p_WA == p_WB.
+class SamePointConstraint : public solvers::Constraint {
+ public:
+  DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(SamePointConstraint)
+
+  SamePointConstraint(const MultibodyPlant<double>* plant,
+                      const Context<double>& context)
+      : solvers::Constraint(3, plant ? plant->num_positions() + 6 : 0,
+                            Vector3d::Zero(), Vector3d::Zero()),
+        plant_(plant),
+        context_(plant->CreateDefaultContext()) {
+    DRAKE_DEMAND(plant_ != nullptr);
+    context_->SetTimeStateAndParametersFrom(context);
+  }
+
+  ~SamePointConstraint() override {}
+
+  void set_frameA(const multibody::Frame<double>* frame) { frameA_ = frame; }
+
+  void set_frameB(const multibody::Frame<double>* frame) { frameB_ = frame; }
+
+  void EnableSymbolic() {
+    if (symbolic_plant_ != nullptr) {
+      return;
+    }
+    symbolic_plant_ = systems::System<double>::ToSymbolic(*plant_);
+    symbolic_context_ = symbolic_plant_->CreateDefaultContext();
+    symbolic_context_->SetTimeStateAndParametersFrom(*context_);
+  }
+
+ private:
+  void DoEval(const Eigen::Ref<const Eigen::VectorXd>& x,
+              Eigen::VectorXd* y) const override {
+    DRAKE_DEMAND(frameA_ != nullptr);
+    DRAKE_DEMAND(frameB_ != nullptr);
+    VectorXd q = x.head(plant_->num_positions());
+    Vector3d p_AA = x.template segment<3>(plant_->num_positions()),
+             p_BB = x.template tail<3>();
+    Vector3d p_WA, p_WB;
+    plant_->SetPositions(context_.get(), q);
+    plant_->CalcPointsPositions(*context_, *frameA_, p_AA,
+                                plant_->world_frame(), &p_WA);
+    plant_->CalcPointsPositions(*context_, *frameB_, p_BB,
+                                plant_->world_frame(), &p_WB);
+    *y = p_WA - p_WB;
+  }
+
+  // p_WA = X_WA(q)*p_AA
+  // dp_WA = Jq_v_WA*dq + X_WA(q)*dp_AA
+  void DoEval(const Eigen::Ref<const AutoDiffVecXd>& x,
+              AutoDiffVecXd* y) const override {
+    DRAKE_DEMAND(frameA_ != nullptr);
+    DRAKE_DEMAND(frameB_ != nullptr);
+    VectorX<AutoDiffXd> q = x.head(plant_->num_positions());
+    Vector3<AutoDiffXd> p_AA = x.template segment<3>(plant_->num_positions()),
+                        p_BB = x.template tail<3>();
+    plant_->SetPositions(context_.get(), ExtractDoubleOrThrow(q));
+    const RigidTransform<double>& X_WA =
+        plant_->EvalBodyPoseInWorld(*context_, frameA_->body());
+    const RigidTransform<double>& X_WB =
+        plant_->EvalBodyPoseInWorld(*context_, frameB_->body());
+    Eigen::Matrix3Xd Jq_v_WA(3, plant_->num_positions()),
+        Jq_v_WB(3, plant_->num_positions());
+    plant_->CalcJacobianTranslationalVelocity(
+        *context_, JacobianWrtVariable::kQDot, *frameA_,
+        ExtractDoubleOrThrow(p_AA), plant_->world_frame(),
+        plant_->world_frame(), &Jq_v_WA);
+    plant_->CalcJacobianTranslationalVelocity(
+        *context_, JacobianWrtVariable::kQDot, *frameB_,
+        ExtractDoubleOrThrow(p_BB), plant_->world_frame(),
+        plant_->world_frame(), &Jq_v_WB);
+    *y = X_WA.cast<AutoDiffXd>() * p_AA - X_WB.cast<AutoDiffXd>() * p_BB;
+    // Now add it the dydq terms.  We don't use the standard autodiff tools
+    // because these only impact a subset of the autodiff derivatives.
+    for (int i = 0; i < 3; i++) {
+      (*y)[i].derivatives().head(plant_->num_positions()) +=
+          (Jq_v_WA.row(i) - Jq_v_WB.row(i)).transpose();
+    }
+  }
+
+  void DoEval(const Ref<const VectorX<symbolic::Variable>>& x,
+              VectorX<symbolic::Expression>* y) const override {
+    DRAKE_DEMAND(symbolic_plant_ != nullptr);
+    DRAKE_DEMAND(frameA_ != nullptr);
+    DRAKE_DEMAND(frameB_ != nullptr);
+    const Frame<Expression>& frameA =
+        symbolic_plant_->get_frame(frameA_->index());
+    const Frame<Expression>& frameB =
+        symbolic_plant_->get_frame(frameB_->index());
+    VectorX<Expression> q = x.head(plant_->num_positions());
+    Vector3<Expression> p_AA = x.template segment<3>(plant_->num_positions()),
+                        p_BB = x.template tail<3>();
+    Vector3<Expression> p_WA, p_WB;
+    symbolic_plant_->SetPositions(symbolic_context_.get(), q);
+    symbolic_plant_->CalcPointsPositions(*symbolic_context_, frameA, p_AA,
+                                         symbolic_plant_->world_frame(), &p_WA);
+    symbolic_plant_->CalcPointsPositions(*symbolic_context_, frameB, p_BB,
+                                         symbolic_plant_->world_frame(), &p_WB);
+    *y = p_WA - p_WB;
+  }
+
+ protected:
+  const MultibodyPlant<double>* const plant_;
+  const multibody::Frame<double>* frameA_{nullptr};
+  const multibody::Frame<double>* frameB_{nullptr};
+  std::unique_ptr<Context<double>> context_;
+
+  std::unique_ptr<MultibodyPlant<Expression>> symbolic_plant_{nullptr};
+  std::unique_ptr<Context<Expression>> symbolic_context_{nullptr};
+};
+
+// takes t, p_AA, and p_BB and enforces that p_WA == p_WB
+class SamePointConstraintRational : public SamePointConstraint {
+ public:
+  DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(SamePointConstraintRational)
+
+  SamePointConstraintRational(const multibody::RationalForwardKinematics*
+                                  rational_forward_kinematics_ptr,
+                              const Eigen::Ref<const Eigen::VectorXd>& q_star,
+                              const Context<double>& context)
+      : SamePointConstraint(&rational_forward_kinematics_ptr->plant(), context),
+        rational_forward_kinematics_ptr_(rational_forward_kinematics_ptr),
+        q_star_(q_star) {}
+
+  ~SamePointConstraintRational() override {}
+
+ private:
+  void DoEval(const Eigen::Ref<const Eigen::VectorXd>& x,
+              Eigen::VectorXd* y) const override {
+    DRAKE_DEMAND(frameA_ != nullptr);
+    DRAKE_DEMAND(frameB_ != nullptr);
+    VectorXd t = x.head(plant_->num_positions());
+    VectorXd q = rational_forward_kinematics_ptr_->ComputeQValue(t, q_star_);
+    Vector3d p_AA = x.template segment<3>(plant_->num_positions()),
+             p_BB = x.template tail<3>();
+    Vector3d p_WA, p_WB;
+    plant_->SetPositions(context_.get(), q);
+    plant_->CalcPointsPositions(*context_, *frameA_, p_AA,
+                                plant_->world_frame(), &p_WA);
+    plant_->CalcPointsPositions(*context_, *frameB_, p_BB,
+                                plant_->world_frame(), &p_WB);
+    *y = p_WA - p_WB;
+  }
+
+  void DoEval(const Eigen::Ref<const AutoDiffVecXd>& x,
+              AutoDiffVecXd* y) const override {
+    DRAKE_DEMAND(frameA_ != nullptr);
+    DRAKE_DEMAND(frameB_ != nullptr);
+    VectorX<AutoDiffXd> t = x.head(plant_->num_positions());
+    VectorX<AutoDiffXd> q =
+        rational_forward_kinematics_ptr_->ComputeQValue(t, q_star_);
+
+    Vector3<AutoDiffXd> p_AA = x.template segment<3>(plant_->num_positions()),
+                        p_BB = x.template tail<3>();
+    plant_->SetPositions(context_.get(), ExtractDoubleOrThrow(q));
+    const RigidTransform<double>& X_WA =
+        plant_->EvalBodyPoseInWorld(*context_, frameA_->body());
+    const RigidTransform<double>& X_WB =
+        plant_->EvalBodyPoseInWorld(*context_, frameB_->body());
+    Eigen::Matrix3Xd Jq_v_WA(3, plant_->num_positions()),
+        Jq_v_WB(3, plant_->num_positions());
+    plant_->CalcJacobianTranslationalVelocity(
+        *context_, JacobianWrtVariable::kQDot, *frameA_,
+        ExtractDoubleOrThrow(p_AA), plant_->world_frame(),
+        plant_->world_frame(), &Jq_v_WA);
+    plant_->CalcJacobianTranslationalVelocity(
+        *context_, JacobianWrtVariable::kQDot, *frameB_,
+        ExtractDoubleOrThrow(p_BB), plant_->world_frame(),
+        plant_->world_frame(), &Jq_v_WB);
+    Eigen::Matrix3Xd Jt_v_WA(3, plant_->num_positions()),
+        Jt_v_WB(3, plant_->num_positions());
+    for (int i = 0; i < plant_->num_positions(); i++) {
+      // dX_t_wa = J_q_WA * dq_dt
+      Jt_v_WA.col(i) = Jq_v_WA.col(i) * q(i).derivatives()(i);
+      Jt_v_WB.col(i) = Jq_v_WB.col(i) * q(i).derivatives()(i);
+    }
+
+    *y = X_WA.cast<AutoDiffXd>() * p_AA - X_WB.cast<AutoDiffXd>() * p_BB;
+    // Now add it the dydq terms.  We don't use the standard autodiff tools
+    // because these only impact a subset of the autodiff derivatives.
+    for (int i = 0; i < 3; i++) {
+      (*y)[i].derivatives().head(plant_->num_positions()) +=
+          (Jt_v_WA.row(i) - Jt_v_WB.row(i)).transpose();
+    }
+  }
+
+  void DoEval(const Ref<const VectorX<symbolic::Variable>>& x,
+              VectorX<symbolic::Expression>* y) const override {
+    DRAKE_DEMAND(symbolic_plant_ != nullptr);
+    DRAKE_DEMAND(frameA_ != nullptr);
+    DRAKE_DEMAND(frameB_ != nullptr);
+    const Frame<Expression>& frameA =
+        symbolic_plant_->get_frame(frameA_->index());
+    const Frame<Expression>& frameB =
+        symbolic_plant_->get_frame(frameB_->index());
+    VectorX<Expression> t = x.head(plant_->num_positions());
+    VectorX<Expression> q =
+        rational_forward_kinematics_ptr_->ComputeQValue(t, q_star_);
+    Vector3<Expression> p_AA = x.template segment<3>(plant_->num_positions()),
+                        p_BB = x.template tail<3>();
+    Vector3<Expression> p_WA, p_WB;
+    symbolic_plant_->SetPositions(symbolic_context_.get(), q);
+    symbolic_plant_->CalcPointsPositions(*symbolic_context_, frameA, p_AA,
+                                         symbolic_plant_->world_frame(), &p_WA);
+    symbolic_plant_->CalcPointsPositions(*symbolic_context_, frameB, p_BB,
+                                         symbolic_plant_->world_frame(), &p_WB);
+    *y = p_WA - p_WB;
+    std::cout << "CALLING RATIONAL METHODS" << std::endl;
+  }
+
+ protected:
+  const multibody::RationalForwardKinematics* rational_forward_kinematics_ptr_;
+  const Eigen::VectorXd q_star_;
 };
 
 /** The IRIS (Iterative Region Inflation by Semidefinite programming) algorithm,
@@ -150,33 +401,6 @@ HPolyhedron IrisInConfigurationSpace(
     const Eigen::Ref<const Eigen::VectorXd>& sample,
     const IrisOptions& options = IrisOptions());
 
-struct IrisOptionsRationalSpace : public IrisOptions {
-  IrisOptionsRationalSpace() = default;
-
-  /** For IRIS in rational configuration space, we can certify that the regions
-   * are truly collision free using SOS programming at the methods in
-   * multibody/rational_forward_kinematics. Whether to do the certification
-   * steps in the loop or not is an option*/
-  bool certify_region_with_sos_during_generation = false;
-
-  /** For IRIS in rational configuration space, we can certify that the regions
-   * are truly collision free using SOS programming at the methods in
-   * multibody/rational_forward_kinematics. We can do the certification
-   * adjustments at one time at the end
-   * TODO (amice): enforce that only one of certify_region_during_generation and
-   * certify_region_after_generation is true
-   * TODO (amice): enforce that one of certify with ibex and certify with sos
-   * true
-   * TODO (amice): set default true once we have the integration
-   * */
-  bool certify_region_with_sos_after_generation = false;
-
-  /** For IRIS in rational configuration space we need a point around which to
-   * perform the stereographic projection
-   * */
-  std::optional<Eigen::VectorXd> q_star;
-};
-
 /** A variation of the Iris (Iterative Region Inflation by Semidefinite
 programming) algorithm which finds collision-free regions in the *rational
 parametrization of the configuration space* of @p plant. @see Iris for details
@@ -201,30 +425,23 @@ HPolyhedron IrisInRationalConfigurationSpace(
     const IrisOptionsRationalSpace& options = IrisOptionsRationalSpace(),
     const std::optional<HPolyhedron>& starting_hpolyhedron = std::nullopt);
 
-/** Simple Struct for bundling the necessary frames, sets, and pairs. needed
- * during the execution of IrisInConfigurationSpace
+/**
+ * Internal method for actually running Iris. Be assume that the HPolyhedron in
+ * *P_ptr has been set to a finite bounding box defining the joint limits of the
+ * plant.
+ * @param P_ptr must have its ambient dimension be the same size as the number
+ * of joints in the plant.
+ * @param E_ptr must have its ambient dimension be the same size as the nubmer
+ * of joints in the plant.
+ * @return
  */
-struct IrisFramesSetsPairs : {
-  IrisFramesSetsPairs(
-      std::unordered_map<GeometryId, const multibody::Frame<double>*> m_frames,
-      std::unordered_map<GeometryId, copyable_unique_ptr<ConvexSet>> m_sets,
-      std::vector<GeometryPairWithDistance> m_sorted_pairs) :
-      frames{std::move(m_frames)},
-      sets{std:move(m_sets)},
-      sorted_pairs{std:move(m_sorted_pairs)};
+void _DoIris_(const multibody::MultibodyPlant<double>& plant,
+              const systems::Context<double>& context,
+              const IrisOptions& options,
+              const Eigen::Ref<const Eigen::VectorXd>& sample,
+              const std::shared_ptr<SamePointConstraint>& same_point_constraint,
+              HPolyhedron* P_ptr, Hyperellipsoid* E_ptr);
 
-  std::unordered_map<GeometryId, const multibody::Frame<double>*> frames;
-  std::unordered_map<GeometryId, copyable_unique_ptr<ConvexSet>> sets;
-  std::vector<GeometryPairWithDistance> sorted_pairs;
-};
-
-/** Make all of the convex sets and supporting quantities for
- * IrisInConfigurationSpace
- */
-IrisFrameSetsPair MakeIrisFramesSetsPairs(const MultibodyPlant<double>& plant,
-                                        const Context<double>& context);
-
-HPolyhedron RunIris(IrisFramesSetsPair frames_sets_pairs, SamePointConstraint same_point_constraint, IrisOptions options);
 
 }  // namespace optimization
 }  // namespace geometry

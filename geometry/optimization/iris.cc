@@ -205,226 +205,6 @@ ConvexSets MakeIrisObstacles(const QueryObject<double>& query_object,
 }
 
 namespace {
-
-// Takes q, p_AA, and p_BB and enforces that p_WA == p_WB.
-class SamePointConstraint : public solvers::Constraint {
- public:
-  DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(SamePointConstraint)
-
-  SamePointConstraint(const MultibodyPlant<double>* plant,
-                      const Context<double>& context)
-      : solvers::Constraint(3, plant ? plant->num_positions() + 6 : 0,
-                            Vector3d::Zero(), Vector3d::Zero()),
-        plant_(plant),
-        context_(plant->CreateDefaultContext()) {
-    DRAKE_DEMAND(plant_ != nullptr);
-    context_->SetTimeStateAndParametersFrom(context);
-  }
-
-  ~SamePointConstraint() override {}
-
-  void set_frameA(const multibody::Frame<double>* frame) { frameA_ = frame; }
-
-  void set_frameB(const multibody::Frame<double>* frame) { frameB_ = frame; }
-
-  void EnableSymbolic() {
-    if (symbolic_plant_ != nullptr) {
-      return;
-    }
-    symbolic_plant_ = systems::System<double>::ToSymbolic(*plant_);
-    symbolic_context_ = symbolic_plant_->CreateDefaultContext();
-    symbolic_context_->SetTimeStateAndParametersFrom(*context_);
-  }
-
- private:
-  void DoEval(const Eigen::Ref<const Eigen::VectorXd>& x,
-              Eigen::VectorXd* y) const override {
-    DRAKE_DEMAND(frameA_ != nullptr);
-    DRAKE_DEMAND(frameB_ != nullptr);
-    VectorXd q = x.head(plant_->num_positions());
-    Vector3d p_AA = x.template segment<3>(plant_->num_positions()),
-             p_BB = x.template tail<3>();
-    Vector3d p_WA, p_WB;
-    plant_->SetPositions(context_.get(), q);
-    plant_->CalcPointsPositions(*context_, *frameA_, p_AA,
-                                plant_->world_frame(), &p_WA);
-    plant_->CalcPointsPositions(*context_, *frameB_, p_BB,
-                                plant_->world_frame(), &p_WB);
-    *y = p_WA - p_WB;
-  }
-
-  // p_WA = X_WA(q)*p_AA
-  // dp_WA = Jq_v_WA*dq + X_WA(q)*dp_AA
-  void DoEval(const Eigen::Ref<const AutoDiffVecXd>& x,
-              AutoDiffVecXd* y) const override {
-    DRAKE_DEMAND(frameA_ != nullptr);
-    DRAKE_DEMAND(frameB_ != nullptr);
-    VectorX<AutoDiffXd> q = x.head(plant_->num_positions());
-    Vector3<AutoDiffXd> p_AA = x.template segment<3>(plant_->num_positions()),
-                        p_BB = x.template tail<3>();
-    plant_->SetPositions(context_.get(), ExtractDoubleOrThrow(q));
-    const RigidTransform<double>& X_WA =
-        plant_->EvalBodyPoseInWorld(*context_, frameA_->body());
-    const RigidTransform<double>& X_WB =
-        plant_->EvalBodyPoseInWorld(*context_, frameB_->body());
-    Eigen::Matrix3Xd Jq_v_WA(3, plant_->num_positions()),
-        Jq_v_WB(3, plant_->num_positions());
-    plant_->CalcJacobianTranslationalVelocity(
-        *context_, JacobianWrtVariable::kQDot, *frameA_,
-        ExtractDoubleOrThrow(p_AA), plant_->world_frame(),
-        plant_->world_frame(), &Jq_v_WA);
-    plant_->CalcJacobianTranslationalVelocity(
-        *context_, JacobianWrtVariable::kQDot, *frameB_,
-        ExtractDoubleOrThrow(p_BB), plant_->world_frame(),
-        plant_->world_frame(), &Jq_v_WB);
-    *y = X_WA.cast<AutoDiffXd>() * p_AA - X_WB.cast<AutoDiffXd>() * p_BB;
-    // Now add it the dydq terms.  We don't use the standard autodiff tools
-    // because these only impact a subset of the autodiff derivatives.
-    for (int i = 0; i < 3; i++) {
-      (*y)[i].derivatives().head(plant_->num_positions()) +=
-          (Jq_v_WA.row(i) - Jq_v_WB.row(i)).transpose();
-    }
-  }
-
-  void DoEval(const Ref<const VectorX<symbolic::Variable>>& x,
-              VectorX<symbolic::Expression>* y) const override {
-    DRAKE_DEMAND(symbolic_plant_ != nullptr);
-    DRAKE_DEMAND(frameA_ != nullptr);
-    DRAKE_DEMAND(frameB_ != nullptr);
-    const Frame<Expression>& frameA =
-        symbolic_plant_->get_frame(frameA_->index());
-    const Frame<Expression>& frameB =
-        symbolic_plant_->get_frame(frameB_->index());
-    VectorX<Expression> q = x.head(plant_->num_positions());
-    Vector3<Expression> p_AA = x.template segment<3>(plant_->num_positions()),
-                        p_BB = x.template tail<3>();
-    Vector3<Expression> p_WA, p_WB;
-    symbolic_plant_->SetPositions(symbolic_context_.get(), q);
-    symbolic_plant_->CalcPointsPositions(*symbolic_context_, frameA, p_AA,
-                                         symbolic_plant_->world_frame(), &p_WA);
-    symbolic_plant_->CalcPointsPositions(*symbolic_context_, frameB, p_BB,
-                                         symbolic_plant_->world_frame(), &p_WB);
-    *y = p_WA - p_WB;
-  }
-
- protected:
-  const MultibodyPlant<double>* const plant_;
-  const multibody::Frame<double>* frameA_{nullptr};
-  const multibody::Frame<double>* frameB_{nullptr};
-  std::unique_ptr<Context<double>> context_;
-
-  std::unique_ptr<MultibodyPlant<Expression>> symbolic_plant_{nullptr};
-  std::unique_ptr<Context<Expression>> symbolic_context_{nullptr};
-};
-
-// takes t, p_AA, and p_BB and enforces that p_WA == p_WB
-class SamePointConstraintRational : public SamePointConstraint{
-  public:
-    DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(SamePointConstraintRational)
-
-    SamePointConstraintRational(
-        const multibody::RationalForwardKinematics* rational_forward_kinematics_ptr,
-        const Eigen::Ref<const Eigen::VectorXd>& q_star,
-        const Context<double>& context)
-        : SamePointConstraint(&rational_forward_kinematics_ptr->plant(), context),
-        rational_forward_kinematics_ptr_(rational_forward_kinematics_ptr),
-        q_star_(q_star)
-        {}
-
-    ~SamePointConstraintRational() override {}
-
- private:
-  void DoEval(const Eigen::Ref<const Eigen::VectorXd>& x,
-              Eigen::VectorXd* y) const override {
-    DRAKE_DEMAND(frameA_ != nullptr);
-    DRAKE_DEMAND(frameB_ != nullptr);
-    VectorXd t = x.head(plant_->num_positions());
-    VectorXd q = rational_forward_kinematics_ptr_->ComputeQValue(t, q_star_);
-    Vector3d p_AA = x.template segment<3>(plant_->num_positions()),
-             p_BB = x.template tail<3>();
-    Vector3d p_WA, p_WB;
-    plant_->SetPositions(context_.get(), q);
-    plant_->CalcPointsPositions(*context_, *frameA_, p_AA,
-                                plant_->world_frame(), &p_WA);
-    plant_->CalcPointsPositions(*context_, *frameB_, p_BB,
-                                plant_->world_frame(), &p_WB);
-    *y = p_WA - p_WB;
-  }
-
-
-  void DoEval(const Eigen::Ref<const AutoDiffVecXd>& x,
-              AutoDiffVecXd* y) const override {
-
-    DRAKE_DEMAND(frameA_ != nullptr);
-    DRAKE_DEMAND(frameB_ != nullptr);
-    VectorX<AutoDiffXd> t = x.head(plant_->num_positions());
-    VectorX<AutoDiffXd> q = rational_forward_kinematics_ptr_->ComputeQValue(t, q_star_);
-
-
-    Vector3<AutoDiffXd> p_AA = x.template segment<3>(plant_->num_positions()),
-                        p_BB = x.template tail<3>();
-    plant_->SetPositions(context_.get(), ExtractDoubleOrThrow(q));
-    const RigidTransform<double>& X_WA =
-        plant_->EvalBodyPoseInWorld(*context_, frameA_->body());
-    const RigidTransform<double>& X_WB =
-        plant_->EvalBodyPoseInWorld(*context_, frameB_->body());
-    Eigen::Matrix3Xd Jq_v_WA(3, plant_->num_positions()),
-        Jq_v_WB(3, plant_->num_positions());
-    plant_->CalcJacobianTranslationalVelocity(
-        *context_, JacobianWrtVariable::kQDot, *frameA_,
-        ExtractDoubleOrThrow(p_AA), plant_->world_frame(),
-        plant_->world_frame(), &Jq_v_WA);
-    plant_->CalcJacobianTranslationalVelocity(
-        *context_, JacobianWrtVariable::kQDot, *frameB_,
-        ExtractDoubleOrThrow(p_BB), plant_->world_frame(),
-        plant_->world_frame(), &Jq_v_WB);
-    Eigen::Matrix3Xd Jt_v_WA(3, plant_->num_positions()),
-        Jt_v_WB(3, plant_->num_positions());
-    for (int i = 0; i < plant_->num_positions(); i++){
-      // dX_t_wa = J_q_WA * dq_dt
-      Jt_v_WA.col(i) = Jq_v_WA.col(i)*q(i).derivatives()(i);
-      Jt_v_WB.col(i) = Jq_v_WB.col(i)*q(i).derivatives()(i);
-    }
-
-
-    *y = X_WA.cast<AutoDiffXd>() * p_AA - X_WB.cast<AutoDiffXd>() * p_BB;
-    // Now add it the dydq terms.  We don't use the standard autodiff tools
-    // because these only impact a subset of the autodiff derivatives.
-    for (int i = 0; i < 3; i++) {
-      (*y)[i].derivatives().head(plant_->num_positions()) +=
-          (Jt_v_WA.row(i) - Jt_v_WB.row(i)).transpose();
-    }
-  }
-
-  void DoEval(const Ref<const VectorX<symbolic::Variable>>& x,
-              VectorX<symbolic::Expression>* y) const override {
-    DRAKE_DEMAND(symbolic_plant_ != nullptr);
-    DRAKE_DEMAND(frameA_ != nullptr);
-    DRAKE_DEMAND(frameB_ != nullptr);
-    const Frame<Expression>& frameA =
-        symbolic_plant_->get_frame(frameA_->index());
-    const Frame<Expression>& frameB =
-        symbolic_plant_->get_frame(frameB_->index());
-    VectorX<Expression> t = x.head(plant_->num_positions());
-    VectorX<Expression> q = rational_forward_kinematics_ptr_->ComputeQValue(t, q_star_);
-    Vector3<Expression> p_AA = x.template segment<3>(plant_->num_positions()),
-                        p_BB = x.template tail<3>();
-    Vector3<Expression> p_WA, p_WB;
-    symbolic_plant_->SetPositions(symbolic_context_.get(), q);
-    symbolic_plant_->CalcPointsPositions(*symbolic_context_, frameA, p_AA,
-                                         symbolic_plant_->world_frame(), &p_WA);
-    symbolic_plant_->CalcPointsPositions(*symbolic_context_, frameB, p_BB,
-                                         symbolic_plant_->world_frame(), &p_WB);
-    *y = p_WA - p_WB;
-  }
- protected:
-  const multibody::RationalForwardKinematics* rational_forward_kinematics_ptr_;
-  const Eigen::VectorXd q_star_;
-
-};
-
-
-
 // Solves the optimization
 // min_q (q-d)*CᵀC(q-d)
 // s.t. setA in frameA and setB in frameB are in collision in q.
@@ -546,9 +326,151 @@ HPolyhedron IrisInConfigurationSpace(
   return IrisInConfigurationSpace(plant, *sample_context, options);
 }
 
-HPolyhedron IrisInConfigurationSpace(const MultibodyPlant<double>& plant,
-                                     const Context<double>& context,
-                                     const IrisOptions& options) {
+void _DoIris_(const multibody::MultibodyPlant<double>& plant,
+              const systems::Context<double>& context,
+              const IrisOptions& options,
+              const Eigen::Ref<const Eigen::VectorXd>& sample,
+              const std::shared_ptr<SamePointConstraint>& same_point_constraint,
+              HPolyhedron* P_ptr, Hyperellipsoid* E_ptr) {
+  // Check the inputs.
+  plant.ValidateContext(context);
+  const int num_joints = plant.num_positions();
+  DRAKE_DEMAND(num_joints == P_ptr->ambient_dimension());
+  DRAKE_DEMAND(P_ptr->ambient_dimension() == E_ptr->ambient_dimension());
+
+  // Make all of the convex sets and supporting quantities.
+  auto query_object =
+      plant.get_geometry_query_input_port().Eval<QueryObject<double>>(context);
+  const SceneGraphInspector<double>& inspector = query_object.inspector();
+  IrisConvexSetMaker maker(query_object, inspector.world_frame_id());
+  std::unordered_map<GeometryId, copyable_unique_ptr<ConvexSet>> sets{};
+  std::unordered_map<GeometryId, const multibody::Frame<double>*> frames{};
+  const std::unordered_set<GeometryId> geom_ids = inspector.GetGeometryIds(
+      GeometrySet(inspector.GetAllGeometryIds()), Role::kProximity);
+  copyable_unique_ptr<ConvexSet> temp_set;
+  for (GeometryId geom_id : geom_ids) {
+    // Make all sets in the local geometry frame.
+    FrameId frame_id = inspector.GetFrameId(geom_id);
+    maker.set_reference_frame(frame_id);
+    maker.set_geometry_id(geom_id);
+    inspector.GetShape(geom_id).Reify(&maker, &temp_set);
+    sets.emplace(geom_id, std::move(temp_set));
+    frames.emplace(geom_id, &plant.GetBodyFromFrameId(frame_id)->body_frame());
+  }
+
+  auto pairs = inspector.GetCollisionCandidates();
+  const int N = static_cast<int>(pairs.size());
+
+  // As a surrogate for the true objective, the pairs are sorted by the distance
+  // between each collision pair from the sample point configuration. This could
+  // improve computation times in Ibex here and produce regions with fewer
+  // faces.
+  std::vector<GeometryPairWithDistance> sorted_pairs;
+  for (const auto& [geomA, geomB] : pairs) {
+    sorted_pairs.emplace_back(
+        geomA, geomB,
+        query_object.ComputeSignedDistancePairClosestPoints(geomA, geomB)
+            .distance);
+  }
+  std::sort(sorted_pairs.begin(), sorted_pairs.end());
+
+  // On each iteration, we will build the collision-free polytope represented as
+  // {x | A * x <= b}.  Here we pre-allocate matrices with a generous maximum
+  // size.
+  Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> A(
+      P_ptr->A().rows() + 2 * N, num_joints);
+  VectorXd b(P_ptr->A().rows() + 2 * N);
+  A.topRows(P_ptr->A().rows()) = P_ptr->A();
+  b.head(P_ptr->A().rows()) = P_ptr->b();
+
+  double best_volume = E_ptr->Volume();
+  int iteration = 0;
+  VectorXd closest(num_joints);
+
+  auto solver = solvers::MakeFirstAvailableSolver(
+      {solvers::SnoptSolver::id(), solvers::IpoptSolver::id()});
+  std::unique_ptr<solvers::IbexSolver> ibex;
+  if (options.enable_ibex) {
+    ibex = std::make_unique<solvers::IbexSolver>();
+    DRAKE_DEMAND(ibex->is_available() && ibex->is_enabled());
+    same_point_constraint->EnableSymbolic();
+  }
+
+  while (true) {
+    int num_constraints = 2 * num_joints;  // Start with just the joint limits.
+    bool sample_point_requirement = true;
+    DRAKE_ASSERT(best_volume > 0);
+    // Find separating hyperplanes
+
+    // First use a fast nonlinear optimizer to add as many constraint as it
+    // can find.
+    for (const auto& pair : sorted_pairs) {
+      while (sample_point_requirement &&
+             FindClosestCollision(
+                 same_point_constraint, *frames.at(pair.geomA),
+                 *frames.at(pair.geomB), *sets.at(pair.geomA),
+                 *sets.at(pair.geomB), *E_ptr, A.topRows(num_constraints),
+                 b.head(num_constraints), *solver, sample, &closest)) {
+        AddTangentToPolytope(*E_ptr, closest, options, &A, &b,
+                             &num_constraints);
+        if (options.require_sample_point_is_contained) {
+          sample_point_requirement =
+              A.row(num_constraints - 1) * sample <= b(num_constraints - 1);
+        }
+      }
+    }
+
+    if (options.enable_ibex) {
+      // Now loop back through and use Ibex for rigorous certification.
+      // TODO(russt): Consider (re-)implementing a "feasibility only" version of
+      // the IRIS check + nonlinear optimization to improve.
+      for (const auto& pair : sorted_pairs) {
+        int num_faces = 0;
+        while (sample_point_requirement &&
+               FindClosestCollision(
+                   same_point_constraint, *frames.at(pair.geomA),
+                   *frames.at(pair.geomB), *sets.at(pair.geomA),
+                   *sets.at(pair.geomB), *E_ptr, A.topRows(num_constraints),
+                   b.head(num_constraints), *ibex, sample, &closest) &&
+               ((options.max_faces_per_collision_pair < 0) ||
+                num_faces <= options.max_faces_per_collision_pair)) {
+          AddTangentToPolytope(*E_ptr, closest, options, &A, &b,
+                               &num_constraints);
+          if (options.require_sample_point_is_contained) {
+            sample_point_requirement =
+                A.row(num_constraints - 1) * sample <= b(num_constraints - 1);
+          }
+          num_faces++;
+        }
+      }
+    }
+
+    if (!sample_point_requirement) {
+      break;
+    }
+    *P_ptr = HPolyhedron(A.topRows(num_constraints), b.head(num_constraints));
+
+    iteration++;
+    if (iteration >= options.iteration_limit) {
+      break;
+    }
+
+    *E_ptr = P_ptr->MaximumVolumeInscribedEllipsoid();
+    const double volume = E_ptr->Volume();
+    const double delta_volume = volume - best_volume;
+    if (delta_volume <= options.termination_threshold) {
+      break;
+    }
+    if (delta_volume / best_volume <= options.relative_termination_threshold) {
+      break;
+    }
+    best_volume = volume;
+  }
+}
+
+HPolyhedron IrisInConfigurationSpace2(const MultibodyPlant<double>& plant,
+                                      const Context<double>& context,
+                                      const IrisOptions& options) {
   // Check the inputs.
   plant.ValidateContext(context);
   const int nq = plant.num_positions();
@@ -660,7 +582,8 @@ HPolyhedron IrisInConfigurationSpace(const MultibodyPlant<double>& plant,
                    *frames.at(pair.geomB), *sets.at(pair.geomA),
                    *sets.at(pair.geomB), E, A.topRows(num_constraints),
                    b.head(num_constraints), *ibex, sample, &closest) &&
-                   ((options.max_faces_per_collision_pair<0) || num_faces <= options.max_faces_per_collision_pair)) {
+               ((options.max_faces_per_collision_pair < 0) ||
+                num_faces <= options.max_faces_per_collision_pair)) {
           AddTangentToPolytope(E, closest, options, &A, &b, &num_constraints);
           if (options.require_sample_point_is_contained) {
             sample_point_requirement =
@@ -695,288 +618,71 @@ HPolyhedron IrisInConfigurationSpace(const MultibodyPlant<double>& plant,
   return P;
 }
 
-HPolyhedron AddPlanes(IrisFramesSetsPairs frames_sets_pairs,
-                    SamePointConstraint same_point_constraint,
-                    IrisOptions options,
-                    Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>* A,
-                    VectorXd* b,
-                    int* num_constraints){
-  const int N = static_cast<int>(frames_sets_pairs.sorted_pairs.size());
-  auto solver = solvers::MakeFirstAvailableSolver(
-      {solvers::SnoptSolver::id(), solvers::IpoptSolver::id()});
+HPolyhedron IrisInConfigurationSpace(const MultibodyPlant<double>& plant,
+                                     const Context<double>& context,
+                                     const IrisOptions& options) {
+  plant.ValidateContext(context);
+  auto same_point_constraint =
+      std::make_shared<SamePointConstraint>(&plant, context);
+  const Eigen::VectorXd sample = plant.GetPositions(context);
 
-  VectorXd closest((*A)().cols());
-  while (true) {
-    bool sample_point_requirement = true;
-    DRAKE_ASSERT(best_volume > 0);
-    // Find separating hyperplanes
+  // Note: We require finite joint limits to define the bounding box for the
+  // IRIS algorithm.
+  DRAKE_DEMAND(plant.GetPositionLowerLimits().array().isFinite().all());
+  DRAKE_DEMAND(plant.GetPositionUpperLimits().array().isFinite().all());
 
-    // First use a fast nonlinear optimizer to add as many constraint as it
-    // can find.
-    for (const auto& pair : sorted_pairs) {
-      while (sample_point_requirement &&
-             FindClosestCollision(
-                 same_point_constraint, *frames.at(pair.geomA),
-                 *frames.at(pair.geomB), *sets.at(pair.geomA),
-                 *sets.at(pair.geomB), E, A.topRows(num_constraints),
-                 b.head(num_constraints), *solver, sample, &closest)) {
-        AddTangentToPolytope(E, closest, options, &A, &b, &num_constraints);
-        if (options.require_sample_point_is_contained) {
-          sample_point_requirement =
-              A.row(num_constraints - 1) * sample <= b(num_constraints - 1);
-        }
-      }
-    }
+  HPolyhedron P = HPolyhedron::MakeBox(plant.GetPositionLowerLimits(),
+                                       plant.GetPositionUpperLimits());
 
-    if (options.enable_ibex) {
-      // Now loop back through and use Ibex for rigorous certification.
-      // TODO(russt): Consider (re-)implementing a "feasibility only" version of
-      // the IRIS check + nonlinear optimization to improve.
-      for (const auto& pair : sorted_pairs) {
-        int num_faces = 0;
-        while (sample_point_requirement &&
-               FindClosestCollision(
-                   same_point_constraint, *frames.at(pair.geomA),
-                   *frames.at(pair.geomB), *sets.at(pair.geomA),
-                   *sets.at(pair.geomB), E, A.topRows(num_constraints),
-                   b.head(num_constraints), *ibex, sample, &closest) &&
-                   ((options.max_faces_per_collision_pair<0) || num_faces <= options.max_faces_per_collision_pair)) {
-          AddTangentToPolytope(E, closest, options, &A, &b, &num_constraints);
-          if (options.require_sample_point_is_contained) {
-            sample_point_requirement =
-                A.row(num_constraints - 1) * sample <= b(num_constraints - 1);
-          }
-          num_faces++;
-        }
-      }
-    }
-
-    if (!sample_point_requirement) {
-      break;
-    }
-    P = HPolyhedron(A.topRows(num_constraints), b.head(num_constraints));
-
-    iteration++;
-    if (iteration >= options.iteration_limit) {
-      break;
-    }
-
-    E = P.MaximumVolumeInscribedEllipsoid();
-    const double volume = E.Volume();
-    const double delta_volume = volume - best_volume;
-    if (delta_volume <= options.termination_threshold) {
-      break;
-    }
-    if (delta_volume / best_volume <= options.relative_termination_threshold) {
-      break;
-    }
-    best_volume = volume;
-  }
+  const double kEpsilonEllipsoid = 1e-2;
+  Hyperellipsoid E = Hyperellipsoid::MakeHypersphere(kEpsilonEllipsoid, sample);
+  _DoIris_(plant, context, options, sample, same_point_constraint, &P, &E);
   return P;
-
 }
 
-HPolyhedron IrisInRationalConfigurationSpace(const multibody::MultibodyPlant<double> &plant,
-                                             const systems::Context<double> &context,
-                                             const IrisOptionsRationalSpace &options,
-                                             const std::optional<HPolyhedron> &starting_hpolyhedron) {
-
+HPolyhedron IrisInRationalConfigurationSpace(
+    const multibody::MultibodyPlant<double>& plant,
+    const systems::Context<double>& context,
+    const IrisOptionsRationalSpace& options,
+    const std::optional<HPolyhedron>& starting_hpolyhedron) {
   // Check the inputs.
   plant.ValidateContext(context);
   const int nt = plant.num_positions();
   const multibody::RationalForwardKinematics rational_forward_kinematics(plant);
-
-
   Eigen::VectorXd q_star(nt);
-  if (!options.q_star.has_value()){
+  if (!options.q_star.has_value()) {
     q_star.setZero(nt);
-  }
-  else{
+  } else {
     q_star = options.q_star.value();
   }
   DRAKE_DEMAND(q_star.rows() == nt);
+  DRAKE_DEMAND(plant.GetPositionLowerLimits().array().isFinite().all());
+  DRAKE_DEMAND(plant.GetPositionUpperLimits().array().isFinite().all());
 
+  const Eigen::VectorXd sample = plant.GetPositions(context);
+  const Eigen::VectorXd t_sample = rational_forward_kinematics.ComputeTValue(
+      plant.GetPositions(context), q_star);
+  const Eigen::VectorXd t_lower_limits =
+      rational_forward_kinematics.ComputeTValue(plant.GetPositionLowerLimits(),
+                                                q_star);
+  const Eigen::VectorXd t_upper_limits =
+      rational_forward_kinematics.ComputeTValue(plant.GetPositionUpperLimits(),
+                                                q_star);
 
-  const Eigen::VectorXd t_sample = rational_forward_kinematics.ComputeTValue(plant.GetPositions(context), q_star);
-  const Eigen::VectorXd t_lower_limits = rational_forward_kinematics.ComputeTValue(plant.GetPositionLowerLimits(), q_star);
-  const Eigen::VectorXd t_upper_limits = rational_forward_kinematics.ComputeTValue(plant.GetPositionUpperLimits(), q_star);
-
-  std::unique_ptr<HPolyhedron> P_ptr{nullptr};
-
-  if(starting_hpolyhedron.has_value()){
-      HPolyhedron P_joint_limits = HPolyhedron::MakeBox(t_lower_limits, t_upper_limits);
-      // ensure that our starting HPolyhedron starts within the joint limits
-      //TODO(Alex.Amice) uncomment when IrredundantIntersection is merged
-//      P_ptr = std::make_unique<HPolyhedron>(
-//              starting_hpolyhedron.value().IrredundantIntersection(P_joint_limits)
-//      );
+  HPolyhedron P = HPolyhedron::MakeBox(t_lower_limits, t_upper_limits);
+  if (starting_hpolyhedron.has_value()) {
+    P = starting_hpolyhedron.value().Intersection(P);
   }
-  else{
-      P_ptr = std::make_unique<HPolyhedron>(
-              HPolyhedron::MakeBox(t_lower_limits, t_upper_limits)
-      );
-  }
-  HPolyhedron P = *P_ptr;
 
   const double kEpsilonEllipsoid = 1e-5;
-  Hyperellipsoid E = Hyperellipsoid::MakeHypersphere(kEpsilonEllipsoid, t_sample);
+  Hyperellipsoid E =
+      Hyperellipsoid::MakeHypersphere(kEpsilonEllipsoid, t_sample);
 
-  // Make all of the convex sets and supporting quantities.
-  // TODO(amice): should we provide a way that we don't have to run this for every t_sample point?
-  IrisFrameSetsPairs frames_sets_pairs = MakeIrisFramesSetsPairs(plant, context);
-
-  auto same_point_constraint =
-      std::make_shared<SamePointConstraintRational>(&rational_forward_kinematics, q_star, context);
-
-
-
-  // On each iteration, we will build the collision-free polytope represented as
-  // {x | A * x <= b}.  Here we pre-allocate matrices with a generous maximum
-  // size.
-  Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> A(
-      P.A().rows() + 2 * N, nt);
-  VectorXd b(P.A().rows() + 2 * N);
-  A.topRows(P.A().rows()) = P.A();
-  b.head(P.A().rows()) = P.b();
-
-  double best_volume = E.Volume();
-  int iteration = 0;
-  VectorXd closest(nt);
-
-
-  auto solver = solvers::MakeFirstAvailableSolver(
-      {solvers::SnoptSolver::id(), solvers::IpoptSolver::id()});
-  std::unique_ptr<solvers::IbexSolver> ibex;
-  if (options.enable_ibex) {
-    ibex = std::make_unique<solvers::IbexSolver>();
-    DRAKE_DEMAND(ibex->is_available() && ibex->is_enabled());
-    same_point_constraint->EnableSymbolic();
-  }
-
-
-
-  while (true) {
-    int num_constraints = 2 * nt;  // Start with just the joint limits.
-    bool sample_point_requirement = true;
-    DRAKE_ASSERT(best_volume > 0);
-    // Find separating hyperplanes
-
-    // First use a fast nonlinear optimizer to add as many constraint as it
-    // can find.
-    for (const auto& pair : sorted_pairs) {
-      int num_faces = 0;
-      while (sample_point_requirement &&
-             FindClosestCollision(
-                     same_point_constraint, *frames.at(pair.geomA),
-                     *frames.at(pair.geomB), *sets.at(pair.geomA),
-                     *sets.at(pair.geomB), E, A.topRows(num_constraints),
-                     b.head(num_constraints), *solver, t_sample, &closest)&&
-                     ((options.max_faces_per_collision_pair<0) || num_faces <= options.max_faces_per_collision_pair)) {
-        AddTangentToPolytope(E, closest, options, &A, &b, &num_constraints);
-        if (options.require_sample_point_is_contained) {
-          sample_point_requirement =
-                  A.row(num_constraints - 1) * t_sample <= b(num_constraints - 1);
-        }
-        num_faces++;
-      }
-    }
-
-    if (options.enable_ibex) {
-      // Now loop back through and use Ibex for rigorous certification.
-      // TODO(russt): Consider (re-)implementing a "feasibility only" version of
-      // the IRIS check + nonlinear optimization to improve.
-      for (const auto& pair : sorted_pairs) {
-        while (sample_point_requirement &&
-               FindClosestCollision(
-                       same_point_constraint, *frames.at(pair.geomA),
-                       *frames.at(pair.geomB), *sets.at(pair.geomA),
-                       *sets.at(pair.geomB), E, A.topRows(num_constraints),
-                       b.head(num_constraints), *ibex, t_sample, &closest)) {
-          AddTangentToPolytope(E, closest, options, &A, &b, &num_constraints);
-          if (options.require_sample_point_is_contained) {
-            sample_point_requirement =
-                    A.row(num_constraints - 1) * t_sample <= b(num_constraints - 1);
-          }
-        }
-      }
-    }
-
-    if (options.certify_region_with_sos_during_generation)
-    {
-      // TODO (amice): certify and update in here
-    }
-
-    if (!sample_point_requirement) {
-      // sample point is not contained so last inequality is bad.
-      num_constraints--;
-      break;
-    }
-    P = HPolyhedron(A.topRows(num_constraints), b.head(num_constraints));
-
-    iteration++;
-    if (iteration >= options.iteration_limit) {
-      break;
-    }
-
-    E = P.MaximumVolumeInscribedEllipsoid();
-    const double volume = E.Volume();
-    const double delta_volume = volume - best_volume;
-    if (delta_volume <= options.termination_threshold) {
-      break;
-    }
-    if (delta_volume / best_volume <= options.relative_termination_threshold) {
-      break;
-    }
-    best_volume = volume;
-  }
-  if (options.certify_region_with_sos_after_generation){
-    //TODO (amice): put the certification code in here
-  }
-  const Vector2<symbolic::Expression> xy{symbolic::Variable("x"),
-                                         symbolic::Variable("y")};
-  HPolyhedron P_joint_limits = HPolyhedron::MakeBox(t_lower_limits, t_upper_limits);
+  auto same_point_constraint = std::make_shared<SamePointConstraintRational>(
+      &rational_forward_kinematics, q_star, context);
+  _DoIris_(plant, context, options, sample, same_point_constraint, &P, &E);
   return P;
 }
-
-IrisFrameSetsPair MakeIrisFramesSetsPairs(const MultibodyPlant<double>& plant,
-                                     const Context<double>& context){
-  auto query_object =
-      plant.get_geometry_query_input_port().Eval<QueryObject<double>>(context);
-  const SceneGraphInspector<double>& inspector = query_object.inspector();
-  IrisConvexSetMaker maker(query_object, inspector.world_frame_id());
-  std::unordered_map<GeometryId, copyable_unique_ptr<ConvexSet>> sets{};
-  std::unordered_map<GeometryId, const multibody::Frame<double>*> frames{};
-  const std::unordered_set<GeometryId> geom_ids = inspector.GetGeometryIds(
-      GeometrySet(inspector.GetAllGeometryIds()), Role::kProximity);
-  copyable_unique_ptr<ConvexSet> temp_set;
-  for (GeometryId geom_id : geom_ids) {
-    // Make all sets in the local geometry frame.
-    FrameId frame_id = inspector.GetFrameId(geom_id);
-    maker.set_reference_frame(frame_id);
-    maker.set_geometry_id(geom_id);
-    inspector.GetShape(geom_id).Reify(&maker, &temp_set);
-    sets.emplace(geom_id, std::move(temp_set));
-    frames.emplace(geom_id, &plant.GetBodyFromFrameId(frame_id)->body_frame());
-  }
-
-  auto pairs = inspector.GetCollisionCandidates();
-
-  // As a surrogate for the true objective, the pairs are sorted by the distance
-  // between each collision pair from the t_sample point configuration. This could
-  // improve computation times in Ibex here and produce regions with fewer
-  // faces.
-  std::vector<GeometryPairWithDistance> sorted_pairs;
-  for (const auto& [geomA, geomB] : pairs) {
-    sorted_pairs.emplace_back(
-        geomA, geomB,
-        query_object.ComputeSignedDistancePairClosestPoints(geomA, geomB)
-            .distance);
-  }
-  std::sort(sorted_pairs.begin(), sorted_pairs.end());
-  IrisFrameSetsPair dut(frames, sets, sorted_pairs);
-  return dut;
-}
-
 
 }  // namespace optimization
 }  // namespace geometry
