@@ -442,7 +442,6 @@ void _DoIris_(const multibody::MultibodyPlant<double>& plant,
               const std::shared_ptr<SamePointConstraint>& same_point_constraint,
               HPolyhedron* P_ptr, Hyperellipsoid* E_ptr);
 
-
 }  // namespace optimization
 }  // namespace geometry
 }  // namespace drake
