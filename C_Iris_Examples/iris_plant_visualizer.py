@@ -10,6 +10,8 @@ import mcubes
 import C_Iris_Examples.visualizations_utils as viz_utils
 import pydrake.symbolic as sym
 import time
+from IPython.display import display
+
 
 
 class IrisPlantVisualizer:
@@ -106,6 +108,10 @@ class IrisPlantVisualizer:
 
         #region -> (collision -> plane dictionary)
         self.region_to_collision_pair_to_plane_dictionary = None
+
+    def jupyter_cell(self,):
+        display(self.vis.jupyter_cell())
+        display(self.vis2.jupyter_cell())
 
     def eval_cons(self, q, c, tol):
         return 1 - 1 * float(c.evaluator().CheckSatisfied(q, tol))

@@ -1,0 +1,36 @@
+# Model directive for planar iiwa with simple collision and welded gripper
+
+directives:
+
+# Add iiwa
+- add_model:
+    name: iiwa
+    file: package://drake/sos_iris_certifier/planar_iiwa14_one_sphere.urdf
+
+- add_weld:
+    parent: world
+    child: iiwa::iiwa_link_0
+
+
+- add_frame:
+    name: iiwa::wsg_attach
+    X_PF:
+      base_frame: iiwa::iiwa_link_7
+      translation: [0, 0, 0.114]
+      rotation: !Rpy { deg: [90.0, 0.0, 0.0 ]}
+
+
+# Add shelves
+- add_model:
+    name: shelves
+    file: package://drake/sos_iris_certifier/shelves.sdf
+
+- add_frame:
+    name: shelf_origin
+    X_PF:
+      base_frame: world
+      translation: [0.8, 0, 0.4]
+
+- add_weld:
+    parent: shelf_origin
+    child: shelves::shelves_body
