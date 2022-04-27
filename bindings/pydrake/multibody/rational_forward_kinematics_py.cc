@@ -427,6 +427,7 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
                 bilinear_alternation_option, solver_options, t_inner_pts,
                 inner_polytope, &cspace_free_region_solution, &polytope_volumes,
                 &ellipsoid_determinants);
+            //TODO(Alex.Amice) reconcile this binding and CspacePolytopeBinarySearch returns
             return std::make_tuple(cspace_free_region_solution,
                 polytope_volumes, ellipsoid_determinants);
           },
@@ -453,6 +454,7 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
             self->CspacePolytopeBinarySearch(q_star, filtered_collision_pairs,
                 C, d_init, binary_search_option, solver_options, t_inner_pts,
                 inner_polytope, &cspace_free_region_solution);
+            //TODO(Alex.Amice) reconcile this binding and CspacePolytopeBilinearAlternation returns
             return cspace_free_region_solution;
           },
           py::arg("q_star"), py::arg("filtered_collision_pairs"), py::arg("C"),

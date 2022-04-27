@@ -134,8 +134,8 @@ class IrisPlantVisualizer:
             meshcat.geometry.TriangularMeshGeometry(vertices, triangles),
             meshcat.geometry.MeshLambertMaterial(color=0xff0000, wireframe=True))
 
-    def plot_regions(self, regions, ellipses = None, region_suffix = ''):
-        viz_utils.plot_regions(self.vis2, regions, ellipses, region_suffix)
+    def plot_regions(self, regions, ellipses = None, region_suffix = '', randomize_colors = False):
+        viz_utils.plot_regions(self.vis2, regions, ellipses, region_suffix, randomize_colors)
 
     def plot_seedpoints(self, seed_points):
         for i in range(seed_points.shape[0]):

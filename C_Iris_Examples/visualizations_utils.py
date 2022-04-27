@@ -8,6 +8,7 @@ from pydrake.all import RotationMatrix, RigidTransform
 import colorsys
 import itertools
 from fractions import Fraction
+from random import shuffle
 
 
 def infinite_hues():
@@ -38,14 +39,15 @@ def n_colors(n=33):
     to_ret = list(itertools.islice(csss, n))
     return to_ret #[(float(c) for c in it) for it in to_ret]
 
-class PWLinTraj:
+class PiecewiseLinearTrajectory:
     def __init__(self, path, duration):
         self.path = path
         self.duration = duration
         self.num_waypoints = len(self.path)
 
     def value(self, time):
-        prog_frac = np.clip(time/self.duration, a_min = 0, a_max = 0.99999)*(self.num_waypoints-1)
+        prog_frac = np.clip(time/self.duration, a_min = 0, a_max = 1-1e-5)*\
+                    (self.num_waypoints-1)
         prog_int = int(prog_frac)
         prog_part = prog_frac-prog_int
         wp1 = self.path[prog_int]
@@ -55,14 +57,13 @@ class PWLinTraj:
     def end_time(self,):
         return self.duration
 
-def animate(traj, publisher, steps, runtime):
+def animate_trajectory(traj, publisher, steps, runtime):
     #loop
     idx = 0
     going_fwd = True
     time_points = np.linspace(0, traj.end_time(), steps) 
 
     for _ in range(runtime):
-        #print(idx)
         q = traj.value(time_points[idx])
         publisher(q.reshape(-1,))
         if going_fwd:
@@ -232,8 +233,14 @@ def get_rotation_matrix(axis, theta):
     return R
 
 
-def plot_regions(vis, regions, ellipses = None, region_suffix=''):
-    colors = n_colors(len(regions))
+def plot_regions(vis, regions, ellipses = None, region_suffix='', randomize_colors = False):
+    if randomize_colors:
+        colors = n_colors(100*len(regions))
+        shuffle(colors)
+        colors = colors[:len(regions)]
+    else:
+        colors = n_colors(len(regions))
+
     for i, region in enumerate(regions):
         c = colors[i]
         mat = meshcat.geometry.MeshLambertMaterial(color=rgb_to_hex(c), wireframe=True)
