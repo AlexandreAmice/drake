@@ -3,13 +3,15 @@ import scipy
 from meshcat.servers.zmqserver import start_zmq_server_as_subprocess
 from meshcat import Visualizer
 import meshcat
-from pydrake.all import (ConnectMeshcatVisualizer, HPolyhedron, VPolytope, Sphere, Ellipsoid, InverseKinematics,
-                         RationalForwardKinematics, GeometrySet)
+from pydrake.all import (ConnectMeshcatVisualizer, HPolyhedron,
+                         VPolytope, Sphere, Ellipsoid, InverseKinematics,
+                         RationalForwardKinematics, GeometrySet, Role)
 from functools import partial
 import mcubes
 import C_Iris_Examples.visualizations_utils as viz_utils
 import pydrake.symbolic as sym
-import time
+from IPython.display import display
+
 
 
 class IrisPlantVisualizer:
@@ -38,9 +40,9 @@ class IrisPlantVisualizer:
         self.q_upper_limits = plant.GetPositionUpperLimits()
         self.s_upper_limits = self.forward_kin.ComputeTValue(self.q_upper_limits, self.q_star)
 
-
+        self.viz_role = kwargs.get('viz_role', Role.kIllustration)
         visualizer = ConnectMeshcatVisualizer(self.builder, scene_graph, zmq_url=zmq_url,
-                                      delete_prefix_on_load=False)
+                                              delete_prefix_on_load=False, role=self.viz_role)
         self.diagram = self.builder.Build()
         visualizer.load()
         self.diagram_context = self.diagram.CreateDefaultContext()
@@ -106,6 +108,10 @@ class IrisPlantVisualizer:
 
         #region -> (collision -> plane dictionary)
         self.region_to_collision_pair_to_plane_dictionary = None
+
+    def jupyter_cell(self,):
+        display(self.vis.jupyter_cell())
+        display(self.vis2.jupyter_cell())
 
     def eval_cons(self, q, c, tol):
         return 1 - 1 * float(c.evaluator().CheckSatisfied(q, tol))
