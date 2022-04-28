@@ -18,21 +18,8 @@ load(
 filegroup(
     name = "models",
     data = [
-        "assets/bimanual_iiwa.yaml",
-        "assets/box.urdf",
         "assets/box_small.urdf",
-        "assets/doublerob.urdf",
-        "assets/ground.urdf",
-        "assets/lid.urdf",
         "assets/oneDOF_iiwa7_with_box_collision.sdf",
-        "assets/planar_iiwa14_one_sphere.urdf",
-        "assets/planar_iiwa_dense_collision_no_gripper.yaml",
-        "assets/planar_iiwa_dense_collision_welded_gripper.yaml",
-        "assets/planar_iiwa_simple_collision_no_gripper.yaml",
-        "assets/planar_iiwa_simple_collision_welded_gripper.yaml",
-        "assets/schunk_wsg_50_block.sdf",
-        "assets/schunk_wsg_50_welded_fingers.sdf",
-        "assets/shelves.sdf",
         "assets/twoDOF_iiwa7_with_box_collision.sdf",
     ],
     visibility = ["//visibility:public"],
@@ -48,15 +35,6 @@ drake_py_library(
         "visualizations_utils.py",
     ],
     visibility = ["//visibility:public"],
-)
-
-drake_py_library(
-    name = "spp",
-    srcs = [
-        "spp.py",
-    ],
-    visibility = ["//visibility:public"],
-    deps = ["//bindings/pydrake"],
 )
 
 drake_py_library(
@@ -82,7 +60,6 @@ drake_jupyter_py_binary(
     ],
     deps = [
         "//C_Iris_Examples:iris_plant_visualizer",
-        #        "//C_Iris_Examples:iris_utils",
         "//C_Iris_Examples:visualizations_utils",
         "//bindings/pydrake",
     ],

@@ -212,7 +212,6 @@ class IrisPlantVisualizer:
         eval_dict = dict(zip(b_poly.indeterminates(), cur_s))
         a, b = self.EvaluatePlanePair((a_poly, b_poly), eval_dict)
         eval_dict = dict(zip(self.s_variables, cur_s))
-        #     print(f"{a}, {b}")
         p1 = np.array([p.Evaluate(eval_dict) for p in p1_rat])
         p2 = np.array([p.Evaluate(eval_dict) for p in p2_rat])
         return self.transform(a, b, p1, p2, self.plane_verts), p1, p2
