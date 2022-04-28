@@ -137,7 +137,6 @@ HPolyhedron HPolyhedron::CartesianPower(int n) const {
   return {A_power, b_power};
 }
 
-
 HPolyhedron HPolyhedron::MakeBox(const Eigen::Ref<const VectorXd>& lb,
                                  const Eigen::Ref<const VectorXd>& ub) {
   DRAKE_DEMAND(lb.size() == ub.size());
