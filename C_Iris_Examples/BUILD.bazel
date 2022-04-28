@@ -18,18 +18,9 @@ load(
 filegroup(
     name = "models",
     data = [
-        "assets/box.urdf",
-        "assets/doublerob.urdf",
-        "assets/ground.urdf",
-        "assets/lid.urdf",
-        "assets/planar_iiwa14_one_sphere.urdf",
-        "assets/planar_iiwa_dense_collision_welded_gripper.yaml",
-        "assets/planar_iiwa_simple_collision_welded_gripper.yaml",
-        "assets/schunk_wsg_50_welded_fingers.sdf",
-        "assets/shelves.sdf",
-        "assets/shelves2.sdf",
-        "assets/shelves3.sdf",
-        "assets/shelves4.sdf",
+        "assets/box_small.urdf",
+        "assets/oneDOF_iiwa7_with_box_collision.sdf",
+        "assets/twoDOF_iiwa7_with_box_collision.sdf",
     ],
     visibility = ["//visibility:public"],
 )
@@ -44,15 +35,6 @@ drake_py_library(
         "visualizations_utils.py",
     ],
     visibility = ["//visibility:public"],
-)
-
-drake_py_library(
-    name = "spp",
-    srcs = [
-        "spp.py",
-    ],
-    visibility = ["//visibility:public"],
-    deps = ["//bindings/pydrake"],
 )
 
 drake_py_library(
@@ -78,7 +60,6 @@ drake_jupyter_py_binary(
     ],
     deps = [
         "//C_Iris_Examples:iris_plant_visualizer",
-        #        "//C_Iris_Examples:iris_utils",
         "//C_Iris_Examples:visualizations_utils",
         "//bindings/pydrake",
     ],
