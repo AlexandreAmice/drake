@@ -62,7 +62,8 @@ class IiwaCspaceTest(unittest.TestCase):
         q_star = np.zeros(7)
         alternation_tuples, d_minus_Ct, t_lower, t_upper, t_minus_t_lower,\
             t_upper_minus_t, C, d, lagrangian_gram_vars, verified_gram_vars,\
-            separating_plane_vars, separating_plane_to_tuples = dut.GenerateTuplesForBilinearAlternation(
+            separating_plane_vars, separating_plane_to_tuples = \
+            dut.GenerateTuplesForBilinearAlternation(
                 q_star=q_star, filtered_collision_pairs=set(), C_rows=20)
 
     def construct_initial_cspace_polytope(self, dut):
@@ -122,7 +123,8 @@ class IiwaCspaceTest(unittest.TestCase):
         q_star = np.zeros(7)
         alternation_tuples, d_minus_Ct, t_lower, t_upper, t_minus_t_lower,\
             t_upper_minus_t, C_var, d_var, lagrangian_gram_vars,\
-            verified_gram_vars, separating_plane_vars, separating_plane_to_tuples =\
+            verified_gram_vars, separating_plane_vars, \
+            separating_plane_to_tuples =\
             dut.GenerateTuplesForBilinearAlternation(
                 q_star=q_star, filtered_collision_pairs=set(), C_rows=24)
 
@@ -164,7 +166,8 @@ class IiwaCspaceTest(unittest.TestCase):
         bilinear_alternation_option.lagrangian_backoff_scale = 0.01
         bilinear_alternation_option.polytope_backoff_scale = 0.05
         solver_options = mp.SolverOptions()
-        cspace_free_region_solution, polytope_volumes, ellipsoid_determinants = \
+        cspace_free_region_solution, polytope_volumes, \
+        ellipsoid_determinants = \
             dut.CspacePolytopeBilinearAlternation(
                 q_star, filtered_collision_pairs, C_init, d_init,
                 bilinear_alternation_option, solver_options,
