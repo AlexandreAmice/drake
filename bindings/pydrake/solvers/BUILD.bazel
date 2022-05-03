@@ -58,6 +58,7 @@ drake_pybind_library(
         "//bindings/pydrake/common:cpp_param_pybind",
         "//bindings/pydrake/common:cpp_template_pybind",
         "//bindings/pydrake/common:deprecation_pybind",
+        "//bindings/pydrake/common:eigen_pybind",
     ],
     cc_so_name = "mathematicalprogram",
     cc_srcs = ["mathematicalprogram_py.cc"],
@@ -77,6 +78,7 @@ drake_pybind_library(
         "//bindings/pydrake:autodiff_types_pybind",
         "//bindings/pydrake:documentation_pybind",
         "//bindings/pydrake:symbolic_types_pybind",
+        "//bindings/pydrake/common:deprecation_pybind",
     ],
     cc_srcs = ["augmented_lagrangian_py.cc"],
     package_info = PACKAGE_INFO,
@@ -84,6 +86,7 @@ drake_pybind_library(
         ":mathematicalprogram_py",
         "//bindings/pydrake:autodiffutils_py",
     ],
+    py_srcs = ["_augmented_lagrangian_extra.py"],
 )
 
 drake_pybind_library(
@@ -349,6 +352,7 @@ drake_py_unittest(
     deps = [
         ":augmented_lagrangian_py",
         "//bindings/pydrake:autodiffutils_py",
+        "//bindings/pydrake/common/test_utilities",
     ],
 )
 
@@ -373,6 +377,7 @@ drake_py_unittest(
     deps = [
         ":csdp_py",
         "//bindings/pydrake/common/test_utilities",
+        "//bindings/pydrake/common/test_utilities:scipy_stub_py",
     ],
 )
 
@@ -478,6 +483,7 @@ drake_py_unittest(
         ":snopt_py",
         "//bindings/pydrake:math_py",
         "//bindings/pydrake/common/test_utilities",
+        "//bindings/pydrake/common/test_utilities:scipy_stub_py",
     ],
 )
 

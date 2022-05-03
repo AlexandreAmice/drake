@@ -7,6 +7,7 @@
 #include "drake/examples/multibody/rolling_sphere/make_rolling_sphere_plant.h"
 #include "drake/geometry/drake_visualizer.h"
 #include "drake/geometry/geometry_instance.h"
+#include "drake/geometry/proximity_properties.h"
 #include "drake/geometry/scene_graph.h"
 #include "drake/lcm/drake_lcm.h"
 #include "drake/math/random_rotation.h"
@@ -212,7 +213,7 @@ int do_main() {
       &plant_context, plant.GetBodyByName("Ball"), V_WB);
 
   auto simulator =
-      systems::MakeSimulatorFromGflags(*diagram, std::move(diagram_context));
+      MakeSimulatorFromGflags(*diagram, std::move(diagram_context));
 
   using clock = std::chrono::steady_clock;
   const clock::time_point start = clock::now();

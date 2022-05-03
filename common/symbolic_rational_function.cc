@@ -28,9 +28,8 @@ bool RationalFunction::EqualTo(const RationalFunction& f) const {
 }
 
 double RationalFunction::Evaluate(const Environment& env) const {
-        return numerator_.Evaluate(env)/denominator_.Evaluate(env);
-    }
-
+  return numerator_.Evaluate(env) / denominator_.Evaluate(env);
+}
 
 Formula RationalFunction::operator==(const RationalFunction& f) const {
   return denominator_ * f.numerator() == numerator_ * f.denominator();
@@ -71,17 +70,16 @@ void RationalFunction::CheckIndeterminates() const {
 
 Expression RationalFunction::ToExpression() const {
   // Returns ∑ᵢ (cᵢ * mᵢ).
-  return numerator_.ToExpression()/denominator_.ToExpression();
+  return numerator_.ToExpression() / denominator_.ToExpression();
 }
 
 RationalFunction& RationalFunction::operator+=(const RationalFunction& f) {
-  if(f.denominator().EqualTo(denominator_)){
+  if (f.denominator().EqualTo(denominator_)) {
     numerator_ = numerator_ + f.numerator();
-  }
-  else{
+  } else {
     numerator_ = numerator_ * f.denominator() + denominator_ * f.numerator();
     denominator_ *= f.denominator();
-  }  
+  }
   return *this;
 }
 
@@ -234,9 +232,9 @@ RationalFunction pow(const RationalFunction& f, int n) {
   }
 }
 
-void RationalFunction::SetIndeterminates(const Variables &new_indeterminates) {
-        numerator_.SetIndeterminates(new_indeterminates);
-        denominator_.SetIndeterminates(new_indeterminates);
-    }
+void RationalFunction::SetIndeterminates(const Variables& new_indeterminates) {
+  numerator_.SetIndeterminates(new_indeterminates);
+  denominator_.SetIndeterminates(new_indeterminates);
+}
 }  // namespace symbolic
 }  // namespace drake

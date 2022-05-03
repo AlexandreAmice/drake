@@ -88,10 +88,15 @@ class TestGeometryVisualizers(unittest.TestCase):
         draw_subscriber.clear()
 
     def test_meshcat(self):
-        meshcat = mut.Meshcat(port=7051)
-        self.assertEqual(meshcat.port(), 7051)
+        port = 7051
+        params = mut.MeshcatParams(
+            host="*",
+            port=port,
+            web_url_pattern="http://host:{port}")
+        meshcat = mut.Meshcat(params=params)
+        self.assertEqual(meshcat.port(), port)
         with self.assertRaises(RuntimeError):
-            meshcat2 = mut.Meshcat(port=7051)
+            meshcat2 = mut.Meshcat(port=port)
         self.assertIn("http", meshcat.web_url())
         self.assertIn("ws", meshcat.ws_url())
         meshcat.SetObject(path="/test/box",
@@ -145,6 +150,52 @@ class TestGeometryVisualizers(unittest.TestCase):
         self.assertIn("data:application/octet-binary;base64",
                       meshcat.StaticHtml())
         meshcat.Flush()
+
+        # PerspectiveCamera
+        camera = mut.Meshcat.PerspectiveCamera(fov=80,
+                                               aspect=1.2,
+                                               near=0.2,
+                                               far=200,
+                                               zoom=1.3)
+        self.assertEqual(camera.fov, 80)
+        self.assertEqual(camera.aspect, 1.2)
+        self.assertEqual(camera.near, 0.2)
+        self.assertEqual(camera.far, 200)
+        self.assertEqual(camera.zoom, 1.3)
+        self.assertEqual(repr(camera), "".join([
+            r"PerspectiveCamera(",
+            r"fov=80.0, "
+            r"aspect=1.2, ",
+            r"near=0.2, ",
+            r"far=200.0, ",
+            r"zoom=1.3)"]))
+        meshcat.SetCamera(camera=camera, path="mypath")
+
+        # OrthographicCamera
+        camera = mut.Meshcat.OrthographicCamera(left=0.1,
+                                                right=1.3,
+                                                top=0.3,
+                                                bottom=1.4,
+                                                near=0.2,
+                                                far=200,
+                                                zoom=1.3)
+        self.assertEqual(camera.left, 0.1)
+        self.assertEqual(camera.right, 1.3)
+        self.assertEqual(camera.top, 0.3)
+        self.assertEqual(camera.bottom, 1.4)
+        self.assertEqual(camera.near, 0.2)
+        self.assertEqual(camera.far, 200)
+        self.assertEqual(camera.zoom, 1.3)
+        self.assertEqual(repr(camera), "".join([
+            r"OrthographicCamera(",
+            r"left=0.1, "
+            r"right=1.3, ",
+            r"top=0.3, "
+            r"bottom=1.4, ",
+            r"near=0.2, ",
+            r"far=200.0, ",
+            r"zoom=1.3)"]))
+        meshcat.SetCamera(camera=camera, path="mypath")
 
     def test_meshcat_animation(self):
         animation = mut.MeshcatAnimation(frames_per_second=64)
@@ -233,7 +284,7 @@ class TestGeometryVisualizers(unittest.TestCase):
                 ad_visualizer, mut.MeshcatPointCloudVisualizerCpp_[AutoDiffXd])
 
     def test_start_meshcat(self):
-        # StartMeshcat only performs interesting work on Deepnote or Google
-        # Colab.  Here we simply ensure that it runs.
+        # StartMeshcat only performs interesting work on cloud notebook hosts.
+        # Here we simply ensure that it runs.
         meshcat = mut.StartMeshcat()
         self.assertIsInstance(meshcat, mut.Meshcat)

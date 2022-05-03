@@ -118,6 +118,8 @@ void DoScalarDependentDefinitions(py::module m, T) {
         .def("IsNearlyEqualTo", &Class::IsNearlyEqualTo, py::arg("other"),
             py::arg("tolerance"), cls_doc.IsNearlyEqualTo.doc)
         .def("inverse", &Class::inverse, cls_doc.inverse.doc)
+        .def("InvertAndCompose", &Class::InvertAndCompose, py::arg("other"),
+            cls_doc.InvertAndCompose.doc)
         .def(
             "multiply",
             [](const Class* self, const Class& other) { return *self * other; },
@@ -179,6 +181,8 @@ void DoScalarDependentDefinitions(py::module m, T) {
         .def_static("Identity", &Class::Identity, cls_doc.Identity.doc)
         .def("set", &Class::set, py::arg("R"), cls_doc.set.doc)
         .def("inverse", &Class::inverse, cls_doc.inverse.doc)
+        .def("InvertAndCompose", &Class::InvertAndCompose, py::arg("other"),
+            cls_doc.InvertAndCompose.doc)
         .def("transpose", &Class::transpose, cls_doc.transpose.doc)
         .def("matrix", &Class::matrix, cls_doc.matrix.doc)
         .def("row", &Class::row, py::arg("index"), cls_doc.row.doc)
@@ -201,10 +205,20 @@ void DoScalarDependentDefinitions(py::module m, T) {
             cls_doc.IsValid.doc_0args)
         .def("IsExactlyIdentity", &Class::IsExactlyIdentity,
             cls_doc.IsExactlyIdentity.doc)
+        .def("IsNearlyIdentity", &Class::IsNearlyIdentity,
+            py::arg("tolerance") =
+                Class::get_internal_tolerance_for_orthonormality(),
+            cls_doc.IsNearlyIdentity.doc);
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+    cls  // BR
         .def("IsIdentityToInternalTolerance",
-            &Class::IsIdentityToInternalTolerance,
-            cls_doc.IsIdentityToInternalTolerance.doc)
-        // Does not return the quality_factor
+            WrapDeprecated(cls_doc.IsIdentityToInternalTolerance.doc_deprecated,
+                &Class::IsIdentityToInternalTolerance),
+            cls_doc.IsIdentityToInternalTolerance.doc_deprecated);
+#pragma GCC diagnostic pop  // pop -Wdeprecated-declarations
+    cls                     // BR
+                            // Does not return the quality_factor
         .def_static(
             "ProjectToRotationMatrix",
             [](const Matrix3<T>& M) {
@@ -317,9 +331,24 @@ void DoScalarDependentDefinitions(py::module m, T) {
                 &Class::ComputeActiveBasisFunctionIndices),
             py::arg("parameter_value"),
             cls_doc.ComputeActiveBasisFunctionIndices.doc_1args_parameter_value)
+        .def(
+            "EvaluateCurve",
+            [](Class* self, const std::vector<VectorX<T>>& control_points,
+                const T& parameter_value) {
+              return self->EvaluateCurve(control_points, parameter_value);
+            },
+            py::arg("control_points"), py::arg("parameter_value"),
+            cls_doc.EvaluateCurve.doc)
         .def("EvaluateBasisFunctionI", &Class::EvaluateBasisFunctionI,
             py::arg("i"), py::arg("parameter_value"),
-            cls_doc.EvaluateBasisFunctionI.doc);
+            cls_doc.EvaluateBasisFunctionI.doc)
+        .def(py::pickle(
+            [](const Class& self) {
+              return std::make_pair(self.order(), self.knots());
+            },
+            [](std::pair<int, std::vector<T>> args) {
+              return Class(std::get<0>(args), std::get<1>(args));
+            }));
   }
 
   m.def("wrap_to", &wrap_to<T, T>, py::arg("value"), py::arg("low"),

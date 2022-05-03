@@ -60,10 +60,12 @@ class HPolyhedron final : public ConvexSet {
 
   /**
    * Construct the intersection of two HPolyhedron by adding the rows of
-   * inequalities from @p other to this HPolyhedron if the inequality is not
-   * implied by the inequalities from this HPolyhedron.
+   * inequalities from @p other. If @p check_for_redundancy is true
+   * then only add the rows of @p other to this HPolyhedron if the inequality
+   * is not implied by the inequalities from this HPolyhedron.
    */
-  HPolyhedron Intersection(const HPolyhedron& other) const;
+  HPolyhedron Intersection(const HPolyhedron& other,
+                           bool check_for_redundancy = false) const;
 
   /**
    * Traverses the inequalities of the HPolyhedron in order and removes
@@ -131,6 +133,10 @@ class HPolyhedron final : public ConvexSet {
   static HPolyhedron MakeUnitBox(int dim);
 
  private:
+  HPolyhedron DoIntersectionNoChecks(const HPolyhedron &other) const;
+
+  HPolyhedron DoIntersectionWithChecks(const HPolyhedron &other) const;
+
   bool DoIsBounded() const final;
 
   bool DoPointInSet(const Eigen::Ref<const Eigen::VectorXd>& x,
@@ -146,6 +152,15 @@ class HPolyhedron final : public ConvexSet {
       solvers::MathematicalProgram* prog,
       const Eigen::Ref<const solvers::VectorXDecisionVariable>& x,
       const symbolic::Variable& t) const final;
+
+  std::vector<solvers::Binding<solvers::Constraint>>
+  DoAddPointInNonnegativeScalingConstraints(
+      solvers::MathematicalProgram* prog,
+      const Eigen::Ref<const Eigen::MatrixXd>& A_x,
+      const Eigen::Ref<const Eigen::VectorXd>& b_x,
+      const Eigen::Ref<const Eigen::VectorXd>& c, double d,
+      const Eigen::Ref<const solvers::VectorXDecisionVariable>& x,
+      const Eigen::Ref<const solvers::VectorXDecisionVariable>& t) const final;
 
   // TODO(russt): Implement DoToShapeWithPose.  Currently we don't have a Shape
   // that can consume this output.  The obvious candidate is Convex, that class

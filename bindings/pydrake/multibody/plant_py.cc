@@ -5,6 +5,8 @@
 #include "drake/bindings/pydrake/common/cpp_template_pybind.h"
 #include "drake/bindings/pydrake/common/default_scalars_pybind.h"
 #include "drake/bindings/pydrake/common/eigen_geometry_pybind.h"
+#include "drake/bindings/pydrake/common/eigen_pybind.h"
+#include "drake/bindings/pydrake/common/serialize_pybind.h"
 #include "drake/bindings/pydrake/common/type_pack.h"
 #include "drake/bindings/pydrake/common/value_pybind.h"
 #include "drake/bindings/pydrake/documentation_pybind.h"
@@ -17,8 +19,11 @@
 #include "drake/multibody/plant/contact_results_to_lcm.h"
 #include "drake/multibody/plant/externally_applied_spatial_force.h"
 #include "drake/multibody/plant/multibody_plant.h"
+#include "drake/multibody/plant/multibody_plant_config.h"
+#include "drake/multibody/plant/multibody_plant_config_functions.h"
 #include "drake/multibody/plant/point_pair_contact_info.h"
 #include "drake/multibody/plant/propeller.h"
+#include "drake/multibody/plant/wing.h"
 #include "drake/multibody/tree/spatial_inertia.h"
 
 namespace drake {
@@ -353,13 +358,7 @@ void DoScalarDependentDefinitions(py::module m, T) {
             cls_doc.SetDefaultFreeBodyPose.doc)
         .def("GetDefaultFreeBodyPose", &Class::GetDefaultFreeBodyPose,
             py::arg("body"), cls_doc.GetDefaultFreeBodyPose.doc)
-        .def(
-            "SetActuationInArray",
-            [](const Class* self, multibody::ModelInstanceIndex model_instance,
-                const Eigen::Ref<const VectorX<T>> u_instance,
-                Eigen::Ref<VectorX<T>> u) -> void {
-              self->SetActuationInArray(model_instance, u_instance, &u);
-            },
+        .def("SetActuationInArray", &Class::SetActuationInArray,
             py::arg("model_instance"), py::arg("u_instance"), py::arg("u"),
             cls_doc.SetActuationInArray.doc)
         .def("GetPositionsFromArray",
@@ -368,13 +367,7 @@ void DoScalarDependentDefinitions(py::module m, T) {
                 &Class::GetPositionsFromArray),
             py::arg("model_instance"), py::arg("q"),
             cls_doc.GetPositionsFromArray.doc_2args)
-        .def(
-            "SetPositionsInArray",
-            [](const Class* self, multibody::ModelInstanceIndex model_instance,
-                const Eigen::Ref<const VectorX<T>> q_instance,
-                Eigen::Ref<VectorX<T>> q) -> void {
-              self->SetPositionsInArray(model_instance, q_instance, &q);
-            },
+        .def("SetPositionsInArray", &Class::SetPositionsInArray,
             py::arg("model_instance"), py::arg("q_instance"), py::arg("q"),
             cls_doc.SetPositionsInArray.doc)
         .def("GetVelocitiesFromArray",
@@ -383,13 +376,7 @@ void DoScalarDependentDefinitions(py::module m, T) {
                 &Class::GetVelocitiesFromArray),
             py::arg("model_instance"), py::arg("v"),
             cls_doc.GetVelocitiesFromArray.doc_2args)
-        .def(
-            "SetVelocitiesInArray",
-            [](const Class* self, multibody::ModelInstanceIndex model_instance,
-                const Eigen::Ref<const VectorX<T>> v_instance,
-                Eigen::Ref<VectorX<T>> v) -> void {
-              self->SetVelocitiesInArray(model_instance, v_instance, &v);
-            },
+        .def("SetVelocitiesInArray", &Class::SetVelocitiesInArray,
             py::arg("model_instance"), py::arg("v_instance"), py::arg("v"),
             cls_doc.SetVelocitiesInArray.doc)
         // TODO(eric.cousineau): Ensure all of these return either references,
@@ -536,6 +523,10 @@ void DoScalarDependentDefinitions(py::module m, T) {
             cls_doc.GetAccelerationLowerLimits.doc)
         .def("GetAccelerationUpperLimits", &Class::GetAccelerationUpperLimits,
             cls_doc.GetAccelerationUpperLimits.doc)
+        .def("GetEffortLowerLimits", &Class::GetEffortLowerLimits,
+            cls_doc.GetEffortLowerLimits.doc)
+        .def("GetEffortUpperLimits", &Class::GetEffortUpperLimits,
+            cls_doc.GetEffortUpperLimits.doc)
         .def(
             "CalcMassMatrixViaInverseDynamics",
             [](const Class* self, const Context<T>& context) {
@@ -691,6 +682,16 @@ void DoScalarDependentDefinitions(py::module m, T) {
             py::arg("body_index"), cls_doc.GetBodyFrameIdOrThrow.doc)
         .def("GetBodyIndices", &Class::GetBodyIndices,
             py::arg("model_instance"), cls_doc.GetBodyIndices.doc)
+        .def("GetRigidBodyByName",
+            overload_cast_explicit<const RigidBody<T>&, string_view>(
+                &Class::GetRigidBodyByName),
+            py::arg("name"), py_rvp::reference_internal,
+            cls_doc.GetRigidBodyByName.doc_1args)
+        .def("GetRigidBodyByName",
+            overload_cast_explicit<const RigidBody<T>&, string_view,
+                ModelInstanceIndex>(&Class::GetRigidBodyByName),
+            py::arg("name"), py::arg("model_instance"),
+            py_rvp::reference_internal, cls_doc.GetRigidBodyByName.doc_2args)
         .def(
             "GetJointByName",
             [](const Class* self, string_view name,
@@ -1024,7 +1025,7 @@ void DoScalarDependentDefinitions(py::module m, T) {
             py::arg("context"), py::arg("state"), cls_doc.SetDefaultState.doc);
   }
 
-  if constexpr (!std::is_same_v<T, symbolic::Expression>) {
+  {
     m.def(
         "AddMultibodyPlantSceneGraph",
         [](systems::DiagramBuilder<T>* builder,
@@ -1068,6 +1069,27 @@ void DoScalarDependentDefinitions(py::module m, T) {
         py::arg("scene_graph") = nullptr,
         doc.AddMultibodyPlantSceneGraph
             .doc_3args_systemsDiagramBuilder_double_stduniqueptr);
+
+    // In C++ this function is only defined for double, not AutoDiffXd.
+    if constexpr (std::is_same_v<T, double>) {
+      m.def(
+          "AddMultibodyPlant",
+          [](const MultibodyPlantConfig& config,
+              systems::DiagramBuilder<T>* builder) {
+            auto pair = AddMultibodyPlant(config, builder);
+            // Must do manual keep alive to dig into tuple.
+            py::object builder_py = py::cast(builder, py_rvp::reference);
+            py::object plant_py = py::cast(pair.plant, py_rvp::reference);
+            py::object scene_graph_py =
+                py::cast(pair.scene_graph, py_rvp::reference);
+            return py::make_tuple(
+                // Keep alive, ownership: `plant` keeps `builder` alive.
+                py_keep_alive(plant_py, builder_py),
+                // Keep alive, ownership: `scene_graph` keeps `builder` alive.
+                py_keep_alive(scene_graph_py, builder_py));
+          },
+          py::arg("config"), py::arg("builder"), doc.AddMultibodyPlant.doc);
+    }
   }
 
   // ExternallyAppliedSpatialForce
@@ -1099,20 +1121,59 @@ void DoScalarDependentDefinitions(py::module m, T) {
             py::arg("body_index"),
             py::arg("X_BP") = math::RigidTransform<double>::Identity(),
             py::arg("thrust_ratio") = 1.0, py::arg("moment_ratio") = 0.0,
-            doc.Propeller.ctor.doc_4args)
+            cls_doc.ctor.doc_4args)
         .def(py::init<const std::vector<PropellerInfo>&>(),
-            py::arg("propeller_info"), doc.Propeller.ctor.doc_1args)
+            py::arg("propeller_info"), cls_doc.ctor.doc_1args)
         .def("num_propellers", &Class::num_propellers,
-            doc.Propeller.num_propellers.doc)
+            cls_doc.num_propellers.doc)
         .def("get_command_input_port", &Class::get_command_input_port,
-            py_rvp::reference_internal,
-            doc.Propeller.get_command_input_port.doc)
+            py_rvp::reference_internal, cls_doc.get_command_input_port.doc)
         .def("get_body_poses_input_port", &Class::get_body_poses_input_port,
-            py_rvp::reference_internal,
-            doc.Propeller.get_body_poses_input_port.doc)
+            py_rvp::reference_internal, cls_doc.get_body_poses_input_port.doc)
         .def("get_spatial_forces_output_port",
             &Class::get_spatial_forces_output_port, py_rvp::reference_internal,
-            doc.Propeller.get_spatial_forces_output_port.doc);
+            cls_doc.get_spatial_forces_output_port.doc);
+  }
+
+  // Wing
+  {
+    using Class = Wing<T>;
+    constexpr auto& cls_doc = doc.Wing;
+    auto cls = DefineTemplateClassWithDefault<Class, systems::LeafSystem<T>>(
+        m, "Wing", param, cls_doc.doc);
+    cls  // BR
+        .def(py::init<const BodyIndex&, double,
+                 const math::RigidTransform<double>&, double>(),
+            py::arg("body_index"), py::arg("surface_area"),
+            py::arg("X_BodyWing") = math::RigidTransform<double>::Identity(),
+            py::arg("fluid_density") = Wing<T>::kDefaultFluidDensity,
+            cls_doc.ctor.doc)
+        .def("get_body_poses_input_port", &Class::get_body_poses_input_port,
+            py_rvp::reference_internal, cls_doc.get_body_poses_input_port.doc)
+        .def("get_body_spatial_velocities_input_port",
+            &Class::get_body_spatial_velocities_input_port,
+            py_rvp::reference_internal,
+            cls_doc.get_body_spatial_velocities_input_port.doc)
+        .def("get_wind_velocity_input_port",
+            &Class::get_wind_velocity_input_port, py_rvp::reference_internal,
+            cls_doc.get_wind_velocity_input_port.doc)
+        .def("get_fluid_density_input_port",
+            &Class::get_fluid_density_input_port, py_rvp::reference_internal,
+            cls_doc.get_fluid_density_input_port.doc)
+        .def("get_spatial_force_output_port",
+            &Class::get_spatial_force_output_port, py_rvp::reference_internal,
+            cls_doc.get_spatial_force_output_port.doc)
+        .def("get_aerodynamic_center_output_port",
+            &Class::get_aerodynamic_center_output_port,
+            py_rvp::reference_internal,
+            cls_doc.get_aerodynamic_center_output_port.doc)
+        .def_static("AddToBuilder", &Class::AddToBuilder, py::arg("builder"),
+            py::arg("plant"), py::arg("body_index"), py::arg("surface_area"),
+            py::arg("X_BodyWing") = math::RigidTransform<double>::Identity(),
+            py::arg("fluid_density") = Wing<T>::kDefaultFluidDensity,
+            // Keep alive, ownership: `return` keeps `builder` alive.
+            py::keep_alive<0, 1>(), py_rvp::reference,
+            cls_doc.AddToBuilder.doc);
   }
 
   // NOLINTNEXTLINE(readability/fn_size)
@@ -1207,6 +1268,17 @@ PYBIND11_MODULE(plant, m) {
         // Legacy alias. TODO(jwnimmer-tri) Deprecate this constant.
         .value("kPointContactOnly", Class::kPointContactOnly,
             cls_doc.kPointContactOnly.doc);
+  }
+
+  {
+    using Class = MultibodyPlantConfig;
+    constexpr auto& cls_doc = doc.MultibodyPlantConfig;
+    py::class_<Class> cls(m, "MultibodyPlantConfig", cls_doc.doc);
+    cls  // BR
+        .def(py::init<>())
+        .def(ParamInit<Class>());
+    DefAttributesUsingSerialize(&cls, cls_doc);
+    DefCopyAndDeepCopy(&cls);
   }
 
   type_visit([m](auto dummy) { DoScalarDependentDefinitions(m, dummy); },

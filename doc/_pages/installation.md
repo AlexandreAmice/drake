@@ -16,7 +16,6 @@ officially supports:
 
 | Operating System ⁽⁴⁾             | Architecture | Python  |
 |----------------------------------|--------------|---------|
-| Ubuntu 18.04 LTS (Bionic Beaver) | x86_64 ⁽¹⁾   | 3.6 ⁽³⁾ |
 | Ubuntu 20.04 LTS (Focal Fossa)   | x86_64 ⁽¹⁾   | 3.8 ⁽³⁾ |
 | macOS Big Sur (11)               | x86_64 ⁽²⁾   | 3.9 ⁽³⁾ |
 | macOS Monterey (12)              | x86_64 ⁽²⁾   | 3.9 ⁽³⁾ |
@@ -36,6 +35,10 @@ for any future arm64 support on macOS and/or Ubuntu are discussed in
 [issue #13514](https://github.com/RobotLocomotion/drake/issues/13514).
 
 ⁽³⁾ CPython is the only Python implementation supported.
+Drake does not support the Python environment supplied by Anaconda. Before
+installing or using Drake, please `conda deactivate` (repeatedly, until even
+the conda base environment has been deactivated) such that none of the paths
+reported `which -a python python3` refer to conda.
 
 ⁽⁴⁾ Drake features that perform image rendering (e.g., camera simulation)
 require a working display server.  Most personal computers will have this
@@ -47,7 +50,6 @@ compiler as our releases:
 
 | Operating System                 | C/C++ Compiler                 |
 |----------------------------------|--------------------------------|
-| Ubuntu 18.04 LTS (Bionic Beaver) | GCC 7.5                        |
 | Ubuntu 20.04 LTS (Focal Fossa)   | GCC 9.3                        |
 | macOS Big Sur (11)               | Apple LLVM 12.0.0 (Xcode 12.4) |
 | macOS Monterey (12)              | Apple LLVM 12.0.0 (Xcode 12.4) |
@@ -61,6 +63,8 @@ For new users, we recommend using the stable releases.  New releases
 will be announced on Drake's GitHub
 [releases](https://github.com/RobotLocomotion/drake/releases) page and
 documented in Drake's [Release Notes](/release_notes/release_notes.html).
+Refer to our [Drake Stability Guidelines](/stable.html) for our policy
+on API changes.
 
 Experienced users who want access to the latest features may use the
 nightly builds.
@@ -83,8 +87,8 @@ All other packages support both C++ and/or Python.
 Alternatively, you can skip the pre-compiled binaries and
 [build Drake from source](/from_source.html).
 
-Drake's binary releases do not support the Mosek nor Gurobi solvers.
-To use Mosek or Gurobi, you must build Drake from source.
+Drake's binary releases do not support the Gurobi solver.
+To use Gurobi, you must build Drake from source.
 
 We're considering adding macOS support for Homebrew, i.e., ``brew install
 drake``.  Please upvote or comment on

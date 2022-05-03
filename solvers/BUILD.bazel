@@ -33,6 +33,7 @@ drake_cc_package_library(
         ":create_constraint",
         ":create_cost",
         ":csdp_solver",
+        ":csdp_solver_error_handling",
         ":decision_variable",
         ":dreal_solver",
         ":equality_constrained_qp_solver",
@@ -70,6 +71,7 @@ drake_cc_package_library(
         ":solver_type",
         ":solver_type_converter",
         ":sos_basis_generator",
+        ":sparse_and_dense_matrix",
         ":system_identification",
         ":unrevised_lemke_solver",
     ],
@@ -160,6 +162,7 @@ drake_cc_library(
     deps = [
         ":decision_variable",
         ":evaluator_base",
+        ":sparse_and_dense_matrix",
         "//common:autodiff",
         "//common:essential",
         "//common:polynomial",
@@ -487,6 +490,15 @@ drake_cc_library(
 )
 
 drake_cc_library(
+    name = "sparse_and_dense_matrix",
+    srcs = ["sparse_and_dense_matrix.cc"],
+    hdrs = ["sparse_and_dense_matrix.h"],
+    deps = [
+        "//common:essential",
+    ],
+)
+
+drake_cc_library(
     name = "rotation_constraint_visualization",
     testonly = 1,
     srcs = [
@@ -642,6 +654,9 @@ drake_cc_library(
         "solution_result.cc",
     ],
     hdrs = ["solution_result.h"],
+    deps = [
+        "//common:essential",  # For DRAKE_DEPRECATED; remove 2022-07-01
+    ],
 )
 
 drake_cc_library(
@@ -1029,11 +1044,28 @@ drake_cc_library(
 )
 
 drake_cc_library(
+    name = "csdp_solver_error_handling",
+    srcs = select({
+        "//conditions:default": ["csdp_solver_error_handling.cc"],
+        "//tools:no_csdp": [],
+    }),
+    hdrs = select({
+        "//conditions:default": ["csdp_solver_error_handling.h"],
+        "//tools:no_csdp": [],
+    }),
+    copts = ["-fvisibility=hidden"],
+    visibility = [
+        "@csdp//:__pkg__",
+    ],
+)
+
+drake_cc_library(
     name = "csdp_solver",
     srcs = [
         "csdp_solver_common.cc",
     ] + select({
         "//conditions:default": [
+            "csdp_cpp_wrapper.cc",
             "csdp_solver.cc",
             "csdp_solver_internal.cc",
         ],
@@ -1045,13 +1077,17 @@ drake_cc_library(
         "csdp_solver.h",
     ] + select({
         "//conditions:default": [
+            "csdp_cpp_wrapper.h",
             "csdp_solver_internal.h",
         ],
         "//tools:no_csdp": [
         ],
     }),
     install_hdrs_exclude = select({
-        "//conditions:default": ["csdp_solver_internal.h"],
+        "//conditions:default": [
+            "csdp_cpp_wrapper.h",
+            "csdp_solver_internal.h",
+        ],
         "//tools:no_csdp": [],
     }),
     deps = [
@@ -1171,6 +1207,7 @@ drake_cc_googletest(
     deps = [
         ":create_constraint",
         "//common/test_utilities:eigen_matrix_compare",
+        "//common/test_utilities:expect_throws_message",
         "//common/test_utilities:symbolic_test_util",
     ],
 )
@@ -1213,6 +1250,23 @@ drake_cc_googletest(
         ":csdp_solver",
         ":csdp_test_examples",
         "//common/test_utilities:eigen_matrix_compare",
+    ],
+)
+
+drake_cc_googletest(
+    name = "csdp_cpp_wrapper_test",
+    tags = [
+        # The longjmp handling definitely leaks memory, and we've decided to
+        # just live with that. If we see the longjmp handler triggering when
+        # called by CsdpSolver, we should fix MathematicalProgram or CsdpSolver
+        # to do more sanity checking before calling into CSDP. The longjmp
+        # handler should only serve as a last resort.
+        "no_lsan",
+        "no_memcheck",
+    ],
+    deps = [
+        ":csdp_solver",
+        "//common/test_utilities:expect_throws_message",
     ],
 )
 
@@ -1348,6 +1402,8 @@ drake_cc_googletest(
         ":optimization_examples",
         ":quadratic_program_examples",
         ":second_order_cone_program_examples",
+        "//common:filesystem",
+        "//common:temp_directory",
         "//common/test_utilities:eigen_matrix_compare",
     ] + select({
         "//conditions:default": [
@@ -1813,6 +1869,15 @@ drake_cc_googletest(
     name = "augmented_lagrangian_test",
     deps = [
         ":augmented_lagrangian",
+        "//common/test_utilities:eigen_matrix_compare",
+    ],
+)
+
+drake_cc_googletest(
+    name = "sparse_and_dense_matrix_test",
+    tags = ["cpu:4"],
+    deps = [
+        ":sparse_and_dense_matrix",
         "//common/test_utilities:eigen_matrix_compare",
     ],
 )

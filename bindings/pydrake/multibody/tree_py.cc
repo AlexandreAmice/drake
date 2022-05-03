@@ -6,6 +6,7 @@
 
 #include "drake/bindings/pydrake/common/cpp_template_pybind.h"
 #include "drake/bindings/pydrake/common/default_scalars_pybind.h"
+#include "drake/bindings/pydrake/common/eigen_pybind.h"
 #include "drake/bindings/pydrake/common/type_pack.h"
 #include "drake/bindings/pydrake/common/type_safe_index_pybind.h"
 #include "drake/bindings/pydrake/documentation_pybind.h"
@@ -30,13 +31,6 @@
 #include "drake/multibody/tree/rigid_body.h"
 #include "drake/multibody/tree/universal_joint.h"
 #include "drake/multibody/tree/weld_joint.h"
-
-#pragma GCC diagnostic push
-// It is fine to use this at a file-wide scope since in practice we only
-// encounter these warnings in bindings due to pybind11's operators.
-#if (__clang__) && (__clang_major__ >= 9)
-#pragma GCC diagnostic ignored "-Wself-assign-overloaded"
-#endif
 
 namespace drake {
 namespace pydrake {
@@ -205,11 +199,24 @@ void DoScalarDependentDefinitions(py::module m, T) {
             cls_doc.CalcRotationMatrix.doc)
         .def("CalcRotationMatrixInWorld", &Class::CalcRotationMatrixInWorld,
             py::arg("context"), cls_doc.CalcRotationMatrixInWorld.doc)
+        .def("EvalAngularVelocityInWorld", &Class::EvalAngularVelocityInWorld,
+            py::arg("context"), cls_doc.EvalAngularVelocityInWorld.doc)
+        .def("CalcAngularVelocity", &Class::CalcAngularVelocity,
+            py::arg("context"), py::arg("measured_in_frame"),
+            py::arg("expressed_in_frame"), cls_doc.CalcAngularVelocity.doc)
         .def("CalcSpatialVelocityInWorld", &Class::CalcSpatialVelocityInWorld,
             py::arg("context"), cls_doc.CalcSpatialVelocityInWorld.doc)
         .def("CalcSpatialVelocity", &Class::CalcSpatialVelocity,
             py::arg("context"), py::arg("frame_M"), py::arg("frame_E"),
             cls_doc.CalcSpatialVelocity.doc)
+        .def("CalcRelativeSpatialVelocityInWorld",
+            &Class::CalcRelativeSpatialVelocityInWorld, py::arg("context"),
+            py::arg("other_frame"),
+            cls_doc.CalcRelativeSpatialVelocityInWorld.doc)
+        .def("CalcRelativeSpatialVelocity", &Class::CalcRelativeSpatialVelocity,
+            py::arg("context"), py::arg("other_frame"),
+            py::arg("measured_in_frame"), py::arg("expressed_in_frame"),
+            cls_doc.CalcRelativeSpatialVelocity.doc)
         .def("CalcSpatialAccelerationInWorld",
             &Class::CalcSpatialAccelerationInWorld, py::arg("context"),
             cls_doc.CalcSpatialAccelerationInWorld.doc);
@@ -640,15 +647,11 @@ void DoScalarDependentDefinitions(py::module m, T) {
               return self.get_actuation_vector(u);
             },
             py::arg("u"), cls_doc.get_actuation_vector.doc)
-        .def(
-            "set_actuation_vector",
-            [](const Class& self,
-                const Eigen::Ref<const VectorX<T>>& u_instance,
-                Eigen::Ref<VectorX<T>> u) {
-              self.set_actuation_vector(u_instance, &u);
-            },
+        .def("set_actuation_vector", &Class::set_actuation_vector,
             py::arg("u_instance"), py::arg("u"),
             cls_doc.set_actuation_vector.doc)
+        .def("input_start", &Class::input_start, cls_doc.input_start.doc)
+        .def("num_inputs", &Class::num_inputs, cls_doc.num_inputs.doc)
         .def("effort_limit", &Class::effort_limit, cls_doc.effort_limit.doc);
   }
 
@@ -1034,5 +1037,3 @@ PYBIND11_MODULE(tree, m) {
 
 }  // namespace pydrake
 }  // namespace drake
-
-#pragma GCC diagnostic pop

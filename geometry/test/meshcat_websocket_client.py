@@ -3,6 +3,7 @@
 import argparse
 import asyncio
 import json
+import logging
 import sys
 import umsgpack
 import websockets
@@ -41,37 +42,65 @@ def print_recursive_comparison(d1, d2, level='root'):
             print(f"{level:<20} {repr(d1)} != {repr(d2)}")
 
 
-async def check_command(ws_url, message_number, desired_command):
-    async with websockets.connect(ws_url) as websocket:
-        message = ''
-        for n in range(message_number):
+async def socket_operations_async(args):
+    logger.info("Connecting...")
+    async with websockets.connect(args.ws_url, timeout=1) as websocket:
+        logger.info("... connected")
+        if args.send_message is not None:
+            logger.info("Sending...")
+            await websocket.send(umsgpack.packb(args.send_message))
+            logger.info("... sent")
+        message = None
+        for n in range(args.expect_num_messages):
+            logger.info(f"Receiving {n+1}...")
             message = await asyncio.wait_for(websocket.recv(), timeout=10)
-        command = umsgpack.unpackb(message)
-        if command != desired_command:
-            print("FAILED")
-            print_recursive_comparison(desired_command, command)
-            sys.exit(1)
+            logger.info("... received")
+        if args.expect_message:
+            parsed = umsgpack.unpackb(message)
+            if parsed != args.expect_message:
+                print("FAILED")
+                print_recursive_comparison(parsed, args.expect_message)
+                sys.exit(1)
+        logger.info("Disconnecting...")
+    logger.info("... disconnected")
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Test utility for Meshcat websockets")
+    parser.add_argument(
+        "--disable-drake-valgrind-tracing", action='count',
+        help="ignored by this program; see valgrind.sh for details")
+    parser.add_argument(
+        "--ws_url", type=str, required=True,
+        help="websocket URL")
+    parser.add_argument(
+        "--send_message", type=json.loads, default=None, metavar="JSON",
+        help="send this message (given as a json string) to the websocket")
+    parser.add_argument(
+        "--expect_num_messages", type=int, default=0, metavar="N",
+        help="the expected number of messages to receive")
+    parser.add_argument(
+        "--expect_message", type=json.loads, default=None, metavar="JSON",
+        help="the expected contents of the the final message "
+        + "(given as a json string)")
+    parser.add_argument(
+        "--expect_success", type=int, default=True, metavar="0|1",
+        help="must be 0 or 1; when zero, exceptions and errors are ignored")
+    args = parser.parse_args()
+    try:
+        asyncio.get_event_loop().run_until_complete(
+            socket_operations_async(args))
+    except Exception as e:
+        if args.expect_success:
+            raise
+        else:
+            print(e)
 
 
 assert __name__ == "__main__"
-
-parser = argparse.ArgumentParser(
-    description="Test utility for Meshcat websockets")
-parser.add_argument("ws_url", type=str, help="websocket URL")
-parser.add_argument(
-    "message_number",
-    type=int,
-    help="number of messages to receive")
-parser.add_argument(
-    "desired_command_json",
-    type=str,
-    help="the last message will be unpacked (to a dictionary) and compared to "
-    + "this desired value (specified as a json string)"
-)
-args = parser.parse_args()
-
-asyncio.get_event_loop().run_until_complete(
-    check_command(args.ws_url, args.message_number,
-                  json.loads(args.desired_command_json)))
-
-sys.exit(0)
+logging.basicConfig(
+    level=logging.INFO,
+    format="[%(asctime)s] [%(name)s] [%(levelname)s] %(message)s")
+logger = logging.getLogger("meshcat_websocket_client")
+main()

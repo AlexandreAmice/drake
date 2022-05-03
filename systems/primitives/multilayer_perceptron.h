@@ -15,6 +15,16 @@ enum PerceptronActivationType {
   kTanh,
 };
 
+// Forward declarations.
+namespace internal {
+
+// Note: This struct is defined outside the class to avoid the ReportZeroHash
+// warning in AbstractValue.
+template <typename T>
+struct CalcLayersData;
+
+}  // namespace internal
+
 /** The MultilayerPerceptron (MLP) is one of the most common forms of neural
  networks used in reinforcement learning (RL) today. This implementation
  provides a System interface to distinguish between the network's inputs and
@@ -55,7 +65,7 @@ class MultilayerPerceptron final : public LeafSystem<T> {
    @param layers is the number of elements in each layer of the network (the
    activation function does *not* count as an additional layer). The first
    element specifies the number of inputs, and the last layer specifies the
-   number of outputs. We require at least 3 layers (to be considered an MLP).
+   number of outputs.
    @param activation_type specifies an activation function, σ(), used in
    _every_ hidden layer of the network. kIdentity will be used for the output.
 
@@ -69,7 +79,7 @@ class MultilayerPerceptron final : public LeafSystem<T> {
    @param layers is the number of elements in each layer of the network (the
    activation function does *not* count as an additional layer). The first
    element specifies the number of inputs, and the last layer specifies the
-   number of outputs. We require at least 3 layers (to be considered an MLP).
+   number of outputs.
    @param activation_type specifies the activation function, σ(), used in
    _each_ non-input layer of the network (including the last layer).
 
@@ -77,6 +87,41 @@ class MultilayerPerceptron final : public LeafSystem<T> {
    @pydrake_mkdoc_identifier{vector_activation} */
   MultilayerPerceptron(
       const std::vector<int>& layers,
+      const std::vector<PerceptronActivationType>& activation_types);
+
+  // TODO(russt): A more general form of this might look like e.g.
+  // MultilayerPerceptron(
+  //    int num_inputs, const std::vector<GradientFunction>& input_features,
+  //    const std::vector<int>& remaining_layers,
+  //    const std::vector<PerceptronActivationType>& activation_types);
+  // but I won't implement that until someone needs it, and the sin/cos for
+  // joint angles seems a particularly important case that merits its own API
+  // in Drake.
+  /** Constructs the MLP with an additional option to transform the input vector
+   so that the function is periodic in 2π.
+
+   For instance, for a rotary joint on a robot, this could be used to apply the
+   transform [x, y] => [sin x, cos x, y]. This would be accomplished by
+   passing `use_sin_cos_for_input = [true, false]`.
+
+   Note that when this transformation is applied, `num_inputs() != layers()[0]`.
+   `num_inputs() == 2 != layers()[0] == 3`.
+
+   @param use_sin_cos_for_input is a boolean vector that determines whether the
+   sin/cos transform is applied to each element.
+   @param remaining_layers is the number of elements in each layer of the
+   network (the activation function does *not* count as an additional layer).
+   The first element specifies the size of the first hidden layer, and the last
+   layer specifies the number of outputs.
+   @param activation_type specifies the activation function, σ(), used in
+   _each_ non-input layer of the network (including the last layer).
+
+   `activation_type` should have the same number of elements as
+   `remaining_layers`.
+   @pydrake_mkdoc_identifier{sin_cos_features} */
+  MultilayerPerceptron(
+      const std::vector<bool>& use_sin_cos_for_input,
+      const std::vector<int>& remaining_layers,
       const std::vector<PerceptronActivationType>& activation_types);
 
   /** Scalar-converting copy constructor. See @ref system_scalar_conversion. */
@@ -189,9 +234,8 @@ class MultilayerPerceptron final : public LeafSystem<T> {
    */
   T Backpropagation(const Context<T>& context,
                     const Eigen::Ref<const MatrixX<T>>& X,
-                    std::function<T(const Eigen::Ref<const MatrixX<T>>& Y,
-                                    EigenPtr<MatrixX<T>> dloss_dY)>
-                        loss,
+                    const std::function<T(const Eigen::Ref<const MatrixX<T>>& Y,
+                                          EigenPtr<MatrixX<T>> dloss_dY)>& loss,
                     EigenPtr<VectorX<T>> dloss_dparams) const;
 
   /** Calls Backpropagation with the mean-squared error loss function:
@@ -206,44 +250,52 @@ class MultilayerPerceptron final : public LeafSystem<T> {
    column of `X` represents an input, and each column of `Y` will be assigned
    the corresponding output.
 
-   Note: In python, use numpy.asfortranarray() to allocate the writeable matrix
-   `Y`.
+   If the output layer of the network has size 1 (scalar output), and `dYdX !=
+   nullptr`, then `dYdX` is populated with the batch gradients of the scalar
+   output `Y` relative to the input `X`: the (i,j)th element represents the
+   gradient dY(0,j) / dX(i,j).
+
+   Note: In python, use numpy.asfortranarray() to allocate the writeable
+   matrices `Y` and (if needed) `dYdX`.
 
    This methods shares the cache with Backpropagation. If the size of X changes
    here or in Backpropagation, it may force dynamic memory allocations.
+
+   @throws std::exception if dYdX != nullptr and the network has more than one
+   output.
    */
   void BatchOutput(const Context<T>& context,
                    const Eigen::Ref<const MatrixX<T>>& X,
-                   EigenPtr<MatrixX<T>> Y) const;
+                   EigenPtr<MatrixX<T>> Y,
+                   EigenPtr<MatrixX<T>> dYdX = nullptr) const;
 
  private:
   // Calculates y = f(x) for the entire network.
   void CalcOutput(const Context<T>& context, BasicVector<T>* y) const;
 
   // Calculates the cache entries for the hidden units in the network.
-  void CalcHiddenLayers(const Context<T>& context,
-                        std::vector<VectorX<T>>* hidden) const;
+  void CalcLayers(const Context<T>& context,
+                  internal::CalcLayersData<T>* data) const;
 
-  int num_hidden_layers_;  // The number of layers - 2.
+  // Calculates the (potentially batch) feature vector values.  When `X` is
+  // size `num_inputs`-by-`N`, then `Features` is set to size
+  // `layers()[0]`-by-`N`.
+  void CalcInputFeatures(const Eigen::Ref<const MatrixX<T>>& X,
+                         MatrixX<T>* input_features) const;
+
   int num_weights_;     // The number of weight matrices (number of layers -1 ).
   int num_parameters_;  // Total number of parameters.
   std::vector<int> layers_;  // The number of neurons in each layer.
   std::vector<PerceptronActivationType> activation_types_;
+  std::vector<bool> use_sin_cos_for_input_{};
+  bool has_input_features_{false};
 
   // Stores the position index of each set of weights and biases in the main
   // parameter vector.
   std::vector<int> weight_indices_;
   std::vector<int> bias_indices_;
 
-  // Functors implementing σ(x) and dσ/dx(x).
-  std::vector<std::function<MatrixX<T>(const Eigen::Ref<const MatrixX<T>>&)>>
-      sigma_{};
-  // TODO(russt): Consider returning dsigma and sigma in the same function to
-  // reuse computation (e.g. dtanh(x) = 1-tanh(x)^2).
-  std::vector<std::function<MatrixX<T>(const Eigen::Ref<const MatrixX<T>>&)>>
-      dsigma_{};
-
-  CacheEntry* hidden_layer_cache_{};
+  CacheEntry* calc_layers_cache_{};
   CacheEntry* backprop_cache_{};
 
   template <typename>

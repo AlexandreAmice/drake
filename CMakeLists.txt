@@ -79,12 +79,12 @@ else()
     )
   endif()
 
-  # The supported releases should match those listed in both doc/developers.rst
-  # and tools/workspace/os.bzl.
-  if(NOT UNIX_DISTRIBUTION_CODENAME MATCHES "^(bionic|focal)$")
+  # The supported releases should match those listed in both
+  # doc/_pages/from_source.md and tools/workspace/os.bzl.
+  if(NOT UNIX_DISTRIBUTION_CODENAME MATCHES "^(focal)$")
     message(FATAL_ERROR
       "Release ${UNIX_DISTRIBUTION_CODENAME} is NOT supported. Please use "
-      "Ubuntu 18.04 (Bionic) or 20.04 (Focal)."
+      "Ubuntu 20.04 (Focal)."
     )
   endif()
 endif()
@@ -206,11 +206,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD 17)
 
 # The supported Python major/minor versions should match those listed in both
-# doc/developers.rst and tools/workspace/python/repository.bzl.
+# doc/_pages/from_source.md and tools/workspace/python/repository.bzl.
 if(APPLE)
   set(SUPPORTED_PYTHON_VERSION 3.9)
-elseif(UNIX_DISTRIBUTION_CODENAME STREQUAL bionic)
-  set(SUPPORTED_PYTHON_VERSION 3.6)
 else()
   set(SUPPORTED_PYTHON_VERSION 3.8)
 endif()
@@ -359,12 +357,97 @@ set(BAZEL_OUTPUT_BASE
   "${BAZEL_OUTPUT_BASE}/_bazel_$ENV{USER}/${PROJECT_BINARY_DIR_MD5}"
 )
 
+function(generate_external_repository_file OUTPUT)
+  set(out_path
+    ${CMAKE_CURRENT_BINARY_DIR}/external/$<CONFIG>/workspace/${OUTPUT})
+  if(ARGN)
+    file(GENERATE OUTPUT ${out_path}
+      INPUT ${CMAKE_CURRENT_SOURCE_DIR}/cmake/external/workspace/${ARGN})
+  else()
+    file(GENERATE OUTPUT ${out_path} CONTENT "")
+  endif()
+endfunction()
+
+function(symlink_external_repository_includes NAME TARGET)
+  if(ARGN)
+    get_target_property(include_dir ${TARGET} INTERFACE_INCLUDE_DIRECTORIES)
+    foreach(config IN LISTS ARGN)
+      set(workspace ${CMAKE_CURRENT_BINARY_DIR}/external/${config}/workspace)
+      file(MAKE_DIRECTORY ${workspace}/${NAME})
+      file(CREATE_LINK ${include_dir} ${workspace}/${NAME}/include SYMBOLIC)
+    endforeach()
+  else()
+    if(CMAKE_CONFIGURATION_TYPES)
+      symlink_external_repository_includes(${NAME} ${TARGET}
+        ${CMAKE_CONFIGURATION_TYPES})
+    elseif(CMAKE_BUILD_TYPE)
+      symlink_external_repository_includes(${NAME} ${TARGET}
+        ${CMAKE_BUILD_TYPE})
+    endif()
+  endif()
+endfunction()
+
+macro(override_repository NAME)
+  set(repo "${CMAKE_CURRENT_BINARY_DIR}/external/$<CONFIG>/workspace/${NAME}")
+  list(APPEND BAZEL_OVERRIDE_REPOS --override_repository=${NAME}=${repo})
+endmacro()
+
+set(BAZEL_OVERRIDE_REPOS)
+
+option(WITH_USER_EIGEN "Use user-provided Eigen3" OFF)
+
+if(WITH_USER_EIGEN)
+  find_package(Eigen3 CONFIG REQUIRED)
+
+  symlink_external_repository_includes(eigen Eigen3::Eigen)
+  generate_external_repository_file(eigen/WORKSPACE)
+  generate_external_repository_file(
+    eigen/BUILD.bazel
+    eigen/BUILD.bazel.in)
+
+  override_repository(eigen)
+endif()
+
+option(WITH_USER_FMT "Use user-provided fmt" OFF)
+
+if(WITH_USER_FMT)
+  find_package(fmt CONFIG REQUIRED)
+
+  symlink_external_repository_includes(fmt fmt::fmt)
+  generate_external_repository_file(fmt/WORKSPACE)
+  generate_external_repository_file(
+    fmt/BUILD.bazel
+    fmt/BUILD.bazel.in)
+
+  override_repository(fmt)
+endif()
+
+option(WITH_USER_SPDLOG "Use user-provided spdlog" OFF)
+
+if(WITH_USER_SPDLOG)
+  if(NOT WITH_USER_FMT)
+    message(FATAL_ERROR
+      "User-provided spdlog (WITH_USER_SPDLOG) "
+      "requires user-provided fmt (WITH_USER_FMT).")
+  endif()
+
+  find_package(spdlog CONFIG REQUIRED)
+
+  symlink_external_repository_includes(spdlog spdlog::spdlog)
+  generate_external_repository_file(spdlog/WORKSPACE)
+  generate_external_repository_file(
+    spdlog/BUILD.bazel
+    spdlog/BUILD.bazel.in)
+
+  override_repository(spdlog)
+endif()
+
 set(BAZEL_CONFIGS)
 
 option(WITH_GUROBI "Build with support for Gurobi" OFF)
 
 if(WITH_GUROBI)
-  find_package(Gurobi 9.0.2 EXACT MODULE REQUIRED)
+  find_package(Gurobi 9.5.1 EXACT MODULE REQUIRED)
 
   list(APPEND BAZEL_CONFIGS --config=gurobi)
 
@@ -447,6 +530,9 @@ if(CMAKE_CONFIGURATION_TYPES OR BUILD_TYPE_LOWER MATCHES "^(debug|minsizerel|rel
 else()
   set(BAZEL_ARGS)
 endif()
+if(BAZEL_OVERRIDE_REPOS)
+  list(APPEND BAZEL_ARGS ${BAZEL_OVERRIDE_REPOS})
+endif()
 
 # N.B. If you are testing the CMake API and making changes to `installer.py`,
 # you can change this target to something more lightweight, such as
@@ -487,6 +573,9 @@ if(CMAKE_CONFIGURATION_TYPES OR BUILD_TYPE_LOWER MATCHES "^(debug|relwithdebinfo
       "symbols because support for SNOPT is enabled"
     )
   else()
+    list(INSERT BAZEL_ARGS 0
+      "$<$<OR:$<CONFIG:Debug>,$<CONFIG:RelWithDebInfo>>:--fission=no>"
+    )
     list(INSERT BAZEL_TARGETS_ARGS 0
       "$<$<OR:$<CONFIG:Debug>,$<CONFIG:RelWithDebInfo>>:--no_strip>"
     )

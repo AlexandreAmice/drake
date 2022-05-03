@@ -7,6 +7,7 @@
 
 #include "drake/common/test_utilities/eigen_matrix_compare.h"
 #include "drake/common/test_utilities/expect_throws_message.h"
+#include "drake/common/test_utilities/limit_malloc.h"
 #include "drake/math/autodiff_gradient.h"
 #include "drake/systems/framework/test_utilities/scalar_conversion.h"
 
@@ -103,10 +104,8 @@ GTEST_TEST(MultilayerPerceptronTest, RandomParameters) {
   // correct.
 
   // First layer should have mean≈0, std_dev≈1.
-  EXPECT_TRUE(
-      CompareMatrices(mlp.GetWeights(mean, 0), VectorXd::Zero(N), 0.3));
-  EXPECT_TRUE(
-      CompareMatrices(mlp.GetBiases(mean, 0), VectorXd::Zero(N), 0.3));
+  EXPECT_TRUE(CompareMatrices(mlp.GetWeights(mean, 0), VectorXd::Zero(N), 0.3));
+  EXPECT_TRUE(CompareMatrices(mlp.GetBiases(mean, 0), VectorXd::Zero(N), 0.3));
   EXPECT_TRUE(CompareMatrices(mlp.GetWeights(std_dev, 0),
                               VectorXd::Constant(N, 1.0), 0.2));
   EXPECT_TRUE(CompareMatrices(mlp.GetBiases(std_dev, 0),
@@ -169,6 +168,12 @@ void CalcOutputTest(
     y = y.array().tanh().matrix();
   }
 
+  if constexpr (std::is_same_v<T, double>) {
+    // CalcOutput<double> should not have any dynamic allocations.
+    drake::test::LimitMalloc guard({.max_num_allocations = 0});
+    mlp.get_output_port().Eval(*context);
+  }
+
   EXPECT_TRUE(CompareMatrices(mlp.get_output_port().Eval(*context), y, 1e-14));
 }
 
@@ -185,10 +190,25 @@ GTEST_TEST(MultilayerPerceptronTest, CalcOutput) {
 }
 
 // Check that backprop gives the same gradients as AutoDiffXd.
-void BackpropTest(PerceptronActivationType type) {
-  std::vector<int> layers({2, 3, 3, 2});
-  MultilayerPerceptron<double> mlp(layers, type);
-  MultilayerPerceptron<AutoDiffXd> mlp_ad(layers, type);
+void BackpropTest(PerceptronActivationType type, bool use_sin_cos = false) {
+  std::unique_ptr<MultilayerPerceptron<double>> owned_mlp;
+  std::unique_ptr<MultilayerPerceptron<AutoDiffXd>> owned_mlp_ad;
+  if (use_sin_cos) {
+    std::vector<bool> use_sin_cos_for_input({false, true});
+    std::vector<int> remaining_layers({3, 3, 2});
+    std::vector<PerceptronActivationType> activation_types({type, type, type});
+    owned_mlp = std::make_unique<MultilayerPerceptron<double>>(
+        use_sin_cos_for_input, remaining_layers, activation_types);
+    owned_mlp_ad = std::make_unique<MultilayerPerceptron<AutoDiffXd>>(
+        use_sin_cos_for_input, remaining_layers, activation_types);
+  } else {
+    std::vector<int> layers({2, 3, 3, 2});
+    owned_mlp = std::make_unique<MultilayerPerceptron<double>>(layers, type);
+    owned_mlp_ad =
+        std::make_unique<MultilayerPerceptron<AutoDiffXd>>(layers, type);
+  }
+  MultilayerPerceptron<double>& mlp = *owned_mlp;
+  MultilayerPerceptron<AutoDiffXd>& mlp_ad = *owned_mlp_ad;
 
   Eigen::Matrix<double, 2, 3> X, Y_desired;
   X << 0.23, 0.62, -0.2, -.73, 0.14, 0.6;
@@ -220,12 +240,23 @@ void BackpropTest(PerceptronActivationType type) {
 
   // Check that they give the same values.
   EXPECT_NEAR(loss, loss_ad.value(), 1e-14);
-  EXPECT_TRUE(CompareMatrices(dloss_dparams, loss_ad.derivatives(), 1e-14));
+  EXPECT_TRUE(CompareMatrices(dloss_dparams,
+                              loss_ad.derivatives().size()
+                                  ? loss_ad.derivatives()
+                                  : Eigen::VectorXd::Zero(mlp.num_parameters()),
+                              1e-14));
+
+  {  // A second call with the same size input should not allocate.
+    drake::test::LimitMalloc guard({.max_num_allocations = 0});
+    loss = mlp.BackpropagationMeanSquaredError(*context, X, Y_desired,
+                                               &dloss_dparams);
+  }
 }
 
 GTEST_TEST(MultilayerPerceptionTest, Backprop) {
   for (const auto& type : {kIdentity, kReLU, kTanh}) {
-    BackpropTest(type);
+    BackpropTest(type, false);
+    BackpropTest(type, true);
   }
 }
 
@@ -247,7 +278,64 @@ GTEST_TEST(MultilayerPereceptronTest, BatchOutput) {
     mlp.BatchOutput(*context, X, &Y);
 
     EXPECT_TRUE(CompareMatrices(Y, Y_desired, 1e-14));
+
+    {  // A second call with the same size input should not allocate.
+      drake::test::LimitMalloc guard({.max_num_allocations = 0});
+      mlp.BatchOutput(*context, X, &Y);
+    }
   }
+}
+
+GTEST_TEST(MultilayerPereceptronTest, BatchOutputWithGradients) {
+  for (const auto& type : {kIdentity, kReLU, kTanh}) {
+    std::vector<int> layers({2, 3, 3, 1});
+
+    MultilayerPerceptron<double> mlp(layers, type);
+    auto context = mlp.CreateDefaultContext();
+    RandomGenerator generator(243);
+    mlp.SetRandomContext(context.get(), &generator);
+
+    MultilayerPerceptron<AutoDiffXd> mlp_ad(layers, type);
+    auto context_ad = mlp_ad.CreateDefaultContext();
+    mlp_ad.SetParameters(context_ad.get(),
+                         mlp.GetParameters(*context).cast<AutoDiffXd>());
+
+    Eigen::Matrix<double, 2, 3> X, dYdX, dYdX_desired;
+    X << 0.1, 0.2, 0.3, 0.4, 0.5, 0.6;
+    Eigen::Matrix<double, 1, 3> Y, Y_desired;
+    for (int i = 0; i < 3; ++i) {
+      mlp_ad.get_input_port().FixValue(context_ad.get(),
+                                       math::InitializeAutoDiff(X.col(i)));
+      AutoDiffXd y = mlp_ad.get_output_port().Eval(*context_ad)[0];
+      Y_desired(0, i) = y.value();
+      // Note: Have to handle the case where the autodiff gradients are not set
+      // (e.g. for ReLU the input might be truncated before reaching the
+      // output).
+      dYdX_desired.col(i) =
+          y.derivatives().size() ? y.derivatives() : Eigen::Vector2d::Zero();
+    }
+    mlp.BatchOutput(*context, X, &Y, &dYdX);
+
+    EXPECT_TRUE(CompareMatrices(Y, Y_desired, 1e-14));
+    EXPECT_TRUE(CompareMatrices(dYdX, dYdX_desired, 1e-14));
+
+    {  // A second call with the same size input should not allocate.
+      drake::test::LimitMalloc guard({.max_num_allocations = 0});
+      mlp.BatchOutput(*context, X, &Y, &dYdX);
+    }
+  }
+}
+
+GTEST_TEST(MultilayerPerceptronTest, BatchOutputWithGradientsThrows) {
+  MultilayerPerceptron<double> mlp({2, 2});
+  auto context = mlp.CreateDefaultContext();
+  const Eigen::Matrix2d X;
+  Eigen::Matrix2d Y, dYdX;
+
+  DRAKE_EXPECT_THROWS_MESSAGE(
+      mlp.BatchOutput(*context, X, &Y, &dYdX),
+      ".*dYdX != nullptr, but BatchOutput only supports "
+      "gradients when the output layer has size 1.");
 }
 
 GTEST_TEST(MultilayerPerceptronTest, ScalarConversion) {
@@ -260,6 +348,61 @@ GTEST_TEST(MultilayerPerceptronTest, ScalarConversion) {
   auto mlp_sym = mlp.ToSymbolic();
   EXPECT_EQ(mlp_sym->get_input_port().size(), 1);
   EXPECT_EQ(mlp_sym->get_output_port().size(), 4);
+}
+
+GTEST_TEST(MultilayerPerceptronTest, SinCosFeatures) {
+  MultilayerPerceptron<double> mlp({true, false}, {4, 1},
+                                   {kIdentity, kIdentity});
+
+  EXPECT_EQ(mlp.get_input_port().size(), 2);
+  EXPECT_EQ(mlp.layers(), std::vector<int>({3, 4, 1}));
+
+  auto context = mlp.CreateDefaultContext();
+  RandomGenerator generator(243);
+  mlp.SetRandomContext(context.get(), &generator);
+
+  // When the output is based on random parameters, it should be periodic in 2π
+  // for the first input (and not for the second).
+  Eigen::Matrix<double, 2, 3> X;
+  // clang-format off
+  X << 0.1, 0.1 + 2*M_PI, 0.1,
+       0.4, 0.4,          0.4 + 2*M_PI;
+  // clang-format on
+  Eigen::Matrix<double, 1, 3> Y;
+  mlp.BatchOutput(*context, X, &Y);
+  EXPECT_NEAR(Y[0], Y[1], 1e-14);
+  EXPECT_GE(std::abs(Y[0] - Y[2]), 1e-3);
+
+  // Check the gradients.
+  auto owned_mlp_ad = mlp.ToAutoDiffXd();
+  auto& mlp_ad = dynamic_cast<MultilayerPerceptron<AutoDiffXd>&>(*owned_mlp_ad);
+  EXPECT_EQ(mlp_ad.get_input_port().size(), 2);
+  EXPECT_EQ(mlp_ad.layers(), std::vector<int>({3, 4, 1}));
+
+  auto context_ad = mlp_ad.CreateDefaultContext();
+  mlp_ad.SetParameters(context_ad.get(),
+                       mlp.GetParameters(*context).cast<AutoDiffXd>());
+
+  Eigen::Matrix<double, 2, 3> dYdX, dYdX_desired;
+  X << 0.1, 0.2, 0.3, 0.4, 0.5, 0.6;
+  Eigen::Matrix<double, 1, 3> Y_desired;
+  for (int i = 0; i < 3; ++i) {
+    mlp_ad.get_input_port().FixValue(context_ad.get(),
+                                     math::InitializeAutoDiff(X.col(i)));
+    AutoDiffXd y = mlp_ad.get_output_port().Eval(*context_ad)[0];
+    Y_desired(0, i) = y.value();
+    dYdX_desired.col(i) =
+        y.derivatives().size() ? y.derivatives() : Eigen::Vector2d::Zero();
+  }
+  mlp.BatchOutput(*context, X, &Y, &dYdX);
+
+  EXPECT_TRUE(CompareMatrices(Y, Y_desired, 1e-14));
+  EXPECT_TRUE(CompareMatrices(dYdX, dYdX_desired, 1e-14));
+
+  {  // A second call with the same size input should not allocate.
+    drake::test::LimitMalloc guard({.max_num_allocations = 0});
+    mlp.BatchOutput(*context, X, &Y, &dYdX);
+  }
 }
 
 }  // namespace

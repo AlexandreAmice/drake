@@ -24,6 +24,16 @@ namespace drake {
 namespace symbolic {
 
 namespace {
+// Note that `.Expand()` is needed in the following kinds of cases:
+//     e1 := (a + b)²
+//     e2 := - (a² + 2ab + b²)
+// Without expanding the terms, they would not report as EqualTo.
+bool AreEqualAfterExpanding(const Expression& e1, const Expression& e2) {
+  const Expression& e1_expanded = e1.is_expanded() ? e1 : e1.Expand();
+  const Expression& e2_expanded = e2.is_expanded() ? e2 : e2.Expand();
+  return e1_expanded.EqualTo(e2_expanded);
+}
+
 // Helper function to add coeff * m to a map (Monomial → Expression).
 // Used to implement DecomposePolynomialVisitor::VisitAddition and
 // Polynomial::Add.
@@ -36,18 +46,11 @@ void DoAddProduct(const Expression& coeff, const Monomial& m,
   if (it != map->end()) {
     // m ∈ dom(map)
     Expression& existing_coeff = it->second;
-    // Note that `.Expand()` is needed in the following line. For example,
-    // consider the following case:
-    //     c1 := (a + b)²
-    //     c2 := - (a² + 2ab + b²)
-    // Without expanding the terms, we have `is_zero(c1 + c2) = false` while
-    // it's clear that c1 + c2 is a zero polynomial. Using `Expand()` help us
-    // identify those cases.
-    //if (is_zero(existing_coeff.Expand() + coeff.Expand())) {
-    //  map->erase(it);
-    //} else {
+    if (AreEqualAfterExpanding(-coeff, existing_coeff)) {
+      map->erase(it);
+    } else {
       existing_coeff += coeff;
-    //}
+    }
   } else {
     // m ∉ dom(map)
     map->emplace_hint(it, m, coeff);
@@ -342,7 +345,7 @@ Variables GetIndeterminates(const Polynomial::MapType& m) {
   Variables vars;
   for (const pair<const Monomial, Expression>& p : m) {
     const Monomial& m_i{p.first};
-    vars += m_i.GetVariables();
+    vars.insert(m_i.GetVariables());
   }
   return vars;
 }
@@ -351,7 +354,7 @@ Variables GetDecisionVariables(const Polynomial::MapType& m) {
   Variables vars;
   for (const pair<const Monomial, Expression>& p : m) {
     const Expression& e_i{p.second};
-    vars += e_i.GetVariables();
+    vars.insert(e_i.GetVariables());
   }
   return vars;
 }
@@ -767,6 +770,32 @@ Polynomial Polynomial::RemoveTermsWithSmallCoefficients(
     }
   }
   return Polynomial(cleaned_polynomial);
+}
+
+namespace {
+bool IsEvenOrOdd(const Polynomial& p, bool check_even) {
+  for (const auto& [monomial, coeff] : p.monomial_to_coefficient_map()) {
+    // If we check p is even/odd, then we only need to check monomials with
+    // odd/even-degrees have coefficient = 0
+    if (monomial.total_degree() % 2 == static_cast<int>(check_even)) {
+      const symbolic::Expression& coeff_expanded =
+          coeff.is_expanded() ? coeff : coeff.Expand();
+      if (!(is_constant(coeff_expanded) &&
+            get_constant_value(coeff_expanded) == 0)) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+}  // namespace
+
+bool Polynomial::IsEven() const {
+  return IsEvenOrOdd(*this, true /* check_even=true */);
+}
+
+bool Polynomial::IsOdd() const {
+  return IsEvenOrOdd(*this, false /* check_even=false*/);
 }
 
 void Polynomial::CheckInvariant() const {

@@ -35,6 +35,7 @@ drake_cc_package_library(
         ":geometry_version",
         ":internal_frame",
         ":internal_geometry",
+        ":make_mesh_for_deformable",
         ":meshcat",
         ":meshcat_animation",
         ":meshcat_point_cloud_visualizer",
@@ -233,6 +234,17 @@ drake_cc_library(
 )
 
 drake_cc_library(
+    name = "make_mesh_for_deformable",
+    srcs = ["make_mesh_for_deformable.cc"],
+    hdrs = ["make_mesh_for_deformable.h"],
+    deps = [
+        ":shape_specification",
+        "//geometry/proximity:make_sphere_mesh",
+        "//geometry/proximity:volume_mesh",
+    ],
+)
+
+drake_cc_library(
     name = "proximity_properties",
     srcs = ["proximity_properties.cc"],
     hdrs = ["proximity_properties.h"],
@@ -406,16 +418,20 @@ drake_cc_library(
     ],
     data = [":meshcat_resources"],
     install_hdrs_exclude = ["meshcat_types.h"],
-    deps = [
+    interface_deps = [
         ":meshcat_animation",
         ":rgba",
         ":shape_specification",
         "//common:essential",
-        "//common:find_resource",
-        "//common:unused",
         "//geometry/proximity:triangle_surface_mesh",
         "//math:geometric_transform",
         "//perception:point_cloud",
+    ],
+    deps = [
+        "//common:filesystem",
+        "//common:find_resource",
+        "//common:scope_exit",
+        "//common:unused",
         "@common_robotics_utilities",
         "@msgpack",
         "@stduuid",
@@ -457,13 +473,14 @@ drake_cc_googletest(
         ":meshcat_websocket_client",
         "//geometry/render:test_models",
     ],
-    # Disable valgrind because it currently fails on the system call to python.
-    # TODO(russt): Make it possible to pass --trace-children=no to valgrind.sh.
-    tags = ["no_memcheck"],
+    tags = [
+        "cpu:2",
+    ],
     deps = [
         ":meshcat",
         "//common/test_utilities:eigen_matrix_compare",
         "//common/test_utilities:expect_throws_message",
+        "@msgpack",
     ],
 )
 
@@ -539,6 +556,7 @@ filegroup(
     name = "test_obj_files",
     testonly = 1,
     srcs = [
+        "test/convex.obj",
         "test/extruded_u.obj",
         "test/forbidden_two_cubes.obj",
         "test/non_convex_mesh.obj",
@@ -582,6 +600,7 @@ drake_cc_googletest(
     deps = [
         ":proximity_engine",
         ":shape_specification",
+        "//common:filesystem",
         "//common/test_utilities:eigen_matrix_compare",
         "//common/test_utilities:expect_no_throw",
         "//common/test_utilities:expect_throws_message",
@@ -647,6 +666,14 @@ drake_cc_googletest(
         ":geometry_state",
         "//common/test_utilities",
         "//geometry/test_utilities:dummy_render_engine",
+    ],
+)
+
+drake_cc_googletest(
+    name = "make_mesh_for_deformable_test",
+    deps = [
+        ":make_mesh_for_deformable",
+        "//common/test_utilities:expect_throws_message",
     ],
 )
 

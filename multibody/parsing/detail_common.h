@@ -6,9 +6,11 @@
 #include <string>
 #include <variant>
 
-#include <sdf/sdf.hh>
+#include <sdf/Element.hh>
 #include <tinyxml2.h>
 
+#include "drake/common/diagnostic_policy.h"
+#include "drake/common/drake_copyable.h"
 #include "drake/geometry/proximity_properties.h"
 #include "drake/multibody/plant/coulomb_friction.h"
 #include "drake/multibody/plant/multibody_plant.h"
@@ -20,14 +22,55 @@ namespace internal {
 
 using ElementNode = std::variant<sdf::ElementPtr, tinyxml2::XMLElement*>;
 
-// Helper struct that provides for either a file name xor file contents to be
-// passed between our various parsing functions.  Exactly one of the pointers
-// must be set to non-nullptr.
-struct DataSource {
-  const std::string* file_name{};
-  const std::string* file_contents{};
+// Helper class that provides for either a file name xor file contents to be
+// passed between our various parsing functions.
+class DataSource {
+ public:
+  DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(DataSource);
 
-  void DemandExactlyOne() const;
+  // The result of calling GetStem on a file-contents data source.
+  static constexpr char kContentsPseudoStem[] = "<literal-string>";
+
+  // A data source contains either a file name, or file contents.
+  enum DataSourceType {kFilename, kContents};
+
+  // Depending on the DataSourceType value supplied, @p data will be treated as
+  // either a file name or contents. The data is aliased, so the lifetime of
+  // the passed data must exceed the lifetime of the created object.
+  // @pre data cannot be nullptr.
+  DataSource(DataSourceType type, const std::string* data);
+
+  // @return true iff the data source is a file name.
+  bool IsFilename() const { return type_ == kFilename; }
+
+  // @return true iff the data source is file contents.
+  bool IsContents() const { return type_ == kContents; }
+
+  // Returns a reference to the filename.
+  // @pre IsFilename().
+  const std::string& filename() const;
+
+  // Returns a reference to the contents.
+  // @pre IsContents().
+  const std::string& contents() const;
+
+  // If the data source is a file name, returns its absolute path. If the
+  // absolute path calculation causes errors, throw std::exception. Otherwise,
+  // returns an empty string.
+  std::string GetAbsolutePath() const;
+
+  // If the data source is a file name, returns its parent path. If the parent
+  // path calculation causes errors, throw std::exception. Otherwise, returns
+  // an empty string.
+  std::string GetRootDir() const;
+
+  // If the data source is a file name, returns its base name, without
+  // directory or extension. Otherwise, returns kContentsPseudoStem.
+  std::string GetStem() const;
+
+ private:
+  DataSourceType type_{};
+  const std::string* data_{};
 };
 
 // Note:
@@ -60,6 +103,7 @@ inline CoulombFriction<double> default_friction() {
 // properties. Downstream consumers of those properties are responsible for
 // confirming that all required properties are present and well formed.
 //
+// @param diagnostic   The error-reporting channel.
 // @param read_double  The function for extracting double values for specific
 //                     named tags.
 // @param is_rigid     True if the caller detected the presence of the
@@ -69,6 +113,7 @@ inline CoulombFriction<double> default_friction() {
 // @return All proximity properties discovered via the `read_double` function.
 // @pre At most one of `is_rigid` and `is_compliant` is true.
 geometry::ProximityProperties ParseProximityProperties(
+    const drake::internal::DiagnosticPolicy& diagnostic,
     const std::function<std::optional<double>(const char*)>& read_double,
     bool is_rigid, bool is_compliant);
 
@@ -103,9 +148,14 @@ geometry::ProximityProperties ParseProximityProperties(
 //   <drake:bushing_force_stiffness  value="0 0 0"/>
 //   <drake:bushing_force_damping    value="0 0 0"/>
 // </drake:linear_bushing_rpy>
-const LinearBushingRollPitchYaw<double>& ParseLinearBushingRollPitchYaw(
+//
+// The @p read_frame functor may (at its option) throw std:exception, or return
+// nullptr when frame parsing fails. Similarly,
+// ParseLinearBushingRollPitchYaw() may return nullptr when read_frame has
+// returned nullptr.
+const LinearBushingRollPitchYaw<double>* ParseLinearBushingRollPitchYaw(
     const std::function<Eigen::Vector3d(const char*)>& read_vector,
-    const std::function<const Frame<double>&(const char*)>& read_frame,
+    const std::function<const Frame<double>*(const char*)>& read_frame,
     MultibodyPlant<double>* plant);
 
 // TODO(@SeanCurtis-TRI): The real solution here is to create a wrapper

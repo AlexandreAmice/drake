@@ -1157,6 +1157,12 @@ class TestSymbolicMonomial(unittest.TestCase):
         self.assertEqual(m.Evaluate(env=env),
                          env[x] ** 3 * env[y])
 
+    def test_evaluate_batch(self):
+        m = sym.Monomial(x, 3) * sym.Monomial(y)
+        monomial_vals = m.Evaluate(
+            vars=[x, y], vars_values=[[1, 2, 3], [4, 5, 6]])
+        np.testing.assert_array_equal(monomial_vals, [4, 8 * 5, 27 * 6])
+
     def test_evaluate_exception_np_nan(self):
         m = sym.Monomial(x, 3)
         env = {x: np.nan}
@@ -1287,6 +1293,11 @@ class TestSymbolicPolynomial(unittest.TestCase):
         p = sym.Polynomial(e, [x, y])
         q = p.RemoveTermsWithSmallCoefficients(coefficient_tol=1e-6)
         numpy_compare.assert_equal(q.ToExpression(), 3 * x)
+
+    def test_even_odd(self):
+        p = sym.Polynomial()
+        self.assertTrue(p.IsEven())
+        self.assertTrue(p.IsOdd())
 
     def test_comparison(self):
         p = sym.Polynomial()
@@ -1530,6 +1541,10 @@ class TestExtractVariablesFromExpression(unittest.TestCase):
         self.assertEqual(len(map_var_to_index), 2)
         for i in range(2):
             self.assertEqual(map_var_to_index[variables[i].get_id()], i)
+
+        variables, map_var_to_index = sym.ExtractVariablesFromExpression(
+            expressions=np.array([x + x * y, y+1]))
+        self.assertEqual(variables.shape, (2,))
 
 
 class TestDecomposeAffineExpression(unittest.TestCase):
@@ -1878,3 +1893,20 @@ class TestToLatex(unittest.TestCase):
             sym.ToLatex(positive_semidefinite(Me), 1),
             R"\begin{bmatrix} x & 2.3 y \\ 2.3 y & (x + y) \end{bmatrix}"
             R" \succeq 0")
+
+
+class TestSinCosSubstitution(unittest.TestCase):
+    def basic_test(self):
+        x = sym.Variable("x")
+        y = sym.Variable("y")
+        sx = sym.Variable("sx")
+        sy = sym.Variable("sy")
+        cx = sym.Variable("cx")
+        cy = sym.Variable("cy")
+        subs = {x: sym.SinCos(s=sx, c=cx), y: sym.SinCos(s=sy, c=cy)}
+
+        self.assert_equal(sym.Substitute(e=np.sin(x + y), subs=subs),
+                          sx * cy + cx * sy)
+        m = np.array([np.sin(x), np.cos(y), 1, np.sin(2*x)])
+        me = np.array([sx, cy, 1, 2*sx*cx])
+        np.testing.assert_equal(sym.Substitute(m=m, subs=subs), me)

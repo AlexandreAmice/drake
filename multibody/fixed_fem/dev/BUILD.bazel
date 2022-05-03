@@ -12,73 +12,6 @@ package(
 )
 
 drake_cc_library(
-    name = "collision_objects",
-    srcs = [
-        "collision_objects.cc",
-    ],
-    hdrs = [
-        "collision_objects.h",
-    ],
-    deps = [
-        "//geometry:geometry_ids",
-        "//geometry:proximity_properties",
-        "//geometry:shape_specification",
-        "//geometry/proximity:bvh",
-        "//geometry/proximity:make_box_mesh",
-        "//geometry/proximity:make_capsule_mesh",
-        "//geometry/proximity:make_cylinder_mesh",
-        "//geometry/proximity:make_ellipsoid_mesh",
-        "//geometry/proximity:make_sphere_mesh",
-        "//geometry/proximity:obj_to_surface_mesh",
-        "//geometry/proximity:triangle_surface_mesh",
-    ],
-)
-
-drake_cc_library(
-    name = "calc_lame_parameters",
-    srcs = [
-        "calc_lame_parameters.cc",
-    ],
-    hdrs = [
-        "calc_lame_parameters.h",
-    ],
-    deps = [
-        "//common:default_scalars",
-    ],
-)
-
-drake_cc_library(
-    name = "corotated_model",
-    srcs = [
-        "corotated_model.cc",
-    ],
-    hdrs = [
-        "corotated_model.h",
-    ],
-    deps = [
-        ":calc_lame_parameters",
-        ":corotated_model_data",
-        "//common:autodiff",
-        "//common:essential",
-        "//multibody/fem:constitutive_model",
-        "//multibody/fem:matrix_utilities",
-    ],
-)
-
-drake_cc_library(
-    name = "corotated_model_data",
-    hdrs = [
-        "corotated_model_data.h",
-    ],
-    deps = [
-        "//common:autodiff",
-        "//common:essential",
-        "//multibody/fem:deformation_gradient_data",
-        "//multibody/fem:matrix_utilities",
-    ],
-)
-
-drake_cc_library(
     name = "deformable_body_config",
     hdrs = [
         "deformable_body_config.h",
@@ -90,8 +23,11 @@ drake_cc_library(
 
 drake_cc_library(
     name = "deformable_contact",
-    srcs = ["deformable_contact.cc"],
-    hdrs = ["deformable_contact.h"],
+    srcs = ["deformable_rigid_mesh_intersection.cc"],
+    hdrs = [
+        "deformable_contact_surface.h",
+        "deformable_rigid_mesh_intersection.h",
+    ],
     deps = [
         "//common:default_scalars",
         "//geometry/proximity:bvh",
@@ -154,17 +90,6 @@ drake_cc_library(
 )
 
 drake_cc_library(
-    name = "element_cache_entry",
-    hdrs = [
-        "element_cache_entry.h",
-    ],
-    deps = [
-        ":fem_indexes",
-        "//common:essential",
-    ],
-)
-
-drake_cc_library(
     name = "fem_indexes",
     hdrs = [
         "fem_indexes.h",
@@ -172,23 +97,6 @@ drake_cc_library(
     deps = [
         "//common:essential",
         "//common:type_safe_index",
-    ],
-)
-
-drake_cc_library(
-    name = "linear_constitutive_model",
-    srcs = [
-        "linear_constitutive_model.cc",
-    ],
-    hdrs = [
-        "linear_constitutive_model.h",
-    ],
-    deps = [
-        ":calc_lame_parameters",
-        "//common:autodiff",
-        "//common:essential",
-        "//multibody/fem:constitutive_model",
-        "//multibody/fem:linear_constitutive_model_data",
     ],
 )
 
@@ -211,79 +119,7 @@ drake_cc_library(
     ],
 )
 
-drake_cc_library(
-    name = "petsc_symmetric_block_sparse_matrix",
-    srcs = [
-        "petsc_symmetric_block_sparse_matrix.cc",
-    ],
-    hdrs = [
-        "petsc_symmetric_block_sparse_matrix.h",
-    ],
-    deps = [
-        ":schur_complement",
-        "//common:essential",
-        "//common:unused",
-        "@petsc",
-    ],
-)
-
-drake_cc_library(
-    name = "schur_complement",
-    srcs = [
-        "schur_complement.cc",
-    ],
-    hdrs = [
-        "schur_complement.h",
-    ],
-    deps = [
-        "//common:default_scalars",
-        "//common:essential",
-    ],
-)
-
 # === test/ ===
-drake_cc_googletest(
-    name = "collision_objects_test",
-    data = ["//geometry:test_obj_files"],
-    deps = [
-        ":collision_objects",
-        "//common:find_resource",
-        "//common/test_utilities:expect_throws_message",
-    ],
-)
-
-drake_cc_library(
-    name = "constitutive_model_test_utilities",
-    testonly = 1,
-    srcs = ["test/constitutive_model_test_utilities.cc"],
-    hdrs = ["test/constitutive_model_test_utilities.h"],
-    deps = [
-        ":corotated_model",
-        ":linear_constitutive_model",
-        "//common:autodiff",
-        "//common/test_utilities:eigen_matrix_compare",
-        "//common/test_utilities:expect_throws_message",
-        "//math:gradient",
-        "//multibody/fem:constitutive_model",
-    ],
-)
-
-drake_cc_googletest(
-    name = "corotated_model_test",
-    deps = [
-        ":constitutive_model_test_utilities",
-        ":corotated_model",
-    ],
-)
-
-drake_cc_googletest(
-    name = "linear_constitutive_model_test",
-    deps = [
-        ":constitutive_model_test_utilities",
-        ":linear_constitutive_model",
-    ],
-)
-
 drake_cc_googletest(
     name = "mesh_utilities_test",
     deps = [
@@ -296,23 +132,12 @@ drake_cc_googletest(
 )
 
 drake_cc_googletest(
-    name = "petsc_symmetric_block_sparse_matrix_test",
-    tags = [
-        # This tests uses multiple CPUs concurrently.
-        "cpu:100",
-    ],
+    name = "deformable_contact_test",
     deps = [
-        ":petsc_symmetric_block_sparse_matrix",
-        "//common/test_utilities:eigen_matrix_compare",
-        "//common/test_utilities:expect_throws_message",
-    ],
-)
-
-drake_cc_googletest(
-    name = "schur_complement_test",
-    deps = [
-        ":schur_complement",
-        "//common/test_utilities:eigen_matrix_compare",
+        ":deformable_contact",
+        ":deformable_contact_data",
+        ":mesh_utilities",
+        "//common/test_utilities",
     ],
 )
 

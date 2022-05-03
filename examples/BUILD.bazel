@@ -40,6 +40,7 @@ INSTALLED_MODEL_PACKAGES = [
     "//examples/acrobot",
     "//examples/atlas",
     "//examples/compass_gait",
+    "//examples/hydroelastic/spatula_slip_control",
     "//examples/kuka_iiwa_arm/models",
     "//examples/manipulation_station",
     "//examples/multibody/cart_pole",
@@ -48,7 +49,6 @@ INSTALLED_MODEL_PACKAGES = [
     "//examples/pr2",
     "//examples/quadrotor",
     "//examples/rimless_wheel",
-    "//examples/simple_four_bar",
     "//examples/zmp",
 ]
 

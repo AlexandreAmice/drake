@@ -168,7 +168,7 @@ class IiwaCspaceTest(unittest.TestCase):
             dut.CspacePolytopeBilinearAlternation(
                 q_star, filtered_collision_pairs, C_init, d_init,
                 bilinear_alternation_option, solver_options,
-                q_inner_pts=None, inner_polytope=None)
+                t_inner_points=None, inner_polytope=None)
 
     def test_cspace_polytope_binary_search(self):
         dut = mut.CspaceFreeRegion(self.diagram, self.plant, self.scene_graph,

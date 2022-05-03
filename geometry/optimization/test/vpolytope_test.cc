@@ -390,13 +390,62 @@ bool PointInScaledSet(double x_scale, double t_scale) {
 GTEST_TEST(VPolytopeTest, NonnegativeScalingTest) {
   // Note: I have to call Solve on these (not just check the constraints)
   // because of the slack variables.
-  EXPECT_TRUE(PointInScaledSet(.99, 1.0));
+  EXPECT_TRUE(PointInScaledSet(0.99, 1.0));
   EXPECT_FALSE(PointInScaledSet(1.01, 1.0));
-  EXPECT_FALSE(PointInScaledSet(.99, -0.01));
-  EXPECT_TRUE(PointInScaledSet(.49, .5));
-  EXPECT_FALSE(PointInScaledSet(.51, .5));
+  EXPECT_FALSE(PointInScaledSet(0.99, -0.01));
+  EXPECT_TRUE(PointInScaledSet(0.49, 0.5));
+  EXPECT_FALSE(PointInScaledSet(0.51, 0.5));
   EXPECT_TRUE(PointInScaledSet(1.99, 2.0));
   EXPECT_FALSE(PointInScaledSet(2.01, 2.0));
+}
+
+// Returns true iff a scaled version of the upper corner is confirmed to be
+// inside the scaled box.
+bool PointInTransformedScaledSet(double x_scale, Vector2d t_guess) {
+  const Vector3d lb{1, 1, 1}, ub{2, 3, 4};
+  VPolytope V = VPolytope::MakeBox(lb, ub);
+
+  MathematicalProgram prog;
+  Eigen::MatrixXd A(3, 2);
+  // clang-format off
+  A << 1, 0,
+       0, 1,
+       2, 0;
+  // clang-format on
+  Eigen::Vector3d b = Eigen::Vector3d::Zero();
+  auto x = prog.NewContinuousVariables(2, "x");
+  Eigen::Vector2d c(1, -1);
+  double d = 0;
+  auto t = prog.NewContinuousVariables(2, "t");
+
+  std::vector<Binding<Constraint>> constraints =
+      V.AddPointInNonnegativeScalingConstraints(&prog, A, b, c, d, x, t);
+
+  EXPECT_EQ(constraints.size(), 4);
+
+  prog.AddBoundingBoxConstraint(x_scale * ub.head(2), x_scale * ub.head(2), x);
+  prog.AddBoundingBoxConstraint(t_guess, t_guess, t);
+  auto result = solvers::Solve(prog);
+  return result.is_success();
+}
+
+GTEST_TEST(VPolytopeTest, NonnegativeScalingTest2) {
+  // Note: I have to call Solve on these (not just check the constraints)
+  // because of the slack variables.
+  EXPECT_TRUE(PointInTransformedScaledSet(0.99, Vector2d(1.0, 0)));
+  EXPECT_TRUE(PointInTransformedScaledSet(0.99, Vector2d(0, -1.0)));
+  EXPECT_FALSE(PointInTransformedScaledSet(1.01, Vector2d(1.0, 0)));
+  EXPECT_FALSE(PointInTransformedScaledSet(1.01, Vector2d(0, -1.0)));
+  EXPECT_FALSE(PointInTransformedScaledSet(0.99, Vector2d(-0.01, 0)));
+  EXPECT_FALSE(PointInTransformedScaledSet(0.99, Vector2d(0, -0.01)));
+  EXPECT_TRUE(PointInTransformedScaledSet(0.49, Vector2d(0.5, 0)));
+  EXPECT_TRUE(PointInTransformedScaledSet(0.49, Vector2d(0, -0.5)));
+  EXPECT_FALSE(PointInTransformedScaledSet(0.51, Vector2d(0.5, 0)));
+  EXPECT_FALSE(PointInTransformedScaledSet(0.51, Vector2d(0, -0.5)));
+  EXPECT_TRUE(PointInTransformedScaledSet(1.99, Vector2d(2.0, 0)));
+  EXPECT_TRUE(PointInTransformedScaledSet(1.99, Vector2d(0, -2.0)));
+  EXPECT_FALSE(PointInTransformedScaledSet(2.01, Vector2d(2.0, 0)));
+  EXPECT_FALSE(PointInTransformedScaledSet(2.01, Vector2d(0, -2.0)));
 }
 
 GTEST_TEST(VPolytopeTest, CalcVolume) {
@@ -426,6 +475,91 @@ GTEST_TEST(VPolytopeTest, CalcVolume) {
                         0, 0, 0, 0;
   // clang-format on
   EXPECT_NEAR(VPolytope(vertices_3d_planar).CalcVolume(), 0., tol);
+}
+
+double CalcPathLength(const Eigen::MatrixXd& vertices) {
+  DRAKE_DEMAND(vertices.rows() == 2);
+
+  size_t n = vertices.cols();
+  double length = 0;
+
+  for (size_t i = 0; i < n; ++i) {
+    auto j = (i + 1) % n;
+
+    auto diff = vertices.col(i) - vertices.col(j);
+    length += sqrt(diff.dot(diff));
+  }
+
+  return length;
+}
+
+GTEST_TEST(VPolytopeTest, GetMinimalRepresentationTest) {
+  const double tol{1E-6};
+
+  // 2D: Square plus some points inside
+  {
+    Eigen::Matrix<double, 2, 6> vertices;
+    const double l = 2.0;
+    // clang-format off
+    vertices << 0, l, 0, l, l/4, l/2,
+                0, 0, l, l, l/5, l/3;
+    // clang-format on
+    auto vpoly = VPolytope(vertices).GetMinimalRepresentation();
+    EXPECT_EQ(vpoly.vertices().cols(), 4);
+    EXPECT_NEAR(vpoly.CalcVolume(), l*l, tol);
+    // Calculate the length of the path that visits all the vertices
+    // sequentially.
+    // If the vertices are in clockwise/counter-clockwise order,
+    // the length of the path will coincide with the perimeter of a
+    // square.
+    EXPECT_EQ(CalcPathLength(vpoly.vertices()), l * 4);
+
+    // Test PointInSet with points nearby the four edges.
+    const double d = 10 * tol;
+    for (int axis = 0; axis < 2; ++axis) {
+      for (int face = 0; face < 2; ++face) {
+        for (int side = 0; side < 2; ++side) {
+          Vector2d point(l/2, l/2);
+          point[axis] = l * face + d * (side * 2 - 1);
+          if (face + side == 1) {
+            EXPECT_TRUE(vpoly.PointInSet(point, tol));
+          } else {
+            EXPECT_FALSE(vpoly.PointInSet(point, tol));
+          }
+        }
+      }
+    }
+  }
+
+  // 3D: Box plus some points inside
+  {
+    Eigen::Matrix<double, 3, 10> vertices;
+    const double l = 2.0;
+    // clang-format off
+    vertices << 0, l, 0, l, 0, l, 0, l, l/4, l/2,
+                0, 0, l, l, 0, 0, l, l, l/5, l/3,
+                0, 0, 0, 0, l, l, l, l, l/6, l/4;
+    // clang-format on
+    auto vpoly = VPolytope(vertices).GetMinimalRepresentation();
+    EXPECT_EQ(vpoly.vertices().cols(), 8);
+    EXPECT_NEAR(vpoly.CalcVolume(), l*l*l, tol);
+
+    // Test PointInSet with points nearby the six faces.
+    const double d = 10 * tol;
+    for (int axis = 0; axis < 3; ++axis) {
+      for (int face = 0; face < 2; ++face) {
+        for (int side = 0; side < 2; ++side) {
+          Vector3d point(l/2, l/2, l/2);
+          point[axis] = l * face + d * (side * 2 - 1);
+          if (face + side == 1) {
+            EXPECT_TRUE(vpoly.PointInSet(point, tol));
+          } else {
+            EXPECT_FALSE(vpoly.PointInSet(point, tol));
+          }
+        }
+      }
+    }
+  }
 }
 
 }  // namespace optimization

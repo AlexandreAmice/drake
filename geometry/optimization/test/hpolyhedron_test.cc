@@ -226,7 +226,7 @@ GTEST_TEST(HPolyhedronTest, ChebyshevCenter2) {
   EXPECT_TRUE(H.PointInSet(center));
   // For the rectangle, the center should have distance = 1.0 from the first
   // two half-planes, and ≥ 1.0 for the other two.
-  const VectorXd distance = b - A * center;
+  const VectorXd distance = b - A*center;
   EXPECT_NEAR(distance[0], 1.0, 1e-6);
   EXPECT_NEAR(distance[1], 1.0, 1e-6);
   EXPECT_GE(distance[2], 1.0 - 1e-6);
@@ -256,33 +256,98 @@ GTEST_TEST(HPolyhedronTest, NonnegativeScalingTest) {
 
   EXPECT_EQ(constraints.size(), 2);
 
-  prog.SetInitialGuess(x, .99 * ub);
+  const double tol = 0;
+
+  prog.SetInitialGuess(x, 0.99 * ub);
   prog.SetInitialGuess(t, 1.0);
-  EXPECT_TRUE(prog.CheckSatisfiedAtInitialGuess(constraints, 0));
+  EXPECT_TRUE(prog.CheckSatisfiedAtInitialGuess(constraints, tol));
 
   prog.SetInitialGuess(x, 1.01 * ub);
   prog.SetInitialGuess(t, 1.0);
-  EXPECT_FALSE(prog.CheckSatisfiedAtInitialGuess(constraints, 0));
+  EXPECT_FALSE(prog.CheckSatisfiedAtInitialGuess(constraints, tol));
 
-  prog.SetInitialGuess(x, .99 * ub);
+  prog.SetInitialGuess(x, 0.99 * ub);
   prog.SetInitialGuess(t, -0.01);
-  EXPECT_FALSE(prog.CheckSatisfiedAtInitialGuess(constraints, 0));
+  EXPECT_FALSE(prog.CheckSatisfiedAtInitialGuess(constraints, tol));
 
-  prog.SetInitialGuess(x, .49 * ub);
+  prog.SetInitialGuess(x, 0.49 * ub);
   prog.SetInitialGuess(t, 0.5);
-  EXPECT_TRUE(prog.CheckSatisfiedAtInitialGuess(constraints, 0));
+  EXPECT_TRUE(prog.CheckSatisfiedAtInitialGuess(constraints, tol));
 
-  prog.SetInitialGuess(x, .51 * ub);
+  prog.SetInitialGuess(x, 0.51 * ub);
   prog.SetInitialGuess(t, 0.5);
-  EXPECT_FALSE(prog.CheckSatisfiedAtInitialGuess(constraints, 0));
+  EXPECT_FALSE(prog.CheckSatisfiedAtInitialGuess(constraints, tol));
 
   prog.SetInitialGuess(x, 1.99 * ub);
   prog.SetInitialGuess(t, 2.0);
-  EXPECT_TRUE(prog.CheckSatisfiedAtInitialGuess(constraints, 0));
+  EXPECT_TRUE(prog.CheckSatisfiedAtInitialGuess(constraints, tol));
 
   prog.SetInitialGuess(x, 2.01 * ub);
   prog.SetInitialGuess(t, 2.0);
-  EXPECT_FALSE(prog.CheckSatisfiedAtInitialGuess(constraints, 0));
+  EXPECT_FALSE(prog.CheckSatisfiedAtInitialGuess(constraints, tol));
+}
+
+bool PointInScaledSet(const solvers::VectorXDecisionVariable& x_vars,
+                      const solvers::VectorXDecisionVariable& t_vars,
+                      const Vector2d& x, const Vector2d& t,
+                      solvers::MathematicalProgram* prog,
+                      const std::vector<Binding<Constraint>>& constraints) {
+  const double tol = 0;
+  prog->SetInitialGuess(x_vars, x);
+  prog->SetInitialGuess(t_vars, t);
+  return prog->CheckSatisfiedAtInitialGuess(constraints, tol);
+}
+
+GTEST_TEST(HPolyhedronTest, NonnegativeScalingTest2) {
+  const Vector3d lb{1, 1, 1}, ub{2, 3, 4};
+  HPolyhedron H = HPolyhedron::MakeBox(lb, ub);
+
+  MathematicalProgram prog;
+  Eigen::MatrixXd A(3, 2);
+  // clang-format off
+  A << 1, 0,
+       0, 1,
+       2, 0;
+  // clang-format on
+  Vector3d b = Vector3d::Zero();
+  auto x = prog.NewContinuousVariables(2, "x");
+  Eigen::Vector2d c(1, -1);
+  double d = 0;
+  auto t = prog.NewContinuousVariables(2, "t");
+
+  std::vector<Binding<Constraint>> constraints =
+      H.AddPointInNonnegativeScalingConstraints(&prog, A, b, c, d, x, t);
+
+  EXPECT_EQ(constraints.size(), 2);
+
+  EXPECT_TRUE(PointInScaledSet(x, t, 0.99 * ub.head(2), Vector2d(1.0, 0), &prog,
+                               constraints));
+  EXPECT_TRUE(PointInScaledSet(x, t, 0.99 * ub.head(2), Vector2d(0, -1.0),
+                               &prog, constraints));
+  EXPECT_FALSE(PointInScaledSet(x, t, 1.01 * ub.head(2), Vector2d(1.0, 0),
+                                &prog, constraints));
+  EXPECT_FALSE(PointInScaledSet(x, t, 1.01 * ub.head(2), Vector2d(0, -1.0),
+                                &prog, constraints));
+  EXPECT_FALSE(PointInScaledSet(x, t, 0.99 * ub.head(2), Vector2d(-0.01, 0),
+                                &prog, constraints));
+  EXPECT_FALSE(PointInScaledSet(x, t, 0.99 * ub.head(2), Vector2d(0, -0.01),
+                                &prog, constraints));
+  EXPECT_TRUE(PointInScaledSet(x, t, 0.49 * ub.head(2), Vector2d(0.5, 0), &prog,
+                               constraints));
+  EXPECT_TRUE(PointInScaledSet(x, t, 0.49 * ub.head(2), Vector2d(0, -0.5),
+                               &prog, constraints));
+  EXPECT_FALSE(PointInScaledSet(x, t, 0.51 * ub.head(2), Vector2d(0.5, 0),
+                                &prog, constraints));
+  EXPECT_FALSE(PointInScaledSet(x, t, 0.51 * ub.head(2), Vector2d(0, -0.5),
+                                &prog, constraints));
+  EXPECT_TRUE(PointInScaledSet(x, t, 1.99 * ub.head(2), Vector2d(2.0, 0), &prog,
+                               constraints));
+  EXPECT_TRUE(PointInScaledSet(x, t, 1.99 * ub.head(2), Vector2d(0, -2.0),
+                               &prog, constraints));
+  EXPECT_FALSE(PointInScaledSet(x, t, 2.01 * ub.head(2), Vector2d(2.0, 0),
+                                &prog, constraints));
+  EXPECT_FALSE(PointInScaledSet(x, t, 2.01 * ub.head(2), Vector2d(0, -2.0),
+                                &prog, constraints));
 }
 
 GTEST_TEST(HPolyhedronTest, IsBounded) {
@@ -430,7 +495,7 @@ GTEST_TEST(HPolyhedronTest, L1BallIrredundantIntersectionInfinityBall3D) {
   Eigen::Vector3d upper_limit = Eigen::Vector3d::Ones();
   HPolyhedron Linfty_ball = HPolyhedron::MakeBox(lower_limit, upper_limit);
 
-  HPolyhedron IntersectionBall = L1_ball.Intersection(Linfty_ball);
+  HPolyhedron IntersectionBall = L1_ball.Intersection(Linfty_ball, true);
   EXPECT_TRUE(CompareMatrices(A_L1, IntersectionBall.A()));
   EXPECT_TRUE(CompareMatrices(b_L1, IntersectionBall.b()));
 }
@@ -446,9 +511,9 @@ GTEST_TEST(HPolyhedronTest, OffsetIrredundantBoxes) {
       HPolyhedron::MakeBox(right_box_lower, right_box_upper);
 
   HPolyhedron intersection_right_into_left =
-      left_box.Intersection(right_box);
+      left_box.Intersection(right_box, true);
   HPolyhedron intersection_left_into_right =
-      right_box.Intersection(left_box);
+      right_box.Intersection(left_box, true);
 
   Eigen::MatrixXd A_right_into_left_expected(5, 2);
   Eigen::VectorXd b_right_into_left_expected(5);
@@ -498,8 +563,8 @@ GTEST_TEST(HPolyhedronTest,
   HPolyhedron Linfty_ball = HPolyhedron::MakeBox(lower_limit, upper_limit);
 
   // clang-format on
-  HPolyhedron IrredL1intoLinf = Linfty_ball.Intersection(L1_ball);
-  HPolyhedron IrredLinfintoL1 = L1_ball.Intersection(Linfty_ball);
+  HPolyhedron IrredL1intoLinf = Linfty_ball.Intersection(L1_ball, true);
+  HPolyhedron IrredLinfintoL1 = L1_ball.Intersection(Linfty_ball, true);
 
   EXPECT_TRUE(IrredL1intoLinf.ContainedIn(L1_ball));
   EXPECT_TRUE(IrredL1intoLinf.ContainedIn(Linfty_ball));
@@ -537,6 +602,27 @@ GTEST_TEST(HPolyhedronTest, ReduceL1LInfBallIntersection) {
 
   EXPECT_TRUE(CompareMatrices(reduced_polyhedron.A(), A_L1));
   EXPECT_TRUE(CompareMatrices(reduced_polyhedron.b(), b_L1));
+}
+
+GTEST_TEST(HPolyhedronTest, IntersectionTest) {
+  HPolyhedron H_A = HPolyhedron::MakeUnitBox(2);
+  HPolyhedron H_B = HPolyhedron::MakeBox(Vector2d(0, 0), Vector2d(2, 2));
+  HPolyhedron H_C = H_A.Intersection(H_B);
+
+  Vector2d x_C(0.5, 0.5);
+  EXPECT_TRUE(H_A.PointInSet(x_C));
+  EXPECT_TRUE(H_B.PointInSet(x_C));
+  EXPECT_TRUE(H_C.PointInSet(x_C));
+
+  Vector2d x_A(-0.5, -0.5);
+  EXPECT_TRUE(H_A.PointInSet(x_A));
+  EXPECT_FALSE(H_B.PointInSet(x_A));
+  EXPECT_FALSE(H_C.PointInSet(x_A));
+
+  Vector2d x_B(1.5, 1.5);
+  EXPECT_FALSE(H_A.PointInSet(x_B));
+  EXPECT_TRUE(H_B.PointInSet(x_B));
+  EXPECT_FALSE(H_C.PointInSet(x_B));
 }
 
 }  // namespace optimization

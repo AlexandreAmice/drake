@@ -20,7 +20,7 @@ namespace optimization {
  Note: Unlike the half-space representation, this
  definition means the set is always bounded (hence the name polytope, instead of
  polyhedron).
- 
+
 @ingroup geometry_optimization
 */
 class VPolytope final : public ConvexSet {
@@ -45,6 +45,14 @@ class VPolytope final : public ConvexSet {
             std::optional<FrameId> reference_frame = std::nullopt);
 
   ~VPolytope() final;
+
+  /** Creates a new VPolytope whose vertices are guaranteed to be minimal,
+  i.e. if we remove any point from its vertices, then the convex hull of the
+  remaining vertices is a strict subset of the polytope. In the 2D case
+  the vertices of the new VPolytope are ordered counter-clockwise from
+  the negative X axis. For all other cases an order is not guaranteed.
+  */
+  VPolytope GetMinimalRepresentation() const;
 
   /** Returns true if the point is within @p tol of the set under the L∞-norm.
    Note: This requires the solution of a linear program; the achievable
@@ -87,6 +95,15 @@ class VPolytope final : public ConvexSet {
       solvers::MathematicalProgram* prog,
       const Eigen::Ref<const solvers::VectorXDecisionVariable>& x,
       const symbolic::Variable& t) const final;
+
+  std::vector<solvers::Binding<solvers::Constraint>>
+  DoAddPointInNonnegativeScalingConstraints(
+      solvers::MathematicalProgram* prog,
+      const Eigen::Ref<const Eigen::MatrixXd>& A,
+      const Eigen::Ref<const Eigen::VectorXd>& b,
+      const Eigen::Ref<const Eigen::VectorXd>& c, double d,
+      const Eigen::Ref<const solvers::VectorXDecisionVariable>& x,
+      const Eigen::Ref<const solvers::VectorXDecisionVariable>& t) const final;
 
   std::pair<std::unique_ptr<Shape>, math::RigidTransformd> DoToShapeWithPose()
       const final;

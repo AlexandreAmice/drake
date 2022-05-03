@@ -11,6 +11,7 @@
 #include "drake/bindings/pydrake/common/cpp_param_pybind.h"
 #include "drake/bindings/pydrake/common/cpp_template_pybind.h"
 #include "drake/bindings/pydrake/common/deprecation_pybind.h"
+#include "drake/bindings/pydrake/common/eigen_pybind.h"
 #include "drake/bindings/pydrake/documentation_pybind.h"
 #include "drake/bindings/pydrake/pydrake_pybind.h"
 #include "drake/bindings/pydrake/symbolic_types_pybind.h"
@@ -49,6 +50,7 @@ using solvers::MathematicalProgram;
 using solvers::MathematicalProgramResult;
 using solvers::MatrixXDecisionVariable;
 using solvers::MatrixXIndeterminate;
+using solvers::PerspectiveQuadraticCost;
 using solvers::PositiveSemidefiniteConstraint;
 using solvers::ProgramType;
 using solvers::QuadraticConstraint;
@@ -540,6 +542,9 @@ void BindMathematicalProgram(py::module m) {
       .def("get_solution_result",
           &MathematicalProgramResult::get_solution_result,
           doc.MathematicalProgramResult.get_solution_result.doc)
+      .def("set_solution_result",
+          &MathematicalProgramResult::set_solution_result,
+          doc.MathematicalProgramResult.set_solution_result.doc)
       .def("get_optimal_cost", &MathematicalProgramResult::get_optimal_cost,
           doc.MathematicalProgramResult.get_optimal_cost.doc)
       .def("get_solver_id", &MathematicalProgramResult::get_solver_id,
@@ -941,7 +946,7 @@ void BindMathematicalProgram(py::module m) {
             return self->AddConstraint(formulas);
           },
           py::arg("formulas"),
-          doc.MathematicalProgram.AddConstraint.doc_matrix_formula)
+          doc.MathematicalProgram.AddConstraint.doc_1args_constEigenDenseBase)
       .def("AddLinearConstraint",
           static_cast<Binding<LinearConstraint> (MathematicalProgram::*)(
               const Eigen::Ref<const Eigen::MatrixXd>&,
@@ -976,8 +981,7 @@ void BindMathematicalProgram(py::module m) {
             return self->AddLinearConstraint(formulas.array());
           },
           py::arg("formulas"),
-          doc.MathematicalProgram.AddLinearConstraint
-              .doc_1args_constEigenArrayBase)
+          doc.MathematicalProgram.AddLinearConstraint.doc_1args_formulas)
       .def("AddLinearEqualityConstraint",
           static_cast<Binding<LinearEqualityConstraint> (
               MathematicalProgram::*)(const Eigen::Ref<const Eigen::MatrixXd>&,
@@ -1097,6 +1101,18 @@ void BindMathematicalProgram(py::module m) {
           py::arg("A"), py::arg("b"), py::arg("vars"),
           doc.MathematicalProgram.AddRotatedLorentzConeConstraint
               .doc_3args_A_b_vars)
+      .def(
+          "AddQuadraticAsRotatedLorentzConeConstraint",
+          [](MathematicalProgram* self,
+              const Eigen::Ref<const Eigen::MatrixXd>& Q,
+              const Eigen::Ref<const Eigen::VectorXd>& b, double c,
+              const Eigen::Ref<const VectorXDecisionVariable>& vars) {
+            return self->AddQuadraticAsRotatedLorentzConeConstraint(
+                Q, b, c, vars);
+          },
+          py::arg("Q"), py::arg("b"), py::arg("c"), py::arg("vars"),
+          doc.MathematicalProgram.AddQuadraticAsRotatedLorentzConeConstraint
+              .doc)
       .def("AddLinearComplementarityConstraint",
           static_cast<Binding<LinearComplementarityConstraint> (
               MathematicalProgram::*)(const Eigen::Ref<const Eigen::MatrixXd>&,
@@ -1254,30 +1270,21 @@ void BindMathematicalProgram(py::module m) {
             prog.SetInitialGuessForAllVariables(x0);
           },
           doc.MathematicalProgram.SetInitialGuessForAllVariables.doc)
-      .def(
-          "SetDecisionVariableValueInVector",
-          [](const MathematicalProgram& prog,
-              const symbolic::Variable& decision_variable,
-              double decision_variable_new_value,
-              Eigen::Ref<Eigen::VectorXd> values) {
-            prog.SetDecisionVariableValueInVector(
-                decision_variable, decision_variable_new_value, &values);
-          },
+      .def("SetDecisionVariableValueInVector",
+          py::overload_cast<const symbolic::Variable&, double,
+              EigenPtr<Eigen::VectorXd>>(
+              &MathematicalProgram::SetDecisionVariableValueInVector,
+              py::const_),
           py::arg("decision_variable"), py::arg("decision_variable_new_value"),
           py::arg("values"),
           doc.MathematicalProgram.SetDecisionVariableValueInVector
               .doc_3args_decision_variable_decision_variable_new_value_values)
-      .def(
-          "SetDecisionVariableValueInVector",
-          [](const MathematicalProgram& prog,
-              const Eigen::Ref<const MatrixXDecisionVariable>&
-                  decision_variables,
-              const Eigen::Ref<const Eigen::MatrixXd>&
-                  decision_variables_new_values,
-              Eigen::Ref<Eigen::VectorXd> values) {
-            prog.SetDecisionVariableValueInVector(
-                decision_variables, decision_variables_new_values, &values);
-          },
+      .def("SetDecisionVariableValueInVector",
+          py::overload_cast<const Eigen::Ref<const MatrixXDecisionVariable>&,
+              const Eigen::Ref<const Eigen::MatrixXd>&,
+              EigenPtr<Eigen::VectorXd>>(
+              &MathematicalProgram::SetDecisionVariableValueInVector,
+              py::const_),
           py::arg("decision_variables"),
           py::arg("decision_variables_new_values"), py::arg("values"),
           doc.MathematicalProgram.SetDecisionVariableValueInVector
@@ -1400,7 +1407,7 @@ void BindMathematicalProgram(py::module m) {
             return Y;
           },
           py::arg("binding"), py::arg("prog_var_vals"),
-          R"""(A "vectorized" version of EvalBinding.  It evaluates the binding 
+          R"""(A "vectorized" version of EvalBinding.  It evaluates the binding
 for every column of ``prog_var_vals``. )""")
       .def(
           "EvalBinding",
@@ -1549,7 +1556,9 @@ for every column of ``prog_var_vals``. )""")
               .doc_deprecated);
 #pragma GCC diagnostic pop
 
-  py::enum_<SolutionResult>(m, "SolutionResult", doc.SolutionResult.doc)
+  py::enum_<SolutionResult> solution_result_enum(
+      m, "SolutionResult", doc.SolutionResult.doc);
+  solution_result_enum
       .value("kSolutionFound", SolutionResult::kSolutionFound,
           doc.SolutionResult.kSolutionFound.doc)
       .value("kInvalidInput", SolutionResult::kInvalidInput,
@@ -1560,13 +1569,26 @@ for every column of ``prog_var_vals``. )""")
           doc.SolutionResult.kUnbounded.doc)
       .value("kUnknownError", SolutionResult::kUnknownError,
           doc.SolutionResult.kUnknownError.doc)
-      .value("kInfeasible_Or_Unbounded",
-          SolutionResult::kInfeasible_Or_Unbounded,
-          doc.SolutionResult.kInfeasible_Or_Unbounded.doc)
+      .value("kInfeasibleOrUnbounded", SolutionResult::kInfeasibleOrUnbounded,
+          doc.SolutionResult.kInfeasibleOrUnbounded.doc)
       .value("kIterationLimit", SolutionResult::kIterationLimit,
           doc.SolutionResult.kIterationLimit.doc)
       .value("kDualInfeasible", SolutionResult::kDualInfeasible,
           doc.SolutionResult.kDualInfeasible.doc);
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+  constexpr char deprecation[] =
+      "Deprecated:\n kInfeasible_Or_Unbounded is deprecated. Please use "
+      "kInfeasibleOrUnbounded instead. This will be removed on or "
+      "after 2022-07-01.";
+  solution_result_enum.def_property_static(
+      "kInfeasible_Or_Unbounded",
+      [deprecation](py::handle /* cls */) {
+        WarnDeprecated(deprecation);
+        return SolutionResult::kInfeasible_Or_Unbounded;
+      },
+      nullptr, deprecation);
+#pragma GCC diagnostic pop
 }  // NOLINT(readability/fn_size)
 
 void BindEvaluatorsAndBindings(py::module m) {
@@ -1656,18 +1678,30 @@ void BindEvaluatorsAndBindings(py::module m) {
       .def("UpdateUpperBound", &PyFunctionConstraint::UpdateUpperBound,
           py::arg("new_ub"), "Update the upper bound of the constraint.")
       .def("set_bounds", &PyFunctionConstraint::set_bounds,
+          // TODO(hongkai.dai): use new_lb and new_ub as kwargs.
           py::arg("lower_bound"), py::arg("upper_bound"),
           "Set both the lower and upper bounds of the constraint.");
 
-  py::class_<LinearConstraint, Constraint, std::shared_ptr<LinearConstraint>>(
-      m, "LinearConstraint", doc.LinearConstraint.doc)
+  py::class_<LinearConstraint, Constraint, std::shared_ptr<LinearConstraint>>
+      linear_constraint_cls(m, "LinearConstraint", doc.LinearConstraint.doc);
+  linear_constraint_cls
       .def(py::init([](const Eigen::MatrixXd& A, const Eigen::VectorXd& lb,
                         const Eigen::VectorXd& ub) {
         return std::make_unique<LinearConstraint>(A, lb, ub);
       }),
           py::arg("A"), py::arg("lb"), py::arg("ub"),
-          doc.LinearConstraint.ctor.doc)
-      .def("A", &LinearConstraint::A, doc.LinearConstraint.A.doc)
+          doc.LinearConstraint.ctor.doc_dense_A)
+      .def(py::init([](const Eigen::SparseMatrix<double>& A,
+                        const Eigen::Ref<const Eigen::VectorXd>& lb,
+                        const Eigen::Ref<const Eigen::VectorXd>& ub) {
+        return std::make_unique<LinearConstraint>(A, lb, ub);
+      }),
+          py::arg("A"), py::arg("lb"), py::arg("ub"),
+          doc.LinearConstraint.ctor.doc_sparse_A)
+      .def("GetDenseA", &LinearConstraint::GetDenseA,
+          doc.LinearConstraint.GetDenseA.doc)
+      .def("get_sparse_A", &LinearConstraint::get_sparse_A,
+          doc.LinearConstraint.get_sparse_A.doc)
       .def(
           "UpdateCoefficients",
           [](LinearConstraint& self, const Eigen::MatrixXd& new_A,
@@ -1675,7 +1709,15 @@ void BindEvaluatorsAndBindings(py::module m) {
             self.UpdateCoefficients(new_A, new_lb, new_ub);
           },
           py::arg("new_A"), py::arg("new_lb"), py::arg("new_ub"),
-          doc.LinearConstraint.UpdateCoefficients.doc)
+          doc.LinearConstraint.UpdateCoefficients.doc_dense_A)
+      .def(
+          "UpdateCoefficients",
+          [](LinearConstraint& self, const Eigen::SparseMatrix<double>& new_A,
+              const Eigen::VectorXd& new_lb, const Eigen::VectorXd& new_ub) {
+            self.UpdateCoefficients(new_A, new_lb, new_ub);
+          },
+          py::arg("new_A"), py::arg("new_lb"), py::arg("new_ub"),
+          doc.LinearConstraint.UpdateCoefficients.doc_sparse_A)
       .def(
           "UpdateLowerBound",
           [](LinearConstraint& self, const Eigen::VectorXd& new_lb) {
@@ -1695,6 +1737,14 @@ void BindEvaluatorsAndBindings(py::module m) {
             self.set_bounds(new_lb, new_ub);
           },
           py::arg("new_lb"), py::arg("new_ub"), doc.Constraint.set_bounds.doc);
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+  linear_constraint_cls.def("A",
+      WrapDeprecated(
+          doc.LinearConstraint.A.doc_deprecated, &LinearConstraint::A),
+      doc.LinearConstraint.A.doc_deprecated);
+#pragma GCC diagnostic pop
 
   py::class_<LorentzConeConstraint, Constraint,
       std::shared_ptr<LorentzConeConstraint>>
@@ -1749,13 +1799,18 @@ void BindEvaluatorsAndBindings(py::module m) {
         return std::make_unique<LinearEqualityConstraint>(Aeq, beq);
       }),
           py::arg("Aeq"), py::arg("beq"),
-          doc.LinearEqualityConstraint.ctor
-              .doc_2args_constEigenMatrixBase_constEigenMatrixBase)
+          doc.LinearEqualityConstraint.ctor.doc_dense_Aeq)
+      .def(py::init([](const Eigen::SparseMatrix<double>& Aeq,
+                        const Eigen::VectorXd& beq) {
+        return std::make_unique<LinearEqualityConstraint>(Aeq, beq);
+      }),
+          py::arg("Aeq"), py::arg("beq"),
+          doc.LinearEqualityConstraint.ctor.doc_sparse_Aeq)
       .def(py::init([](const Eigen::RowVectorXd& a, double beq) {
         return std::make_unique<LinearEqualityConstraint>(a, beq);
       }),
           py::arg("a"), py::arg("beq"),
-          doc.LinearEqualityConstraint.ctor.doc_2args_a_beq)
+          doc.LinearEqualityConstraint.ctor.doc_row_a)
       .def(
           "UpdateCoefficients",
           [](LinearEqualityConstraint& self,  // BR
@@ -1941,6 +1996,26 @@ void BindEvaluatorsAndBindings(py::module m) {
           py::arg("new_A"), py::arg("new_b") = 0,
           doc.LInfNormCost.UpdateCoefficients.doc);
 
+  py::class_<PerspectiveQuadraticCost, Cost,
+      std::shared_ptr<PerspectiveQuadraticCost>>(
+      m, "PerspectiveQuadraticCost", doc.PerspectiveQuadraticCost.doc)
+      .def(py::init([](const Eigen::MatrixXd& A, const Eigen::VectorXd& b) {
+        return std::make_unique<PerspectiveQuadraticCost>(A, b);
+      }),
+          py::arg("A"), py::arg("b"), doc.PerspectiveQuadraticCost.ctor.doc)
+      .def(
+          "A", &PerspectiveQuadraticCost::A, doc.PerspectiveQuadraticCost.A.doc)
+      .def(
+          "b", &PerspectiveQuadraticCost::b, doc.PerspectiveQuadraticCost.b.doc)
+      .def(
+          "UpdateCoefficients",
+          [](PerspectiveQuadraticCost& self, const Eigen::MatrixXd& new_A,
+              const Eigen::VectorXd& new_b) {
+            self.UpdateCoefficients(new_A, new_b);
+          },
+          py::arg("new_A"), py::arg("new_b"),
+          doc.PerspectiveQuadraticCost.UpdateCoefficients.doc);
+
   auto cost_binding = RegisterBinding<Cost>(&m);
   DefBindingCastConstructor<Cost>(&cost_binding);
   RegisterBinding<LinearCost>(&m);
@@ -1948,6 +2023,7 @@ void BindEvaluatorsAndBindings(py::module m) {
   RegisterBinding<L1NormCost>(&m);
   RegisterBinding<L2NormCost>(&m);
   RegisterBinding<LInfNormCost>(&m);
+  RegisterBinding<PerspectiveQuadraticCost>(&m);
 
   py::class_<VisualizationCallback, EvaluatorBase,
       std::shared_ptr<VisualizationCallback>>(

@@ -198,20 +198,20 @@ GTEST_TEST(MultipleShootingTest, DeprecatedPlaceholderVariableTest) {
   const solvers::VectorXDecisionVariable& u = prog.input();
   const solvers::VectorXDecisionVariable& x = prog.state();
 
-  EXPECT_THROW(prog.AddCost(t(0)), std::runtime_error);
-  EXPECT_THROW(prog.AddLinearCost(Vector1d(1.0), 0.0, u), std::runtime_error);
+  EXPECT_THROW(prog.AddCost(t(0)), std::exception);
+  EXPECT_THROW(prog.AddLinearCost(Vector1d(1.0), 0.0, u), std::exception);
   EXPECT_THROW(prog.AddQuadraticErrorCost(Eigen::Matrix2d::Identity(),
                                           Eigen::Vector2d::Zero(), x),
-               std::runtime_error);
+               std::exception);
 
-  EXPECT_THROW(prog.AddLinearConstraint(t(0) <= 1.0), std::runtime_error);
+  EXPECT_THROW(prog.AddLinearConstraint(t(0) <= 1.0), std::exception);
   EXPECT_THROW(prog.AddLinearConstraint(u <= Vector1d(1.0)),
-               std::runtime_error);
+               std::exception);
 
   EXPECT_THROW(prog.AddLinearConstraint(Eigen::Matrix2d::Identity(),
                                         Eigen::Vector2d::Zero(),
                                         Eigen::Vector2d::Zero(), x),
-               std::runtime_error);
+               std::exception);
 
   solvers::MathematicalProgramResult result;
   // Arbitrarily set the decision variable values to 0.
@@ -732,20 +732,20 @@ GTEST_TEST(MultipleShootingTest, PlaceholderVariableTest) {
   const solvers::VectorXDecisionVariable& u = trajopt.input();
   const solvers::VectorXDecisionVariable& x = trajopt.state();
 
-  EXPECT_THROW(prog.AddCost(t(0)), std::runtime_error);
-  EXPECT_THROW(prog.AddLinearCost(Vector1d(1.0), 0.0, u), std::runtime_error);
+  EXPECT_THROW(prog.AddCost(t(0)), std::exception);
+  EXPECT_THROW(prog.AddLinearCost(Vector1d(1.0), 0.0, u), std::exception);
   EXPECT_THROW(prog.AddQuadraticErrorCost(Eigen::Matrix2d::Identity(),
                                           Eigen::Vector2d::Zero(), x),
-               std::runtime_error);
+               std::exception);
 
-  EXPECT_THROW(prog.AddLinearConstraint(t(0) <= 1.0), std::runtime_error);
+  EXPECT_THROW(prog.AddLinearConstraint(t(0) <= 1.0), std::exception);
   EXPECT_THROW(prog.AddLinearConstraint(u <= Vector1d(1.0)),
-               std::runtime_error);
+               std::exception);
 
   EXPECT_THROW(prog.AddLinearConstraint(Eigen::Matrix2d::Identity(),
                                         Eigen::Vector2d::Zero(),
                                         Eigen::Vector2d::Zero(), x),
-               std::runtime_error);
+               std::exception);
 
   solvers::MathematicalProgramResult result;
   // Arbitrarily set the decision variable values to 0.
@@ -881,6 +881,21 @@ GTEST_TEST(MultipleShootingTest, ConstraintAllKnotsTest) {
   // u(2) = h(0)+h(1).
   EXPECT_NEAR(result.GetSolution(trajopt.input(2).coeff(0)),
               result.GetSolution(trajopt.h_vars()).sum(), 1e-6);
+
+  // Add the same constraint again using the shared_ptr variant.
+  std::vector<solvers::Binding<solvers::BoundingBoxConstraint>> c =
+      trajopt.AddConstraintToAllKnotPoints(
+          std::make_shared<solvers::BoundingBoxConstraint>(state_value,
+                                                           state_value),
+          trajopt.state());
+  EXPECT_EQ(c.size(), kNumSampleTimes);
+
+  // Add the same constraint again using the vector of formulas variant.
+  std::vector<solvers::Binding<solvers::Constraint>> c2 =
+      trajopt.AddConstraintToAllKnotPoints(
+          Vector2<symbolic::Formula>{trajopt.state()[0] == state_value[0],
+                                     trajopt.state()[1] == state_value[1]});
+  EXPECT_EQ(c2.size(), 2*kNumSampleTimes);
 }
 
 GTEST_TEST(MultipleShootingTest, FinalCostTest) {

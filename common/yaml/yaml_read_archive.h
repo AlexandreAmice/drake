@@ -22,17 +22,8 @@
 #include "drake/common/name_value.h"
 #include "drake/common/nice_type_name.h"
 #include "drake/common/unused.h"
+#include "drake/common/yaml/yaml_io_options.h"
 #include "drake/common/yaml/yaml_node.h"
-
-#ifndef DRAKE_DOXYGEN_CXX
-// Forward-declaration from "yaml-cpp/yaml.h".
-// TODO(jwnimmer-tri) Remove these on 2022-03-01 when the deprecated YAML::Node
-// functions in this file are also removed.
-namespace YAML {
-class Node;
-template <typename T> struct convert;
-}  // namespace YAML
-#endif
 
 namespace drake {
 namespace yaml {
@@ -43,43 +34,12 @@ class YamlReadArchive final {
  public:
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(YamlReadArchive)
 
-  /// Configuration for YamlReadArchive to govern when certain conditions are
-  /// errors or not.  Refer to the member fields for details.
-  struct Options {
-    friend std::ostream& operator<<(std::ostream& os, const Options& x);
-
-    /// Allows yaml Maps to have extra key-value pairs that are not Visited by
-    /// the Serializable being parsed into.  In other words, the Serializable
-    /// types provide an incomplete schema for the YAML data.  This allows for
-    /// parsing only a subset of the YAML data.
-    bool allow_yaml_with_no_cpp{false};
-
-    /// Allows Serializables to provide more key-value pairs than are present
-    /// in the YAML data.  In other words, the structs have default values that
-    /// are left intact unless the YAML data provides a value.
-    bool allow_cpp_with_no_yaml{false};
-
-    /// If set to true, when parsing a std::map the Archive will merge the YAML
-    /// data into the destination, instead of replacing the std::map contents
-    /// entirely.  In other words, a visited std::map can have default values
-    /// that are left intact unless the YAML data provides a value *for that
-    /// specific key*.
-    bool retain_map_defaults{false};
-  };
-
-  /// (Deprecated) Creates an archive that reads from @p root.
-  /// Prefer to use the functions in yaml_io.h, instead.
-  DRAKE_DEPRECATED("2022-03-01", "Use LoadYamlFile or LoadYamlString instead.")
-  explicit YamlReadArchive(const YAML::Node& root);
-
-  /// (Deprecated) Creates an archive that reads from @p root,
-  /// with @p options that allow for less restrictive parsing.
-  /// Prefer to use the functions in yaml_io.h, instead.
-  DRAKE_DEPRECATED("2022-03-01", "Use LoadYamlFile or LoadYamlString instead.")
-  YamlReadArchive(const YAML::Node& root, const Options& options);
+  /// (To be marked deprecated as of 2022-05-01)
+  /// Compatibility alias; do not use.
+  using Options = LoadYamlOptions;
 
   /// (Internal use only.)
-  YamlReadArchive(internal::Node root, const Options& options);
+  YamlReadArchive(internal::Node root, const LoadYamlOptions& options);
 
   /// (Internal use only.)
   static internal::Node LoadFileAsNode(
@@ -530,25 +490,8 @@ class YamlReadArchive final {
   void ParseScalar(const std::string& value, uint64_t* result);
   void ParseScalar(const std::string& value, std::string* result);
 
-  // We use DeprecatedYamlNode here to allow YAML::Node to be forward-declared
-  // in the typical case where this function is not called by any users' code.
-  // If we mentioned YAML::Node in the function body directly (i.e., without
-  // the template argument indirection), then the header file would fail to
-  // compile when using Clang 9.
-  template <typename T, typename DeprecatedYamlNode = YAML::Node>
-  DRAKE_DEPRECATED("2022-03-01",
-      "YAML loading only supports scalars of specific primitive types. "
-      "Please file a Drake issue if you need any additional types.")
-  void ParseScalar(const std::string& value, T* result) {
-    DRAKE_DEMAND(result != nullptr);
-    // For the decode-able types, see /usr/include/yaml-cpp/node/convert.h.
-    // Generally, all of the POD types are supported.
-    bool success = YAML::convert<T>::decode(DeprecatedYamlNode(value), *result);
-    if (!success) {
-      ReportError(fmt::format(
-          "could not parse {} value", drake::NiceTypeName::Get<T>()));
-    }
-  }
+  template <typename T>
+  void ParseScalarImpl(const std::string& value, T* result);
 
   // --------------------------------------------------------------------------
   // @name Helpers, utilities, and member variables.
@@ -606,7 +549,7 @@ class YamlReadArchive final {
 
   // When the C++ structure and YAML structure disagree, these options govern
   // which mismatches are permitted without an error.
-  const Options options_;
+  const LoadYamlOptions options_;
 
   // The set of NameValue::name keys that have been Visited by the current
   // Serializable's Accept method so far.

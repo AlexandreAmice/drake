@@ -22,6 +22,7 @@ import unittest
 import warnings
 
 import numpy as np
+import scipy.sparse
 
 import pydrake
 from pydrake.common import kDrakeAssertIsArmed
@@ -86,6 +87,16 @@ class TestCost(unittest.TestCase):
         A = np.array([[1., 2.], [-.4, .7]])
         b = np.array([0.5, -.4])
         cost = mp.LInfNormCost(A=A, b=b)
+        np.testing.assert_allclose(cost.A(), A)
+        np.testing.assert_allclose(cost.b(), b)
+        cost.UpdateCoefficients(new_A=2*A, new_b=2*b)
+        np.testing.assert_allclose(cost.A(), 2*A)
+        np.testing.assert_allclose(cost.b(), 2*b)
+
+    def test_perspective_quadratic_cost(self):
+        A = np.array([[1., 2.], [-.4, .7]])
+        b = np.array([0.5, -.4])
+        cost = mp.PerspectiveQuadraticCost(A=A, b=b)
         np.testing.assert_allclose(cost.A(), A)
         np.testing.assert_allclose(cost.b(), b)
         cost.UpdateCoefficients(new_A=2*A, new_b=2*b)
@@ -208,6 +219,16 @@ class TestMathematicalProgram(unittest.TestCase):
         result.set_x_val(x_val_new)
         np.testing.assert_array_equal(x_val_new, result.get_x_val())
 
+    def test_solution_result_deprecation(self):
+        # Remove after 2022-07-01.
+        result = MathematicalProgramResult()
+        with catch_drake_warnings(expected_count=1):
+            result.set_solution_result(
+                mp.SolutionResult.kInfeasible_Or_Unbounded)
+        self.assertEqual(
+            result.get_solution_result(),
+            mp.SolutionResult.kInfeasibleOrUnbounded)
+
     def test_str(self):
         qp = TestQP()
         s = str(qp.prog)
@@ -318,11 +339,11 @@ class TestMathematicalProgram(unittest.TestCase):
             self.assertIsNone(constraint.gradient_sparsity_pattern())
             num_constraints = constraint.num_constraints()
             if num_constraints == 1:
-                self.assertEqual(constraint.A(), 1)
+                self.assertEqual(constraint.GetDenseA(), 1)
                 self.assertEqual(constraint.lower_bound(), 1)
                 self.assertEqual(constraint.upper_bound(), np.inf)
             else:
-                self.assertTrue(np.allclose(constraint.A(), np.eye(2)))
+                self.assertTrue(np.allclose(constraint.GetDenseA(), np.eye(2)))
                 self.assertTrue(np.allclose(constraint.lower_bound(),
                                             [1, -np.inf]))
                 self.assertTrue(np.allclose(constraint.upper_bound(),
@@ -338,7 +359,9 @@ class TestMathematicalProgram(unittest.TestCase):
             self.assertEqual(
                 prog.FindDecisionVariableIndex(var=binding.variables()[1]),
                 prog.FindDecisionVariableIndex(var=x[1]))
-            self.assertTrue(np.allclose(constraint.A(), [3, -1]))
+            self.assertTrue(np.allclose(constraint.GetDenseA(), [3, -1]))
+            with catch_drake_warnings(expected_count=1):
+                self.assertTrue(np.allclose(constraint.A(), [3, -1]))
             self.assertTrue(constraint.lower_bound(), -2)
             self.assertTrue(constraint.upper_bound(), np.inf)
 
@@ -352,7 +375,7 @@ class TestMathematicalProgram(unittest.TestCase):
             self.assertEqual(
                 prog.FindDecisionVariableIndex(var=binding.variables()[1]),
                 prog.FindDecisionVariableIndex(var=x[1]))
-            self.assertTrue(np.allclose(constraint.A(), [1, 2]))
+            self.assertTrue(np.allclose(constraint.GetDenseA(), [1, 2]))
             self.assertTrue(constraint.lower_bound(), 3)
             self.assertTrue(constraint.upper_bound(), 3)
 
@@ -379,7 +402,7 @@ class TestMathematicalProgram(unittest.TestCase):
         self.assertEqual(ce.get_description(), "my favorite constraint")
 
         def check_bounds(c, A, lb, ub):
-            self.assertTrue(np.allclose(c.A(), A))
+            self.assertTrue(np.allclose(c.GetDenseA(), A))
             self.assertTrue(np.allclose(c.lower_bound(), lb))
             self.assertTrue(np.allclose(c.upper_bound(), ub))
 
@@ -526,17 +549,50 @@ class TestMathematicalProgram(unittest.TestCase):
         # Just check spelling.
         y = prog.NewIndeterminates(2, 2, "y")
 
+    def test_linear_constraint(self):
+        A = np.array([[1, 3, 4], [2., 4., 5]])
+        lb = np.array([1, 2.])
+        ub = np.array([3., 4.])
+        # Constructor with dense A.
+        dut = mp.LinearConstraint(A=A, lb=lb, ub=ub)
+        self.assertEqual(dut.num_constraints(), 2)
+        self.assertEqual(dut.num_vars(), 3)
+        np.testing.assert_array_equal(dut.get_sparse_A().todense(), A)
+
+        A_sparse = scipy.sparse.csc_matrix(
+            (np.array([2, 1., 3]), np.array([0, 1, 0]),
+             np.array([0, 2, 2, 3])), shape=(2, 3))
+        dut = mp.LinearConstraint(
+            A=A_sparse, lb=np.array([1., 2.]), ub=np.array([2., 3.]))
+        self.assertEqual(dut.num_constraints(), 2)
+        self.assertEqual(dut.num_vars(), 3)
+        self.assertEqual(dut.get_sparse_A().nnz, 3)
+
+        dut.UpdateCoefficients(
+            new_A=A_sparse, new_lb=np.array([2, 3.]),
+            new_ub=np.array([3., 4.]))
+        np.testing.assert_array_equal(
+            dut.get_sparse_A().todense(), A_sparse.todense())
+
     def test_linear_equality_constraint(self):
         Aeq = np.array([[2, 3.], [1., 2.], [3, 4]])
         beq = np.array([1., 2., 3.])
         constraint = mp.LinearEqualityConstraint(Aeq=Aeq, beq=beq)
-        np.testing.assert_array_equal(constraint.A(), Aeq)
+        np.testing.assert_array_equal(constraint.GetDenseA(), Aeq)
         np.testing.assert_array_equal(constraint.upper_bound(), beq)
 
         constraint = mp.LinearEqualityConstraint(
             a=np.array([1., 2., 3.]), beq=1)
-        np.testing.assert_array_equal(constraint.A(), np.array([[1., 2., 3.]]))
+        np.testing.assert_array_equal(
+            constraint.GetDenseA(), np.array([[1., 2., 3.]]))
         np.testing.assert_array_equal(constraint.upper_bound(), np.array([1.]))
+
+        A_sparse = scipy.sparse.csc_matrix(
+            (np.array([2, 1., 3]), np.array([0, 1, 0]),
+             np.array([0, 2, 2, 3])), shape=(2, 3))
+        dut = mp.LinearEqualityConstraint(Aeq=A_sparse, beq=np.array([1, 2.]))
+        np.testing.assert_array_equal(
+            dut.get_sparse_A().todense(), A_sparse.todense())
 
     def test_bounding_box_constraint(self):
         constraint = mp.BoundingBoxConstraint(
@@ -1251,6 +1307,16 @@ class TestMathematicalProgram(unittest.TestCase):
         constraint = prog.AddRotatedLorentzConeConstraint(
             linear_expression1=x[0]+1, linear_expression2=x[0]+x[1],
             quadratic_expression=x[0]*x[0] + 2*x[0] + x[1]*x[1] + 5)
+
+    def test_add_quadratic_as_rotated_lorentz_cone_constraint(self):
+        prog = mp.MathematicalProgram()
+        x = prog.NewContinuousVariables(2)
+        dut = prog.AddQuadraticAsRotatedLorentzConeConstraint(
+            Q=np.array([[1, 2.], [2., 10.]]),
+            b=np.array([1., 3.]),
+            c=0.5,
+            vars=x)
+        self.assertIsInstance(dut.evaluator(), mp.RotatedLorentzConeConstraint)
 
     def test_add_linear_matrix_inequality_constraint(self):
         prog = mp.MathematicalProgram()

@@ -34,6 +34,7 @@ drake_cc_package_library(
         ":point_pair_contact_info",
         ":propeller",
         ":tamsi_solver",
+        ":wing",
     ],
 )
 
@@ -43,7 +44,10 @@ drake_cc_library(
     hdrs = ["compliant_contact_manager.h"],
     deps = [
         ":multibody_plant_core",
-        "//multibody/contact_solvers:contact_solver",
+        "//multibody/contact_solvers:contact_solver_utils",
+        "//multibody/contact_solvers/sap:sap_contact_problem",
+        "//multibody/contact_solvers/sap:sap_friction_cone_constraint",
+        "//multibody/contact_solvers/sap:sap_solver",
         "//multibody/triangle_quadrature",
     ],
 )
@@ -65,6 +69,8 @@ drake_cc_library(
     deps = [
         "//common:default_scalars",
         "//common:extract_double",
+        "//math:gradient",
+        "//math:linear_solve",
     ],
 )
 
@@ -327,6 +333,15 @@ drake_cc_library(
 )
 
 drake_cc_library(
+    name = "wing",
+    srcs = ["wing.cc"],
+    hdrs = ["wing.h"],
+    deps = [
+        ":multibody_plant_core",
+    ],
+)
+
+drake_cc_library(
     name = "multibody_plant_config",
     srcs = ["multibody_plant_config.cc"],
     hdrs = ["multibody_plant_config.h"],
@@ -352,7 +367,6 @@ drake_cc_googletest(
         ":compliant_contact_manager",
         "//common/test_utilities:eigen_matrix_compare",
         "//common/test_utilities:expect_throws_message",
-        "//multibody/contact_solvers:pgs_solver",
         "//systems/primitives:pass_through",
         "//systems/primitives:zero_order_hold",
     ],
@@ -510,11 +524,15 @@ drake_cc_library(
 
 drake_cc_googletest(
     name = "multibody_plant_forward_dynamics_test",
-    data = ["//examples/atlas:models"],
+    data = [
+        "//examples/atlas:models",
+        "//examples/multibody/cart_pole:models",
+    ],
     deps = [
         ":kuka_iiwa_model_tests",
         ":plant",
         "//common/test_utilities:eigen_matrix_compare",
+        "//systems/primitives:linear_system",
     ],
 )
 
@@ -726,6 +744,13 @@ drake_cc_googletest(
 )
 
 drake_cc_googletest(
+    name = "joint_locking_test",
+    deps = [
+        ":plant",
+    ],
+)
+
+drake_cc_googletest(
     name = "spring_mass_system_test",
     timeout = "moderate",
     deps = [
@@ -787,6 +812,18 @@ drake_cc_googletest(
         ":propeller",
         "//common/test_utilities:eigen_matrix_compare",
         "//common/test_utilities:expect_throws_message",
+        "//systems/framework",
+    ],
+)
+
+drake_cc_googletest(
+    name = "wing_test",
+    data = ["//multibody:models"],
+    deps = [
+        ":wing",
+        "//common/test_utilities:eigen_matrix_compare",
+        "//common/test_utilities:expect_throws_message",
+        "//multibody/parsing",
         "//systems/framework",
     ],
 )

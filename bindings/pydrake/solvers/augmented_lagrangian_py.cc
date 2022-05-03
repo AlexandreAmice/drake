@@ -20,50 +20,95 @@ PYBIND11_MODULE(augmented_lagrangian, m) {
   py::module::import("pydrake.solvers.mathematicalprogram");
   py::module::import("pydrake.autodiffutils");
 
-  py::class_<NonsmoothAugmentedLagrangian>(
-      m, "NonsmoothAugmentedLagrangian", doc.NonsmoothAugmentedLagrangian.doc)
-      .def(py::init<const MathematicalProgram*, bool>(), py::arg("prog"),
-          py::arg("include_x_bounds"),
-          doc.NonsmoothAugmentedLagrangian.ctor.doc)
-      .def(
-          "Eval",
-          [](const NonsmoothAugmentedLagrangian* self,
-              const Eigen::Ref<const Eigen::VectorXd>& x,
-              const Eigen::VectorXd& lambda_val, double mu) {
-            Eigen::VectorXd constraint_residue;
-            double cost;
-            const double al_val = self->Eval<double>(
-                x, lambda_val, mu, &constraint_residue, &cost);
-            return std::make_tuple(al_val, constraint_residue, cost);
-          },
-          py::arg("x"), py::arg("lambda_val"), py::arg("mu"),
-          doc.NonsmoothAugmentedLagrangian.Eval.doc)
-      .def(
-          "Eval",
-          [](const NonsmoothAugmentedLagrangian* self,
-              const Eigen::Ref<const VectorX<AutoDiffXd>>& x,
-              const Eigen::VectorXd& lambda_val, double mu) {
-            VectorX<AutoDiffXd> constraint_residue;
-            AutoDiffXd cost;
-            const AutoDiffXd al_val = self->Eval<AutoDiffXd>(
-                x, lambda_val, mu, &constraint_residue, &cost);
-            return std::make_tuple(al_val, constraint_residue, cost);
-          },
-          py::arg("x"), py::arg("lambda_val"), py::arg("mu"),
-          doc.NonsmoothAugmentedLagrangian.Eval.doc)
-      .def("prog", &NonsmoothAugmentedLagrangian::prog, py_rvp::reference,
-          doc.NonsmoothAugmentedLagrangian.prog.doc)
-      .def("include_x_bounds", &NonsmoothAugmentedLagrangian::include_x_bounds,
-          doc.NonsmoothAugmentedLagrangian.include_x_bounds.doc)
-      .def("lagrangian_size", &NonsmoothAugmentedLagrangian::lagrangian_size,
-          doc.NonsmoothAugmentedLagrangian.lagrangian_size.doc)
-      .def("is_equality", &NonsmoothAugmentedLagrangian::is_equality,
-          doc.NonsmoothAugmentedLagrangian.is_equality.doc)
-      .def("x_lo", &NonsmoothAugmentedLagrangian::x_lo,
-          py_rvp::reference_internal, doc.NonsmoothAugmentedLagrangian.x_lo.doc)
-      .def("x_up", &NonsmoothAugmentedLagrangian::x_up,
-          py_rvp::reference_internal,
-          doc.NonsmoothAugmentedLagrangian.x_up.doc);
+  {
+    using Class = AugmentedLagrangianNonsmooth;
+    constexpr auto& cls_doc = doc.AugmentedLagrangianNonsmooth;
+    py::class_<AugmentedLagrangianNonsmooth>(
+        m, "AugmentedLagrangianNonsmooth", cls_doc.doc)
+        .def(py::init<const MathematicalProgram*, bool>(), py::arg("prog"),
+            py::arg("include_x_bounds"), cls_doc.ctor.doc)
+        .def(
+            "Eval",
+            [](const Class* self, const Eigen::Ref<const Eigen::VectorXd>& x,
+                const Eigen::VectorXd& lambda_val, double mu) {
+              Eigen::VectorXd constraint_residue;
+              double cost;
+              const double al_val = self->Eval<double>(
+                  x, lambda_val, mu, &constraint_residue, &cost);
+              return std::make_tuple(al_val, constraint_residue, cost);
+            },
+            py::arg("x"), py::arg("lambda_val"), py::arg("mu"),
+            cls_doc.Eval.doc)
+        .def(
+            "Eval",
+            [](const Class* self,
+                const Eigen::Ref<const VectorX<AutoDiffXd>>& x,
+                const Eigen::VectorXd& lambda_val, double mu) {
+              VectorX<AutoDiffXd> constraint_residue;
+              AutoDiffXd cost;
+              const AutoDiffXd al_val = self->Eval<AutoDiffXd>(
+                  x, lambda_val, mu, &constraint_residue, &cost);
+              return std::make_tuple(al_val, constraint_residue, cost);
+            },
+            py::arg("x"), py::arg("lambda_val"), py::arg("mu"),
+            cls_doc.Eval.doc)
+        .def("prog", &Class::prog, py_rvp::reference, cls_doc.prog.doc)
+        .def("include_x_bounds", &Class::include_x_bounds,
+            cls_doc.include_x_bounds.doc)
+        .def("lagrangian_size", &Class::lagrangian_size,
+            cls_doc.lagrangian_size.doc)
+        .def("is_equality", &Class::is_equality, cls_doc.is_equality.doc)
+        .def("x_lo", &Class::x_lo, py_rvp::reference_internal, cls_doc.x_lo.doc)
+        .def(
+            "x_up", &Class::x_up, py_rvp::reference_internal, cls_doc.x_up.doc);
+  }
+
+  {
+    using Class = AugmentedLagrangianSmooth;
+    constexpr auto& cls_doc = doc.AugmentedLagrangianSmooth;
+    py::class_<Class>(m, "AugmentedLagrangianSmooth", cls_doc.doc)
+        .def(py::init<const MathematicalProgram*, bool>(), py::arg("prog"),
+            py::arg("include_x_bounds"), cls_doc.ctor.doc)
+        .def(
+            "Eval",
+            [](const Class* self, const Eigen::Ref<const Eigen::VectorXd>& x,
+                const Eigen::Ref<const Eigen::VectorXd>& s,
+                const Eigen::VectorXd& lambda_val, double mu) {
+              Eigen::VectorXd constraint_residue;
+              double cost;
+              const double al_val = self->Eval<double>(
+                  x, s, lambda_val, mu, &constraint_residue, &cost);
+              return std::make_tuple(al_val, constraint_residue, cost);
+            },
+            py::arg("x"), py::arg("s"), py::arg("lambda_val"), py::arg("mu"),
+            cls_doc.Eval.doc)
+        .def(
+            "Eval",
+            [](const Class* self,
+                const Eigen::Ref<const VectorX<AutoDiffXd>>& x,
+                const Eigen::Ref<const VectorX<AutoDiffXd>>& s,
+                const Eigen::VectorXd& lambda_val, double mu) {
+              VectorX<AutoDiffXd> constraint_residue;
+              AutoDiffXd cost;
+              const AutoDiffXd al_val = self->Eval<AutoDiffXd>(
+                  x, s, lambda_val, mu, &constraint_residue, &cost);
+              return std::make_tuple(al_val, constraint_residue, cost);
+            },
+            py::arg("x"), py::arg("s"), py::arg("lambda_val"), py::arg("mu"),
+            cls_doc.Eval.doc)
+        .def("prog", &Class::prog, py_rvp::reference, cls_doc.prog.doc)
+        .def("include_x_bounds", &Class::include_x_bounds,
+            cls_doc.include_x_bounds.doc)
+        .def("s_size", &Class::s_size, cls_doc.s_size.doc)
+        .def("lagrangian_size", &Class::lagrangian_size,
+            cls_doc.lagrangian_size.doc)
+        .def("is_equality", &Class::is_equality, cls_doc.is_equality.doc)
+        .def("x_lo", &Class::x_lo, py_rvp::reference_internal, cls_doc.x_lo.doc)
+        .def(
+            "x_up", &Class::x_up, py_rvp::reference_internal, cls_doc.x_up.doc);
+  }
+  ExecuteExtraPythonCode(m);
 }
+
 }  // namespace pydrake
 }  // namespace drake

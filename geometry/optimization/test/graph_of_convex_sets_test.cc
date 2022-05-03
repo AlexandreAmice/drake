@@ -12,9 +12,11 @@
 #include "drake/geometry/optimization/point.h"
 #include "drake/geometry/optimization/vpolytope.h"
 #include "drake/solvers/choose_best_solver.h"
+#include "drake/solvers/clp_solver.h"
 #include "drake/solvers/gurobi_solver.h"
 #include "drake/solvers/ipopt_solver.h"
 #include "drake/solvers/mosek_solver.h"
+#include "drake/solvers/solver_options.h"
 
 namespace drake {
 namespace geometry {
@@ -33,6 +35,7 @@ using solvers::LinearCost;
 using solvers::LinearEqualityConstraint;
 using solvers::MathematicalProgramResult;
 using solvers::QuadraticCost;
+using solvers::SolverOptions;
 using symbolic::Environment;
 using symbolic::Expression;
 using symbolic::Substitution;
@@ -231,6 +234,11 @@ TEST_F(TwoPoints, AddCost) {
   auto linear = dynamic_cast<LinearCost*>(b1.evaluator().get());
   EXPECT_TRUE(linear != nullptr);
 
+  // Confirm that they are all accessible.
+  const auto& edge_costs = e_->GetCosts();
+  EXPECT_EQ(edge_costs[0], b0);
+  EXPECT_EQ(edge_costs[1], b1);
+
   MathematicalProgramResult result;
   std::unordered_map<symbolic::Variable::Id, int> map;
   map.emplace(ell0.get_id(), 0);
@@ -260,6 +268,11 @@ TEST_F(TwoPoints, AddConstraint) {
   EXPECT_TRUE(linear_equality != nullptr);
   auto linear = dynamic_cast<LinearConstraint*>(b1.evaluator().get());
   EXPECT_TRUE(linear != nullptr);
+
+  // Confirm that they are all accessible.
+  const auto& edge_constraints = e_->GetConstraints();
+  EXPECT_EQ(edge_constraints[0], b0);
+  EXPECT_EQ(edge_constraints[1], b1);
 
   symbolic::Variable other_var("x");
   DRAKE_EXPECT_THROWS_MESSAGE(e_->AddConstraint(other_var == 1),
@@ -323,11 +336,26 @@ TEST_F(ThreePoints, LinearCost1) {
   EXPECT_TRUE(
       CompareMatrices(e_off_->GetSolutionPhiXv(result), 0 * p_sink_.x(), 1e-6));
 
-  // Alternative signature.
+  // Alternative signatures.
   auto result2 = g_.SolveShortestPath(*source_, *target_, true);
   ASSERT_TRUE(result2.is_success());
   EXPECT_NEAR(e_on_->GetSolutionCost(result2), 1.0, 1e-6);
   EXPECT_NEAR(e_off_->GetSolutionCost(result2), 0.0, 1e-6);
+
+  if (solvers::ClpSolver::is_available()) {
+    solvers::ClpSolver solver;
+    auto result3 = g_.SolveShortestPath(*source_, *target_, true, &solver);
+    ASSERT_TRUE(result3.is_success());
+    EXPECT_NEAR(e_on_->GetSolutionCost(result3), 1.0, 1e-6);
+    EXPECT_NEAR(e_off_->GetSolutionCost(result3), 0.0, 1e-6);
+  }
+
+  SolverOptions options;
+  auto result4 =
+      g_.SolveShortestPath(*source_, *target_, true, nullptr, options);
+  ASSERT_TRUE(result4.is_success());
+  EXPECT_NEAR(e_on_->GetSolutionCost(result4), 1.0, 1e-6);
+  EXPECT_NEAR(e_off_->GetSolutionCost(result4), 0.0, 1e-6);
 }
 
 TEST_F(ThreePoints, ConvexRelaxation) {
@@ -369,17 +397,18 @@ TEST_F(ThreePoints, LinearCost3) {
   const Vector2d a{2.3, 4.5};
   const double b = 1.23;
   e_on_->AddCost(a.dot(e_on_->xu()) + b);
-  DRAKE_EXPECT_THROWS_MESSAGE(
-      g_.SolveShortestPath(*source_, *target_, true),
-      ".*costs cannot have linear terms.*");
+  e_off_->AddCost(a.dot(e_off_->xu()) + b);
+  auto result = g_.SolveShortestPath(*source_, *target_, true);
+  ASSERT_TRUE(result.is_success());
+  EXPECT_NEAR(e_on_->GetSolutionCost(result), a.dot(p_source_.x()) + b, 1e-6);
+  EXPECT_NEAR(e_off_->GetSolutionCost(result), 0.0, 1e-6);
 }
 
 TEST_F(ThreePoints, LinearCost4) {
   const double b = -1.23;
   e_on_->AddCost(b);
-  DRAKE_EXPECT_THROWS_MESSAGE(
-      g_.SolveShortestPath(*source_, *target_, true),
-      "Costs must be non-negative.*");
+  DRAKE_EXPECT_THROWS_MESSAGE(g_.SolveShortestPath(*source_, *target_, true),
+                              "Constant costs must be non-negative.*");
 }
 
 TEST_F(ThreePoints, QuadraticCost) {
@@ -593,6 +622,28 @@ TEST_F(ThreePoints, LInfNormCost2) {
   EXPECT_NEAR(e_off_->GetSolutionCost(result), 0.0, 1e-6);
 }
 
+TEST_F(ThreePoints, PerspectiveQuadraticCost) {
+  Matrix<double, 2, 4> A;
+  // clang-format off
+  A << -1, 1, 0, 0,
+       0, 0, 1, 1;
+  // clang-format on
+  const Vector2d b{0.5, 0.3};
+  auto cost = std::make_shared<solvers::PerspectiveQuadraticCost>(A, b);
+  e_on_->AddCost(solvers::Binding(cost, {e_on_->xu(), e_on_->xv()}));
+  e_off_->AddCost(solvers::Binding(cost, {e_off_->xu(), e_off_->xv()}));
+  auto result = g_.SolveShortestPath(*source_, *target_, true);
+  if (result.get_solver_id() == solvers::IpoptSolver::id()) {
+    return;  // See IpoptTest for details.
+  }
+  ASSERT_TRUE(result.is_success());
+  const double expected_cost =
+      std::pow(p_target_.x()(0) + p_target_.x()(1) + b(1), 2) /
+      (p_source_.x()(1) - p_source_.x()(0) + b(0));
+  EXPECT_NEAR(e_on_->GetSolutionCost(result), expected_cost, 1e-6);
+  EXPECT_NEAR(e_off_->GetSolutionCost(result), 0.0, 1e-6);
+}
+
 // Like the ThreePoints, but with boxes for each vertex instead of points.
 class ThreeBoxes : public ::testing::Test {
  protected:
@@ -629,13 +680,11 @@ class ThreeBoxes : public ::testing::Test {
 // "IPOPT terminated after exceeding the maximum iteration limit" on mac CI
 // which was using IPOPT 3.13.4.  Upgrading to IPOPT 3.14.2 resolved the
 // problem.
-//
-// Note: Ipopt will be used in some of the build configurations in CI, even
-// though I cannot (yet) request it specifically here.
 TEST_F(ThreeBoxes, IpoptTest) {
   e_on_->AddCost((e_on_->xu() - e_on_->xv()).squaredNorm());
   e_off_->AddCost((e_off_->xu() - e_off_->xv()).squaredNorm());
-  auto result = g_.SolveShortestPath(*source_, *target_, true);
+  solvers::IpoptSolver solver;
+  auto result = g_.SolveShortestPath(*source_, *target_, true, &solver);
   ASSERT_TRUE(result.is_success());
 }
 
@@ -751,6 +800,142 @@ GTEST_TEST(ShortestPathTest, ClassicalShortestPath) {
       expected_cost = 3.0;
     }
     EXPECT_NEAR(e->GetSolutionCost(result), expected_cost, 1e-6);
+  }
+}
+
+GTEST_TEST(ShortestPathTest, TwoStepLoopConstraint) {
+  GraphOfConvexSets spp;
+
+  spp.AddVertex(Point(Vector2d(0, 0)));
+  spp.AddVertex(HPolyhedron::MakeBox(Vector2d(1.3, 1.3), Vector2d(2.7, 2.7)));
+  spp.AddVertex(HPolyhedron::MakeBox(Vector2d(3.3, 1.3), Vector2d(4.7, 2.7)));
+  spp.AddVertex(HPolyhedron::MakeBox(Vector2d(1.3, -2.7), Vector2d(2.7, -1.3)));
+  spp.AddVertex(HPolyhedron::MakeBox(Vector2d(3.3, -2.7), Vector2d(4.7, -1.3)));
+  spp.AddVertex(Point(Vector2d(6, 0)));
+
+  auto v = spp.Vertices();
+
+  // |xu - xv|₂
+  Matrix<double, 4, 4> A = Matrix<double, 4, 4>::Identity();
+  A.block(0, 2, 2, 2) = -Matrix2d::Identity();
+  A.block(2, 0, 2, 2) = -Matrix2d::Identity();
+  auto cost = std::make_shared<solvers::QuadraticCost>(A, Vector4d::Zero());
+
+  spp.AddEdge(*v[0], *v[1])
+      ->AddCost(solvers::Binding(cost, {v[0]->x(), v[1]->x()}));
+  spp.AddEdge(*v[1], *v[0])
+      ->AddCost(solvers::Binding(cost, {v[1]->x(), v[0]->x()}));
+  spp.AddEdge(*v[1], *v[2])
+      ->AddCost(solvers::Binding(cost, {v[1]->x(), v[2]->x()}));
+  spp.AddEdge(*v[2], *v[1])
+      ->AddCost(solvers::Binding(cost, {v[2]->x(), v[1]->x()}));
+  spp.AddEdge(*v[2], *v[5])
+      ->AddCost(solvers::Binding(cost, {v[2]->x(), v[5]->x()}));
+  spp.AddEdge(*v[5], *v[2])
+      ->AddCost(solvers::Binding(cost, {v[5]->x(), v[2]->x()}));
+
+  spp.AddEdge(*v[0], *v[3])
+      ->AddCost(solvers::Binding(cost, {v[0]->x(), v[3]->x()}));
+  spp.AddEdge(*v[3], *v[0])
+      ->AddCost(solvers::Binding(cost, {v[3]->x(), v[0]->x()}));
+  spp.AddEdge(*v[3], *v[4])
+      ->AddCost(solvers::Binding(cost, {v[3]->x(), v[4]->x()}));
+  spp.AddEdge(*v[4], *v[3])
+      ->AddCost(solvers::Binding(cost, {v[4]->x(), v[3]->x()}));
+  spp.AddEdge(*v[4], *v[5])
+      ->AddCost(solvers::Binding(cost, {v[4]->x(), v[5]->x()}));
+  spp.AddEdge(*v[5], *v[4])
+      ->AddCost(solvers::Binding(cost, {v[5]->x(), v[4]->x()}));
+
+  auto result = spp.SolveShortestPath(*v[0], *v[5], true);
+  if (result.get_solver_id() == solvers::IpoptSolver::id()) {
+    return;  // See IpoptTest for details.
+  }
+  EXPECT_TRUE(result.is_success());
+
+  int non_zero_edges = 0;
+  for (const auto& e : spp.Edges()) {
+    // Tuned so that off edges are below this value for all solvers
+    if (result.GetSolution(e->phi()) > 1e-5) {
+      ++non_zero_edges;
+    }
+  }
+  EXPECT_EQ(non_zero_edges, 6);
+}
+
+// Test that all optimization variables are properly set, even when constrained
+// to be on or off.
+GTEST_TEST(ShortestPathTest, PhiConstraint) {
+  GraphOfConvexSets spp;
+
+  spp.AddVertex(Point(Vector2d(0, 0)));
+  spp.AddVertex(Point(Vector2d(1, -1)));
+  spp.AddVertex(Point(Vector2d(1, 1)));
+  spp.AddVertex(Point(Vector2d(2, 0)));
+
+  auto v = spp.Vertices();
+
+  Edge* edge_01 = spp.AddEdge(*v[0], *v[1]);
+  Edge* edge_02 = spp.AddEdge(*v[0], *v[2]);
+  Edge* edge_13 = spp.AddEdge(*v[1], *v[3]);
+  Edge* edge_23 = spp.AddEdge(*v[2], *v[3]);
+
+  // |xu - xv|₂
+  Matrix<double, 4, 4> A = Matrix<double, 4, 4>::Identity();
+  A.block(0, 2, 2, 2) = -Matrix2d::Identity();
+  A.block(2, 0, 2, 2) = -Matrix2d::Identity();
+  auto cost = std::make_shared<solvers::QuadraticCost>(A, Vector4d::Zero());
+
+  edge_01->AddCost(solvers::Binding(cost, {v[0]->x(), v[1]->x()}));
+  edge_02->AddCost(solvers::Binding(cost, {v[0]->x(), v[2]->x()}));
+  edge_13->AddCost(solvers::Binding(cost, {v[1]->x(), v[3]->x()}));
+  edge_23->AddCost(solvers::Binding(cost, {v[2]->x(), v[3]->x()}));
+
+  // Confirm that variables for edges are set when no on/off constraint is
+  // imposed.
+  {
+    auto result = spp.SolveShortestPath(*v[0], *v[3], true);
+    if (result.get_solver_id() == solvers::IpoptSolver::id()) {
+      return;  // See IpoptTest for details.
+    }
+    EXPECT_TRUE(result.is_success());
+    EXPECT_TRUE(CompareMatrices(edge_13->GetSolutionPhiXu(result),
+                                0.5 * Vector2d(1, -1), 1e-6));
+    EXPECT_TRUE(CompareMatrices(edge_13->GetSolutionPhiXv(result),
+                                0.5 * Vector2d(2, 0), 1e-6));
+    EXPECT_NEAR(edge_13->GetSolutionCost(result), 0.5 * 1, 1e-6);
+    EXPECT_NEAR(result.GetSolution(edge_13->phi()), 0.5, 1e-6);
+  }
+
+  // Confirm that variables for edges that are turned off are properly set.
+  // This check is necessary now that these variables have been removed from the
+  // optimization problem.
+  edge_13->AddPhiConstraint(false);
+  {
+    auto result = spp.SolveShortestPath(*v[0], *v[3], true);
+    EXPECT_TRUE(result.is_success());
+    EXPECT_TRUE(CompareMatrices(edge_13->GetSolutionPhiXu(result),
+                                Vector2d::Zero(), 1e-6));
+    EXPECT_TRUE(CompareMatrices(edge_13->GetSolutionPhiXv(result),
+                                Vector2d::Zero(), 1e-6));
+    EXPECT_NEAR(edge_13->GetSolutionCost(result), 0, 1e-6);
+    EXPECT_NEAR(result.GetSolution(edge_13->phi()), 0, 1e-6);
+  }
+
+  // Confirm that variables for edges that are turned on are properly set.
+  edge_13->AddPhiConstraint(true);
+  {
+    auto result = spp.SolveShortestPath(*v[0], *v[3], true);
+    if (result.get_solver_id() == solvers::IpoptSolver::id()) {
+      return;  // See IpoptTest for details.
+    }
+    EXPECT_TRUE(result.is_success());
+    EXPECT_TRUE(CompareMatrices(edge_13->GetSolutionPhiXu(result),
+                                Vector2d(1, -1), 1e-6));
+    EXPECT_TRUE(CompareMatrices(edge_13->GetSolutionPhiXv(result),
+                                Vector2d(2, 0), 1e-6));
+    EXPECT_NEAR(edge_13->GetSolutionCost(result), 1, 1e-6);
+    EXPECT_NEAR(result.GetSolution(edge_13->phi()), 1, 1e-6);
   }
 }
 

@@ -19,6 +19,36 @@
 namespace drake {
 namespace geometry {
 
+/** The set of parameters for configuring Meshcat. */
+struct MeshcatParams {
+  /** Meshcat will listen only on the given hostname (e.g., "localhost").
+  If "*" is specified, then it will listen on all interfaces.
+  If empty, an appropriate default value will be chosen (currently "*"). */
+  std::string host{"*"};
+
+  /** Meshcat will listen on the given http `port`. If no port is specified,
+  then it will listen on the first available port starting at 7000 (up to 7099).
+  @pre We require `port` >= 1024. */
+  std::optional<int> port{std::nullopt};
+
+  /** The `web_url_pattern` may be used to change the web_url() (and therefore
+  the ws_url()) reported by Meshcat. This may be useful in case %Meshcat sits
+  behind a firewall or proxy.
+
+  The pattern follows the
+  <a href="https://en.cppreference.com/w/cpp/utility/format">std::format</a>
+  specification language, except that `arg-id` substitutions are performed
+  using named arguments instead of positional indices.
+
+  There are two arguments available to the pattern:
+  - `{port}` will be substituted with the %Meshcat server's listen port number;
+  - `{host}` will be substituted with this params structure's `host` field, or
+    else with "localhost" in case the `host` was one of the placeholders for
+    "all interfaces".
+  */
+  std::string web_url_pattern{"http://{host}:{port}"};
+};
+
 /** Provides an interface to %Meshcat (https://github.com/rdeits/meshcat).
 
 Each instance of this class spawns a thread which runs an http/websocket server.
@@ -85,11 +115,14 @@ class Meshcat {
  public:
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(Meshcat)
 
-  /** Constructs the Meshcat instance on `port`. If no port is specified, the it
-  will listen on the first available port starting at 7000 (up to 7099).
+  /** Constructs the %Meshcat instance on `port`. If no port is specified,
+  it will listen on the first available port starting at 7000 (up to 7099).
   @pre We require `port` >= 1024.
   @throws std::exception if no requested `port` is available. */
-  explicit Meshcat(const std::optional<int>& port = std::nullopt);
+  explicit Meshcat(std::optional<int> port = std::nullopt);
+
+  /** Constructs the %Meshcat instance using the given `params`. */
+  explicit Meshcat(const MeshcatParams& params);
 
   ~Meshcat();
 
@@ -239,7 +272,10 @@ class Meshcat {
 
   /** Sets the Meshcat object on `path` to a perspective camera. We provide a
    default value of `path` corresponding to the default camera object in
-   Meshcat. */
+   Meshcat.
+
+   @pydrake_mkdoc_identifier{perspective}
+   */
   void SetCamera(PerspectiveCamera camera,
                  std::string path = "/Cameras/default/rotated");
 
@@ -257,7 +293,10 @@ class Meshcat {
 
   /** Sets the Meshcat object on `path` to an orthographic camera. We provide a
    default value of `path` corresponding to the default camera object in
-   Meshcat. */
+   Meshcat.
+
+   @pydrake_mkdoc_identifier{orthographic}
+   */
   void SetCamera(OrthographicCamera camera,
                  std::string path = "/Cameras/default/rotated");
 
@@ -387,7 +426,9 @@ class Meshcat {
   //@{
 
   /** Adds a button with the label `name` to the meshcat browser controls GUI.
-   */
+   If the button already existed, then resets its click count to zero instead.
+   @throws std::exception if `name` has already been added as any other type
+   of control (e.g., slider). */
   void AddButton(std::string name);
 
   /** Returns the number of times the button `name` has been clicked in the
@@ -404,7 +445,9 @@ class Meshcat {
    The slider range is given by [`min`, `max`]. `step` is the smallest
    increment by which the slider can change values (and therefore send updates
    back to this Meshcat instance). `value` specifies the initial value; it will
-   be truncated to the slider range and rounded to the nearest increment. */
+   be truncated to the slider range and rounded to the nearest increment.
+   @throws std::exception if `name` has already been added as any type of
+   control (e.g., either button or slider). */
   void AddSlider(std::string name, double min, double max, double step,
                  double value);
 
@@ -469,10 +512,30 @@ class Meshcat {
   std::string GetPackedProperty(std::string_view path,
                                 std::string property) const;
 
+#ifndef DRAKE_DOXYGEN_CXX
+  /* (Internal use for unit testing only) Causes the websocket worker thread to
+  exit with an error, which will spit out an exception from the next Meshcat
+  main thread function that gets called. The fault_number selects which fault to
+  inject, between 0 and kMaxFaultNumber inclusive; refer to the implementation
+  for details on meaning of each number. */
+  void InjectWebsocketThreadFault(int fault_number);
+
+  /* (Internal use for unit testing only) The max value (inclusive) for
+  fault_number, above. */
+  static constexpr int kMaxFaultNumber = 3;
+#endif
+
  private:
   // Provides PIMPL encapsulation of websocket types.
-  class WebSocketPublisher;
-  std::unique_ptr<WebSocketPublisher> publisher_;
+  class Impl;
+
+  // Safe accessors for the PIMPL object.
+  Impl& impl();
+  const Impl& impl() const;
+
+  // Always a non-nullptr Impl, but stored as void* to enforce that the
+  // impl() accessors are always used.
+  void* const impl_{};
 };
 
 }  // namespace geometry

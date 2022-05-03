@@ -1187,7 +1187,7 @@ class MathematicalProgram {
    * Adds an L2 norm cost min |Ax+b|₂ as a linear cost min s
    * on the slack variable s, together with a Lorentz cone constraint
    * s ≥ |Ax+b|₂
-   * Many conic optimization solvers (Gurobi, Mosek, SCS, etc) natively prefers
+   * Many conic optimization solvers (Gurobi, MOSEK™, SCS, etc) natively prefers
    * this form of linear cost + conic constraints. So if you are going to use
    * one of these conic solvers, then add the L2 norm cost using this function
    * instead of AddL2NormCost().
@@ -1343,10 +1343,14 @@ class MathematicalProgram {
   //@}
 
   /**
-   * Adds a generic constraint to the program.  This should
+   * Adds a generic constraint to the program. This should
    * only be used if a more specific type of constraint is not
    * available, as it may require the use of a significantly more
    * expensive solver.
+   *
+   * @note If @p binding.evaluator()->num_constraints() == 0, then this
+   * constraint is not added into the MathematicalProgram. We return @p binding
+   * directly.
    */
   Binding<Constraint> AddConstraint(const Binding<Constraint>& binding);
 
@@ -1414,17 +1418,17 @@ class MathematicalProgram {
   Binding<Constraint> AddConstraint(const symbolic::Formula& f);
 
   /**
-   * Add a constraint represented by an Eigen::Array<symbolic::Formula>
-   * to the program. A common use-case of this function is to add a constraint
-   * with the element-wise comparison between two Eigen matrices,
-   * using `A.array() <= B.array()`. See the following example.
+   * Adds a constraint represented by an Eigen::Matrix<symbolic::Formula> or
+   * Eigen::Array<symbolic::Formula> to the program. A common use-case of this
+   * function is to add a constraint with the element-wise comparison between
+   * two Eigen matrices, using `A.array() <= B.array()`. See the following
+   * example.
    *
    * @code
    *   MathematicalProgram prog;
-   *   Eigen::Matrix<double, 2, 2> A;
+   *   Eigen::Matrix<double, 2, 2> A = ...;
+   *   Eigen::Vector2d b = ...;
    *   auto x = prog.NewContinuousVariables(2, "x");
-   *   Eigen::Vector2d b;
-   *   ... // set up A and b
    *   prog.AddConstraint((A * x).array() <= b.array());
    * @endcode
    *
@@ -1439,41 +1443,14 @@ class MathematicalProgram {
    *
    * @overload Binding<Constraint> AddConstraint(const symbolic::Formula& f)
    *
-   * @tparam Derived An Eigen Array type of Formula.
-   *
-   * @exclude_from_pydrake_mkdoc{Not bound in pydrake.}
+   * @tparam Derived Eigen::Matrix or Eigen::Array with Formula as the Scalar.
    */
   template <typename Derived>
   typename std::enable_if_t<
       is_eigen_scalar_same<Derived, symbolic::Formula>::value,
       Binding<Constraint>>
-  AddConstraint(const Eigen::ArrayBase<Derived>& formulas) {
+  AddConstraint(const Eigen::DenseBase<Derived>& formulas) {
     return AddConstraint(internal::ParseConstraint(formulas));
-  }
-
-  /**
-   * Add a constraint represented by an Eigen::Matrix<symbolic::Formula>
-   * to the program.
-   *
-   * A formula in @p formulas can be of the following forms:
-   *
-   * 1. e1 <= e2
-   * 2. e1 >= e2
-   * 3. e1 == e2
-   *
-   * It throws an exception if AddConstraint(const symbolic::Formula& f)
-   * throws an exception for any f ∈ formulas.
-   *
-   * @tparam Derived An Eigen Matrix type of Formula.
-   *
-   * @pydrake_mkdoc_identifier{matrix_formula}
-   */
-  template <typename Derived>
-  typename std::enable_if_t<
-      is_eigen_scalar_same<Derived, symbolic::Formula>::value,
-      Binding<Constraint>>
-  AddConstraint(const Eigen::MatrixBase<Derived>& formulas) {
-    return AddConstraint(formulas.array());
   }
 
   /**
@@ -1643,23 +1620,9 @@ class MathematicalProgram {
    * throws an exception for f ∈ @p formulas.
    * @tparam Derived An Eigen Array type of Formula.
    */
-  template <typename Derived>
-  typename std::enable_if_t<
-      is_eigen_scalar_same<Derived, symbolic::Formula>::value,
-      Binding<LinearConstraint>>
-  AddLinearConstraint(const Eigen::ArrayBase<Derived>& formulas) {
-    Binding<Constraint> binding = internal::ParseConstraint(formulas);
-    Constraint* constraint = binding.evaluator().get();
-    if (dynamic_cast<LinearConstraint*>(constraint)) {
-      return AddConstraint(
-          internal::BindingDynamicCast<LinearConstraint>(binding));
-    } else {
-      std::stringstream oss;
-      oss << "Formulas are non-linear.";
-      throw std::runtime_error(
-          "AddLinearConstraint called but formulas are non-linear");
-    }
-  }
+  Binding<LinearConstraint> AddLinearConstraint(
+      const Eigen::Ref<const Eigen::Array<
+          symbolic::Formula, Eigen::Dynamic, Eigen::Dynamic>>& formulas);
 
   /**
    * Adds linear equality constraints referencing potentially a
@@ -2372,6 +2335,26 @@ class MathematicalProgram {
     b.setZero();
     return AddRotatedLorentzConeConstraint(A, b, vars);
   }
+
+  /** Add the convex quadratic constraint 0.5xᵀQx + bᵀx + c <= 0 as a
+   * rotated Lorentz cone constraint [rᵀx+s, 1, Px+q] is in the rotated Lorentz
+   * cone. When solving the optimization problem using conic solvers (like
+   * Mosek, Gurobi, SCS, etc), it is numerically preferrable to impose the
+   * convex quadratic constraint as rotated Lorentz cone constraint. See
+   * https://docs.mosek.com/latest/capi/prob-def-quadratic.html#a-recommendation
+   * @throw exception if this quadratic constraint is not convex (Q is not
+   * positive semidefinite)
+   * @param Q The Hessian of the quadratic constraint. Should be positive
+   * semidefinite.
+   * @param b The linear coefficient of the quadratic constraint.
+   * @param c The constant term of the quadratic constraint.
+   * @param vars x in the documentation above.
+   */
+  Binding<RotatedLorentzConeConstraint>
+  AddQuadraticAsRotatedLorentzConeConstraint(
+      const Eigen::Ref<const Eigen::MatrixXd>& Q,
+      const Eigen::Ref<const Eigen::VectorXd>& b, double c,
+      const Eigen::Ref<const VectorX<symbolic::Variable>>& vars);
 
   /**
    * Adds a linear complementarity constraints referencing a subset of
@@ -3259,8 +3242,7 @@ class MathematicalProgram {
   }
 
   /**
-   * Setter for the scaling of decision variables starting from index @p
-   * idx_start to @p idx_end (including @p idx_end).
+   * Setter for the scaling @p s of decision variable @p var.
    * @param var the decision variable to be scaled.
    * @param s scaling factor (must be positive).
    *
@@ -3483,54 +3465,20 @@ class MathematicalProgram {
    * Given a matrix of decision variables, checks if every entry in the
    * matrix is a decision variable in the program; throws a runtime
    * error if any variable is not a decision variable in the program.
-   * @tparam Derived An Eigen::Matrix type of symbolic Variable.
-   * @param vars A matrix of variables.
+   * @param vars A vector of variables.
    */
-  template <typename Derived>
-  typename std::enable_if_t<
-      std::is_same_v<typename Derived::Scalar, symbolic::Variable>>
-  CheckIsDecisionVariable(const Eigen::MatrixBase<Derived>& vars) const {
-    for (int i = 0; i < vars.rows(); ++i) {
-      for (int j = 0; j < vars.cols(); ++j) {
-        if (decision_variable_index_.find(vars(i, j).get_id()) ==
-            decision_variable_index_.end()) {
-          std::ostringstream oss;
-          oss << vars(i, j)
-              << " is not a decision variable of the mathematical program.\n";
-          throw std::runtime_error(oss.str());
-        }
-      }
-    }
-  }
+  void CheckIsDecisionVariable(const VectorXDecisionVariable& vars) const;
 
   /*
    * Ensure a binding is valid *before* adding it to the program.
    * @pre The binding has not yet been registered.
    * @pre The decision variables have been registered.
    * @throws std::exception if the binding is invalid.
+   * @returns true if the binding is non-trivial (>= 1 output); when false,
+   *   this program should avoid adding the binding to its internal state.
    */
   template <typename C>
-  void CheckBinding(const Binding<C>& binding) const {
-    // TODO(eric.cousineau): In addition to identifiers, hash bindings by
-    // their constraints and their variables, to prevent duplicates.
-    // TODO(eric.cousineau): Once bindings have identifiers (perhaps
-    // retrofitting `description`), ensure that they have unique names.
-    CheckIsDecisionVariable(binding.variables());
-  }
-
-  // Adds a constraint represented by a set of symbolic formulas to the
-  // program.
-  //
-  // Precondition: ∀ f ∈ formulas, is_relational(f).
-  Binding<Constraint> AddConstraint(
-      const std::set<symbolic::Formula>& formulas);
-
-  // Adds a linear-equality constraint represented by a set of symbolic formulas
-  // to the program.
-  //
-  // Precondition: ∀ f ∈ formulas, is_equal_to(f).
-  Binding<LinearEqualityConstraint> AddLinearEqualityConstraint(
-      const std::set<symbolic::Formula>& formulas);
+  [[nodiscard]] bool CheckBinding(const Binding<C>& binding) const;
 
   /*
    * Adds new variables to MathematicalProgram.

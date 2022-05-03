@@ -1,7 +1,10 @@
 #include "drake/geometry/optimization/vpolytope.h"
 
+#include <algorithm>
+#include <cmath>
 #include <limits>
 #include <memory>
+#include <numeric>
 
 #include <fmt/format.h>
 #include <libqhullcpp/Qhull.h>
@@ -25,6 +28,54 @@ using solvers::Constraint;
 using solvers::MathematicalProgram;
 using solvers::VectorXDecisionVariable;
 using symbolic::Variable;
+
+namespace {
+
+/* Given a matrix containing a set of 2D vertices, return a copy
+of the matrix where the vertices are ordered counter-clockwise
+from the negative X axis. */
+Eigen::MatrixXd OrderCounterClockwise(const Eigen::MatrixXd& vertices) {
+  const size_t dim = vertices.rows();
+  const size_t num_vertices = vertices.cols();
+
+  DRAKE_DEMAND(dim == 2);
+
+  std::vector<size_t> indices(num_vertices);
+  std::vector<double> angles(num_vertices);
+
+  double center_x = 0;
+  double center_y = 0;
+
+  std::iota(indices.begin(), indices.end(), 0);
+
+  for (const auto& i : indices) {
+    center_x += vertices.col(i)[0];
+    center_y += vertices.col(i)[1];
+  }
+
+  center_x /= num_vertices;
+  center_y /= num_vertices;
+
+  for (const auto& i : indices) {
+    const double x = vertices.col(i)[0] - center_x;
+    const double y = vertices.col(i)[1] - center_y;
+    angles[i] = std::atan2(y, x);
+  }
+
+  std::sort(indices.begin(), indices.end(), [&angles](size_t a, size_t b){
+      return angles[a] > angles[b];
+    });
+
+  Eigen::MatrixXd sorted_vertices(dim, num_vertices);
+
+  for (size_t i = 0; i < num_vertices; ++i) {
+    sorted_vertices.col(i) = vertices.col(indices[i]);
+  }
+
+  return sorted_vertices;
+}
+
+}  // namespace
 
 VPolytope::VPolytope(const Eigen::Ref<const Eigen::MatrixXd>& vertices)
     : ConvexSet(&ConvexSetCloner<VPolytope>, vertices.rows()),
@@ -134,6 +185,36 @@ VPolytope VPolytope::MakeUnitBox(int dim) {
   return MakeBox(VectorXd::Constant(dim, -1.0), VectorXd::Constant(dim, 1.0));
 }
 
+VPolytope VPolytope::GetMinimalRepresentation() const {
+  orgQhull::Qhull qhull;
+  qhull.runQhull("", vertices_.rows(), vertices_.cols(), vertices_.data(), "");
+  if (qhull.qhullStatus() != 0) {
+    throw std::runtime_error(
+        fmt::format("Qhull terminated with status {} and  message:\n{}",
+                    qhull.qhullStatus(), qhull.qhullMessage()));
+  }
+
+  Eigen::MatrixXd minimal_vertices(vertices_.rows(), qhull.vertexCount());
+  size_t j = 0;
+  for (const auto& qhull_vertex : qhull.vertexList()) {
+    size_t i = 0;
+    for (const auto& val : qhull_vertex.point()) {
+      minimal_vertices(i, j) = val;
+      ++i;
+    }
+    ++j;
+  }
+
+  // The qhull C++ interface iterates over the vertices in no specific order.
+  // For the 2D case, reorder the vertices according to the counter-clockwise
+  // convention.
+  if (vertices_.rows() == 2) {
+    minimal_vertices = OrderCounterClockwise(minimal_vertices);
+  }
+
+  return VPolytope(minimal_vertices);
+}
+
 double VPolytope::CalcVolume() const {
   orgQhull::Qhull qhull;
   try {
@@ -229,6 +310,33 @@ VPolytope::DoAddPointInNonnegativeScalingConstraints(
   a[m] = -1;
   constraints.emplace_back(
       prog->AddLinearEqualityConstraint(a, 0.0, {alpha, Vector1<Variable>(t)}));
+  return constraints;
+}
+
+std::vector<solvers::Binding<solvers::Constraint>>
+VPolytope::DoAddPointInNonnegativeScalingConstraints(
+    solvers::MathematicalProgram* prog, const Eigen::Ref<const MatrixXd>& A,
+    const Eigen::Ref<const VectorXd>& b, const Eigen::Ref<const VectorXd>& c,
+    double d, const Eigen::Ref<const VectorXDecisionVariable>& x,
+    const Eigen::Ref<const VectorXDecisionVariable>& t) const {
+  std::vector<solvers::Binding<solvers::Constraint>> constraints;
+  const int n = ambient_dimension();
+  const int m = vertices_.cols();
+  VectorXDecisionVariable alpha = prog->NewContinuousVariables(m, "a");
+  // αᵢ ≥ 0.
+  constraints.emplace_back(prog->AddBoundingBoxConstraint(
+      0, std::numeric_limits<double>::infinity(), alpha));
+  // v α = A * x + b.
+  MatrixXd A_combination(n, m + x.size());
+  A_combination.leftCols(m) = vertices_;
+  A_combination.rightCols(x.size()) = -A;
+  constraints.emplace_back(
+      prog->AddLinearEqualityConstraint(A_combination, b, {alpha, x}));
+
+  // ∑ αᵢ = c' * t + d.
+  RowVectorXd a = RowVectorXd::Ones(m + t.size());
+  a.tail(t.size()) = -c.transpose();
+  constraints.emplace_back(prog->AddLinearEqualityConstraint(a, d, {alpha, t}));
   return constraints;
 }
 

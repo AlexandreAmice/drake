@@ -37,27 +37,19 @@ def _impl(repository_ctx):
     if os_result.error != None:
         fail(os_result.error)
 
-    if os_result.is_macos:
-        archive = "dv-0.1.0-406-g4c3e570a-python-3.9.2-qt-5.15.2-vtk-8.2.0-mac-x86_64.tar.gz"  # noqa
-        sha256 = "8a13ffa117167fada851acef8535a42d613b71be2200ea3c7139e9fea05782b8"  # noqa
-        python_version = "3.9"
-    elif os_result.ubuntu_release == "18.04":
-        archive = "dv-0.1.0-406-g4c3e570a-python-3.6.9-qt-5.9.5-vtk-8.2.0-bionic-x86_64-2.tar.gz"  # noqa
-        sha256 = "4f92a213e45f3ad5758a2ab9839f603075f87dc0407335b7addc9cc18f015ecb"  # noqa
-        python_version = "3.6"
-    elif os_result.ubuntu_release == "20.04":
-        archive = "dv-0.1.0-406-g4c3e570a-python-3.8.10-qt-5.12.8-vtk-8.2.0-focal-x86_64-2.tar.gz"  # noqa
-        sha256 = "857206d0733d6352bbf2715dcc69ceb1f1af370a150c1aa7cb8447d05e82eb9d"  # noqa
+    if os_result.ubuntu_release == "20.04":
+        archive = "dv-0.1.0-406-g4c3e570a-python-3.8.10-qt-5.12.8-vtk-8.2.0-focal-x86_64-4.tar.gz"  # noqa
+        sha256 = "f149a13bbb3966f4004584e843f03a80075e671d6c7d25edd0acb83f4a0fc694"  # noqa
         python_version = "3.8"
-    elif os_result.is_manylinux:
+    else:
+        repository_ctx.file("defs.bzl", "ENABLED = False")
         repository_ctx.symlink(
             Label("@drake//tools/workspace/drake_visualizer:package-stub.BUILD.bazel"),  # noqa
             "BUILD.bazel",
         )
         return
-    else:
-        fail("Operating system is NOT supported {}".format(os_result))
 
+    repository_ctx.file("defs.bzl", "ENABLED = True")
     urls = [
         x.format(archive = archive)
         for x in repository_ctx.attr.mirrors.get("director")

@@ -5,13 +5,46 @@ import unittest
 from pydrake.common import ToleranceType
 from pydrake.common.eigen_geometry import AngleAxis_, Quaternion_
 from pydrake.common.test_utilities import numpy_compare
+from pydrake.common.test_utilities.pickle_compare import assert_pickle
 from pydrake.common.value import AbstractValue
 from pydrake.math import BsplineBasis_, RigidTransform_, RotationMatrix_
 from pydrake.polynomial import Polynomial_
 from pydrake.trajectories import (
     BsplineTrajectory_, PiecewisePolynomial_, PiecewisePose_,
-    PiecewiseQuaternionSlerp_, Trajectory_
+    PiecewiseQuaternionSlerp_, Trajectory, Trajectory_
 )
+
+
+# Custom trajectory class used to test Trajectory subclassing in python.
+class CustomTrajectory(Trajectory):
+    def __init__(self):
+        Trajectory.__init__(self)
+
+    def rows(self):
+        return 1
+
+    def cols(self):
+        return 2
+
+    def start_time(self):
+        return 3.0
+
+    def end_time(self):
+        return 4.0
+
+    def value(self, t):
+        return np.array([[t + 1.0, t + 2.0]])
+
+    def do_has_derivative(self):
+        return True
+
+    def DoEvalDerivative(self, t, derivative_order):
+        if derivative_order >= 2:
+            return np.zeros((1, 2))
+        elif derivative_order == 1:
+            return np.ones((1, 2))
+        elif derivative_order == 0:
+            return self.value(t)
 
 
 class TestTrajectories(unittest.TestCase):
@@ -20,6 +53,22 @@ class TestTrajectories(unittest.TestCase):
         # Acceptance check to ensure we have these base methods exposed.
         Trajectory_[T].start_time
         Trajectory_[T].end_time
+
+    def test_custom_trajectory(self):
+        trajectory = CustomTrajectory()
+        self.assertEqual(trajectory.rows(), 1)
+        self.assertEqual(trajectory.cols(), 2)
+        self.assertEqual(trajectory.start_time(), 3.0)
+        self.assertEqual(trajectory.end_time(), 4.0)
+        self.assertTrue(trajectory.has_derivative())
+        numpy_compare.assert_float_equal(trajectory.value(t=1.5),
+                                         np.array([[2.5, 3.5]]))
+        numpy_compare.assert_float_equal(
+            trajectory.EvalDerivative(t=2.3, derivative_order=1),
+            np.ones((1, 2)))
+        numpy_compare.assert_float_equal(
+            trajectory.EvalDerivative(t=2.3, derivative_order=2),
+            np.zeros((1, 2)))
 
     @numpy_compare.check_all_types
     def test_bspline_trajectory(self, T):
@@ -59,6 +108,8 @@ class TestTrajectories(unittest.TestCase):
         # Ensure we can copy.
         self.assertEqual(copy.copy(bspline).rows(), 3)
         self.assertEqual(copy.deepcopy(bspline).rows(), 3)
+        assert_pickle(self, bspline,
+                      lambda traj: np.array(traj.control_points()), T=T)
 
     @numpy_compare.check_all_types
     def test_piecewise_polynomial_empty_constructor(self, T):
@@ -243,7 +294,7 @@ class TestTrajectories(unittest.TestCase):
         numpy_compare.assert_float_equal(pp.end_time(), -1.0)
 
     @numpy_compare.check_all_types
-    def test_reshape_and_block(self, T):
+    def test_reshape_block_and_transpose(self, T):
         PiecewisePolynomial = PiecewisePolynomial_[T]
 
         t = [0., 1., 2., 3.]
@@ -257,6 +308,9 @@ class TestTrajectories(unittest.TestCase):
         pp2 = pp.Block(start_row=0, start_col=0, block_rows=2, block_cols=1)
         self.assertEqual(pp2.rows(), 2)
         self.assertEqual(pp2.cols(), 1)
+        pp3 = pp2.Transpose()
+        self.assertEqual(pp3.rows(), 1)
+        self.assertEqual(pp3.cols(), 2)
 
     @numpy_compare.check_all_types
     def test_slice_and_shift(self, T):
@@ -325,22 +379,26 @@ class TestTrajectories(unittest.TestCase):
         # Test quaternion constructor.
         pq = PiecewiseQuaternionSlerp(breaks=t, quaternions=[q, q, q])
         self.assertEqual(pq.get_number_of_segments(), 2)
-        numpy_compare.assert_float_equal(pq.value(0.5), np.eye(3))
+        numpy_compare.assert_float_equal(pq.value(0.5),
+                                         [[1.], [0.], [0.], [0.]])
 
         # Test matrix constructor.
         pq = PiecewiseQuaternionSlerp(breaks=t, rotation_matrices=[m, m, m])
         self.assertEqual(pq.get_number_of_segments(), 2)
-        numpy_compare.assert_float_equal(pq.value(0.5), np.eye(3))
+        numpy_compare.assert_float_equal(pq.value(0.5),
+                                         [[1.], [0.], [0.], [0.]])
 
         # Test axis angle constructor.
         pq = PiecewiseQuaternionSlerp(breaks=t, angle_axes=[a, a, a])
         self.assertEqual(pq.get_number_of_segments(), 2)
-        numpy_compare.assert_float_equal(pq.value(0.5), np.eye(3))
+        numpy_compare.assert_float_equal(pq.value(0.5),
+                                         [[1.], [0.], [0.], [0.]])
 
         # Test rotation matrix constructor.
         pq = PiecewiseQuaternionSlerp(breaks=t, rotation_matrices=[R, R, R])
         self.assertEqual(pq.get_number_of_segments(), 2)
-        numpy_compare.assert_float_equal(pq.value(0.5), np.eye(3))
+        numpy_compare.assert_float_equal(pq.value(0.5),
+                                         [[1.], [0.], [0.], [0.]])
 
         # Test append operations.
         pq.Append(time=3., quaternion=q)
