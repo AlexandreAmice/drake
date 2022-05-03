@@ -87,7 +87,7 @@ class TestPyplotVisualizer(unittest.TestCase):
         simulator = Simulator(diagram, context)
         simulator.AdvanceTo(.1)
 
-        ani = visualizer.animate_trajectory(logger.FindLog(context), repeat=True)
+        ani = visualizer.animate(logger.FindLog(context), repeat=True)
         self.assertIsInstance(ani, animation.FuncAnimation)
 
     def test_trajectory(self):
@@ -95,7 +95,7 @@ class TestPyplotVisualizer(unittest.TestCase):
         visualizer = builder.AddSystem(TestVisualizer(1))
         ppt = PiecewisePolynomial.FirstOrderHold(
             [0., 1.], [[2., 3.], [2., 1.]])
-        ani = visualizer.animate_trajectory(ppt)
+        ani = visualizer.animate(ppt)
         self.assertIsInstance(ani, animation.FuncAnimation)
 
     def test_recording(self):
