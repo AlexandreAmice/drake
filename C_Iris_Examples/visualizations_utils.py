@@ -239,9 +239,7 @@ def get_rotation_matrix(axis, theta):
 
 def plot_regions(vis, regions, ellipses = None, region_suffix='', randomize_colors = False):
     if randomize_colors:
-        colors = n_colors(100*len(regions))
-        shuffle(colors)
-        colors = colors[:len(regions)]
+        colors = n_colors_random(len(regions))
     else:
         colors = n_colors(len(regions))
 
