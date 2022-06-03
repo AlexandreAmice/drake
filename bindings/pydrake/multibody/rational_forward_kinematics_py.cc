@@ -550,6 +550,29 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
       py::arg("d"), py::arg("t_lower"), py::arg("t_upper"),
       doc.CalcCspacePolytopeVolume.doc);
 
+  m.def("WriteCspacePolytopeToFile", &WriteCspacePolytopeToFile,
+        py::arg("solution"), py::arg("plant"),
+        py::arg("inspector"),
+        py::arg("file_name"), py::arg("precision"),
+                doc.WriteCspacePolytopeToFile.doc);
+
+  m.def("ReadCspacePolytopeFromFile",
+        [](const std::string filename,
+           const CspaceFreeRegion& cspace_free_region
+           ){
+    CspaceFreeRegionSolution solution;
+
+    ReadCspacePolytopeFromFile(
+        filename,
+        cspace_free_region,
+        &solution
+        );
+    return solution;
+    },
+    py::arg("filename"),
+    py::arg("cspace_free_region")
+    );
+
   py::module::import("pydrake.solvers.mathematicalprogram");
 
   type_pack<symbolic::Polynomial, symbolic::RationalFunction> sym_pack;
