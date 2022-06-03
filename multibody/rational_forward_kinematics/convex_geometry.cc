@@ -152,5 +152,7 @@ void Cylinder::AddPointInsideGeometryConstraint(
   lorentz_expr << radius_, a_hat1_B_.dot(p_OQ_B), a_hat2_B_.dot(p_OQ_B);
   prog->AddLorentzConeConstraint(lorentz_expr);
 }
+
+
 }  // namespace multibody
 }  // namespace drake

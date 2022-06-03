@@ -11,6 +11,7 @@ import mcubes
 import C_Iris_Examples.visualizations_utils as viz_utils
 import pydrake.symbolic as sym
 from IPython.display import display
+from scipy.spatial import Delaunay
 
 
 
@@ -100,7 +101,7 @@ class IrisPlantVisualizer:
         for idxx in range(len(x)):
             for idxy in range(len(y)):
                 verts.append(np.array([x[idxx], y[idxy]]))
-        self.tri = scipy.spatial.Delaunay(verts)
+        self.tri = Delaunay(verts)
         self.plane_triangles = self.tri.simplices
         self.plane_verts = self.tri.points[:, :]
         self.plane_verts = np.concatenate((self.plane_verts, 0 * self.plane_verts[:, 0].reshape(-1, 1)), axis=1)

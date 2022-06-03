@@ -2341,10 +2341,9 @@ void WriteCspacePolytopeToFile(
     const CspaceFreeRegionSolution& solution,
     const multibody::MultibodyPlant<double>& plant,
     const geometry::SceneGraphInspector<double>& inspector,
-
-    const std::string& file_name, int precision) {
+    const std::string& filename, int precision) {
   std::ofstream myfile;
-  myfile.open(file_name, std::ios::out);
+  myfile.open(filename, std::ios::out);
   if (myfile.is_open()) {
     myfile << fmt::format("{} {}\n", solution.C.rows(), solution.C.cols());
     for (int i = 0; i < solution.C.rows(); ++i) {
@@ -2361,6 +2360,9 @@ void WriteCspacePolytopeToFile(
     // Write separating planes.
     myfile << solution.separating_planes.size() << "\n";
     for (const auto& plane : solution.separating_planes) {
+      myfile << (plane.order == SeparatingPlaneOrder::kAffine ? "kAffine"
+                                                              : "kConstant")
+             << "\n";
       myfile
           << plant.get_body(plane.positive_side_polytope->body_index()).name()
           << "\n";
@@ -2387,9 +2389,9 @@ void ReadCspacePolytopeFromFile(
     const std::string& filename, const MultibodyPlant<double>& plant,
     const geometry::SceneGraphInspector<double>& inspector, Eigen::MatrixXd* C,
     Eigen::VectorXd* d,
-    std::unordered_map<SortedPair<geometry::GeometryId>,
-                       std::pair<BodyIndex, Eigen::VectorXd>>*
-        separating_planes) {
+    std::unordered_map<SortedPair<std::pair<BodyIndex, geometry::GeometryId>>,
+                       std::tuple<BodyIndex, Eigen::VectorXd,
+                                  SeparatingPlaneOrder>>* separating_planes) {
   std::ifstream infile;
   infile.open(filename, std::ios::in);
   std::string line;
@@ -2426,18 +2428,29 @@ void ReadCspacePolytopeFromFile(
     ss >> word;
     const int num_separating_planes = std::stoi(word);
     for (int i = 0; i < num_separating_planes; ++i) {
+      // order
+      std::getline(infile, line);
+      ss = std::istringstream(line);
+      ss >> word;
+      const SeparatingPlaneOrder order = word == "kAffine"
+                                             ? SeparatingPlaneOrder::kAffine
+                                             : SeparatingPlaneOrder::kConstant;
+
       // positive side.
       std::getline(infile, line);
       ss = std::istringstream(line);
       ss >> word;
       const geometry::FrameId positive_frame =
           plant.GetBodyFrameIdOrThrow(plant.GetBodyByName(word).index());
+      const BodyIndex positive_body_index = plant.GetBodyByName(word).index();
       std::getline(infile, line);
       ss = std::istringstream(line);
       ss >> word;
       const geometry::GeometryId positive_geo_id =
           inspector.GetGeometryIdByName(positive_frame,
                                         geometry::Role::kProximity, word);
+      std::pair<BodyIndex, geometry::GeometryId> positive_indexes(
+          positive_body_index, positive_geo_id);
 
       // negative side
       std::getline(infile, line);
@@ -2445,12 +2458,15 @@ void ReadCspacePolytopeFromFile(
       ss >> word;
       const geometry::FrameId negative_frame =
           plant.GetBodyFrameIdOrThrow(plant.GetBodyByName(word).index());
+      const BodyIndex negative_body_index = plant.GetBodyByName(word).index();
       std::getline(infile, line);
       ss = std::istringstream(line);
       ss >> word;
       const geometry::GeometryId negative_geo_id =
           inspector.GetGeometryIdByName(negative_frame,
                                         geometry::Role::kProximity, word);
+      std::pair<BodyIndex, geometry::GeometryId> negative_indexes(
+          negative_body_index, negative_geo_id);
 
       // expressed link
       std::getline(infile, line);
@@ -2470,14 +2486,68 @@ void ReadCspacePolytopeFromFile(
         ss >> word;
         plane_vars(j) = std::stod(word);
       }
-      separating_planes->emplace(SortedPair(positive_geo_id, negative_geo_id),
-                                 std::make_pair(expressed_link, plane_vars));
+      separating_planes->emplace(
+          SortedPair(positive_indexes, negative_indexes),
+          std::make_tuple(expressed_link, plane_vars, order));
     }
   } else {
     throw std::runtime_error(
         fmt::format("Cannot open file {} for c-space polytope.", filename));
   }
   infile.close();
+}
+
+void ReadCspacePolytopeFromFile(const std::string& filename,
+                                const CspaceFreeRegion& cspace_free_region,
+                                CspaceFreeRegionSolution* solution) {
+  std::unordered_map<
+      SortedPair<std::pair<BodyIndex, geometry::GeometryId>>,
+      std::tuple<BodyIndex, Eigen::VectorXd, SeparatingPlaneOrder>>
+      separating_planes_map;
+
+  ReadCspacePolytopeFromFile(
+      filename, cspace_free_region.rational_forward_kinematics().plant(),
+      cspace_free_region.scene_graph().model_inspector(), &(solution->C),
+      &(solution->d), &separating_planes_map);
+
+  Vector3<symbolic::Expression> a_E;
+  symbolic::Expression b_E;
+
+  for (const std::pair<
+           SortedPair<std::pair<BodyIndex, geometry::GeometryId>>,
+           std::tuple<BodyIndex, Eigen::VectorXd, SeparatingPlaneOrder>>& elt :
+       separating_planes_map) {
+    const BodyIndex positive_body_index = elt.first.first().first;
+    const geometry::GeometryId positive_geom_id = elt.first.first().second;
+
+    const BodyIndex negative_body_index = elt.first.second().first;
+    const geometry::GeometryId negative_geom_id = elt.first.second().second;
+
+    // get separating planes expression
+    const BodyIndex expressed_link = std::get<0>(elt.second);
+    const Eigen::VectorXd separating_plane_vars = std::get<1>(elt.second);
+    const SeparatingPlaneOrder order = std::get<2>(elt.second);
+    CalcPlane(separating_plane_vars,
+              GetTForPlane(positive_body_index, negative_body_index,
+                           cspace_free_region.rational_forward_kinematics(),
+                           CspaceRegionType::kGenericPolytope),
+              order, &a_E, &b_E);
+
+    // find the separating plane in cspace_free_region which contains the info
+    // about these two bodies
+    for (const SeparatingPlane<symbolic::Variable>& plane :
+         cspace_free_region.separating_planes()) {
+      if (plane.positive_side_polytope->get_id() == positive_geom_id &&
+          plane.positive_side_polytope->body_index() == positive_body_index &&
+          plane.negative_side_polytope->get_id() == negative_geom_id &&
+          plane.negative_side_polytope->body_index() == negative_body_index) {
+        solution->separating_planes.emplace_back(
+            a_E, b_E, plane.positive_side_polytope,
+            plane.negative_side_polytope, expressed_link, order,
+            separating_plane_vars);
+      }
+    }
+  }
 }
 
 // Explicit instantiation.

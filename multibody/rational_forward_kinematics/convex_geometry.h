@@ -97,6 +97,7 @@ class ConvexPolytope : public ConvexGeometry {
 
   const Eigen::Vector3d& p_BC() const override { return p_BC_; }
 
+
   /**
    * r_B.col(i) is the i'th ray of the convex cone, expressed in the body frame.
    */
@@ -155,6 +156,7 @@ class Cylinder : public ConvexGeometry {
   // â₁ ⊥ â₂.
   Eigen::Vector3d a_hat1_B_, a_hat2_B_;
 };
+
 
 }  // namespace multibody
 }  // namespace drake

@@ -98,9 +98,9 @@ class IiwaDiagram {
               geometry::GeometrySet(iiwa_geometry_ids)));
     }
 
-    const std::string shelf_file_path =
-        FindResourceOrThrow("drake/multibody/"
-                            "rational_forward_kinematics/models/shelves.sdf");
+    const std::string shelf_file_path = FindResourceOrThrow(
+        "drake/multibody/"
+        "rational_forward_kinematics/models/shelves.sdf");
     const auto shelf_instance =
         parser.AddModelFromFile(shelf_file_path, "shelves");
     const auto& shelf_frame =
@@ -250,8 +250,9 @@ void SearchCspacePolytope(
   Eigen::MatrixXd C_init;
   Eigen::VectorXd d_init;
   if (read_file.has_value()) {
-    std::unordered_map<SortedPair<geometry::GeometryId>,
-                       std::pair<BodyIndex, Eigen::VectorXd>>
+    std::unordered_map<
+        SortedPair<std::pair<BodyIndex, geometry::GeometryId>>,
+        std::tuple<BodyIndex, Eigen::VectorXd, SeparatingPlaneOrder>>
         separating_planes;
     ReadCspacePolytopeFromFile(read_file.value(), iiwa_diagram.plant(),
                                iiwa_diagram.scene_graph().model_inspector(),
@@ -329,8 +330,9 @@ void VisualizePostures(const std::string& read_file) {
   IiwaDiagram single_iiwa_diagram(1);
   Eigen::MatrixXd C;
   Eigen::VectorXd d;
-  std::unordered_map<SortedPair<geometry::GeometryId>,
-                     std::pair<BodyIndex, Eigen::VectorXd>>
+  std::unordered_map<
+      SortedPair<std::pair<BodyIndex, geometry::GeometryId>>,
+      std::tuple<BodyIndex, Eigen::VectorXd, SeparatingPlaneOrder>>
       separating_planes;
   ReadCspacePolytopeFromFile(
       read_file, single_iiwa_diagram.plant(),

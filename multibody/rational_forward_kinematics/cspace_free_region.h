@@ -4,6 +4,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -133,29 +134,26 @@ struct CspaceFreeRegionSolution {
   DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(CspaceFreeRegionSolution)
   CspaceFreeRegionSolution() = default;
 
+  // TODO(Alex.Amice) add Lagrange multipliers to this struct
   CspaceFreeRegionSolution(
       Eigen::MatrixXd m_C, Eigen::MatrixXd m_d, Eigen::MatrixXd m_P,
       Eigen::MatrixXd m_q,
-      //     const std::vector<VectorX<symbolic::Polynomial>>
-      //     m_polytope_lagrangians, const
-      //     std::vector<VectorX<symbolic::Polynomial>> m_t_lower_lagrangians,
-      //     const std::vector<VectorX<symbolic::Polynomial>>
-      //     m_t_upper_lagrangians, const std::vector<symbolic::Polynomial>
-      //     m_verified_polynomials,
       std::vector<SeparatingPlane<double>> m_separating_planes)
       : C{std::move(m_C)},
         d{std::move(m_d)},
         P{std::move(m_P)},
         q{std::move(m_q)},
-        //        polytope_lagrangians{m_polytope_lagrangians},
-        //        t_lower_lagrangians{m_t_lower_lagrangians},
-        //        t_upper_lagrangians{m_t_upper_lagrangians},
-        //        verified_polynomials{m_verified_polynomials},
+        separating_planes{std::move(m_separating_planes)} {}
+
+  CspaceFreeRegionSolution(
+      Eigen::MatrixXd m_C, Eigen::MatrixXd m_d,
+      std::vector<SeparatingPlane<double>> m_separating_planes)
+      : C{std::move(m_C)},
+        d{std::move(m_d)},
         separating_planes{std::move(m_separating_planes)} {}
   //
   CspaceFreeRegionSolution(Eigen::MatrixXd m_C, Eigen::MatrixXd m_d)
-      : C{m_C},
-        d{m_d} {}
+      : C{std::move(m_C)}, d{std::move(m_d)} {}
 
   // values defining Hpolyhedron Ct <= d
   Eigen::MatrixXd C;
@@ -164,18 +162,6 @@ struct CspaceFreeRegionSolution {
   // values defining Inscribed ellipsoid {t | t = Ps + q , norm(s) <= 1}
   Eigen::MatrixXd P;
   Eigen::VectorXd q;
-
-  // TODO(Alex.Amice) add these polynomials back in one I figure out how to
-  // extract them
-  //    // multipliers for C*t <= d
-  //    std::vector<VectorX<symbolic::Polynomial>> polytope_lagrangians;
-  //    // multiplier for t >= t_lower
-  //    std::vector<VectorX<symbolic::Polynomial>> t_lower_lagrangians;
-  //    // multiplier for t <= t_upper
-  //    std::vector<VectorX<symbolic::Polynomial>> t_upper_lagrangians;
-  //    // verified_polynomial[i] is p(t) - l_polytope(t)ᵀ(d - C*t) -
-  //    // l_lower(t)ᵀ(t-t_lower) - l_upper(t)ᵀ(t_upper-t)
-  //    std::vector<symbolic::Polynomial> verified_polynomials;
 
   // Separating hyperplanes that are the certificate
   std::vector<SeparatingPlane<double>> separating_planes;
@@ -860,7 +846,7 @@ void WriteCspacePolytopeToFile(
     const CspaceFreeRegionSolution& solution,
     const MultibodyPlant<double>& plant,
     const geometry::SceneGraphInspector<double>& inspector,
-    const std::string& file_name, int precision);
+    const std::string& filename, int precision);
 
 /**
  * @param[out] separating_planes is a mapping from the pair of geometry IDs to
@@ -872,9 +858,13 @@ void ReadCspacePolytopeFromFile(
     const std::string& filename, const MultibodyPlant<double>& plant,
     const geometry::SceneGraphInspector<double>& inspector, Eigen::MatrixXd* C,
     Eigen::VectorXd* d,
-    std::unordered_map<SortedPair<geometry::GeometryId>,
-                       std::pair<BodyIndex, Eigen::VectorXd>>*
-        separating_planes);
+    std::unordered_map<SortedPair<std::pair<BodyIndex, geometry::GeometryId>>,
+                       std::tuple<BodyIndex, Eigen::VectorXd,
+                                  SeparatingPlaneOrder>>* separating_planes);
+
+void ReadCspacePolytopeFromFile(const std::string& filename,
+                                const CspaceFreeRegion& cspace_free_region,
+                                CspaceFreeRegionSolution* solution);
 
 namespace internal {
 // Some of the separating planes will be ignored by filtered_collision_pairs.

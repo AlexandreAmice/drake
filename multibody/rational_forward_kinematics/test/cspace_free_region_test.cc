@@ -550,8 +550,9 @@ void CheckReadAndWriteCspacePolytope(const CspaceFreeRegion& dut,
                             dut.scene_graph().model_inspector(), file_name, 10);
   Eigen::MatrixXd C;
   Eigen::VectorXd d;
-  std::unordered_map<SortedPair<geometry::GeometryId>,
-                     std::pair<BodyIndex, Eigen::VectorXd>>
+  std::unordered_map<
+      SortedPair<std::pair<BodyIndex, geometry::GeometryId>>,
+      std::tuple<BodyIndex, Eigen::VectorXd, SeparatingPlaneOrder>>
       separating_planes;
   ReadCspacePolytopeFromFile(
       file_name, dut.rational_forward_kinematics().plant(),
@@ -561,13 +562,73 @@ void CheckReadAndWriteCspacePolytope(const CspaceFreeRegion& dut,
   EXPECT_TRUE(CompareMatrices(solution.d, d, tol));
   EXPECT_EQ(solution.separating_planes.size(), separating_planes.size());
   for (const auto& plane : solution.separating_planes) {
-    auto it = separating_planes.find(SortedPair<geometry::GeometryId>(
-        plane.positive_side_polytope->get_id(),
-        plane.negative_side_polytope->get_id()));
+    auto it = separating_planes.find(
+        SortedPair<std::pair<BodyIndex, geometry::GeometryId>>(
+            std::pair(plane.positive_side_polytope->body_index(),
+                      plane.positive_side_polytope->get_id()),
+            std::pair(plane.negative_side_polytope->body_index(),
+                      plane.negative_side_polytope->get_id())));
     EXPECT_NE(it, separating_planes.end());
-    EXPECT_EQ(it->second.first, plane.expressed_link);
-    EXPECT_TRUE(
-        CompareMatrices(it->second.second, plane.decision_variables, tol));
+    EXPECT_EQ(std::get<0>(it->second), plane.expressed_link);
+    EXPECT_TRUE(CompareMatrices(std::get<1>(it->second),
+                                plane.decision_variables, tol));
+    EXPECT_TRUE(std::get<2>(it->second) == plane.order);
+  }
+}
+
+void CheckReadAndWriteCspacePolytope2(
+    const CspaceFreeRegion& dut, const CspaceFreeRegionSolution& solution) {
+  const std::string file_name = temp_directory() + "/cspace_polytope2.txt";
+  WriteCspacePolytopeToFile(solution, dut.rational_forward_kinematics().plant(),
+                            dut.scene_graph().model_inspector(), file_name, 10);
+  CspaceFreeRegionSolution solution_read_from_file;
+  ReadCspacePolytopeFromFile(file_name, dut, &solution_read_from_file);
+  const double tol = 1E-7;
+  EXPECT_TRUE(CompareMatrices(solution.C, solution_read_from_file.C, tol));
+  EXPECT_TRUE(CompareMatrices(solution.d, solution_read_from_file.d, tol));
+  EXPECT_EQ(solution.separating_planes.size(),
+            solution_read_from_file.separating_planes.size());
+
+  auto check_separating_planes_equal = [tol](SeparatingPlane<double> p1,
+                                             SeparatingPlane<double> p2) {
+    bool same_plane{false};
+    // check polytopes are the same
+    same_plane = same_plane && (p1.positive_side_polytope->body_index() ==
+                                p2.positive_side_polytope->body_index());
+    same_plane = same_plane && (p1.positive_side_polytope->get_id() ==
+                                p2.positive_side_polytope->get_id());
+    same_plane =
+        same_plane && (CompareMatrices(p1.positive_side_polytope->p_BV(),
+                                       p2.positive_side_polytope->p_BV(), tol));
+    same_plane = same_plane && (p1.negative_side_polytope->body_index() ==
+                                p2.negative_side_polytope->body_index());
+    same_plane = same_plane && (p1.negative_side_polytope->get_id() ==
+                                p2.negative_side_polytope->get_id());
+    same_plane =
+        same_plane && (CompareMatrices(p1.negative_side_polytope->p_BV(),
+                                       p2.negative_side_polytope->p_BV(), tol));
+    // check plane orders are the same
+    same_plane = same_plane && (p1.order == p2.order);
+    // check planes are the same
+    same_plane = same_plane && (CompareMatrices(p1.decision_variables,
+                                                p2.decision_variables, tol));
+    for (int i = 0; i < p1.a.rows(); ++i) {
+      same_plane = same_plane && (p1.a(i).Expand().EqualTo(p2.a(i).Expand()));
+    }
+    same_plane = same_plane && (p1.b.Expand().EqualTo(p2.b.Expand()));
+    return same_plane;
+  };
+
+  for (const auto& p1 : solution.separating_planes) {
+    bool same_plane_found = false;
+    for (const auto& p2 : solution_read_from_file.separating_planes) {
+      bool same_plane = check_separating_planes_equal(p1, p2);
+      if (same_plane) {
+        same_plane_found = true;
+        break;
+      }
+    }
+    EXPECT_TRUE(same_plane_found);
   }
 }
 
@@ -817,6 +878,7 @@ TEST_F(IiwaCspaceTest, ConstructLagrangianAndPolytopeProgram) {
   CspaceFreeRegionSolution cspace_free_region_solution(C, d, P_sol, q_sol,
                                                        separating_planes_sol);
   CheckReadAndWriteCspacePolytope(dut, cspace_free_region_solution);
+  CheckReadAndWriteCspacePolytope2(dut, cspace_free_region_solution);
 
   // Now test ConstructPolytopeProgram using the lagrangian result.
   VectorX<symbolic::Variable> margin;
