@@ -15,6 +15,7 @@ from scipy.spatial import Delaunay
 
 
 
+
 class IrisPlantVisualizer:
     def __init__(self, plant, builder, scene_graph, **kwargs):
         proc, zmq_url, web_url = start_zmq_server_as_subprocess(server_args=[])
@@ -110,6 +111,50 @@ class IrisPlantVisualizer:
         #region -> (collision -> plane dictionary)
         self.region_to_collision_pair_to_plane_dictionary = None
 
+
+        self.cube_tri = np.array([[0,2,1],[0,3,2],
+                     [4,6,5],[4,7,6],
+                     [4,3,7],[3,0,7],
+                     [0,6,7],[0,1,6],
+                     [1,5,6],[1,2,5],
+                     [2,4,5],[2,3,4]])
+
+
+        self._certified_region_solution_list = []
+        self._collision_pairs_of_interest = []
+        self._region_to_planes_of_interest_dict = {}
+
+    @property
+    def collision_pairs_of_interest(self):
+        return self._collision_pairs_of_interest
+
+    @collision_pairs_of_interest.setter
+    def collision_pairs_of_interest(self, pair_list):
+        self._collision_pairs_of_interest = pair_list
+        self._refresh_planes_of_interest()
+
+    @property
+    def certified_region_solution_list(self):
+        return self._certified_region_solution_list
+
+    @certified_region_solution_list.setter
+    def certified_region_solution_list(self, solution_list):
+        self._certified_region_solution_list = solution_list
+        self._refresh_planes_of_interest()
+
+    def _refresh_planes_of_interest(self):
+        # keeps a data structure mapping a region to a plane of interest so that we don't
+        # need to search for the planes of interest every time.
+        self._region_to_planes_of_interest_dict = {k: [] for k in self.certified_region_solution_list}
+        for certified_region_solution in self.certified_region_solution_list:
+            for i, plane in enumerate(certified_region_solution.separating_planes):
+                A = plane.positive_side_polytope.get_id() if plane.positive_side_polytope is not None else None
+                B = plane.negative_side_polytope.get_id() if plane.negative_side_polytope is not None else None
+                for gid_pairs in self._collision_pairs_of_interest:
+                    if (A, B) == gid_pairs or (B, A) == gid_pairs:
+                        self._region_to_planes_of_interest_dict[certified_region_solution].append(plane)
+
+
     def jupyter_cell(self,):
         display(self.vis.jupyter_cell())
         display(self.vis2.jupyter_cell())
@@ -130,7 +175,6 @@ class IrisPlantVisualizer:
         vertices, triangles = mcubes.marching_cubes_func(tuple(self.s_lower_limits),
                                                          tuple(self.s_upper_limits),
                                                          N, N, N, self.col_func_handle_rational, 0.5)
-
         self.vis2["collision_constraint"].set_object(
             meshcat.geometry.TriangularMeshGeometry(vertices, triangles),
             meshcat.geometry.MeshLambertMaterial(color=0xff0000, wireframe=True))
@@ -165,35 +209,6 @@ class IrisPlantVisualizer:
         q = self.forward_kin.ComputeQValue(s, self.q_star)
         self.showres(q)
 
-    def show_res_with_planes(self, q):
-        s = self.forward_kin.ComputeTValue(q, self.q_star)
-        self.showres(q)
-        if self.region_to_collision_pair_to_plane_dictionary is not None:
-            for region, collision_pair_to_plane_dictionary in self.region_to_collision_pair_to_plane_dictionary.items():
-                if region.PointInSet(s):
-                    colors = viz_utils.n_colors(len(collision_pair_to_plane_dictionary.keys()))
-                    for i, (pair, planes) in enumerate(collision_pair_to_plane_dictionary.items()):
-                        geomA, geomB = pair[0], pair[1]
-                        self.plot_plane_geom_id(geomA, geomB, collision_pair_to_plane_dictionary, s, color=colors[i],
-                                                region_name=f"region {i}")
-
-    def plot_plane_geom_id(self, geomA, geomB, planes_dict, cur_s, color=(0, 0, 0), region_name =''):
-        verts_tf, p1, p2 = self.transform_plane_geom_id(geomA, geomB, planes_dict, cur_s)
-
-        mat = meshcat.geometry.MeshLambertMaterial(color=viz_utils.rgb_to_hex(color), wireframe=False)
-        mat.opacity = 0.5
-        self.vis[region_name]["plane"][f"{geomA.get_value()}, {geomB.get_value()}"].set_object(
-            meshcat.geometry.TriangularMeshGeometry(verts_tf, self.plane_triangles),
-            mat)
-
-        mat.opacity = 1.0
-        viz_utils.plot_point(loc=p1, radius=0.05, mat=mat, vis=self.vis[region_name]["plane"][f"{geomA.get_value()}, {geomB.get_value()}"],
-                         marker_id='p1')
-        mat = meshcat.geometry.MeshLambertMaterial(color=viz_utils.rgb_to_hex(color), wireframe=False)
-        mat.opacity = 1.0
-        viz_utils.plot_point(loc=p2, radius=0.05, mat=mat, vis=self.vis[region_name]["plane"][f"{geomA.get_value()}, {geomB.get_value()}"],
-                         marker_id='p2')
-
     def transform(self, a, b, p1, p2, plane_verts):
         alpha = (-b - a.T @ p1) / (a.T @ (p2 - p1))
         offset = alpha * (p2 - p1) + p1
@@ -208,20 +223,6 @@ class IrisPlantVisualizer:
 
         verts_tf = (R @ plane_verts.T).T + offset
         return verts_tf
-
-    def transform_at_s(self, cur_s, a_poly, b_poly, p1_rat, p2_rat):
-        eval_dict = dict(zip(b_poly.indeterminates(), cur_s))
-        a, b = self.EvaluatePlanePair((a_poly, b_poly), eval_dict)
-        eval_dict = dict(zip(self.s_variables, cur_s))
-        p1 = np.array([p.Evaluate(eval_dict) for p in p1_rat])
-        p2 = np.array([p.Evaluate(eval_dict) for p in p2_rat])
-        return self.transform(a, b, p1, p2, self.plane_verts), p1, p2
-
-    def transform_plane_geom_id(self, geomA, geomB, planes_dict, cur_t):
-        vA = self.s_space_vertex_world_position_by_geom_id[geomA][:, 0]
-        vB = self.s_space_vertex_world_position_by_geom_id[geomB][:, 0]
-        a_poly, b_poly = planes_dict[(geomA, geomB)]
-        return self.transform_at_s(cur_t, a_poly, b_poly, vA, vB)
 
     def animate_s(self, traj, steps, runtime):
         # loop
@@ -249,6 +250,96 @@ class IrisPlantVisualizer:
                     going_fwd = True
                     idx += 1
 
+    def _is_collision_pair_of_interest(self, idA, idB):
+        for gid_pairs in self.collision_pairs_of_interest:
+            if (idA, idB) == gid_pairs or (idB, idA) == gid_pairs:
+                return True
+        return False
+
+    def visualize_planes(self):
+        q = self.plant.GetPositions(self.plant_context)
+        s = self.forward_kin.ComputeTValue(np.array(q), self.q_star)
+        for region_number, sol in enumerate(self.certified_region_solution_list):
+
+            # point is in region so see plot interesting planes
+            if np.all(sol.C @ s <= sol.d):
+                num_colors = len(sol.separating_planes)
+                colors = viz_utils.n_colors(3 * num_colors)
+                plane_colors = colors[:num_colors]
+                body_colors = colors[num_colors:]
+
+                for i, plane in enumerate(self._region_to_planes_of_interest_dict[sol]):
+                    idA = plane.positive_side_polytope.get_id() if plane.positive_side_polytope is not None else None
+                    idB = plane.negative_side_polytope.get_id() if plane.negative_side_polytope is not None else None
+                    if self._is_collision_pair_of_interest(idA, idB):
+                        self._plot_plane(plane, body_colors[2*i], body_colors[2*i+1], plane_colors[i], s,
+                                         region_number)
+            else:
+                # exited region so remove the visualization associated to this solution
+                self.vis[f"region{region_number}"].delete()
+
+
+    def _delete_plane_from_viz(self, plane, region_number):
+        geomA = plane.positive_side_polytope.get_id()
+        geomB = plane.negative_side_polytope.get_id()
+        self.vis[f"region{region_number}"][f"body{geomA.get_value()}"].delete()
+        self.vis[f"region{region_number}"][f"body{geomB.get_value()}"].delete()
+        self.vis[f"region{region_number}"]["plane"][f"{geomA.get_value()}, {geomB.get_value()}"].delete()
+
+    def _plot_plane(self, plane, bodyA_color, bodyB_color, plane_color, s, region_number):
+        # get the vertices of the separated bodies
+        vert_A = plane.positive_side_polytope.p_BV()[:, :]
+        vert_B = plane.negative_side_polytope.p_BV()[:, :]
+
+        # get the geometry id of the separated bodies
+        geomA = plane.positive_side_polytope.get_id()
+        geomB = plane.negative_side_polytope.get_id()
+
+        # get the equation of the plane
+        b = plane.b
+        a = plane.a
+        b_eval = b.Evaluate(dict(zip(b.GetVariables(), s)))
+        a_eval = np.array([a_idx.Evaluate(dict(zip(a_idx.GetVariables(), s))) for a_idx in a])
+
+        # transform from expressed frame of plane to world frame
+        X_EW = self.plant.GetBodyFromFrameId(
+            self.plant.GetBodyFrameIdIfExists(plane.expressed_link)) \
+            .body_frame().CalcPoseInWorld(self.plant_context).inverse()
+        X_WE = X_EW.inverse()
+
+        # transform vertices of body A expressed in body A into world frame
+        X_WA = self.plant.GetBodyFromFrameId(
+            self.plant.GetBodyFrameIdIfExists(plane.positive_side_polytope.body_index())) \
+            .body_frame().CalcPoseInWorld(self.plant_context)
+        vert_A = X_WA @ vert_A
+
+        # transform vertices of body A expressed in body B into world frame
+        X_WB = self.plant.GetBodyFromFrameId(
+            self.plant.GetBodyFrameIdIfExists(plane.negative_side_polytope.body_index())) \
+            .body_frame().CalcPoseInWorld(self.plant_context)
+        vert_B = X_WB @ vert_B
+
+        verts_tf_E = self.transform(a_eval, b_eval, X_EW @ vert_A[:, 0],
+                                    X_EW @ vert_B[:, 0], self.plane_verts)
+        verts_tf = (X_WE @ verts_tf_E.T).T
+
+        def plot_polytope_highlight(id, verts, color):
+            mat = meshcat.geometry.MeshLambertMaterial(color=viz_utils.rgb_to_hex(color),
+                                                       wireframe=False)
+            mat.opacity = 1.
+            self.vis[f"region{region_number}"][f"body{id.get_value()}"].set_object(
+                meshcat.geometry.TriangularMeshGeometry(verts.T, self.cube_tri),
+                mat)
+
+        plot_polytope_highlight(geomA, vert_A, bodyA_color)
+        plot_polytope_highlight(geomB, vert_B, bodyB_color)
+
+        mat = meshcat.geometry.MeshLambertMaterial(color=plane_color,
+                                                   wireframe=False)
+        mat.opacity = 0.5
+        self.vis[f"region{region_number}"]["plane"][f"{geomA.get_value()}, {geomB.get_value()}"].set_object(
+            meshcat.geometry.TriangularMeshGeometry(verts_tf, self.plane_triangles),
+            mat)
 
     def draw_traj_s_space(self, traj, maxit, name):
         # evals end twice fix later
@@ -260,12 +351,6 @@ class IrisPlantVisualizer:
             mat.reflectivity = 1.0
             self.vis2[name]['traj']['points' + str(it)].set_object(viz_utils.meshcat_line(pt.squeeze(), pt_nxt.squeeze(), width=0.03),
                                                               mat)
-
-    def EvaluatePlanePair(self, plane_pair, eval_dict):
-        a_res = []
-        for ai in plane_pair[0]:
-            a_res.append(ai.Evaluate(eval_dict))
-        return (np.array(a_res), plane_pair[1].Evaluate(eval_dict))
 
     def MakeFromHPolyhedronSceneGraph(self, query, geom, expressed_in=None):
         shape = query.inspector().GetShape(geom)

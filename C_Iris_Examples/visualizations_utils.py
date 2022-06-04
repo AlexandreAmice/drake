@@ -8,7 +8,7 @@ from pydrake.all import RotationMatrix, RigidTransform
 import colorsys
 import itertools
 from fractions import Fraction
-from random import shuffle
+import random
 
 
 def infinite_hues():
@@ -26,7 +26,7 @@ def hue_to_hsvs(h: Fraction):
 
 def rgb_to_css(rgb) -> str:
     uint8tuple = map(lambda y: int(y*255), rgb)
-    return tuple(uint8tuple)#"({},{},{})".format(*uint8tuple)
+    return tuple(uint8tuple)
 
 def css_to_html(css):
     return f"<text style=background-color:{css}>&nbsp;&nbsp;&nbsp;&nbsp;</text>"
@@ -37,7 +37,11 @@ def n_colors(n=33):
     rgbs = (colorsys.hsv_to_rgb(*hsv) for hsv in hsvs)
     csss = (rgb_to_css(rgb) for rgb in rgbs)
     to_ret = list(itertools.islice(csss, n))
-    return to_ret #[(float(c) for c in it) for it in to_ret]
+    return to_ret
+
+def n_colors_random(n=33):
+    colors = n_colors(100 * n)
+    return random.sample(colors, n)
 
 class PiecewiseLinearTrajectory:
     def __init__(self, path, duration):
