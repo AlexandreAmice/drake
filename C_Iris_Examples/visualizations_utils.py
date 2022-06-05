@@ -183,7 +183,7 @@ def get_AABB_limits(hpoly, dim = 3):
         max_limits.append(-result.get_optimal_cost() + 0.01)
     return max_limits, min_limits
 
-def plot_3d_poly(region, resolution, vis, name, mat = None, verbose = False):
+def plot_3d_poly(region, resolution, vis, name, mat = None, verbose = False, wireframe = True):
     
     def inpolycheck(q0,q1,q2, A, b):
         q = np.array([q0, q1, q2])
@@ -203,7 +203,7 @@ def plot_3d_poly(region, resolution, vis, name, mat = None, verbose = False):
                                                      col_hand, 
                                                      0.5)
     if mat is None:
-        mat = meshcat.geometry.MeshLambertMaterial(color=0x000000 , wireframe=True)
+        mat = meshcat.geometry.MeshLambertMaterial(color=0x000000 , wireframe=wireframe)
         mat.opacity = 0.3
     vis[name].set_object(
             meshcat.geometry.TriangularMeshGeometry(vertices, triangles),
@@ -237,7 +237,7 @@ def get_rotation_matrix(axis, theta):
     return R
 
 
-def plot_regions(vis, regions, ellipses = None, region_suffix='', randomize_colors = False):
+def plot_regions(vis, regions, ellipses = None, region_suffix='', randomize_colors = False, wireframe = True):
     if randomize_colors:
         colors = n_colors_random(len(regions))
     else:
@@ -245,13 +245,14 @@ def plot_regions(vis, regions, ellipses = None, region_suffix='', randomize_colo
 
     for i, region in enumerate(regions):
         c = colors[i]
-        mat = meshcat.geometry.MeshLambertMaterial(color=rgb_to_hex(c), wireframe=True)
+        mat = meshcat.geometry.MeshLambertMaterial(color=rgb_to_hex(c), wireframe=wireframe)
         mat.opacity = 0.5
         plot_3d_poly(region=region,
                            resolution=30,
                            vis=vis['iris']['regions'+region_suffix],
                            name=str(i),
-                           mat=mat)
+                           mat=mat,
+                           wireframe = wireframe)
         if ellipses is not None:
             C = ellipses[i].A()  # [:, (0,2,1)]
             d = ellipses[i].center()  # [[0,2,1]]
@@ -260,7 +261,7 @@ def plot_regions(vis, regions, ellipses = None, region_suffix='', randomize_colo
             Rot = RotationMatrix(R)
 
             transf = RigidTransform(Rot, d)
-            mat = meshcat.geometry.MeshLambertMaterial(color=rgb_to_hex(c), wireframe=True)
+            mat = meshcat.geometry.MeshLambertMaterial(color=rgb_to_hex(c), wireframe=wireframe)
             mat.opacity = 0.15
             vis['iris']['ellipses'+region_suffix][str(i)].set_object(
                 meshcat.geometry.Ellipsoid(np.divide(1, np.sqrt(radii))),
@@ -272,3 +273,7 @@ def plot_regions(vis, regions, ellipses = None, region_suffix='', randomize_colo
 
 
 
+def stretch_array_to_3d(arr, val = 0.):
+    if arr.shape[0] < 3:
+        arr = np.append(arr, val*np.ones((3 - arr.shape[0])))
+    return arr

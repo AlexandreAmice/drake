@@ -39,8 +39,14 @@ class IrisPlantVisualizer:
         self.q_star = kwargs.get('q_star', np.zeros(self.num_joints))
         self.q_lower_limits = plant.GetPositionLowerLimits()
         self.s_lower_limits = self.forward_kin.ComputeTValue(self.q_lower_limits, self.q_star)
+        tmp = -1
+        self.q_lower_limits = viz_utils.stretch_array_to_3d(self.q_lower_limits,tmp)
+        self.s_lower_limits = viz_utils.stretch_array_to_3d(self.s_lower_limits,tmp)
+
         self.q_upper_limits = plant.GetPositionUpperLimits()
         self.s_upper_limits = self.forward_kin.ComputeTValue(self.q_upper_limits, self.q_star)
+        self.q_upper_limits = viz_utils.stretch_array_to_3d(self.q_upper_limits)
+        self.s_upper_limits = viz_utils.stretch_array_to_3d(self.s_upper_limits)
 
         self.viz_role = kwargs.get('viz_role', Role.kIllustration)
         visualizer = ConnectMeshcatVisualizer(self.builder, scene_graph, zmq_url=zmq_url,
@@ -52,8 +58,9 @@ class IrisPlantVisualizer:
         self.diagram.Publish(self.diagram_context)
 
         self.ik = InverseKinematics(plant, self.plant_context)
-        self.collision_constraint = self.ik.AddMinimumDistanceConstraint(1e-4, 0.01)
-        self.col_func_handle = partial(self.eval_cons, c=self.collision_constraint, tol=0.01)
+        min_dist = 1e-5
+        self.collision_constraint = self.ik.AddMinimumDistanceConstraint(min_dist, 0.01)
+        self.col_func_handle = partial(self.eval_cons, c=self.collision_constraint, tol=min_dist)
         self.col_func_handle_rational = partial(self.eval_cons_rational)
 
         # construct collision pairs
@@ -163,36 +170,38 @@ class IrisPlantVisualizer:
         return 1 - 1 * float(c.evaluator().CheckSatisfied(q, tol))
 
     def eval_cons_rational(self, *s):
-        s = np.array(s)
+        s = np.array(s[:self.num_joints])
         q = self.forward_kin.ComputeQValue(np.array(s), self.q_star)
         return self.col_func_handle(q)
 
-    def visualize_collision_constraint(self, N = 50):
+    def visualize_collision_constraint(self, N = 50, factor = 2, iso_surface = 0.5, wireframe = True):
         """
         :param N: N is density of marchingcubes grid. Runtime scales cubically in N
         :return:
         """
-        vertices, triangles = mcubes.marching_cubes_func(tuple(self.s_lower_limits),
-                                                         tuple(self.s_upper_limits),
-                                                         N, N, N, self.col_func_handle_rational, 0.5)
+
+        vertices, triangles = mcubes.marching_cubes_func(tuple(factor*self.s_lower_limits),
+                                                         tuple(factor*self.s_upper_limits),
+                                                         N, N, N, self.col_func_handle_rational, iso_surface)
         self.vis2["collision_constraint"].set_object(
             meshcat.geometry.TriangularMeshGeometry(vertices, triangles),
-            meshcat.geometry.MeshLambertMaterial(color=0xff0000, wireframe=True))
+            meshcat.geometry.MeshLambertMaterial(color=0xff0000, wireframe=wireframe))
 
-    def plot_regions(self, regions, ellipses = None, region_suffix = '', randomize_colors = False):
-        viz_utils.plot_regions(self.vis2, regions, ellipses, region_suffix, randomize_colors)
+    def plot_regions(self, regions, ellipses = None, region_suffix = '', randomize_colors = False, wireframe = True):
+        viz_utils.plot_regions(self.vis2, regions, ellipses, region_suffix, randomize_colors, wireframe = wireframe)
 
     def plot_seedpoints(self, seed_points):
         for i in range(seed_points.shape[0]):
             self.vis2['iris']['seedpoints']["seedpoint"+str(i)].set_object(
                         meshcat.geometry.Sphere(0.05), meshcat.geometry.MeshLambertMaterial(color=0x0FB900))
             self.vis2['iris']['seedpoints']["seedpoint"+str(i)].set_transform(
-                    meshcat.transformations.translation_matrix(seed_points[i,:]))
+                    meshcat.transformations.translation_matrix(viz_utils.stretch_array_to_3d(seed_points[i,:])))
 
     def showres(self,q):
         self.plant.SetPositions(self.plant_context, q)
         col = self.col_func_handle(q)
         s = self.forward_kin.ComputeTValue(np.array(q), self.q_star)
+        s = viz_utils.stretch_array_to_3d(s)
         if col:
             self.vis2["s"].set_object(
                 meshcat.geometry.Sphere(0.1), meshcat.geometry.MeshLambertMaterial(color=0xFFB900))
@@ -259,21 +268,25 @@ class IrisPlantVisualizer:
     def visualize_planes(self):
         q = self.plant.GetPositions(self.plant_context)
         s = self.forward_kin.ComputeTValue(np.array(q), self.q_star)
-        for region_number, sol in enumerate(self.certified_region_solution_list):
 
+        num_colors = len(self.collision_pairs_of_interest) * len(self.certified_region_solution_list)
+        colors = viz_utils.n_colors(3 * num_colors)
+        plane_colors = colors[:num_colors]
+        body_colors = colors[num_colors:]
+
+        color_ctr = 0
+        for region_number, sol in enumerate(self.certified_region_solution_list):
+            
             # point is in region so see plot interesting planes
             if np.all(sol.C @ s <= sol.d):
-                num_colors = len(sol.separating_planes)
-                colors = viz_utils.n_colors(3 * num_colors)
-                plane_colors = colors[:num_colors]
-                body_colors = colors[num_colors:]
-
+                
                 for i, plane in enumerate(self._region_to_planes_of_interest_dict[sol]):
                     idA = plane.positive_side_polytope.get_id() if plane.positive_side_polytope is not None else None
                     idB = plane.negative_side_polytope.get_id() if plane.negative_side_polytope is not None else None
                     if self._is_collision_pair_of_interest(idA, idB):
-                        self._plot_plane(plane, body_colors[2*i], body_colors[2*i+1], plane_colors[i], s,
+                        self._plot_plane(plane, body_colors[2*color_ctr], body_colors[2*color_ctr+1], plane_colors[color_ctr], s,
                                          region_number)
+                        color_ctr += 1
             else:
                 # exited region so remove the visualization associated to this solution
                 self.vis[f"region{region_number}"].delete()

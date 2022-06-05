@@ -64,3 +64,16 @@ drake_jupyter_py_binary(
         "//bindings/pydrake",
     ],
 )
+
+drake_jupyter_py_binary(
+    name = "pinball_iiwas_2d",
+    add_test_rule = 0,
+    data = [
+        "//C_Iris_Examples:models",
+    ],
+    deps = [
+        "//C_Iris_Examples:iris_plant_visualizer",
+        "//C_Iris_Examples:visualizations_utils",
+        "//bindings/pydrake",
+    ],
+)
