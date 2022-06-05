@@ -97,7 +97,6 @@ class ConvexPolytope : public ConvexGeometry {
 
   const Eigen::Vector3d& p_BC() const override { return p_BC_; }
 
-
   /**
    * r_B.col(i) is the i'th ray of the convex cone, expressed in the body frame.
    */
