@@ -2432,9 +2432,18 @@ void ReadCspacePolytopeFromFile(
       std::getline(infile, line);
       ss = std::istringstream(line);
       ss >> word;
-      const SeparatingPlaneOrder order = word == "kAffine"
-                                             ? SeparatingPlaneOrder::kAffine
-                                             : SeparatingPlaneOrder::kConstant;
+      auto parse_plane_order = [](std::string& order_as_string) {
+        if (order_as_string == "kAffine") {
+          return SeparatingPlaneOrder::kAffine;
+        } else if (order_as_string == "kConstant") {
+          return SeparatingPlaneOrder::kConstant;
+        } else {
+          throw std::runtime_error(fmt::format(
+              "Expected Plane Type kAffine or kConstant, got {}", order_as_string));
+        }
+        return SeparatingPlaneOrder::kAffine;
+      };
+      const SeparatingPlaneOrder order = parse_plane_order(word);
 
       // positive side.
       std::getline(infile, line);
@@ -2515,18 +2524,18 @@ void ReadCspacePolytopeFromFile(const std::string& filename,
 
   for (const std::pair<
            SortedPair<std::pair<BodyIndex, geometry::GeometryId>>,
-           std::tuple<BodyIndex, Eigen::VectorXd, SeparatingPlaneOrder>>& elt :
+           std::tuple<BodyIndex, Eigen::VectorXd, SeparatingPlaneOrder>>& plane_pair_ids_to_plane_info :
        separating_planes_map) {
-    const BodyIndex positive_body_index = elt.first.first().first;
-    const geometry::GeometryId positive_geom_id = elt.first.first().second;
+    const BodyIndex positive_body_index = plane_pair_ids_to_plane_info.first.first().first;
+    const geometry::GeometryId positive_geom_id = plane_pair_ids_to_plane_info.first.first().second;
 
-    const BodyIndex negative_body_index = elt.first.second().first;
-    const geometry::GeometryId negative_geom_id = elt.first.second().second;
+    const BodyIndex negative_body_index = plane_pair_ids_to_plane_info.first.second().first;
+    const geometry::GeometryId negative_geom_id = plane_pair_ids_to_plane_info.first.second().second;
 
     // get separating planes expression
-    const BodyIndex expressed_link = std::get<0>(elt.second);
-    const Eigen::VectorXd separating_plane_vars = std::get<1>(elt.second);
-    const SeparatingPlaneOrder order = std::get<2>(elt.second);
+    const BodyIndex expressed_link = std::get<0>(plane_pair_ids_to_plane_info.second);
+    const Eigen::VectorXd separating_plane_vars = std::get<1>(plane_pair_ids_to_plane_info.second);
+    const SeparatingPlaneOrder order = std::get<2>(plane_pair_ids_to_plane_info.second);
     CalcPlane(separating_plane_vars,
               GetTForPlane(positive_body_index, negative_body_index,
                            cspace_free_region.rational_forward_kinematics(),
