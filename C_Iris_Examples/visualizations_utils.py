@@ -31,16 +31,16 @@ def rgb_to_css(rgb) -> str:
 def css_to_html(css):
     return f"<text style=background-color:{css}>&nbsp;&nbsp;&nbsp;&nbsp;</text>"
 
-def n_colors(n=33):
+def n_colors(n=33, rgbs_ret = False):
     hues = infinite_hues()
     hsvs = itertools.chain.from_iterable(hue_to_hsvs(hue) for hue in hues)
     rgbs = (colorsys.hsv_to_rgb(*hsv) for hsv in hsvs)
     csss = (rgb_to_css(rgb) for rgb in rgbs)
-    to_ret = list(itertools.islice(csss, n))
+    to_ret = list(itertools.islice(csss, n)) if rgbs_ret else list(itertools.islice(csss, n))
     return to_ret
 
-def n_colors_random(n=33):
-    colors = n_colors(100 * n)
+def n_colors_random(n=33, rgbs_ret = False):
+    colors = n_colors(100 * n, rgbs_ret)
     return random.sample(colors, n)
 
 class PiecewiseLinearTrajectory:

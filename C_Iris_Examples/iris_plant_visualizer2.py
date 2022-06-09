@@ -1,11 +1,9 @@
 import numpy as np
 import scipy
-from meshcat.servers.zmqserver import start_zmq_server_as_subprocess
-from meshcat import Visualizer
-import meshcat
 from pydrake.all import (ConnectMeshcatVisualizer, HPolyhedron,
                          VPolytope, Sphere, Ellipsoid, InverseKinematics,
-                         RationalForwardKinematics, GeometrySet, Role)
+                         RationalForwardKinematics, GeometrySet, Role,
+                         RigidTransform, RotationMatrix)
 from functools import partial
 import mcubes
 import C_Iris_Examples.visualizations_utils as viz_utils
@@ -13,23 +11,22 @@ import pydrake.symbolic as sym
 from IPython.display import display
 from scipy.spatial import Delaunay
 
-from pydrake.all import StartMeshcat, MeshcatVisualizer
+from pydrake.all import MeshcatVisualizerCpp, StartMeshcat, MeshcatVisualizer, DiagramBuilder, \
+    AddMultibodyPlantSceneGraph, TriangleSurfaceMesh, Rgba, SurfaceTriangle, Sphere
 
 
 
 
 class IrisPlantVisualizer:
     def __init__(self, plant, builder, scene_graph, **kwargs):
-        proc, zmq_url, web_url = start_zmq_server_as_subprocess(server_args=[])
-        proc2, zmq_url2, web_url2 = start_zmq_server_as_subprocess(server_args=[])
-        self.vis = Visualizer(zmq_url=zmq_url)
-        self.vis.delete()
-        self.vis2 = Visualizer(zmq_url=zmq_url2)
-        self.vis2.delete()
-        # self.meshcat1 = StartMeshcat()
-        # self.meshcat2 = StartMeshcat()
-        # self.vis = MeshcatVisualizer(self.meshcat1)
-        # self.vis2 = MeshcatVisualizer(self.meshcat2)
+        self.meshcat1 = StartMeshcat()
+        self.meshcat2 = StartMeshcat()
+        self.vis = MeshcatVisualizerCpp.AddToBuilder(builder, scene_graph, self.meshcat1)
+
+
+        builder2 = DiagramBuilder()
+        plant2, scene_graph2 = AddMultibodyPlantSceneGraph(builder2, time_step=0.0)
+        self.vis2 = MeshcatVisualizerCpp.AddToBuilder(builder2, scene_graph2, self.meshcat2)
 
         self.plant = plant
 
@@ -55,11 +52,10 @@ class IrisPlantVisualizer:
         self.s_upper_limits = viz_utils.stretch_array_to_3d(self.s_upper_limits)
 
         self.viz_role = kwargs.get('viz_role', Role.kIllustration)
-        self.meshcat1 = ConnectMeshcatVisualizer(self.builder, scene_graph, zmq_url=zmq_url,
-                                              delete_prefix_on_load=False, role=self.viz_role)
 
         self.diagram = self.builder.Build()
-        self.meshcat1.load()
+        builder2.Build()
+        # self.meshcat1.load()
         self.diagram_context = self.diagram.CreateDefaultContext()
         self.plant_context = plant.GetMyContextFromRoot(self.diagram_context)
         self.diagram.Publish(self.diagram_context)
@@ -174,7 +170,11 @@ class IrisPlantVisualizer:
         display(self.vis2.jupyter_cell())
 
     def eval_cons(self, q, c, tol):
-        return 1 - 1 * float(c.evaluator().CheckSatisfied(q, tol))
+        if np.all(q >= self.q_lower_limits[:self.num_joints]) and \
+                np.all(q <= self.q_upper_limits[:self.num_joints]):
+            return 1 - 1 * float(c.evaluator().CheckSatisfied(q, tol))
+        else:
+            return 1
 
     def eval_cons_rational(self, *s):
         s = np.array(s[:self.num_joints])
@@ -190,35 +190,134 @@ class IrisPlantVisualizer:
         vertices, triangles = mcubes.marching_cubes_func(tuple(factor*self.s_lower_limits),
                                                          tuple(factor*self.s_upper_limits),
                                                          N, N, N, self.col_func_handle_rational, iso_surface)
-        self.vis2["collision_constraint"].set_object(
-            meshcat.geometry.TriangularMeshGeometry(vertices, triangles),
-            meshcat.geometry.MeshLambertMaterial(color=0xff0000, wireframe=wireframe))
+        tri_drake = [SurfaceTriangle(*t) for t in triangles]
+        self.meshcat2.SetObject("/collision_constraint",
+                                      TriangleSurfaceMesh(tri_drake, vertices),
+                                      Rgba(1, 0, 0, 1), wireframe=wireframe)
 
-    def plot_regions(self, regions, ellipses = None, region_suffix = '', randomize_colors = False, wireframe = True):
-        viz_utils.plot_regions(self.vis2, regions, ellipses, region_suffix, randomize_colors, wireframe = wireframe)
+    def plot_surface(self, meshcat,
+                     path,
+                     X,
+                     Y,
+                     Z,
+                     rgba=Rgba(.87, .6, .6, 1.0),
+                     wireframe=False,
+                     wireframe_line_width=1.0):
+        # taken from https://github.com/RussTedrake/manipulation/blob/346038d7fb3b18d439a88be6ed731c6bf19b43de/manipulation/meshcat_cpp_utils.py#L415
+        (rows, cols) = Z.shape
+        assert (np.array_equal(X.shape, Y.shape))
+        assert (np.array_equal(X.shape, Z.shape))
+
+        vertices = np.empty((rows * cols, 3), dtype=np.float32)
+        vertices[:, 0] = X.reshape((-1))
+        vertices[:, 1] = Y.reshape((-1))
+        vertices[:, 2] = Z.reshape((-1))
+
+        # Vectorized faces code from https://stackoverflow.com/questions/44934631/making-grid-triangular-mesh-quickly-with-numpy  # noqa
+        faces = np.empty((rows - 1, cols - 1, 2, 3), dtype=np.uint32)
+        r = np.arange(rows * cols).reshape(rows, cols)
+        faces[:, :, 0, 0] = r[:-1, :-1]
+        faces[:, :, 1, 0] = r[:-1, 1:]
+        faces[:, :, 0, 1] = r[:-1, 1:]
+        faces[:, :, 1, 1] = r[1:, 1:]
+        faces[:, :, :, 2] = r[1:, :-1, None]
+        faces.shape = (-1, 3)
+
+        # TODO(Russ): support per vertex / Colormap colors.
+        meshcat.SetTriangleMesh(path, vertices.T, faces.T, rgba, wireframe,
+                                wireframe_line_width)
+
+    def visualize_collision_constraint2d(self, factor=2, num_points=20):
+        s0 = np.linspace(factor * self.s_lower_limits[0], factor * self.s_upper_limits[0], num_points)
+        s1 = np.linspace(factor * self.s_lower_limits[0], factor * self.s_upper_limits[0], num_points)
+        X, Y = np.meshgrid(s0, s1)
+        Z = np.zeros_like(X)
+        for i in range(num_points):
+            for j in range(num_points):
+                Z[i, j] = self.eval_cons_rational(X[i, j], Y[i, j])
+                if Z[i, j] == 0:
+                    Z[i, j] = np.nan
+        Z = Z-1
+        self.plot_surface(self.meshcat2, "/collision_constraint", X, Y, Z, Rgba(1,0,0,1))
+        return Z
+
+    def plot_regions(self, regions, ellipses = None,
+                     region_suffix = '', randomize_colors = False,
+                     wireframe = True,
+                     opacity = 0.7):
+        if randomize_colors:
+            colors = viz_utils.n_colors_random(len(regions), rgbs_ret=True)
+        else:
+            colors = viz_utils.n_colors(len(regions), rgbs_ret=True)
+        for i, region in enumerate(regions):
+            c = Rgba(*[col/255 for col in colors[i]],opacity)
+            verts, triangles = self.get_plot_poly_mesh(region=region,
+                         resolution=30)
+            name = f"/iris/regions{region_suffix}/{i}"
+            self.meshcat2.SetObject(name,
+                                    TriangleSurfaceMesh(triangles, verts),
+                                    c, wireframe=wireframe)
+            # if ellipses is not None:
+            #     C = ellipses[i].A()  # [:, (0,2,1)]
+            #     d = ellipses[i].center()  # [[0,2,1]]
+            #     radii, R = np.linalg.eig(C.T @ C)
+            #     R[:, 0] = R[:, 0] * np.linalg.det(R)
+            #     Rot = RotationMatrix(R)
+            #
+            #     transf = RigidTransform(Rot, d)
+            #     mat = meshcat.geometry.MeshLambertMaterial(color=rgb_to_hex(c), wireframe=wireframe)
+            #     mat.opacity = 0.15
+            #     vis['iris']['ellipses' + region_suffix][str(i)].set_object(
+            #         meshcat.geometry.Ellipsoid(np.divide(1, np.sqrt(radii))),
+            #         mat)
+            #
+            #     vis['iris']['ellipses' + region_suffix][str(i)].set_transform(transf.GetAsMatrix4())
 
     def plot_seedpoints(self, seed_points):
         for i in range(seed_points.shape[0]):
-            self.vis2['iris']['seedpoints']["seedpoint"+str(i)].set_object(
-                        meshcat.geometry.Sphere(0.05), meshcat.geometry.MeshLambertMaterial(color=0x0FB900))
-            self.vis2['iris']['seedpoints']["seedpoint"+str(i)].set_transform(
-                    meshcat.transformations.translation_matrix(viz_utils.stretch_array_to_3d(seed_points[i,:])))
+            self.meshcat2.SetObject(f"/iris/seedpoints/seedpoint{i}",
+                                   Sphere(0.05),
+                                   Rgba(0.06, 0.72, 0, 1))
+            s = np.zeros(3)
+            s[:len(seed_points[i])] = seed_points[i]
+            self.meshcat2.SetTransform(f"/iris/seedpoints/seedpoint{i}",
+                                       RigidTransform(RotationMatrix(),
+                                                      s))
+
+    def get_plot_poly_mesh(self, region, resolution):
+
+        def inpolycheck(q0, q1, q2, A, b):
+            q = np.array([q0, q1, q2])
+            res = np.min(1.0 * (A @ q - b <= 0))
+            # print(res)
+            return res
+
+        aabb_max, aabb_min = viz_utils.get_AABB_limits(region)
+
+        col_hand = partial(inpolycheck, A=region.A(), b=region.b())
+        vertices, triangles = mcubes.marching_cubes_func(tuple(aabb_min),
+                                                         tuple(aabb_max),
+                                                         resolution,
+                                                         resolution,
+                                                         resolution,
+                                                         col_hand,
+                                                         0.5)
+        tri_drake = [SurfaceTriangle(*t) for t in triangles]
+        return vertices, tri_drake
 
     def showres(self,q):
         self.plant.SetPositions(self.plant_context, q)
         col = self.col_func_handle(q)
         s = self.forward_kin.ComputeTValue(np.array(q), self.q_star)
         s = viz_utils.stretch_array_to_3d(s)
-        if col:
-            self.vis2["s"].set_object(
-                meshcat.geometry.Sphere(0.1), meshcat.geometry.MeshLambertMaterial(color=0xFFB900))
-            self.vis2["s"].set_transform(
-                meshcat.transformations.translation_matrix(s))
-        else:
-            self.vis2["s"].set_object(
-                meshcat.geometry.Sphere(0.1), meshcat.geometry.MeshLambertMaterial(color=0x3EFF00))
-            self.vis2["s"].set_transform(
-                meshcat.transformations.translation_matrix(s))
+        color = Rgba(1, 0.72, 0, 1) if col else Rgba(0.24, 1, 0, 1)
+        self.meshcat2.SetObject(f"/s",
+                                Sphere(0.1),
+                                color)
+        self.meshcat2.SetTransform(f"/s",
+                                       RigidTransform(RotationMatrix(),
+                                                      s))
+
         self.diagram.Publish(self.diagram_context)
 
     def showres_s(self, s):

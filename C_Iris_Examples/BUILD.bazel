@@ -48,6 +48,17 @@ drake_py_library(
     ],
 )
 
+drake_py_library(
+    name = "iris_plant_visualizer2",
+    srcs = [
+        "iris_plant_visualizer2.py",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//bindings/pydrake",
+    ],
+)
+
 ##########################################################
 # NOTEBOOKS
 ##########################################################
@@ -60,6 +71,7 @@ drake_jupyter_py_binary(
     ],
     deps = [
         "//C_Iris_Examples:iris_plant_visualizer",
+        "//C_Iris_Examples:iris_plant_visualizer2",
         "//C_Iris_Examples:visualizations_utils",
         "//bindings/pydrake",
     ],
