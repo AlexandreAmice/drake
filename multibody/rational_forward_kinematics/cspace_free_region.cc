@@ -2225,6 +2225,60 @@ double FindEpsilonLower(
   return result.get_optimal_cost();
 }
 
+
+Eigen::VectorXd FindEpsilonLowerVector(
+    const Eigen::Ref<const Eigen::MatrixXd>& C,
+    const Eigen::Ref<const Eigen::VectorXd>& d,
+    const Eigen::Ref<const Eigen::VectorXd>& t_lower,
+    const Eigen::Ref<const Eigen::VectorXd>& t_upper,
+    const Eigen::MatrixXd& t_inner_pts,
+    const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
+        inner_polytope) {
+  solvers::MathematicalProgram prog{};
+  const int nt = t_lower.rows();
+  DRAKE_DEMAND(t_upper.rows() == nt);
+  DRAKE_DEMAND(C.cols() == nt);
+  const auto t = prog.NewContinuousVariables(nt, "t");
+  const auto epsilon = prog.NewContinuousVariables(C.rows(), "epsilon");
+  // Add the constraint C*t<=d+epsilon and t_lower <= t <= t_upper.
+  Eigen::MatrixXd A(C.rows(), nt + C.rows());
+  A.leftCols(nt) = C;
+  A.rightCols(C.rows()) = -Eigen::MatrixXd::Identity(C.rows(), C.rows());
+  prog.AddLinearConstraint(A, Eigen::VectorXd::Constant(C.rows(), -kInf), d,
+                           {t, epsilon});
+  prog.AddBoundingBoxConstraint(t_lower, t_upper, t);
+
+  // epsilon >= C *t_inner_pts - d
+  const Eigen::VectorXd eps_min = (C * t_inner_pts).colwise() - d -
+                                  Eigen::VectorXd::Constant(d.rows(), 1E-8);
+  prog.AddBoundingBoxConstraint(
+      eps_min, kInf * Eigen::VectorXd::Ones(epsilon.rows()), epsilon);
+
+  if (inner_polytope.has_value()) {
+    // This is not the most efficient way to add the constraint that
+    // C*t<=d+epsilon contains the inner_polytope.
+    const auto C_var = prog.NewContinuousVariables(C.rows(), C.cols());
+    prog.AddBoundingBoxConstraint(
+        Eigen::Map<const Eigen::VectorXd>(C.data(), C.rows() * C.cols()),
+        Eigen::Map<const Eigen::VectorXd>(C.data(), C.rows() * C.cols()),
+        Eigen::Map<const VectorX<symbolic::Variable>>(C_var.data(),
+                                                      C.rows() * C.cols()));
+    // d_var = d+epsilon
+    const auto d_var = prog.NewContinuousVariables(d.rows());
+    Eigen::MatrixXd coeff(d.rows(), 2 * d.rows());
+    coeff << Eigen::MatrixXd::Identity(d.rows(), d.rows()),
+        Eigen::MatrixXd::Identity(d.rows(), d.rows());
+    prog.AddLinearEqualityConstraint(coeff, d, {d_var, epsilon});
+    AddCspacePolytopeContainment(&prog, C_var, d_var, inner_polytope->first,
+                                 inner_polytope->second, t_lower, t_upper);
+  }
+  // minimize epsilon.
+  prog.AddLinearCost(Eigen::MatrixXd::Ones(epsilon.rows(), 1), 0, epsilon);
+  const auto result = solvers::Solve(prog);
+  DRAKE_DEMAND(result.is_success());
+  return result.GetSolution(epsilon);
+}
+
 void GetCspacePolytope(const Eigen::Ref<const Eigen::MatrixXd>& C,
                        const Eigen::Ref<const Eigen::VectorXd>& d,
                        const Eigen::Ref<const Eigen::VectorXd>& t_lower,

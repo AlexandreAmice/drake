@@ -544,7 +544,11 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
       .def("FindEpsilonLower", &FindEpsilonLower, py::arg("C"), py::arg("d"),
           py::arg("t_lower"), py::arg("t_upper"),
           py::arg("t_inner_pts") = std::nullopt,
-          py::arg("inner_polytope") = std::nullopt, doc.FindEpsilonLower.doc);
+          py::arg("inner_polytope") = std::nullopt, doc.FindEpsilonLower.doc)
+     .def("FindEpsilonLowerVector", &FindEpsilonLowerVector, py::arg("C"), py::arg("d"),
+          py::arg("t_lower"), py::arg("t_upper"),
+          py::arg("t_inner_pts"),
+          py::arg("inner_polytope") = std::nullopt, doc.FindEpsilonLowerVector.doc);
 
   m.def("CalcCspacePolytopeVolume", &CalcCspacePolytopeVolume, py::arg("C"),
       py::arg("d"), py::arg("t_lower"), py::arg("t_upper"),

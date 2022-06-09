@@ -800,6 +800,15 @@ double FindEpsilonLower(
     const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
         inner_polytope);
 
+Eigen::VectorXd FindEpsilonLowerVector(
+    const Eigen::Ref<const Eigen::MatrixXd>& C,
+    const Eigen::Ref<const Eigen::VectorXd>& d,
+    const Eigen::Ref<const Eigen::VectorXd>& t_lower,
+    const Eigen::Ref<const Eigen::VectorXd>& t_upper,
+    const Eigen::MatrixXd& t_inner_pts,
+    const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
+        inner_polytope);
+
 /**
  * Concatenate the polytope C*t<=d, t_lower <= t <= t_upper as C_bar * t <=
  * d_bar, where C_bar = [C; I; -I], d_bar = [d;t_upper;-t_lower].
