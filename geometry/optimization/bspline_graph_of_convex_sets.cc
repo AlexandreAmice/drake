@@ -532,9 +532,7 @@ BsplineTrajectoryThroughUnionOfHPolyhedra::Solve(bool use_rounding) const {
   drake::log()->debug("Cost: {}, Solver ID: {}", result.get_optimal_cost(),
                      result.get_solver_id());
 
-  if (!result.is_success()) {
-    std::cout << "SOLVER FAILED" << std::endl;
-    return std::nullopt;}
+  if (!result.is_success()) return std::nullopt;
 
   // Identify the active path through the graph.
   std::vector<GraphOfConvexSets::Edge*> active_edges;
