@@ -1817,7 +1817,8 @@ void CspaceFreeRegion::CspacePolytopeBinarySearch(
   double eps_max = binary_search_option.epsilon_max;
   double eps_min = binary_search_option.epsilon_min;
   int iter_count = 0;
-  while (iter_count < binary_search_option.max_iters) {
+  while (iter_count < binary_search_option.max_iters &&
+        eps_max - eps_min > binary_search_option.gap_tol) {
     const double eps = (eps_max + eps_min) / 2;
     const Eigen::VectorXd d =
         d_without_epsilon +

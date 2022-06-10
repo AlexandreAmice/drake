@@ -559,6 +559,9 @@ class CspaceFreeRegion {
     // The objective function used in maximizing the volume of the inscribed
     // ellipsoid.
     EllipsoidVolume ellipsoid_volume{EllipsoidVolume::kNthRoot};
+
+    // tolerance to exit binary search
+    double gap_tol{1e-8};
   };
 
   /**

@@ -277,7 +277,10 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
           doc.CspaceFreeRegion.BinarySearchOption.verbose.doc)
       .def_readwrite("num_threads",
           &CspaceFreeRegion::BinarySearchOption::num_threads,
-          doc.CspaceFreeRegion.BinarySearchOption.num_threads.doc);
+          doc.CspaceFreeRegion.BinarySearchOption.num_threads.doc)
+      .def_readwrite("gap_tol",
+          &CspaceFreeRegion::BinarySearchOption::gap_tol,
+          doc.CspaceFreeRegion.BinarySearchOption.gap_tol.doc);
 
   // CspaceFreeRegionSolution
   py::class_<CspaceFreeRegionSolution>(
