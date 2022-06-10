@@ -580,6 +580,43 @@ void DefineGeometryOptimization(py::module m) {
         .def("AddObstacle", &FindInscribedBox::AddObstacle,
             doc.FindInscribedBox.AddObstacle.doc);
   }
+  {
+    const auto& cls_doc = doc.BsplineTrajectoryThroughUnionOfHPolyhedra;
+    using Class = BsplineTrajectoryThroughUnionOfHPolyhedra;
+    py::class_<Class>(
+        m, "BsplineTrajectoryThroughUnionOfHPolyhedra", cls_doc.doc)
+        .def(py::init<const Eigen::Ref<const Eigen::VectorXd>&,
+                 const Eigen::Ref<const Eigen::VectorXd>&,
+                 const std::vector<HPolyhedron>&>(),
+            py::arg("source"), py::arg("target"), py::arg("regions"),
+            cls_doc.ctor.doc)
+        .def("Solve", &Class::Solve, py::arg("use_rounding") = false,
+            cls_doc.Solve.doc)
+        .def("SolveVerbose", &Class::SolveVerbose, py::arg("use_rounding") = false,
+            cls_doc.Solve.doc)
+        .def("order", &Class::order, cls_doc.order.doc)
+        .def("max_repetitions", &Class::max_repetitions,
+            cls_doc.max_repetitions.doc)
+        .def("set_order", &Class::set_order, py::arg("order"),
+            cls_doc.set_order.doc)
+        .def("set_max_repetitions", &Class::set_max_repetitions,
+            py::arg("max_repetitions"), cls_doc.set_max_repetitions.doc)
+        .def("set_extra_control_points_per_region",
+            &Class::set_extra_control_points_per_region,
+            py::arg("extra_control_points_per_region"),
+            cls_doc.set_extra_control_points_per_region.doc)
+        .def("set_max_velocity", &Class::set_max_velocity,
+            py::arg("max_velocity"), cls_doc.set_max_velocity.doc)
+        .def("ambient_dimension", &Class::ambient_dimension,
+            cls_doc.ambient_dimension.doc)
+        .def("num_regions", &Class::num_regions, cls_doc.num_regions.doc)
+        .def("extra_control_points_per_region",
+            &Class::extra_control_points_per_region,
+            cls_doc.extra_control_points_per_region.doc)
+        .def("source", &Class::source, cls_doc.source.doc)
+        .def("target", &Class::target, cls_doc.target.doc)
+        .def("max_velocity", &Class::max_velocity, cls_doc.max_velocity.doc);
+  }
 }
 
 }  // namespace pydrake
