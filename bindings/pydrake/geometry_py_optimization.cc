@@ -16,6 +16,8 @@
 #include "drake/geometry/optimization/point.h"
 #include "drake/geometry/optimization/polytope_cover.h"
 #include "drake/geometry/optimization/vpolytope.h"
+#include "drake/geometry/optimization/bspline_graph_of_convex_sets.h"
+
 
 namespace drake {
 namespace pydrake {
