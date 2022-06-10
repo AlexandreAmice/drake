@@ -521,8 +521,9 @@ class CspaceFreeRegion {
    * solution of the bilinear alternation.
    * @param[out] ellipsoid_determinants The determinant P of the inscribed
    * ellipsoid {P*y+q| |y|<=1} during each solution of the bilinear alternation.
+   * @return True if runs without problem. False if solver issues encountered
    */
-  void CspacePolytopeBilinearAlternation(
+  bool CspacePolytopeBilinearAlternation(
       const Eigen::Ref<const Eigen::VectorXd>& q_star,
       const FilteredCollisionPairs& filtered_collision_pairs,
       const Eigen::Ref<const Eigen::MatrixXd>& C_init,

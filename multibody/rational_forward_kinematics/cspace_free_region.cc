@@ -1445,7 +1445,7 @@ std::vector<SeparatingPlane<double>> GetSeparatingPlanesSolution(
 }
 }  // namespace internal
 
-void CspaceFreeRegion::CspacePolytopeBilinearAlternation(
+bool CspaceFreeRegion::CspacePolytopeBilinearAlternation(
     const Eigen::Ref<const Eigen::VectorXd>& q_star,
     const CspaceFreeRegion::FilteredCollisionPairs& filtered_collision_pairs,
     const Eigen::Ref<const Eigen::MatrixXd>& C_init,
@@ -1543,7 +1543,7 @@ void CspaceFreeRegion::CspacePolytopeBilinearAlternation(
                 .count()) /
             1000));
     if (!find_lagrangian) {
-      return;
+      return false;
     }
     // Now construct a program that finds the maximal inner ellipsoid in C*t<=d,
     // t_lower<=t<=t_upper. This program can be solved independently from
@@ -1616,7 +1616,7 @@ void CspaceFreeRegion::CspacePolytopeBilinearAlternation(
 
       drake::log()->warn(fmt::format(
           "Failed to find the polytope at iteration {}", iter_count));
-      return;
+      return false;
     }
 
     if (bilinear_alternation_option.verbose) {
@@ -1664,6 +1664,7 @@ void CspaceFreeRegion::CspacePolytopeBilinearAlternation(
       bilinear_alternation_option.ellipsoid_volume, solver_options,
       bilinear_alternation_option.verbose, &(cspace_free_region_solution->P),
       &(cspace_free_region_solution->q), &ellipsoid_cost_val);
+  return true;
 }
 
 void CspaceFreeRegion::CspacePolytopeBinarySearch(

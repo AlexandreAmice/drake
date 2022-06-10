@@ -3,13 +3,15 @@ import scipy
 from pydrake.all import (ConnectMeshcatVisualizer, HPolyhedron,
                          VPolytope, Sphere, Ellipsoid, InverseKinematics,
                          RationalForwardKinematics, GeometrySet, Role,
-                         RigidTransform, RotationMatrix)
+                         RigidTransform, RotationMatrix,
+                         Hyperellipsoid)
 from functools import partial
 import mcubes
 import C_Iris_Examples.visualizations_utils as viz_utils
 import pydrake.symbolic as sym
 from IPython.display import display
-from scipy.spatial import Delaunay
+from scipy.spatial import Delaunay, ConvexHull
+from scipy.linalg import block_diag
 
 from pydrake.all import MeshcatVisualizerCpp, StartMeshcat, MeshcatVisualizer, DiagramBuilder, \
     AddMultibodyPlantSceneGraph, TriangleSurfaceMesh, Rgba, SurfaceTriangle, Sphere
@@ -242,36 +244,36 @@ class IrisPlantVisualizer:
         return Z
 
     def plot_regions(self, regions, ellipses = None,
-                     region_suffix = '', randomize_colors = False,
+                     region_suffix = '', colors = None,
                      wireframe = True,
-                     opacity = 0.7):
-        if randomize_colors:
+                     opacity = 0.7,
+                     fill = True,
+                     line_width = 10,
+                     darken_factor = .2,
+                     el_opacity = 0.3):
+        if colors is None:
             colors = viz_utils.n_colors_random(len(regions), rgbs_ret=True)
-        else:
-            colors = viz_utils.n_colors(len(regions), rgbs_ret=True)
+
         for i, region in enumerate(regions):
             c = Rgba(*[col/255 for col in colors[i]],opacity)
-            verts, triangles = self.get_plot_poly_mesh(region=region,
-                         resolution=30)
-            name = f"/iris/regions{region_suffix}/{i}"
-            self.meshcat2.SetObject(name,
-                                    TriangleSurfaceMesh(triangles, verts),
-                                    c, wireframe=wireframe)
-            # if ellipses is not None:
-            #     C = ellipses[i].A()  # [:, (0,2,1)]
-            #     d = ellipses[i].center()  # [[0,2,1]]
-            #     radii, R = np.linalg.eig(C.T @ C)
-            #     R[:, 0] = R[:, 0] * np.linalg.det(R)
-            #     Rot = RotationMatrix(R)
-            #
-            #     transf = RigidTransform(Rot, d)
-            #     mat = meshcat.geometry.MeshLambertMaterial(color=rgb_to_hex(c), wireframe=wireframe)
-            #     mat.opacity = 0.15
-            #     vis['iris']['ellipses' + region_suffix][str(i)].set_object(
-            #         meshcat.geometry.Ellipsoid(np.divide(1, np.sqrt(radii))),
-            #         mat)
-            #
-            #     vis['iris']['ellipses' + region_suffix][str(i)].set_transform(transf.GetAsMatrix4())
+            prefix = f"/iris/regions{region_suffix}/{i}"
+            name = prefix + "/hpoly"
+            if region.ambient_dimension() == 3:
+                self.plot_hpoly3d(self.meshcat2, name, region,
+                                  c, wireframe = wireframe, resolution = 30)
+            elif region.ambient_dimension() == 2:
+                self.plot_hpoly2d(self.meshcat2, name,
+                                  region, *[col/255 for col in colors[i]],
+                                  a=opacity,
+                             line_width=line_width,
+                             fill=fill)
+
+            if ellipses is not None:
+                name = prefix + "/ellipse"
+                c = Rgba(*[col/255*(1-darken_factor) for col in colors[i]],el_opacity)
+                self.plot_ellipse(self.meshcat2, name,
+                                  ellipses[i], c)
+
 
     def plot_seedpoints(self, seed_points):
         for i in range(seed_points.shape[0]):
@@ -304,6 +306,43 @@ class IrisPlantVisualizer:
                                                          0.5)
         tri_drake = [SurfaceTriangle(*t) for t in triangles]
         return vertices, tri_drake
+
+    def plot_hpoly3d(self, meshcat, name, hpoly, color, wireframe = True, resolution = 30):
+        verts, triangles = self.get_plot_poly_mesh(hpoly,
+                                                   resolution=resolution)
+        meshcat.SetObject(name, TriangleSurfaceMesh(triangles, verts),
+                                color, wireframe=wireframe)
+
+    def plot_hpoly2d(self, meshcat, name, hpoly, r = 0., g = 0., b = 1., a = 0.,
+                     line_width = 8,
+                     fill = False):
+        # plot boundary
+        vpoly = VPolytope(hpoly)
+        verts = vpoly.vertices()
+        hull = ConvexHull(verts.T)
+        inds = np.append(hull.vertices, hull.vertices[0])
+        hull_drake = verts.T[inds, :].T
+        hull_drake3d = np.vstack([hull_drake, np.zeros(hull_drake.shape[1])])
+        meshcat.SetLine(name, hull_drake3d,
+                        line_width=line_width, rgba=Rgba(r, g, b, 1))
+        if fill:
+            width = 0.5
+            C = block_diag(hpoly.A(), np.array([-1, 1])[:, np.newaxis])
+            d = np.append(hpoly.b(), width * np.ones(2))
+            hpoly_3d = HPolyhedron(C,d)
+            self.plot_hpoly3d(meshcat, name+"/fill",
+                              hpoly_3d, Rgba(r, g, b, a),
+                              wireframe=False)
+
+    def plot_ellipse(self,  meshcat, name, ellipse, color):
+        if ellipse.A().shape[0] == 2:
+            ellipse = Hyperellipsoid(block_diag(ellipse.A(), 1),
+                                     np.append(ellipse.center(), 0))
+        shape, pose = ellipse.ToShapeWithPose()
+
+        meshcat.SetObject(name, shape, color)
+        meshcat.SetTransform(name, pose)
+
 
     def showres(self,q):
         self.plant.SetPositions(self.plant_context, q)
