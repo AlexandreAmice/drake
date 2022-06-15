@@ -1,0 +1,1065 @@
+21 2
+1 0 
+0 1 
+-1 -0 
+-0 -1 
+-0.823146105 -0.56782963 
+-0.568354707 -0.822783645 
+-0.763468639 -0.645844901 
+-0.642987903 -0.765876333 
+-0.827190401 -0.561921739 
+-0.561265721 -0.827635663 
+-0.868913415 -0.494964117 
+-0.498987433 -0.866609221 
+-0.448131368 -0.893967716 
+-0.919475533 -0.39314723 
+5.76292638e-15 1 
+1.21603289e-06 1 
+-1.77642876e-09 1 
+1.3095338e-14 1 
+1 8.34965504e-12 
+1 -4.87878992e-08 
+1 -1.16893115e-16 
+
+1.13832271 1.13832271 1.13832271 1.13832271 0.0856514377 0.0856085206 0.082314993 0.0832743655 0.0836618963 0.083716996 0.0818546081 0.0814258836 0.0882102031 0.0954800358 0.609966841 0.334074221 0.30464934 0.298450834 0.435481036 0.390182114 0.377758713 
+130
+kAffine
+box1
+box_scene::Box1
+iiwa_oneDOF_link_2
+right_sweeper::iiwa_oneDOF_link_2_collision
+iiwa_oneDOF_link_2
+12
+26092.3467 -1000.87203 -170821.201 -1962.85752 -5903.18736 -13140.5268 129348.042 3488.95992 -3059.70629 -33662.9409 11403.6483 -66813.6207 
+kAffine
+box1
+box_scene::Box1
+iiwa_oneDOF_link_3
+right_sweeper::iiwa_oneDOF_link_3_collision
+iiwa_oneDOF_link_2
+12
+31185.6678 -1545.2255 -167230.456 -8445.1077 -5725.03195 -14785.4821 123329.801 8473.49768 -3518.57963 -6697.65956 11478.5325 -67652.9571 
+kAffine
+box1
+box_scene::Box1
+iiwa_oneDOF_link_4
+right_sweeper::iiwa_oneDOF_link_4_collision
+iiwa_oneDOF_link_2
+12
+34474.0582 -2075.02564 -165019.509 -12930.8481 6977.43625 19192.4601 120580.526 11552.437 4517.05528 10298.2613 12235.6323 -68158.6197 
+kAffine
+box1
+box_scene::Box1
+iiwa_oneDOF_link_5
+right_sweeper::iiwa_oneDOF_link_5_collision
+iiwa_oneDOF_link_2
+12
+38972.3483 -3193.70736 -160303.61 -18169.9249 4221.25123 12452.9876 118039.671 15220.4388 2754.8817 32257.4573 13401.8287 -69313.1022 
+kAffine
+box1
+box_scene::Box1
+iiwa_oneDOF_link_6
+right_sweeper::iiwa_oneDOF_link_6_collision
+iiwa_oneDOF_link_2
+12
+40258.8168 -3889.31182 -158302.146 -20464.6222 0.736555004 0.0780322861 117471.693 16847.6854 0.242731185 42830.7889 14760.1647 -69644.3178 
+kAffine
+box1
+box_scene::Box1
+iiwa_oneDOF_link_7
+right_sweeper::iiwa_oneDOF_link_7_collision
+iiwa_oneDOF_link_2
+12
+40779.1988 -4516.52111 -155768.138 -22072.9603 0.680379584 0.0690935154 117212.075 18123.1163 0.244462842 51853.6329 16212.5016 -69707.9149 
+kAffine
+box1
+box_scene::Box1
+iiwa_oneDOF_link_2
+left_sweeper::iiwa_oneDOF_link_2_collision
+iiwa_oneDOF_link_2
+12
+437.008986 82976.3854 -1905.70906 226953.928 -11171.35 -10671.6853 -170260.417 37944.0082 -2472.93034 7957.17854 -28541.5435 -62996.7582 
+kAffine
+box1
+box_scene::Box1
+iiwa_oneDOF_link_3
+left_sweeper::iiwa_oneDOF_link_3_collision
+iiwa_oneDOF_link_2
+12
+973.740165 85129.3371 -5842.72274 226431.3 -7931.42257 -10664.9152 -185333.568 44162.0363 -2239.51722 6452.81356 -59552.1312 -70546.8458 
+kAffine
+box1
+box_scene::Box1
+iiwa_oneDOF_link_4
+left_sweeper::iiwa_oneDOF_link_4_collision
+iiwa_oneDOF_link_2
+12
+1623.58787 86711.8112 -6748.51096 227874.71 6860.23113 12791.1949 -197710.249 48928.8655 1906.73247 5910.94828 -79739.0891 -76348.9171 
+kAffine
+box1
+box_scene::Box1
+iiwa_oneDOF_link_5
+left_sweeper::iiwa_oneDOF_link_5_collision
+iiwa_oneDOF_link_2
+12
+2094.77015 91758.7493 -2661.34231 235817.205 481.945086 5437.35305 -218649.867 55118.8749 -294.075801 2551.68585 -110503.356 -88348.1983 
+kAffine
+box1
+box_scene::Box1
+iiwa_oneDOF_link_6
+left_sweeper::iiwa_oneDOF_link_6_collision
+iiwa_oneDOF_link_2
+12
+803.990924 95842.2295 -605.718676 243639.42 0.00268490731 -0.535693154 -234983.775 62423.3658 -0.784831095 558.518194 -130339.401 -95709.5749 
+kAffine
+box1
+box_scene::Box1
+iiwa_oneDOF_link_7
+left_sweeper::iiwa_oneDOF_link_7_collision
+iiwa_oneDOF_link_2
+12
+19.6060005 105421.169 -13.6013508 261832.178 0.000101958078 -0.682017511 -271381.982 79032.3217 -1.01043881 13.0523264 -163108.389 -109030.91 
+kAffine
+box2
+box_scene::Box1
+iiwa_oneDOF_link_2
+right_sweeper::iiwa_oneDOF_link_2_collision
+iiwa_oneDOF_link_2
+12
+-398762.155 182.07357 33061.6389 31.2619632 -3828.16239 -6002.97389 -6361.94585 -221063.04 -2589.36669 -16206.2807 4430.5691 -43692.0313 
+kAffine
+box2
+box_scene::Box1
+iiwa_oneDOF_link_3
+right_sweeper::iiwa_oneDOF_link_3_collision
+iiwa_oneDOF_link_2
+12
+-290857.057 -1260.28663 3442.27699 -17583.7723 -8275.72202 -12366.0226 -16929.8156 -187278.573 -2739.08677 -28498.8832 10876.0655 -13933.6983 
+kAffine
+box2
+box_scene::Box1
+iiwa_oneDOF_link_4
+right_sweeper::iiwa_oneDOF_link_4_collision
+iiwa_oneDOF_link_2
+12
+-232260.852 -753.947817 -12058.5042 -31600.4388 14060.0731 19904.0873 -20598.7043 -167961.072 3296.59094 -27459.0208 16797.7166 3411.44251 
+kAffine
+box2
+box_scene::Box1
+iiwa_oneDOF_link_5
+right_sweeper::iiwa_oneDOF_link_5_collision
+iiwa_oneDOF_link_2
+12
+-179405.068 282.897345 -35175.3584 -46887.2931 11780.9726 14767.4369 -17577.8927 -141778.094 1997.87044 -10775.7494 24408.3541 17226.8864 
+kAffine
+box2
+box_scene::Box1
+iiwa_oneDOF_link_6
+right_sweeper::iiwa_oneDOF_link_6_collision
+iiwa_oneDOF_link_2
+12
+-156519.254 855.300035 -49245.6125 -53926.7671 -0.217785783 0.213809584 -13851.1458 -129965.86 0.460903509 3177.56618 29818.369 23560.8176 
+kAffine
+box2
+box_scene::Box1
+iiwa_oneDOF_link_7
+right_sweeper::iiwa_oneDOF_link_7_collision
+iiwa_oneDOF_link_2
+12
+-139971.572 1130.59944 -60557.6007 -58969.0435 -0.148986645 0.219605537 -9835.14905 -120279.789 0.415713884 16420.1166 34717.27 27815.3443 
+kAffine
+box2
+box_scene::Box1
+iiwa_oneDOF_link_2
+left_sweeper::iiwa_oneDOF_link_2_collision
+iiwa_oneDOF_link_2
+12
+-314.323874 116155.839 -1194.15958 -39987.3014 -21362.2264 -10202.9823 35175.2022 106675.205 994.277965 17311.341 -38569.3286 -106754.057 
+kAffine
+box2
+box_scene::Box1
+iiwa_oneDOF_link_3
+left_sweeper::iiwa_oneDOF_link_3_collision
+iiwa_oneDOF_link_2
+12
+-516.095116 133478.5 -5340.95796 -38510.4643 -21551.5271 -10305.9576 31798.2678 120602.158 371.513229 16941.3027 -31340.4763 -132226.291 
+kAffine
+box2
+box_scene::Box1
+iiwa_oneDOF_link_4
+left_sweeper::iiwa_oneDOF_link_4_collision
+iiwa_oneDOF_link_2
+12
+-708.253666 147870.714 -7954.54627 -37978.5409 26333.9006 12802.4729 29924.0312 131980.76 112.571032 16885.7476 -26886.8645 -152382.483 
+kAffine
+box2
+box_scene::Box1
+iiwa_oneDOF_link_5
+left_sweeper::iiwa_oneDOF_link_5_collision
+iiwa_oneDOF_link_2
+12
+-1171.88575 175481.893 -11213.7661 -36417.7904 16262.1427 8655.66539 26443.6128 152001.321 786.772975 16692.5427 -18975.9233 -189827.61 
+kAffine
+box2
+box_scene::Box1
+iiwa_oneDOF_link_6
+left_sweeper::iiwa_oneDOF_link_6_collision
+iiwa_oneDOF_link_2
+12
+-1432.82062 191180.988 -12668.6826 -37008.0596 0.0415451656 0.635041454 25721.3403 163843.939 -0.553585225 16893.7907 -16368.1402 -210074.954 
+kAffine
+box2
+box_scene::Box1
+iiwa_oneDOF_link_7
+left_sweeper::iiwa_oneDOF_link_7_collision
+iiwa_oneDOF_link_2
+12
+-1686.59416 208422.365 -13868.5236 -37814.3785 0.0464664008 0.691967428 25097.8514 176486.935 -0.581673308 17292.4947 -13699.9741 -231734.963 
+kAffine
+box3
+box_scene::Box1
+iiwa_oneDOF_link_2
+right_sweeper::iiwa_oneDOF_link_2_collision
+iiwa_oneDOF_link_2
+12
+97442.638 262.506516 194797.282 -1769.06128 -12217.2373 -12053.7446 -161064.427 49836.5055 -2693.98146 -35095.8217 8597.81533 -66642.8481 
+kAffine
+box3
+box_scene::Box1
+iiwa_oneDOF_link_3
+right_sweeper::iiwa_oneDOF_link_3_collision
+iiwa_oneDOF_link_2
+12
+102215.41 541.675651 202111.507 -5747.52949 -12201.6071 -8985.52598 -178323.805 55995.0583 -2352.73169 -63607.4933 7093.63573 -77415.6284 
+kAffine
+box3
+box_scene::Box1
+iiwa_oneDOF_link_4
+right_sweeper::iiwa_oneDOF_link_4_collision
+iiwa_oneDOF_link_2
+12
+106064.615 976.052876 209357.209 -7151.51676 14195.7265 8057.88096 -192882.475 61609.2443 2060.50284 -83628.7042 6715.79645 -85784.2439 
+kAffine
+box3
+box_scene::Box1
+iiwa_oneDOF_link_5
+right_sweeper::iiwa_oneDOF_link_5_collision
+iiwa_oneDOF_link_2
+12
+115446.226 2093.35647 226375.523 -4030.8123 5826.11478 826.493065 -219354.154 70094.8427 -413.186063 -117207.706 3669.70159 -102510.166 
+kAffine
+box3
+box_scene::Box1
+iiwa_oneDOF_link_6
+right_sweeper::iiwa_oneDOF_link_6_collision
+iiwa_oneDOF_link_2
+12
+121854.966 1189.16497 240964.563 -1309.37983 -0.459272399 0.0124173398 -238353.269 78478.5729 -0.862053321 -138353.445 1208.6449 -112652.679 
+kAffine
+box3
+box_scene::Box1
+iiwa_oneDOF_link_7
+right_sweeper::iiwa_oneDOF_link_7_collision
+iiwa_oneDOF_link_2
+12
+135730.745 18.4101421 271805.011 -16.781199 -0.638227802 0.000110518559 -280665.926 99442.1025 -1.1100412 -176445.062 16.0788244 -132034.947 
+kAffine
+box3
+box_scene::Box1
+iiwa_oneDOF_link_2
+left_sweeper::iiwa_oneDOF_link_2_collision
+iiwa_oneDOF_link_2
+12
+-1057.30009 37328.5795 -1581.55835 -152975.164 -14599.6844 -5780.68667 124188.147 9650.36651 -2263.62954 12970.932 -29721.2366 -74264.0785 
+kAffine
+box3
+box_scene::Box1
+iiwa_oneDOF_link_3
+left_sweeper::iiwa_oneDOF_link_3_collision
+iiwa_oneDOF_link_2
+12
+-1830.77271 43128.0301 -7778.73489 -153275.224 -15816.7133 -5143.73494 120883.643 14702.5311 -2696.97789 12674.0249 -3680.05694 -76137.6385 
+kAffine
+box3
+box_scene::Box1
+iiwa_oneDOF_link_4
+left_sweeper::iiwa_oneDOF_link_4_collision
+iiwa_oneDOF_link_2
+12
+-2546.68502 46879.0814 -11968.5008 -153456.376 20161.33 5951.88668 119836.814 18049.8529 3557.29934 13137.7084 12976.6663 -77502.327 
+kAffine
+box3
+box_scene::Box1
+iiwa_oneDOF_link_5
+left_sweeper::iiwa_oneDOF_link_5_collision
+iiwa_oneDOF_link_2
+12
+-4027.56048 52238.0377 -16825.7256 -151582.645 12819.9818 3287.16619 119546.706 22336.8067 2251.84724 14032.171 35403.4166 -80039.2596 
+kAffine
+box3
+box_scene::Box1
+iiwa_oneDOF_link_6
+left_sweeper::iiwa_oneDOF_link_6_collision
+iiwa_oneDOF_link_2
+12
+-4960.76382 53744.3141 -18927.0323 -150976.873 0.0700242403 0.748223756 120058.521 24292.8088 0.221921611 15330.2702 46171.6151 -81088.078 
+kAffine
+box3
+box_scene::Box1
+iiwa_oneDOF_link_7
+left_sweeper::iiwa_oneDOF_link_7_collision
+iiwa_oneDOF_link_2
+12
+-5867.3252 54486.8881 -20341.5115 -149631.316 0.0591490691 0.694212365 120738.694 25923.601 0.225168262 16835.6707 55802.8962 -81876.9 
+kAffine
+box4
+box_scene::Box1
+iiwa_oneDOF_link_2
+right_sweeper::iiwa_oneDOF_link_2_collision
+iiwa_oneDOF_link_2
+12
+114674.037 -259.926188 -44803.6732 -1172.38696 -10367.9731 -19890.5101 38436.1887 105895.592 -78.8046597 -46436.3125 16021.6306 -101764.12 
+kAffine
+box4
+box_scene::Box1
+iiwa_oneDOF_link_3
+right_sweeper::iiwa_oneDOF_link_3_collision
+iiwa_oneDOF_link_2
+12
+131472.426 -417.987894 -43467.7611 -5095.81336 -10279.4498 -20168.693 34705.5109 119031.084 -727.018913 -38666.097 15774.497 -126866.202 
+kAffine
+box4
+box_scene::Box1
+iiwa_oneDOF_link_4
+right_sweeper::iiwa_oneDOF_link_4_collision
+iiwa_oneDOF_link_2
+12
+145505.34 -567.012445 -43025.3377 -7589.71122 12635.6393 24743.3862 32546.025 129823.731 1433.7403 -33831.9372 15776.4 -146648.207 
+kAffine
+box4
+box_scene::Box1
+iiwa_oneDOF_link_5
+right_sweeper::iiwa_oneDOF_link_5_collision
+iiwa_oneDOF_link_2
+12
+172722.65 -946.893953 -41596.8548 -10712.1203 8455.454 15431.0909 28510.1243 149001.427 1522.83769 -25229.9995 15695.5192 -183513.941 
+kAffine
+box4
+box_scene::Box1
+iiwa_oneDOF_link_6
+right_sweeper::iiwa_oneDOF_link_6_collision
+iiwa_oneDOF_link_2
+12
+188041.337 -1160.45757 -42215.3792 -12118.5949 0.646732253 0.0401942487 27513.9915 160272.309 -0.534104122 -22427.0327 15893.571 -203134.988 
+kAffine
+box4
+box_scene::Box1
+iiwa_oneDOF_link_7
+right_sweeper::iiwa_oneDOF_link_7_collision
+iiwa_oneDOF_link_2
+12
+204794.478 -1365.35347 -42980.7317 -13283.765 0.70131758 0.0451709051 26575.0361 172269.095 -0.562260474 -19561.7604 16271.5795 -224001.013 
+kAffine
+box4
+box_scene::Box1
+iiwa_oneDOF_link_2
+left_sweeper::iiwa_oneDOF_link_2_collision
+iiwa_oneDOF_link_2
+12
+136.310799 -385166.459 -21.61077 -24909.8826 -5673.341 -2163.46483 55.8507615 -214818.088 -2354.01405 4398.05531 -11915.5504 -44035.2325 
+kAffine
+box4
+box_scene::Box1
+iiwa_oneDOF_link_3
+left_sweeper::iiwa_oneDOF_link_3_collision
+iiwa_oneDOF_link_2
+12
+-56.8347677 -277297.887 -21927.9429 -42836.8798 -12874.6424 -6371.63421 -2449.44288 -180356.999 -2433.55094 11383.7976 -16985.4418 -16992.7209 
+kAffine
+box4
+box_scene::Box1
+iiwa_oneDOF_link_4
+left_sweeper::iiwa_oneDOF_link_4_collision
+iiwa_oneDOF_link_2
+12
+696.150182 -220729.187 -38537.2781 -47378.4826 21362.3931 10947.3411 -3086.28142 -160899.538 3013.2403 18212.7175 -15050.8736 -715.756761 
+kAffine
+box4
+box_scene::Box1
+iiwa_oneDOF_link_5
+left_sweeper::iiwa_oneDOF_link_5_collision
+iiwa_oneDOF_link_2
+12
+1536.28562 -169952.809 -55487.6678 -53515.3388 16072.7585 9056.14081 -1791.11031 -136760.721 2124.96079 26720.8485 -4710.75546 13852.7792 
+kAffine
+box4
+box_scene::Box1
+iiwa_oneDOF_link_6
+left_sweeper::iiwa_oneDOF_link_6_collision
+iiwa_oneDOF_link_2
+12
+1895.03702 -148379.607 -62752.4796 -58522.2582 0.25259828 -0.161096793 -194.451159 -126410.371 0.483452184 32534.3096 3817.03057 20955.581 
+kAffine
+box4
+box_scene::Box1
+iiwa_oneDOF_link_7
+left_sweeper::iiwa_oneDOF_link_7_collision
+iiwa_oneDOF_link_2
+12
+2042.14468 -133121.057 -67607.4485 -63281.26 0.253755039 -0.12080363 1725.59382 -117766.964 0.43716123 37577.0118 12573.0712 25776.4035 
+kAffine
+iiwa_oneDOF_link_0
+right_sweeper::iiwa_oneDOF_link_0_collision
+iiwa_oneDOF_link_2
+right_sweeper::iiwa_oneDOF_link_2_collision
+iiwa_oneDOF_link_2
+12
+-675521.521 10272.8347 116683.255 -17881.6366 -18563.4886 -26002.1051 -102070.776 -593261.378 -4421.77869 -29795.4618 6274.72012 -79500.3601 
+kAffine
+iiwa_oneDOF_link_0
+right_sweeper::iiwa_oneDOF_link_0_collision
+iiwa_oneDOF_link_3
+right_sweeper::iiwa_oneDOF_link_3_collision
+iiwa_oneDOF_link_2
+12
+-362690.038 5773.37319 -90256.0239 -127201.47 -45434.7213 -41464.6249 -50833.51 -334327.714 -1925.59903 3561.82563 21035.7812 -19336.2301 
+kAffine
+iiwa_oneDOF_link_0
+right_sweeper::iiwa_oneDOF_link_0_collision
+iiwa_oneDOF_link_4
+right_sweeper::iiwa_oneDOF_link_4_collision
+iiwa_oneDOF_link_2
+12
+-257146.684 4103.64526 -214546.414 -161704.618 47190.7883 44219.8789 38220.1101 -243147.288 2974.21117 53853.9299 37281.3317 4265.03991 
+kAffine
+iiwa_oneDOF_link_0
+right_sweeper::iiwa_oneDOF_link_0_collision
+iiwa_oneDOF_link_5
+right_sweeper::iiwa_oneDOF_link_5_collision
+iiwa_oneDOF_link_2
+12
+-180048.535 2890.94977 -220658.429 -161870.864 19989.9846 21190.0072 66879.892 -179477.911 3207.98789 80667.5288 51495.1319 21489.8539 
+kAffine
+iiwa_oneDOF_link_0
+right_sweeper::iiwa_oneDOF_link_0_collision
+iiwa_oneDOF_link_6
+right_sweeper::iiwa_oneDOF_link_6_collision
+iiwa_oneDOF_link_2
+12
+-150649.64 2443.08063 -213390.421 -156511.274 0.4847934 0.642836287 74889.4453 -157887.315 0.856478002 90604.9985 57785.4259 29345.6715 
+kAffine
+iiwa_oneDOF_link_0
+right_sweeper::iiwa_oneDOF_link_0_collision
+iiwa_oneDOF_link_7
+right_sweeper::iiwa_oneDOF_link_7_collision
+iiwa_oneDOF_link_2
+12
+-133733.704 2182.1688 -199894.909 -148484.909 0.379380606 0.551206107 75569.1658 -142633.6 0.724452033 94343.5469 61287.5025 34081.2863 
+kAffine
+iiwa_oneDOF_link_0
+right_sweeper::iiwa_oneDOF_link_0_collision
+iiwa_oneDOF_link_2
+left_sweeper::iiwa_oneDOF_link_2_collision
+iiwa_oneDOF_link_2
+12
+4.23334828 112295.883 -1515.87008 -81685.6327 -66332.1392 -14416.1432 81148.8539 112550.594 14197.8548 20184.1007 -50050.6825 -125824.138 
+kAffine
+iiwa_oneDOF_link_0
+right_sweeper::iiwa_oneDOF_link_0_collision
+iiwa_oneDOF_link_3
+left_sweeper::iiwa_oneDOF_link_3_collision
+iiwa_oneDOF_link_2
+12
+-19.4572008 134627.946 -7710.53827 -76567.7517 -68553.9192 -15751.5178 74375.0029 135876.189 13857.3748 20120.9533 -32366.644 -159223.088 
+kAffine
+iiwa_oneDOF_link_0
+right_sweeper::iiwa_oneDOF_link_0_collision
+iiwa_oneDOF_link_4
+left_sweeper::iiwa_oneDOF_link_4_collision
+iiwa_oneDOF_link_2
+12
+-45.9487394 154193.425 -11726.6903 -75201.3936 84769.4675 20260.0119 71778.3395 156222.224 -16557.4847 20331.4081 -21870.4653 -188775.211 
+kAffine
+iiwa_oneDOF_link_0
+right_sweeper::iiwa_oneDOF_link_0_collision
+iiwa_oneDOF_link_5
+left_sweeper::iiwa_oneDOF_link_5_collision
+iiwa_oneDOF_link_2
+12
+-112.327898 194274.656 -17040.9454 -74174.0322 55611.7635 14531.3264 69119.9165 196535.166 -8731.62396 20440.4401 -5668.07969 -250782.958 
+kAffine
+iiwa_oneDOF_link_0
+right_sweeper::iiwa_oneDOF_link_0_collision
+iiwa_oneDOF_link_6
+left_sweeper::iiwa_oneDOF_link_6_collision
+iiwa_oneDOF_link_2
+12
+-157.790892 219425.58 -19567.9292 -75580.1835 0.073770934 0.877994836 69593.9502 222439.793 -0.724781582 20629.4076 1265.12929 -288959.319 
+kAffine
+iiwa_oneDOF_link_0
+right_sweeper::iiwa_oneDOF_link_0_collision
+iiwa_oneDOF_link_7
+left_sweeper::iiwa_oneDOF_link_7_collision
+iiwa_oneDOF_link_2
+12
+-192.964612 248856.983 -21617.5975 -77445.4284 0.0788938234 0.944837292 70658.0702 252422.122 -0.739700696 21072.2952 8434.14968 -333525.22 
+kAffine
+iiwa_oneDOF_link_1
+right_sweeper::iiwa_oneDOF_link_1_collision
+iiwa_oneDOF_link_3
+right_sweeper::iiwa_oneDOF_link_3_collision
+iiwa_oneDOF_link_2
+12
+-250525.902 14888.4175 -356861.835 -307703.407 -28279.1403 -28737.3066 54007.8378 -637568.128 -18318.5148 44816.9733 37577.9946 71139.3234 
+kAffine
+iiwa_oneDOF_link_1
+right_sweeper::iiwa_oneDOF_link_1_collision
+iiwa_oneDOF_link_4
+right_sweeper::iiwa_oneDOF_link_4_collision
+iiwa_oneDOF_link_2
+12
+-178338.694 6211.56547 -319103.407 -277727.668 -227.605368 -206.32383 48465.0747 -357580.742 -0.122106536 65320.3023 57351.7738 63211.051 
+kAffine
+iiwa_oneDOF_link_1
+right_sweeper::iiwa_oneDOF_link_1_collision
+iiwa_oneDOF_link_5
+right_sweeper::iiwa_oneDOF_link_5_collision
+iiwa_oneDOF_link_2
+12
+-116552.063 3706.75726 -243979.02 -216955.802 -6169.79206 -5929.33164 37097.569 -232836.098 -3724.65279 72975.1895 64676.0902 61477.5875 
+kAffine
+iiwa_oneDOF_link_1
+right_sweeper::iiwa_oneDOF_link_1_collision
+iiwa_oneDOF_link_6
+right_sweeper::iiwa_oneDOF_link_6_collision
+iiwa_oneDOF_link_2
+12
+-96382.6466 3220.63709 -217927.54 -194339.479 -12689.9626 -12710.6873 34949.3425 -196799.891 -7882.2007 76837.0476 67934.704 63600.3189 
+kAffine
+iiwa_oneDOF_link_1
+right_sweeper::iiwa_oneDOF_link_1_collision
+iiwa_oneDOF_link_7
+right_sweeper::iiwa_oneDOF_link_7_collision
+iiwa_oneDOF_link_2
+12
+-87166.9525 3094.2348 -197529.993 -176557.142 -9570.13896 -10008.9961 34689.0018 -173695.785 -5513.717 78559.2812 69494.7796 64697.1207 
+kAffine
+iiwa_oneDOF_link_1
+right_sweeper::iiwa_oneDOF_link_1_collision
+iiwa_oneDOF_link_2
+left_sweeper::iiwa_oneDOF_link_2_collision
+iiwa_oneDOF_link_2
+12
+-0.00788197483 126035.344 -1907.84281 -96236.4258 -173516.867 -38130.8217 96912.4163 126797.604 33858.0802 16805.0595 -48654.9869 -125006.386 
+kAffine
+iiwa_oneDOF_link_1
+right_sweeper::iiwa_oneDOF_link_1_collision
+iiwa_oneDOF_link_3
+left_sweeper::iiwa_oneDOF_link_3_collision
+iiwa_oneDOF_link_2
+12
+-15.8501476 156357.801 -9680.56322 -90477.0038 -172417.515 -39752.9936 89092.1166 158604.716 29836.4369 16925.1792 -27827.583 -164059.342 
+kAffine
+iiwa_oneDOF_link_1
+right_sweeper::iiwa_oneDOF_link_1_collision
+iiwa_oneDOF_link_4
+left_sweeper::iiwa_oneDOF_link_4_collision
+iiwa_oneDOF_link_2
+12
+-40.4343717 184868.502 -15530.9728 -89638.6987 -266.249908 33.9546458 86699.5624 188685.247 310.914907 19871.8616 -14911.908 -201941.986 
+kAffine
+iiwa_oneDOF_link_1
+right_sweeper::iiwa_oneDOF_link_1_collision
+iiwa_oneDOF_link_5
+left_sweeper::iiwa_oneDOF_link_5_collision
+iiwa_oneDOF_link_2
+12
+-163.526578 249069.365 -21941.7161 -90740.3718 -31323.5893 -8027.05827 85819.3008 253342.103 3563.28217 19888.084 6351.30848 -287225.572 
+kAffine
+iiwa_oneDOF_link_1
+right_sweeper::iiwa_oneDOF_link_1_collision
+iiwa_oneDOF_link_6
+left_sweeper::iiwa_oneDOF_link_6_collision
+iiwa_oneDOF_link_2
+12
+-240.064765 292394.702 -24535.3587 -94586.9439 -95670.9047 -26421.6523 88537.6436 298026.985 7922.09823 19609.1746 16150.4017 -343594.308 
+kAffine
+iiwa_oneDOF_link_1
+right_sweeper::iiwa_oneDOF_link_1_collision
+iiwa_oneDOF_link_7
+left_sweeper::iiwa_oneDOF_link_7_collision
+iiwa_oneDOF_link_2
+12
+-335.336854 347956.028 -26918.5788 -99980.9255 -99552.7391 -29384.5211 93002.0794 355209.242 6780.59335 20395.7801 27100.5248 -415643.865 
+kAffine
+iiwa_oneDOF_link_2
+right_sweeper::iiwa_oneDOF_link_2_collision
+iiwa_oneDOF_link_0
+left_sweeper::iiwa_oneDOF_link_0_collision
+iiwa_oneDOF_link_1
+12
+-56590.0865 32075.2284 3618.34973 3994.36791 -183763.884 -152968.617 69784.1077 2566.61098 -152654.16 106493.244 99728.8288 108001.584 
+kAffine
+iiwa_oneDOF_link_2
+right_sweeper::iiwa_oneDOF_link_2_collision
+iiwa_oneDOF_link_1
+left_sweeper::iiwa_oneDOF_link_1_collision
+iiwa_oneDOF_link_1
+12
+-60936.9334 44313.6987 10418.4246 11733.5705 -208013.72 -168498.418 94608.3109 8422.61989 -170534.107 108873.726 102183.827 113455.65 
+kAffine
+iiwa_oneDOF_link_2
+right_sweeper::iiwa_oneDOF_link_2_collision
+iiwa_oneDOF_link_2
+left_sweeper::iiwa_oneDOF_link_2_collision
+iiwa_oneDOF_link_1
+12
+1120.33171 -654.015319 290.605586 280.949484 -111633.412 -102943.28 51793.0256 42.7404142 -96003.0805 91392.7558 87951.7064 88687.2336 
+kAffine
+iiwa_oneDOF_link_2
+right_sweeper::iiwa_oneDOF_link_2_collision
+iiwa_oneDOF_link_3
+left_sweeper::iiwa_oneDOF_link_3_collision
+iiwa_oneDOF_link_1
+12
+15282.8553 -60198.9531 -253.132632 -10.1308765 -99128.0263 -102581.627 61553.0079 -298.451532 -113063.14 79938.1928 84458.9312 90088.8225 
+kAffine
+iiwa_oneDOF_link_2
+right_sweeper::iiwa_oneDOF_link_2_collision
+iiwa_oneDOF_link_4
+left_sweeper::iiwa_oneDOF_link_4_collision
+iiwa_oneDOF_link_1
+12
+15303.9933 -98356.9997 34948.6583 14929.7032 -86560.7849 -98962.1275 65120.8853 15177.2848 -134364.433 67500.4377 80359.5611 94815.0185 
+kAffine
+iiwa_oneDOF_link_2
+right_sweeper::iiwa_oneDOF_link_2_collision
+iiwa_oneDOF_link_5
+left_sweeper::iiwa_oneDOF_link_5_collision
+iiwa_oneDOF_link_1
+12
+12571.6349 -157319.739 48904.4782 15922.856 -65892.7474 -93024.8835 69534.1763 17495.7154 -184533.827 44001.442 75359.1463 105062.295 
+kAffine
+iiwa_oneDOF_link_2
+right_sweeper::iiwa_oneDOF_link_2_collision
+iiwa_oneDOF_link_6
+left_sweeper::iiwa_oneDOF_link_6_collision
+iiwa_oneDOF_link_1
+12
+10994.3213 -192414.288 35432.3761 8931.84145 -57313.8146 -91918.0859 74246.2242 11469.854 -217887.165 33893.1613 74113.3828 115687.565 
+kAffine
+iiwa_oneDOF_link_2
+right_sweeper::iiwa_oneDOF_link_2_collision
+iiwa_oneDOF_link_7
+left_sweeper::iiwa_oneDOF_link_7_collision
+iiwa_oneDOF_link_1
+12
+9685.90404 -232867.743 48250.7217 7483.98038 -49524.6148 -92332.1418 80508.1006 14773.7304 -257671.681 24520.2834 73758.1655 129390.982 
+kAffine
+iiwa_oneDOF_link_3
+right_sweeper::iiwa_oneDOF_link_3_collision
+iiwa_oneDOF_link_0
+left_sweeper::iiwa_oneDOF_link_0_collision
+iiwa_oneDOF_link_1
+12
+-141963.256 24714.1637 7741.44651 13385.1091 -168983.912 -122395.05 94970.2915 3513.62076 -176068.574 78081.6025 89395.4836 161808.687 
+kAffine
+iiwa_oneDOF_link_3
+right_sweeper::iiwa_oneDOF_link_3_collision
+iiwa_oneDOF_link_1
+left_sweeper::iiwa_oneDOF_link_1_collision
+iiwa_oneDOF_link_1
+12
+-165398.567 30720.2288 20651.3819 37200.0466 -190194.89 -127629.305 118097.61 10912.3086 -203070.031 73325.8655 88149.6027 177658.827 
+kAffine
+iiwa_oneDOF_link_3
+right_sweeper::iiwa_oneDOF_link_3_collision
+iiwa_oneDOF_link_2
+left_sweeper::iiwa_oneDOF_link_2_collision
+iiwa_oneDOF_link_1
+12
+-57124.8672 13365.3076 527.468454 723.60336 -109357.823 -90585.045 68568.3028 375.74929 -110270.408 73627.3694 82050.458 116953.217 
+kAffine
+iiwa_oneDOF_link_3
+right_sweeper::iiwa_oneDOF_link_3_collision
+iiwa_oneDOF_link_3
+left_sweeper::iiwa_oneDOF_link_3_collision
+iiwa_oneDOF_link_1
+12
+-13816.9561 -15838.8544 200.995221 233.979036 -90674.5286 -83668.3889 80994.9419 16.79776 -113270.797 57955.5608 81186.657 107252.448 
+kAffine
+iiwa_oneDOF_link_3
+right_sweeper::iiwa_oneDOF_link_3_collision
+iiwa_oneDOF_link_4
+left_sweeper::iiwa_oneDOF_link_4_collision
+iiwa_oneDOF_link_1
+12
+2021.44234 -40272.1173 27623.6127 14323.9987 -73817.752 -79513.4828 83470.0686 28527.9078 -121891.723 38712.6563 80991.8695 105663.824 
+kAffine
+iiwa_oneDOF_link_3
+right_sweeper::iiwa_oneDOF_link_3_collision
+iiwa_oneDOF_link_5
+left_sweeper::iiwa_oneDOF_link_5_collision
+iiwa_oneDOF_link_1
+12
+14035.1546 -69734.5404 36438.0448 19795.8593 -44696.9917 -76603.6882 86193.0463 14128.3677 -139771.183 -2307.81806 89841.339 103462.901 
+kAffine
+iiwa_oneDOF_link_3
+right_sweeper::iiwa_oneDOF_link_3_collision
+iiwa_oneDOF_link_6
+left_sweeper::iiwa_oneDOF_link_6_collision
+iiwa_oneDOF_link_1
+12
+14708.9335 -92053.9493 19890.8441 14455.2065 -36601.7287 -78294.0899 91766.0719 3057.53243 -157480.156 -11002.001 95864.149 110974.59 
+kAffine
+iiwa_oneDOF_link_3
+right_sweeper::iiwa_oneDOF_link_3_collision
+iiwa_oneDOF_link_7
+left_sweeper::iiwa_oneDOF_link_7_collision
+iiwa_oneDOF_link_1
+12
+65095.6794 51903.6383 2615.31711 3488.07641 -206501.821 -91756.3488 83499.5405 294.655879 -9515.08536 87096.2572 108736.765 16309.7917 
+kAffine
+iiwa_oneDOF_link_4
+right_sweeper::iiwa_oneDOF_link_4_collision
+iiwa_oneDOF_link_0
+left_sweeper::iiwa_oneDOF_link_0_collision
+iiwa_oneDOF_link_1
+12
+-186239.906 19197.6863 -13544.4142 -27284.0195 -155284.733 -95953.1691 101513.479 -3398.05346 -204144.556 55296.8642 77812.8956 210403.142 
+kAffine
+iiwa_oneDOF_link_4
+right_sweeper::iiwa_oneDOF_link_4_collision
+iiwa_oneDOF_link_1
+left_sweeper::iiwa_oneDOF_link_1_collision
+iiwa_oneDOF_link_1
+12
+-223042.848 22579.4617 -339.344475 -335.198995 -175686.496 -95904.0705 125387.623 -299.499483 -242981.484 46269.4644 75847.8906 238424.235 
+kAffine
+iiwa_oneDOF_link_4
+right_sweeper::iiwa_oneDOF_link_4_collision
+iiwa_oneDOF_link_2
+left_sweeper::iiwa_oneDOF_link_2_collision
+iiwa_oneDOF_link_1
+12
+-93196.101 13650.6729 -14695.9815 -32172.9769 -104759.945 -78795.354 72879.4691 -15926.088 -129494.213 58873.5598 73512.8731 146731.871 
+kAffine
+iiwa_oneDOF_link_4
+right_sweeper::iiwa_oneDOF_link_4_collision
+iiwa_oneDOF_link_3
+left_sweeper::iiwa_oneDOF_link_3_collision
+iiwa_oneDOF_link_1
+12
+-37520.7496 183.158316 -16801.9444 -24905.9056 -85409.7003 -67419.9798 86730.5589 -28582.0669 -119507.528 42088.0598 76622.3887 122621.715 
+kAffine
+iiwa_oneDOF_link_4
+right_sweeper::iiwa_oneDOF_link_4_collision
+iiwa_oneDOF_link_4
+left_sweeper::iiwa_oneDOF_link_4_collision
+iiwa_oneDOF_link_1
+12
+-7335.18681 -9415.40525 -116.614081 -203.531547 -65303.1799 -59656.7974 93369.7448 -12.3584888 -115022.644 18116.0183 80440.0976 110727.597 
+kAffine
+iiwa_oneDOF_link_4
+right_sweeper::iiwa_oneDOF_link_4_collision
+iiwa_oneDOF_link_5
+left_sweeper::iiwa_oneDOF_link_5_collision
+iiwa_oneDOF_link_1
+12
+54448.2586 43362.083 -2779.87334 -3523.28499 -164305.886 -89891.3355 95245.0388 -454.96637 -8088.0926 58345.8542 107328.828 16868.1731 
+kAffine
+iiwa_oneDOF_link_4
+right_sweeper::iiwa_oneDOF_link_4_collision
+iiwa_oneDOF_link_6
+left_sweeper::iiwa_oneDOF_link_6_collision
+iiwa_oneDOF_link_1
+12
+58184.3097 52500.0116 -4932.59137 -8582.61951 -202911.277 -78450.4752 81407.3338 -816.724751 -7293.71159 88393.8896 99173.488 14517.0908 
+kAffine
+iiwa_oneDOF_link_4
+right_sweeper::iiwa_oneDOF_link_4_collision
+iiwa_oneDOF_link_7
+left_sweeper::iiwa_oneDOF_link_7_collision
+iiwa_oneDOF_link_1
+12
+56248.8685 50222.7131 -5585.19376 -10444.4935 -182765.928 -63298.3452 82620.5639 -1018.05562 -6800.94082 81727.6732 109292.283 16392.1414 
+kAffine
+iiwa_oneDOF_link_5
+right_sweeper::iiwa_oneDOF_link_5_collision
+iiwa_oneDOF_link_0
+left_sweeper::iiwa_oneDOF_link_0_collision
+iiwa_oneDOF_link_1
+12
+-248958.802 12456.7907 -12135.4217 -28740.732 -139080.863 -63320.386 105402.307 -3488.68962 -258626.97 21725.4315 65215.4041 311006.749 
+kAffine
+iiwa_oneDOF_link_5
+right_sweeper::iiwa_oneDOF_link_5_collision
+iiwa_oneDOF_link_1
+left_sweeper::iiwa_oneDOF_link_1_collision
+iiwa_oneDOF_link_1
+12
+-311919.307 13604.5205 6321.26244 15747.6207 -160373.959 -59610.2512 130896.942 2741.81938 -323742.605 5536.74792 63189.6925 372459.601 
+kAffine
+iiwa_oneDOF_link_5
+right_sweeper::iiwa_oneDOF_link_5_collision
+iiwa_oneDOF_link_2
+left_sweeper::iiwa_oneDOF_link_2_collision
+iiwa_oneDOF_link_1
+12
+-147752.513 11368.8818 -15273.6187 -45434.4494 -98118.0317 -60272.4061 77074.466 -18670.892 -174829.871 35178.7365 61950.4554 216260.686 
+kAffine
+iiwa_oneDOF_link_5
+right_sweeper::iiwa_oneDOF_link_5_collision
+iiwa_oneDOF_link_3
+left_sweeper::iiwa_oneDOF_link_3_collision
+iiwa_oneDOF_link_1
+12
+-66392.0672 11700.5816 -24475.7074 -33163.9873 -81375.716 -39344.6334 90284.4524 -13793.7665 -135107.338 19019.7343 73765.2704 153735.881 
+kAffine
+iiwa_oneDOF_link_5
+right_sweeper::iiwa_oneDOF_link_5_collision
+iiwa_oneDOF_link_4
+left_sweeper::iiwa_oneDOF_link_4_collision
+iiwa_oneDOF_link_1
+12
+53700.9603 56568.1462 2428.04351 2014.05732 -106021.529 -162174.393 92283.0676 322.584033 -9473.12629 64058.1538 222746.65 24986.9251 
+kAffine
+iiwa_oneDOF_link_5
+right_sweeper::iiwa_oneDOF_link_5_collision
+iiwa_oneDOF_link_5
+left_sweeper::iiwa_oneDOF_link_5_collision
+iiwa_oneDOF_link_1
+12
+36613.7712 31715.729 -23.1487694 -28.5030369 -72233.2004 -51662.3891 122658.308 -2.99094461 7068.57387 -16657.6072 120111.16 11776.6325 
+kAffine
+iiwa_oneDOF_link_5
+right_sweeper::iiwa_oneDOF_link_5_collision
+iiwa_oneDOF_link_6
+left_sweeper::iiwa_oneDOF_link_6_collision
+iiwa_oneDOF_link_1
+12
+39541.6672 30758.4297 -7768.2389 -6412.23807 -66175.9498 -49059.2723 115486.122 -1198.90603 9574.19462 -21578.6537 115790.8 8814.99844 
+kAffine
+iiwa_oneDOF_link_5
+right_sweeper::iiwa_oneDOF_link_5_collision
+iiwa_oneDOF_link_7
+left_sweeper::iiwa_oneDOF_link_7_collision
+iiwa_oneDOF_link_1
+12
+45444.3735 37266.8493 -6900.89428 -2403.53505 -70020.2703 -50227.157 102181.382 -2315.44801 26850.0178 -12622.8497 108012.242 -4497.32969 
+kAffine
+iiwa_oneDOF_link_6
+right_sweeper::iiwa_oneDOF_link_6_collision
+iiwa_oneDOF_link_0
+left_sweeper::iiwa_oneDOF_link_0_collision
+iiwa_oneDOF_link_1
+12
+-289106.724 10268.5743 0.000352985937 -0.00189894599 -135454.879 -52307.1908 109852.002 0.113586914 -296713.952 6905.7609 60908.7399 370735.872 
+kAffine
+iiwa_oneDOF_link_6
+right_sweeper::iiwa_oneDOF_link_6_collision
+iiwa_oneDOF_link_1
+left_sweeper::iiwa_oneDOF_link_1_collision
+iiwa_oneDOF_link_1
+12
+-373310.794 10931.6458 22322.363 65121.5901 -159077.7 -48205.77 138071.015 12115.8203 -383454.727 -12740.1552 58601.8241 458106.291 
+kAffine
+iiwa_oneDOF_link_6
+right_sweeper::iiwa_oneDOF_link_6_collision
+iiwa_oneDOF_link_2
+left_sweeper::iiwa_oneDOF_link_2_collision
+iiwa_oneDOF_link_1
+12
+-179722.348 9998.8172 -8463.53497 -32967.95 -96672.2981 -52677.5247 81298.3615 -12247.0308 -204984.764 23979.8663 57628.3754 259197.635 
+kAffine
+iiwa_oneDOF_link_6
+right_sweeper::iiwa_oneDOF_link_6_collision
+iiwa_oneDOF_link_3
+left_sweeper::iiwa_oneDOF_link_3_collision
+iiwa_oneDOF_link_1
+12
+-89459.1246 13240.8519 -16761.8603 -18794.7826 -82274.6351 -31777.1156 93400.6634 -3199.65145 -155031.746 9856.30817 70304.8602 179370.509 
+kAffine
+iiwa_oneDOF_link_6
+right_sweeper::iiwa_oneDOF_link_6_collision
+iiwa_oneDOF_link_4
+left_sweeper::iiwa_oneDOF_link_4_collision
+iiwa_oneDOF_link_1
+12
+58450.5318 60109.015 17463.6955 9956.02297 -99018.3915 -207399.092 79089.3155 1654.75075 -9278.70188 72938.8079 274148.43 23855.1308 
+kAffine
+iiwa_oneDOF_link_6
+right_sweeper::iiwa_oneDOF_link_6_collision
+iiwa_oneDOF_link_5
+left_sweeper::iiwa_oneDOF_link_5_collision
+iiwa_oneDOF_link_1
+12
+33524.6478 30613.5674 8588.85873 8960.60936 -66525.893 -44897.9508 117998.824 1467.43248 10146.394 -18862.0545 116378.046 8401.55801 
+kAffine
+iiwa_oneDOF_link_6
+right_sweeper::iiwa_oneDOF_link_6_collision
+iiwa_oneDOF_link_6
+left_sweeper::iiwa_oneDOF_link_6_collision
+iiwa_oneDOF_link_1
+12
+48076.4932 38597.6807 -0.282214924 0.051026785 -63266.4513 -44572.6989 98328.4092 0.0119652354 41223.4162 -12446.1061 105756.25 -20749.6959 
+kAffine
+iiwa_oneDOF_link_6
+right_sweeper::iiwa_oneDOF_link_6_collision
+iiwa_oneDOF_link_7
+left_sweeper::iiwa_oneDOF_link_7_collision
+iiwa_oneDOF_link_1
+12
+38144.7631 34360.2434 -0.134339998 0.0621303288 -45177.53 -38489.1961 93652.0696 0.0900766524 44330.454 -28439.5075 100288.325 -21144.5603 
+kAffine
+iiwa_oneDOF_link_7
+right_sweeper::iiwa_oneDOF_link_7_collision
+iiwa_oneDOF_link_0
+left_sweeper::iiwa_oneDOF_link_0_collision
+iiwa_oneDOF_link_1
+12
+-335411.423 8801.37889 7.69255262e-11 -3.72554287e-11 -133857.716 -43895.2816 114435.851 1.50136195e-10 -342452.002 -7254.39539 57512.8524 440957.536 
+kAffine
+iiwa_oneDOF_link_7
+right_sweeper::iiwa_oneDOF_link_7_collision
+iiwa_oneDOF_link_1
+left_sweeper::iiwa_oneDOF_link_1_collision
+iiwa_oneDOF_link_1
+12
+-451817.13 9332.94971 24261.5861 92521.1567 -161475.502 -39931.3426 147187.092 14548.4248 -462539.63 -31305.9146 55494.0104 567162.259 
+kAffine
+iiwa_oneDOF_link_7
+right_sweeper::iiwa_oneDOF_link_7_collision
+iiwa_oneDOF_link_2
+left_sweeper::iiwa_oneDOF_link_2_collision
+iiwa_oneDOF_link_1
+12
+-215462.386 8830.44736 -7262.81741 -45016.1096 -96539.6881 -45793.5973 86915.5823 -15696.63 -240095.231 13004.3044 53969.5616 308423.168 
+kAffine
+iiwa_oneDOF_link_7
+right_sweeper::iiwa_oneDOF_link_7_collision
+iiwa_oneDOF_link_3
+left_sweeper::iiwa_oneDOF_link_3_collision
+iiwa_oneDOF_link_1
+12
+61977.6255 62625.9104 -4609.5377 -2562.48243 -96284.9781 -192146.285 95098.4204 -441.262626 -12315.6172 31393.6241 251877.174 26964.1904 
+kAffine
+iiwa_oneDOF_link_7
+right_sweeper::iiwa_oneDOF_link_7_collision
+iiwa_oneDOF_link_4
+left_sweeper::iiwa_oneDOF_link_4_collision
+iiwa_oneDOF_link_1
+12
+61694.3943 56145.7339 -1416.79252 -1499.52476 -56287.8998 -184938.954 95583.3537 -82.3808444 -7359.67715 -2969.52367 251879.182 22283.3975 
+kAffine
+iiwa_oneDOF_link_7
+right_sweeper::iiwa_oneDOF_link_7_collision
+iiwa_oneDOF_link_5
+left_sweeper::iiwa_oneDOF_link_5_collision
+iiwa_oneDOF_link_1
+12
+46233.1477 29833.9039 7364.56251 10367.7141 -68611.88 -41138.7271 104018.026 3335.51354 37024.288 -6784.57209 104120.292 -21735.8985 
+kAffine
+iiwa_oneDOF_link_7
+right_sweeper::iiwa_oneDOF_link_7_collision
+iiwa_oneDOF_link_6
+left_sweeper::iiwa_oneDOF_link_6_collision
+iiwa_oneDOF_link_1
+12
+45509.1484 26452.3165 -0.128932077 0.084818291 -54982.1392 -27171.1961 92315.0217 -0.0669391442 49606.8442 -16725.751 89376.5301 -32605.5022 
+kAffine
+iiwa_oneDOF_link_7
+right_sweeper::iiwa_oneDOF_link_7_collision
+iiwa_oneDOF_link_7
+left_sweeper::iiwa_oneDOF_link_7_collision
+iiwa_oneDOF_link_1
+12
+38416.3378 27527.5639 1.43061596e-08 4.69957392e-10 -41619.7651 -26859.2256 85658.7397 -3.38447897e-09 50826.5801 -27729.2583 88716.437 -31340.5194 
+kAffine
+iiwa_oneDOF_link_0
+left_sweeper::iiwa_oneDOF_link_0_collision
+iiwa_oneDOF_link_2
+left_sweeper::iiwa_oneDOF_link_2_collision
+iiwa_oneDOF_link_2
+12
+12817.7447 -679700.683 -19184.0257 39678.328 -27309.9198 -18042.2591 -53214.0198 -593708.942 -3368.84933 6701.04919 -17871.508 -82119.2412 
+kAffine
+iiwa_oneDOF_link_0
+left_sweeper::iiwa_oneDOF_link_0_collision
+iiwa_oneDOF_link_3
+left_sweeper::iiwa_oneDOF_link_3_collision
+iiwa_oneDOF_link_2
+12
+5686.85219 -362022.785 -139951.898 -92839.3104 -45620.5793 -40966.6206 -33839.8636 -333354.962 -2263.92418 22391.5763 6068.72373 -19903.92 
+kAffine
+iiwa_oneDOF_link_0
+left_sweeper::iiwa_oneDOF_link_0_collision
+iiwa_oneDOF_link_4
+left_sweeper::iiwa_oneDOF_link_4_collision
+iiwa_oneDOF_link_2
+12
+4220.66592 -257486.945 -176978.237 -196139.056 48381.5122 42710.5553 36579.6786 -242776.711 3185.4282 40141.8166 49398.2745 4248.3993 
+kAffine
+iiwa_oneDOF_link_0
+left_sweeper::iiwa_oneDOF_link_0_collision
+iiwa_oneDOF_link_5
+left_sweeper::iiwa_oneDOF_link_5_collision
+iiwa_oneDOF_link_2
+12
+3081.27798 -181943.804 -176774.202 -199929.781 23155.8844 18237.1902 58080.5401 -179164.77 3111.66508 55925.3811 72882.1194 21311.5743 
+kAffine
+iiwa_oneDOF_link_0
+left_sweeper::iiwa_oneDOF_link_0_collision
+iiwa_oneDOF_link_6
+left_sweeper::iiwa_oneDOF_link_6_collision
+iiwa_oneDOF_link_2
+12
+2616.25844 -153057.943 -171080.162 -192678.266 0.705531492 0.392606352 63000.7607 -157659.511 0.824721018 63064.3666 81319.9291 29035.2942 
+kAffine
+iiwa_oneDOF_link_0
+left_sweeper::iiwa_oneDOF_link_0_collision
+iiwa_oneDOF_link_7
+left_sweeper::iiwa_oneDOF_link_7_collision
+iiwa_oneDOF_link_2
+12
+2336.55797 -136319.054 -162371.983 -180474.03 0.602625864 0.301183277 62771.9873 -142476.884 0.689917923 67042.132 84558.7828 33717.4804 
+kAffine
+iiwa_oneDOF_link_1
+left_sweeper::iiwa_oneDOF_link_1_collision
+iiwa_oneDOF_link_3
+left_sweeper::iiwa_oneDOF_link_3_collision
+iiwa_oneDOF_link_2
+12
+21239.8111 -252948.102 -340430.8 -307329.14 -32330.5401 -32066.7043 16489.6347 -639975.57 -18200.2311 42091.9607 36148.4001 71515.5311 
+kAffine
+iiwa_oneDOF_link_1
+left_sweeper::iiwa_oneDOF_link_1_collision
+iiwa_oneDOF_link_4
+left_sweeper::iiwa_oneDOF_link_4_collision
+iiwa_oneDOF_link_2
+12
+6477.8484 -179355.151 -305566.102 -289064.612 -217.747903 -214.508539 31730.6007 -358271.446 0.79937286 63252.9981 59473.9671 63449.6913 
+kAffine
+iiwa_oneDOF_link_1
+left_sweeper::iiwa_oneDOF_link_1_collision
+iiwa_oneDOF_link_5
+left_sweeper::iiwa_oneDOF_link_5_collision
+iiwa_oneDOF_link_2
+12
+3712.04665 -117016.651 -237431.694 -222638.606 -6392.95176 -5736.57918 25835.2992 -233069.174 -3713.83307 70873.8415 66788.1138 61638.2112 
+kAffine
+iiwa_oneDOF_link_1
+left_sweeper::iiwa_oneDOF_link_1_collision
+iiwa_oneDOF_link_6
+left_sweeper::iiwa_oneDOF_link_6_collision
+iiwa_oneDOF_link_2
+12
+3224.63955 -96787.5921 -212397.395 -199109.689 -13701.1298 -11859.7946 24881.4393 -196950.371 -7855.23956 74357.0466 70276.6131 63735.4567 
+kAffine
+iiwa_oneDOF_link_1
+left_sweeper::iiwa_oneDOF_link_1_collision
+iiwa_oneDOF_link_7
+left_sweeper::iiwa_oneDOF_link_7_collision
+iiwa_oneDOF_link_2
+12
+3121.27237 -87619.3871 -192817.709 -180592.233 -10764.5374 -9015.8992 24962.1473 -173805.576 -5489.75104 76008.0516 71828.9412 64801.2601 
