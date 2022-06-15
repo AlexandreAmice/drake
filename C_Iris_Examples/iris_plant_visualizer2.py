@@ -1,3 +1,5 @@
+import time
+
 import numpy as np
 import scipy
 from pydrake.all import (ConnectMeshcatVisualizer, HPolyhedron,
@@ -359,14 +361,14 @@ class IrisPlantVisualizer:
         meshcat.SetTransform(name, pose)
 
 
-    def showres(self,q):
+    def showres(self,q, idx_list = None):
         self.plant.SetPositions(self.plant_context, q)
         col = self.col_func_handle(q)
         s = self.forward_kin.ComputeTValue(np.array(q), self.q_star)
         s = viz_utils.stretch_array_to_3d(s)
         color = Rgba(1, 0.72, 0, 1) if col else Rgba(0.24, 1, 0, 1)
 
-        self.visualize_planes()
+        self.visualize_planes(idx_list)
         self.diagram.Publish(self.diagram_context)
         #don't change this order
         self.meshcat2.SetObject(f"/s",
@@ -391,12 +393,13 @@ class IrisPlantVisualizer:
         else:
             ang = np.arcsin(np.linalg.norm(crossprod))
             axis = viz_utils.normalize(crossprod)
-            R = viz_utils.get_rotation_matrix(axis, -ang)
+            # R = viz_utils.get_rotation_matrix(-axis, -ang)
+            R = viz_utils.get_rotation_matrix(axis, ang)
 
         verts_tf = (R @ plane_verts.T).T + offset
         return verts_tf, RigidTransform(RotationMatrix(R), offset)
 
-    def animate_s(self, traj, steps, runtime):
+    def animate_s(self, traj, steps, runtime, idx_list = None, sleep_time = 0.1):
         # loop
         idx = 0
         going_fwd = True
@@ -404,8 +407,9 @@ class IrisPlantVisualizer:
 
         for _ in range(runtime):
             # print(idx)
+            t0 = time.time()
             q = self.forward_kin.ComputeQValue(traj.value(time_points[idx]), self.q_star)
-            self.showres(q)
+            self.showres(q, idx_list)
             if going_fwd:
                 if idx + 1 < steps:
                     idx += 1
@@ -418,6 +422,10 @@ class IrisPlantVisualizer:
                 else:
                     going_fwd = True
                     idx += 1
+            t1 = time.time()
+            pause = sleep_time- (t1-t0) 
+            if pause > 0:
+                time.sleep(pause)
 
     def _is_collision_pair_of_interest(self, idA, idB):
         for gid_pairs in self.collision_pairs_of_interest:
@@ -425,7 +433,8 @@ class IrisPlantVisualizer:
                 return True
         return False
 
-    def visualize_planes(self):
+    def visualize_planes(self, idx_list = None):
+        idx_list = [i for i in range(len(self.certified_region_solution_list))] if idx_list is None else idx_list
         q = self.plant.GetPositions(self.plant_context)
         s = self.forward_kin.ComputeTValue(np.array(q), self.q_star)
 
@@ -442,18 +451,21 @@ class IrisPlantVisualizer:
 
         color_ctr = 0
         for region_number, sol in enumerate(self.certified_region_solution_list):
+            if region_number in idx_list:
+                # point is in region so see plot interesting planes
+                if np.all(sol.C @ s <= sol.d):
 
-            # point is in region so see plot interesting planes
-            if np.all(sol.C @ s <= sol.d):
-
-                for i, plane in enumerate(self._region_to_planes_of_interest_dict[sol]):
-                    idA = plane.positive_side_polytope.get_id() if plane.positive_side_polytope is not None else None
-                    idB = plane.negative_side_polytope.get_id() if plane.negative_side_polytope is not None else None
-                    if self._is_collision_pair_of_interest(idA, idB):
-                        self._plot_plane(plane, color_dict[region_number], color_dict[region_number],
-                                         color_dict[region_number], s,
-                                         region_number)
-                        color_ctr += 1
+                    for i, plane in enumerate(self._region_to_planes_of_interest_dict[sol]):
+                        idA = plane.positive_side_polytope.get_id() if plane.positive_side_polytope is not None else None
+                        idB = plane.negative_side_polytope.get_id() if plane.negative_side_polytope is not None else None
+                        if self._is_collision_pair_of_interest(idA, idB):
+                            self._plot_plane(plane, color_dict[region_number], color_dict[region_number],
+                                             color_dict[region_number], s,
+                                             region_number)
+                            color_ctr += 1
+                else:
+                    # exited region so remove the visualization associated to this solution
+                    self.meshcat1.Delete(f"/planes/region{region_number}")
             else:
                 # exited region so remove the visualization associated to this solution
                 self.meshcat1.Delete(f"/planes/region{region_number}")
