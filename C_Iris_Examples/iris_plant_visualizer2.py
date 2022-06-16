@@ -368,8 +368,9 @@ class IrisPlantVisualizer:
         s = viz_utils.stretch_array_to_3d(s)
         color = Rgba(1, 0.72, 0, 1) if col else Rgba(0.24, 1, 0, 1)
 
-        self.visualize_planes(idx_list)
+
         self.diagram.Publish(self.diagram_context)
+        self.visualize_planes(idx_list)
         #don't change this order
         self.meshcat2.SetObject(f"/s",
                                 Sphere(0.05),
@@ -474,7 +475,9 @@ class IrisPlantVisualizer:
     def _plot_plane(self, plane, bodyA_color, bodyB_color, plane_color, s, region_number):
         # get the vertices of the separated bodies
         vert_A = plane.positive_side_polytope.p_BV()[:, :]
+        dims_A = np.max(np.abs(vert_A[:,:-1] - vert_A[:,1:]), axis = 1)
         vert_B = plane.negative_side_polytope.p_BV()[:, :]
+        dims_B = np.max(np.abs(vert_B[:, :-1] - vert_B[:, 1:]), axis=1)
 
         # get the geometry id of the separated bodies
         geomA = plane.positive_side_polytope.get_id()
@@ -506,20 +509,29 @@ class IrisPlantVisualizer:
             .body_frame().CalcPoseInWorld(self.plant_context)
         vert_B = X_WB @ vert_B
 
+
+
         verts_tf_E, trans = self.transform(a_eval, b_eval, X_EW @ vert_A[:, 0],
                                     X_EW @ vert_B[:, 0], self.plane_verts)
+
 
         box_transform = X_WE @ trans
         # verts_tf = (X_WE @ verts_tf_E.T).T
         # verts_tf = np.vstack([verts_tf, verts_tf[::-1,:]])
         prefix = f"/planes/region{region_number}"
-        def plot_polytope_highlight(id, verts, color):
-            self.meshcat1.SetObject(prefix+f"/body{id.get_value()}",
-                                    TriangleSurfaceMesh(self.cube_tri_drake, verts.T),
+        def plot_polytope_highlight(id, dims, trans, color):
+            box = Box(dims[0], dims[1], dims[2])
+            name = prefix+f"/body{id.get_value()}"
+            self.meshcat1.SetObject(name,
+                                    box,
                                     Rgba(*color, 1))
 
-        plot_polytope_highlight(geomA, vert_A, bodyA_color)
-        plot_polytope_highlight(geomB, vert_B, bodyB_color)
+            offset = np.array([0, 0, dims[2]/2])
+            t_final = trans@RigidTransform(RotationMatrix(), offset)
+            self.meshcat1.SetTransform(name, t_final)
+
+        plot_polytope_highlight(geomA, dims_A, X_WA, bodyA_color)
+        plot_polytope_highlight(geomB, dims_B, X_WB, bodyB_color)
 
 
 
