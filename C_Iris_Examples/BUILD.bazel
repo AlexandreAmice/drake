@@ -38,6 +38,14 @@ drake_py_library(
 )
 
 drake_py_library(
+    name = "prm",
+    srcs = [
+        "prm.py",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+drake_py_library(
     name = "iris_plant_visualizer",
     srcs = [
         "iris_plant_visualizer.py",
@@ -99,6 +107,7 @@ drake_jupyter_py_binary(
     ],
     deps = [
         "//C_Iris_Examples:iris_plant_visualizer2",
+        "//C_Iris_Examples:prm",
         "//C_Iris_Examples:visualizations_utils",
         "//bindings/pydrake",
     ],
