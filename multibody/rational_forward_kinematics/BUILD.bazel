@@ -211,4 +211,23 @@ drake_cc_binary(
     ],
 )
 
+drake_cc_binary(
+    name = "dual_iiwa_demo",
+    srcs = ["test/dual_iiwa_demo.cc"],
+    data = [
+        "//examples/kuka_iiwa_arm:models",
+        "//manipulation/models/iiwa_description:models",
+        "//manipulation/models/wsg_50_description:models",
+    ],
+    deps = [
+        ":cspace_free_region",
+        "//common:find_resource",
+        "//geometry:meshcat_visualizer",
+        "//geometry/optimization:polytope_cover",
+        "//multibody/inverse_kinematics",
+        "//multibody/parsing:parser",
+        "//multibody/plant",
+    ],
+)
+
 add_lint_tests()
