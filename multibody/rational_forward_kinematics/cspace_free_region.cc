@@ -1883,13 +1883,15 @@ void CspaceFreeRegion::CspacePolytopeBinarySearch(
               Eigen::VectorXd::Ones(d_without_epsilon.rows()))) {
     return;
   }
-  if (!is_polytope_collision_free(
-          d_without_epsilon +
-          binary_search_option.epsilon_min *
-              Eigen::VectorXd::Ones(d_without_epsilon.rows()))) {
-    throw std::runtime_error(
-        fmt::format("binary search: the initial epsilon {} is infeasible",
-                    binary_search_option.epsilon_min));
+  if (binary_search_option.check_epsilon_min) {
+    if (!is_polytope_collision_free(
+            d_without_epsilon +
+            binary_search_option.epsilon_min *
+                Eigen::VectorXd::Ones(d_without_epsilon.rows()))) {
+      throw std::runtime_error(
+          fmt::format("binary search: the initial epsilon {} is infeasible",
+                      binary_search_option.epsilon_min));
+    }
   }
   double eps_max = binary_search_option.epsilon_max;
   double eps_min = binary_search_option.epsilon_min;
@@ -2564,14 +2566,36 @@ void WriteCspacePolytopeToFile(
     // Write separating planes.
     myfile << solution.separating_planes.size() << "\n";
     for (const auto& plane : solution.separating_planes) {
+      // positive side.
+      // model instance name
+      myfile << plant.GetModelInstanceName(
+                    plant.get_body(plane.positive_side_geometry->body_index())
+                        .model_instance())
+             << "\n";
+      // body name
       myfile
           << plant.get_body(plane.positive_side_geometry->body_index()).name()
           << "\n";
+      // geometry name
       myfile << inspector.GetName(plane.positive_side_geometry->id()) << "\n";
+      // negative side
+      // model instance name
+      myfile << plant.GetModelInstanceName(
+                    plant.get_body(plane.negative_side_geometry->body_index())
+                        .model_instance())
+             << "\n";
+      // body name
       myfile
           << plant.get_body(plane.negative_side_geometry->body_index()).name()
           << "\n";
       myfile << inspector.GetName(plane.negative_side_geometry->id()) << "\n";
+
+      // Experessed
+      // model instance
+      myfile << plant.GetModelInstanceName(
+                    plant.get_body(plane.expressed_link).model_instance())
+             << "\n";
+      // body name
       myfile << plant.get_body(plane.expressed_link).name() << "\n";
       myfile << plane.decision_variables.rows() << "\n";
       for (int i = 0; i < plane.decision_variables.rows(); ++i) {
@@ -2628,11 +2652,19 @@ void ReadCspacePolytopeFromFile(
     const int num_separating_planes = std::stoi(word);
     for (int i = 0; i < num_separating_planes; ++i) {
       // positive side.
+      // model instance
       std::getline(infile, line);
       ss = std::istringstream(line);
       ss >> word;
-      const geometry::FrameId positive_frame =
-          plant.GetBodyFrameIdOrThrow(plant.GetBodyByName(word).index());
+      const ModelInstanceIndex positive_model =
+          plant.GetModelInstanceByName(word);
+      // body
+      std::getline(infile, line);
+      ss = std::istringstream(line);
+      ss >> word;
+      const geometry::FrameId positive_frame = plant.GetBodyFrameIdOrThrow(
+          plant.GetBodyByName(word, positive_model).index());
+      // geometry
       std::getline(infile, line);
       ss = std::istringstream(line);
       ss >> word;
@@ -2641,11 +2673,19 @@ void ReadCspacePolytopeFromFile(
                                         geometry::Role::kProximity, word);
 
       // negative side
+      // model instance
       std::getline(infile, line);
       ss = std::istringstream(line);
       ss >> word;
-      const geometry::FrameId negative_frame =
-          plant.GetBodyFrameIdOrThrow(plant.GetBodyByName(word).index());
+      const ModelInstanceIndex negative_model =
+          plant.GetModelInstanceByName(word);
+      // body
+      std::getline(infile, line);
+      ss = std::istringstream(line);
+      ss >> word;
+      const geometry::FrameId negative_frame = plant.GetBodyFrameIdOrThrow(
+          plant.GetBodyByName(word, negative_model).index());
+      // geometry
       std::getline(infile, line);
       ss = std::istringstream(line);
       ss >> word;
@@ -2653,11 +2693,19 @@ void ReadCspacePolytopeFromFile(
           inspector.GetGeometryIdByName(negative_frame,
                                         geometry::Role::kProximity, word);
 
+      // expressed
+      // expressed model instance
+      std::getline(infile, line);
+      ss = std::istringstream(line);
+      ss >> word;
+      const ModelInstanceIndex expressed_model =
+          plant.GetModelInstanceByName(word);
       // expressed link
       std::getline(infile, line);
       ss = std::istringstream(line);
       ss >> word;
-      const BodyIndex expressed_link = plant.GetBodyByName(word).index();
+      const BodyIndex expressed_link =
+          plant.GetBodyByName(word, expressed_model).index();
 
       // plane decision variable values.
       std::getline(infile, line);

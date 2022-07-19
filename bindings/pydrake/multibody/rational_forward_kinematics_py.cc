@@ -576,6 +576,21 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
   m.def("CalcCspacePolytopeVolume", &CalcCspacePolytopeVolume, py::arg("C"),
       py::arg("d"), py::arg("t_lower"), py::arg("t_upper"),
       doc.CalcCspacePolytopeVolume.doc);
+  m.def(
+      "ReadCspacePolytopeFromFile",
+      [](const std::string& filename, const MultibodyPlant<double>& plant,
+          const geometry::SceneGraphInspector<double>& inspector) {
+        Eigen::MatrixXd C;
+        Eigen::VectorXd d;
+        std::unordered_map<SortedPair<geometry::GeometryId>,
+            std::pair<BodyIndex, Eigen::VectorXd>>
+            separating_planes;
+        ReadCspacePolytopeFromFile(
+            filename, plant, inspector, &C, &d, &separating_planes);
+        return std::make_tuple(C, d, separating_planes);
+      },
+      py::arg("filename"), py::arg("plant"), py::arg("scene_graph"),
+      doc.ReadCspacePolytopeFromFile.doc);
 
   py::module::import("pydrake.solvers.mathematicalprogram");
 

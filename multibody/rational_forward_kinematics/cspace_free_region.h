@@ -600,6 +600,8 @@ class CspaceFreeRegion {
     // The objective function used in maximizing the volume of the inscribed
     // ellipsoid.
     EllipsoidVolume ellipsoid_volume{EllipsoidVolume::kNthRoot};
+    // Whether to check the Lagrangian program for C*t <= d + epsilon_min
+    bool check_epsilon_min = true;
   };
 
   /**
