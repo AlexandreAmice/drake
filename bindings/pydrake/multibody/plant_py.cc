@@ -1101,7 +1101,8 @@ void DoScalarDependentDefinitions(py::module m, T) {
     cls  // BR
         .def(py::init<>())
         .def_readwrite("body_index", &Class::body_index, cls_doc.body_index.doc)
-        .def_readwrite("p_BoBq_B", &Class::p_BoBq_B, cls_doc.p_BoBq_B.doc)
+        .def_readwrite("p_BoBq_B", &Class::p_BoBq_B,
+            return_value_policy_for_scalar_type<T>(), cls_doc.p_BoBq_B.doc)
         .def_readwrite("F_Bq_W", &Class::F_Bq_W, cls_doc.F_Bq_W.doc);
     DefCopyAndDeepCopy(&cls);
     AddValueInstantiation<Class>(m);
@@ -1283,8 +1284,6 @@ PYBIND11_MODULE(plant, m) {
 
   type_visit([m](auto dummy) { DoScalarDependentDefinitions(m, dummy); },
       CommonScalarPack{});
-
-  ExecuteExtraPythonCode(m);
 }  // NOLINT(readability/fn_size)
 
 }  // namespace pydrake

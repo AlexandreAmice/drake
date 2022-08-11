@@ -6,6 +6,7 @@
 
 #include "drake/bindings/pydrake/common/cpp_template_pybind.h"
 #include "drake/bindings/pydrake/common/default_scalars_pybind.h"
+#include "drake/bindings/pydrake/common/deprecation_pybind.h"
 #include "drake/bindings/pydrake/common/eigen_pybind.h"
 #include "drake/bindings/pydrake/common/type_pack.h"
 #include "drake/bindings/pydrake/common/type_safe_index_pybind.h"
@@ -219,7 +220,19 @@ void DoScalarDependentDefinitions(py::module m, T) {
             cls_doc.CalcRelativeSpatialVelocity.doc)
         .def("CalcSpatialAccelerationInWorld",
             &Class::CalcSpatialAccelerationInWorld, py::arg("context"),
-            cls_doc.CalcSpatialAccelerationInWorld.doc);
+            cls_doc.CalcSpatialAccelerationInWorld.doc)
+        .def("CalcSpatialAcceleration", &Class::CalcSpatialAcceleration,
+            py::arg("context"), py::arg("measured_in_frame"),
+            py::arg("expressed_in_frame"), cls_doc.CalcSpatialAcceleration.doc)
+        .def("CalcRelativeSpatialAccelerationInWorld",
+            &Class::CalcRelativeSpatialAccelerationInWorld, py::arg("context"),
+            py::arg("other_frame"),
+            cls_doc.CalcRelativeSpatialAccelerationInWorld.doc)
+        .def("CalcRelativeSpatialAcceleration",
+            &Class::CalcRelativeSpatialAcceleration, py::arg("context"),
+            py::arg("other_frame"), py::arg("measured_in_frame"),
+            py::arg("expressed_in_frame"),
+            cls_doc.CalcRelativeSpatialAcceleration.doc);
   }
 
   {
@@ -280,8 +293,15 @@ void DoScalarDependentDefinitions(py::module m, T) {
             cls_doc.floating_position_suffix.doc)
         .def("floating_velocity_suffix", &Class::floating_velocity_suffix,
             cls_doc.floating_velocity_suffix.doc)
-        .def("get_default_mass", &Class::get_default_mass,
-            cls_doc.get_default_mass.doc)
+        .def("default_mass", &Class::default_mass, cls_doc.default_mass.doc);
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+    cls.def("get_default_mass",
+        WrapDeprecated(
+            cls_doc.get_default_mass.doc_deprecated, &Class::get_default_mass),
+        cls_doc.get_default_mass.doc_deprecated);
+#pragma GCC diagnostic pop  // pop -Wdeprecated-declarations
+    cls                     // BR
         .def("get_mass", &Class::get_mass, py::arg("context"),
             cls_doc.get_mass.doc)
         .def("CalcCenterOfMassInBodyFrame", &Class::CalcCenterOfMassInBodyFrame,

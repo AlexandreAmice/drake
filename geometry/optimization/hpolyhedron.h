@@ -123,6 +123,13 @@ class HPolyhedron final : public ConvexSet {
   repeated n times. */
   HPolyhedron CartesianPower(int n) const;
 
+  /** Returns the Pontryagin (Minkowski) Difference of `this` and `other`.
+   This is the set A ⊖ B = { a|a+ B ⊆ A }. The result is an HPolyhedron with the
+   same number of inequalities as A. Requires that `this` and `other` both
+   be bounded and have the same ambient dimension. This method may throw a
+   runtime error if `this` or `other` are ill-conditioned.*/
+  HPolyhedron PontryaginDifference(const HPolyhedron& other) const;
+
   /** Constructs a polyhedron as an axis-aligned box from the lower and upper
   corners. */
   static HPolyhedron MakeBox(const Eigen::Ref<const Eigen::VectorXd>& lb,

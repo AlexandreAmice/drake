@@ -9,7 +9,6 @@ import numpy as np
 
 from pydrake.autodiffutils import AutoDiffXd
 from pydrake.symbolic import Expression, Variable
-from pydrake.common.eigen_geometry import Isometry3
 from pydrake.lcm import DrakeLcm
 from pydrake.math import RigidTransform
 from pydrake.multibody.tree import (
@@ -61,9 +60,6 @@ from pydrake.multibody.plant import (
     ContactModel,
     ContactResults_,
     ContactResultsToLcmSystem,
-    ContactResultsToMeshcatParams,
-    ContactResultsToMeshcat,
-    ContactResultsToMeshcat_,
     CoulombFriction_,
     ExternallyAppliedSpatialForce_,
     MultibodyPlant,
@@ -414,7 +410,10 @@ class TestPlant(unittest.TestCase):
         self.assertIsInstance(body.has_quaternion_dofs(), bool)
         self.assertIsInstance(body.floating_positions_start(), int)
         self.assertIsInstance(body.floating_velocities_start(), int)
-        self.assertIsInstance(body.get_default_mass(), float)
+        self.assertIsInstance(body.default_mass(), float)
+        # TODO(2022-11-01) Remove with completion of deprecation.
+        with catch_drake_warnings(expected_count=1):
+            self.assertIsInstance(body.get_default_mass(), float)
 
     @numpy_compare.check_all_types
     def test_body_context_methods(self, T):
@@ -1172,6 +1171,8 @@ class TestPlant(unittest.TestCase):
                 test_force.F_Bq_W = SpatialForce_[T](
                     tau=[0., 0., 0.], f=[0., 0., 1.])
                 spatial_forces_vector.set_value([test_force])
+                numpy_compare.assert_float_equal(test_force.p_BoBq_B,
+                                                 np.zeros(3))
 
             def DoCalcVectorOutput(self, context, generalized_forces):
                 generalized_forces.SetFromVector(np.zeros(self.nv))
@@ -1862,6 +1863,20 @@ class TestPlant(unittest.TestCase):
         self.assertIsInstance(
             dut.CalcSpatialAccelerationInWorld(context=context),
             SpatialAcceleration_[T])
+        self.assertIsInstance(
+            dut.CalcSpatialAcceleration(context=context, measured_in_frame=dut,
+                                        expressed_in_frame=dut),
+            SpatialAcceleration_[T])
+        self.assertIsInstance(
+            dut.CalcRelativeSpatialAccelerationInWorld(context=context,
+                                                       other_frame=dut),
+            SpatialAcceleration_[T])
+        self.assertIsInstance(
+            dut.CalcRelativeSpatialAcceleration(context=context,
+                                                other_frame=dut,
+                                                measured_in_frame=dut,
+                                                expressed_in_frame=dut),
+            SpatialAcceleration_[T])
 
     @numpy_compare.check_all_types
     def test_fixed_offset_frame_api(self, T):
@@ -2300,39 +2315,6 @@ class TestPlant(unittest.TestCase):
             dut.EvaluateGradE_N_W(index=0)
         dut.Equal(surface=dut)
         copy.copy(dut)
-
-    def test_deprecated_contact_results_to_meshcat_default_scalar(self):
-        """Checks ContactResultsToMeshcat for deprecation."""
-        meshcat = Meshcat()
-        with catch_drake_warnings(expected_count=1):
-            params = ContactResultsToMeshcatParams()
-        self.assertIsNotNone(params)
-        with catch_drake_warnings(expected_count=1):
-            vis = ContactResultsToMeshcat(meshcat=meshcat, params=params)
-        vis.Delete()
-        builder = DiagramBuilder_[float]()
-        plant, scene_graph = AddMultibodyPlantSceneGraph(builder, 0.01)
-        plant.Finalize()
-        with catch_drake_warnings(expected_count=1):
-            ContactResultsToMeshcat.AddToBuilder(
-                builder=builder, plant=plant, meshcat=meshcat, params=params)
-
-    @numpy_compare.check_nonsymbolic_types
-    def test_deprecated_contact_results_to_meshcat_specific_scalar(self, T):
-        """Checks ContactResultsToMeshcat_[T] for deprecation."""
-        meshcat = Meshcat()
-        with catch_drake_warnings(expected_count=1):
-            params = ContactResultsToMeshcatParams()
-        self.assertIsNotNone(params)
-        with catch_drake_warnings(expected_count=1):
-            vis = ContactResultsToMeshcat_[T](meshcat=meshcat, params=params)
-        vis.Delete()
-        builder = DiagramBuilder_[T]()
-        plant, scene_graph = AddMultibodyPlantSceneGraph(builder, 0.01)
-        plant.Finalize()
-        with catch_drake_warnings(expected_count=1):
-            ContactResultsToMeshcat_[T].AddToBuilder(
-                builder=builder, plant=plant, meshcat=meshcat, params=params)
 
     def test_free_base_bodies(self):
         plant = MultibodyPlant_[float](time_step=0.01)

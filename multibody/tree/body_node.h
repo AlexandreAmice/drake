@@ -344,7 +344,11 @@ class BodyNode : public MultibodyElement<BodyNode, T, BodyNodeIndex> {
     //          = H_PB_W * vm
     // where H_PB_W = R_WF * phiT_MB_F * H_FM.
     SpatialVelocity<T>& V_PB_W = get_mutable_V_PB_W(vc);
-    V_PB_W.get_coeffs() = H_PB_W * vm;
+    if (get_num_mobilizer_velocities() > 0) {
+      V_PB_W.get_coeffs() = H_PB_W * vm;
+    } else {
+      V_PB_W.get_coeffs().setZero();
+    }
 
     // =========================================================================
     // Computation of V_WPb in Eq. (1). See summary at the top of this method.
@@ -1062,7 +1066,7 @@ class BodyNode : public MultibodyElement<BodyNode, T, BodyNodeIndex> {
       ldlt_D_B = math::LinearSolver<Eigen::LDLT, MatrixUpTo6<T>>(
           MatrixUpTo6<T>(D_B.template selfadjointView<Eigen::Lower>()));
 
-      // Ensure that D_B is not singular.
+      // Ensure that D_B (the articulated body hinge inertia) is not singular.
       // Singularity means that a non-physical hinge mapping matrix was used or
       // that this articulated body inertia has some non-physical quantities
       // (such as zero moment of inertia along an axis which the hinge mapping
@@ -1180,10 +1184,9 @@ class BodyNode : public MultibodyElement<BodyNode, T, BodyNodeIndex> {
     // These terms do not show up for zero mobilities (weld).
     if (nv != 0) {
       // Compute the articulated body inertia innovations generalized force,
-      // e_B,
-      // according to (4).
+      // e_B, according to (4).
       VectorUpTo6<T>& e_B = get_mutable_e_B(aba_force_cache);
-      e_B = tau_applied - H_PB_W.transpose() * Z_Bo_W.get_coeffs();
+      e_B.noalias() = tau_applied - H_PB_W.transpose() * Z_Bo_W.get_coeffs();
 
       // Get the Kalman gain from cache.
       const Matrix6xUpTo6<T>& g_PB_W = get_g_PB_W(abic);

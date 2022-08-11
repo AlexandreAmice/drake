@@ -19,7 +19,9 @@ filegroup(
     name = "models",
     data = [
         "assets/box_small.urdf",
+        "assets/double_pendulum_world.urdf",
         "assets/oneDOF_iiwa7_with_box_collision.sdf",
+        "assets/single_pendulum_world.urdf",
         "assets/twoDOF_iiwa7_with_box_collision.sdf",
     ],
     visibility = ["//visibility:public"],
@@ -33,6 +35,14 @@ drake_py_library(
     name = "visualizations_utils",
     srcs = [
         "visualizations_utils.py",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+drake_py_library(
+    name = "prm",
+    srcs = [
+        "prm.py",
     ],
     visibility = ["//visibility:public"],
 )
@@ -59,6 +69,16 @@ drake_py_library(
     ],
 )
 
+drake_py_library(
+    name = "iris_plant_visualizer2",
+    srcs = [
+        "iris_plant_visualizer2.py",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//bindings/pydrake",
+    ],
+)
 
 ##########################################################
 # NOTEBOOKS
@@ -78,8 +98,21 @@ drake_jupyter_py_binary(
 )
 
 drake_jupyter_py_binary(
-    name = "vprm_iris_seeding",
+    name = "pinball_iiwas_prm_certify",
     add_test_rule = 0,
+    data = [
+        "//C_Iris_Examples:models",
+    ],
+    deps = [
+        "//C_Iris_Examples:iris_plant_visualizer2",
+        "//C_Iris_Examples:prm",
+        "//C_Iris_Examples:visualizations_utils",
+        "//bindings/pydrake",
+    ],
+)
+
+drake_jupyter_py_binary(
+    name = "vprm_iris_seeding",
     data = [
         "//C_Iris_Examples:models",
     ],
@@ -91,3 +124,30 @@ drake_jupyter_py_binary(
     ],
 )
 
+drake_jupyter_py_binary(
+    name = "simple_pendulum_example",
+    add_test_rule = 0,
+    data = [
+        "//C_Iris_Examples:models",
+    ],
+    deps = [
+        "//C_Iris_Examples:iris_plant_visualizer2",
+        "//C_Iris_Examples:prm",
+        "//C_Iris_Examples:visualizations_utils",
+        "//bindings/pydrake",
+    ],
+)
+
+drake_jupyter_py_binary(
+    name = "double_pendulum_example",
+    add_test_rule = 0,
+    data = [
+        "//C_Iris_Examples:models",
+    ],
+    deps = [
+        "//C_Iris_Examples:iris_plant_visualizer2",
+        "//C_Iris_Examples:prm",
+        "//C_Iris_Examples:visualizations_utils",
+        "//bindings/pydrake",
+    ],
+)

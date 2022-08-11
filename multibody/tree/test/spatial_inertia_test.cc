@@ -5,9 +5,8 @@
 
 #include <gtest/gtest.h>
 
-#include "drake/common/autodiff.h"
 #include "drake/common/eigen_types.h"
-#include "drake/common/symbolic.h"
+#include "drake/common/test_utilities/eigen_matrix_compare.h"
 #include "drake/common/test_utilities/expect_no_throw.h"
 #include "drake/common/test_utilities/expect_throws_message.h"
 #include "drake/math/autodiff.h"
@@ -54,12 +53,25 @@ GTEST_TEST(SpatialInertia, DefaultConstructor) {
   ASSERT_TRUE(I.IsNaN());
 }
 
+GTEST_TEST(SpatialInertia, MakeUnitary) {
+  const double expected_mass = 1;
+  const SpatialInertia<double> M = SpatialInertia<double>::MakeUnitary();
+  EXPECT_TRUE(M.IsPhysicallyValid());
+  EXPECT_EQ(M.get_mass(), expected_mass);
+  EXPECT_EQ(M.get_com(), Vector3<double>::Zero());
+  const Vector3<double> M_unit_moments = M.get_unit_inertia().get_moments();
+  const Vector3<double> M_unit_products = M.get_unit_inertia().get_products();
+  const double Ixx = 1;  // Expected Ixx = Iyy = Izz unit moment of inertia.
+  EXPECT_EQ(M_unit_moments, Vector3<double>(Ixx, Ixx, Ixx));
+  EXPECT_EQ(M_unit_products, Vector3<double>::Zero());
+}
+
 // Test the construction from the mass, center of mass, and unit inertia of a
 // body. Also tests:
 //   - Getters.
 //   - CopyToFullMatrix6().
 //   - SetNan()
-GTEST_TEST(SpatialInertia, ConstructionFromMasComAndUnitInertia) {
+GTEST_TEST(SpatialInertia, ConstructionFromMassCmAndUnitInertia) {
   const double mass = 2.5;
   const Vector3d com(0.1, -0.2, 0.3);
   const Vector3d m(2.0, 2.3, 2.4);         // m for moments.

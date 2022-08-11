@@ -85,6 +85,7 @@ drake_pybind_library(
         "//bindings/pydrake:documentation_pybind",
         "//bindings/pydrake/common:cpp_template_pybind",
         "//bindings/pydrake/common:default_scalars_pybind",
+        "//bindings/pydrake/common:deprecation_pybind",
         "//bindings/pydrake/common:eigen_geometry_pybind",
         "//bindings/pydrake/common:eigen_pybind",
         "//bindings/pydrake/common:type_pack",
@@ -122,14 +123,12 @@ drake_pybind_library(
         "//bindings/pydrake:geometry_py",
         "//bindings/pydrake/common:cpp_template_py",
     ],
-    py_srcs = ["_plant_extra.py"],
 )
 
 drake_pybind_library(
     name = "parsing_py",
     cc_deps = [
         "//bindings/pydrake:documentation_pybind",
-        "//bindings/pydrake/common:deprecation_pybind",
     ],
     cc_srcs = ["parsing_py.cc"],
     package_info = PACKAGE_INFO,
@@ -167,7 +166,7 @@ drake_pybind_library(
     py_deps = [
         ":module_py",
         ":plant_py",
-        "//bindings/pydrake/solvers:mathematicalprogram_py",
+        "//bindings/pydrake/solvers",
     ],
 )
 
@@ -183,7 +182,7 @@ drake_pybind_library(
     py_deps = [
         ":module_py",
         ":plant_py",
-        "//bindings/pydrake/solvers:mathematicalprogram_py",
+        "//bindings/pydrake/solvers",
     ],
 )
 
@@ -203,14 +202,13 @@ drake_pybind_library(
         "//bindings/pydrake/common:default_scalars_pybind",
         "//bindings/pydrake/common:sorted_pair_pybind",
         "//bindings/pydrake/common:value_pybind",
-        #        "//multibody/rational_forward_kinematics",
     ],
     cc_srcs = ["rational_forward_kinematics_py.cc"],
     package_info = PACKAGE_INFO,
     py_deps = [
         ":module_py",
         ":plant_py",
-        "//bindings/pydrake/solvers:mathematicalprogram_py",
+        "//bindings/pydrake/solvers",
     ],
 )
 
@@ -246,8 +244,8 @@ drake_py_library(
 
 install(
     name = "install",
-    targets = PY_LIBRARIES + [":all_py"],
     py_dest = PACKAGE_INFO.py_dest,
+    targets = PY_LIBRARIES + [":all_py"],
     deps = get_drake_py_installs(PY_LIBRARIES_WITH_INSTALL),
 )
 
@@ -286,7 +284,6 @@ drake_py_unittest(
     deps = [
         ":parsing_py",
         ":plant_py",
-        "//bindings/pydrake/common/test_utilities",
     ],
 )
 
@@ -310,8 +307,6 @@ drake_py_unittest(
         "//bindings/pydrake/common/test_utilities:pickle_compare_py",
         "//bindings/pydrake/systems:analysis_py",
         "//bindings/pydrake/systems:scalar_conversion_py",
-        # TODO(jwnimmer-tri) Remove this on 2022-05-01 per deprecations.
-        ":meshcat_py",
     ],
 )
 
@@ -358,8 +353,7 @@ drake_py_unittest(
         ":parsing_py",
         "//bindings/pydrake:trajectories_py",
         "//bindings/pydrake/common/test_utilities",
-        "//bindings/pydrake/solvers:ipopt_py",
-        "//bindings/pydrake/solvers:snopt_py",
+        "//bindings/pydrake/solvers",
     ],
 )
 

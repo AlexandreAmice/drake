@@ -125,6 +125,13 @@ void PackageMap::PopulateFromFolder(const string& path) {
 
 void PackageMap::PopulateFromEnvironment(const string& environment_variable) {
   DRAKE_DEMAND(!environment_variable.empty());
+  if (environment_variable == "ROS_PACKAGE_PATH") {
+    drake::log()->warn(
+      "PackageMap: PopulateFromEnvironment(\"ROS_PACKAGE_PATH\") is "
+      "deprecated, and will be disabled on or around 2022-11-01. To populate "
+      "manifests from ROS_PACKAGE_PATH, use PopulateFromRosPackagePath() "
+      "instead.");
+  }
   const char* const value = std::getenv(environment_variable.c_str());
   if (value == nullptr) {
     return;
@@ -138,17 +145,27 @@ void PackageMap::PopulateFromEnvironment(const string& environment_variable) {
   }
 }
 
-namespace {
+void PackageMap::PopulateFromRosPackagePath() {
+  const std::vector<std::string_view> stop_markers = {
+    "AMENT_IGNORE",
+    "CATKIN_IGNORE",
+    "COLCON_IGNORE",
+  };
 
-// Returns the package.xml file in the given directory, if any.
-std::optional<filesystem::path> GetPackageXmlFile(const string& directory) {
-  DRAKE_DEMAND(!directory.empty());
-  filesystem::path filename = filesystem::path(directory) / "package.xml";
-  if (filesystem::is_regular_file(filename)) {
-    return filename;
+  const char* const value = std::getenv("ROS_PACKAGE_PATH");
+  if (value == nullptr) {
+    return;
   }
-  return std::nullopt;
+  std::istringstream input{string(value)};
+  string path;
+  while (std::getline(input, path, ':')) {
+    if (!path.empty()) {
+      CrawlForPackages(path, true, stop_markers);
+    }
+  }
 }
+
+namespace {
 
 // Returns the parent directory of @p directory.
 string GetParentDirectory(const string& directory) {
@@ -245,76 +262,34 @@ bool PackageMap::AddPackageIfNew(const string& package_name,
   return true;
 }
 
-void PackageMap::PopulateUpstreamToDrakeHelper(
-    const string& directory,
-    const string& stop_at_directory) {
-  DRAKE_DEMAND(!directory.empty());
-
-  // If we've reached the top, then stop searching.
-  if (directory.length() <= stop_at_directory.length()) {
-    return;
-  }
-
-  // If there is a new package.xml file, then add it.
-  if (auto filename = GetPackageXmlFile(directory)) {
-    const auto [package_name, deprecated_message] = ParsePackageManifest(
-        filename->string());
-    if (AddPackageIfNew(package_name, directory))
-      SetDeprecated(package_name, deprecated_message);
-  }
-
-  // Continue searching in our parent directory.
-  PopulateUpstreamToDrakeHelper(
-      GetParentDirectory(directory), stop_at_directory);
-}
-
-// N.B. When removing this deprecated function, also be sure to remove
-// the PopulateUpstreamToDrakeHelper, immediately above.
-void PackageMap::PopulateUpstreamToDrake(const string& model_file) {
-  DRAKE_DEMAND(!model_file.empty());
-  drake::log()->trace("PopulateUpstreamToDrake: {}", model_file);
-
-  // Verify that the model_file names an URDF or SDF file.
-  string extension = filesystem::path(model_file).extension().string();
-  std::transform(extension.begin(), extension.end(), extension.begin(),
-                 ::tolower);
-  if (extension != ".urdf" && extension != ".sdf") {
-    throw std::runtime_error(fmt::format(
-        "The file type '{}' is not supported for '{}'",
-        extension, model_file));
-  }
-  const string model_dir = filesystem::path(model_file).parent_path().string();
-
-  // Bail out if we can't determine the drake root.
-  const std::optional<string> maybe_drake_path = MaybeGetDrakePath();
-  if (!maybe_drake_path) {
-    drake::log()->trace("  Could not determine drake_path");
-    return;
-  }
-  // Bail out if the model file is not part of Drake.
-  const string& drake_path = *maybe_drake_path;
-  auto iter = std::mismatch(drake_path.begin(), drake_path.end(),
-                            model_dir.begin());
-  if (iter.first != drake_path.end()) {
-    drake::log()->trace("  drake_path was not a prefix of model_dir.");
-    return;
-  }
-
-  // Search the directory containing the model_file and "upstream".
-  PopulateUpstreamToDrakeHelper(model_dir, drake_path);
-}
-
 PackageMap::PackageMap(std::initializer_list<std::string> manifest_paths) {
   for (const auto& manifest_path : manifest_paths) {
     AddPackageXml(manifest_path);
   }
 }
 
-void PackageMap::CrawlForPackages(const string& path) {
+void PackageMap::CrawlForPackages(const string& path, bool stop_at_package,
+    const std::vector<std::string_view>& stop_markers) {
   DRAKE_DEMAND(!path.empty());
+  filesystem::path dir = filesystem::path(path).lexically_normal();
+  if (std::any_of(stop_markers.begin(), stop_markers.end(),
+      [dir](std::string_view name){return filesystem::exists(dir / name);})) {
+    return;
+  }
+  filesystem::path manifest = dir / "package.xml";
+  if (filesystem::exists(manifest)) {
+    const auto [package_name, deprecated_message] =
+        ParsePackageManifest(manifest.string());
+    const string package_path = dir.string();
+    if (AddPackageIfNew(package_name, package_path + "/")) {
+      SetDeprecated(package_name, deprecated_message);
+    }
+    if (stop_at_package) {
+      return;
+    }
+  }
   std::error_code ec;
-  filesystem::directory_iterator iter(
-      filesystem::path(path).lexically_normal(), ec);
+  filesystem::directory_iterator iter(dir, ec);
   if (ec) {
     log()->warn("Unable to open directory: {}", path);
     return;
@@ -326,13 +301,7 @@ void PackageMap::CrawlForPackages(const string& path) {
       if (filename.at(0) == '.') {
         continue;
       }
-      CrawlForPackages(entry.path().string());
-    } else if (entry.path().filename().string() == "package.xml") {
-      const auto [package_name, deprecated_message] = ParsePackageManifest(
-          entry.path().string());
-      const string package_path = entry.path().parent_path().string();
-      if (AddPackageIfNew(package_name, package_path + "/"))
-        SetDeprecated(package_name, deprecated_message);
+      CrawlForPackages(entry.path().string(), stop_at_package, stop_markers);
     }
   }
 }

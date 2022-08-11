@@ -78,13 +78,8 @@ void DoScalarDependentDefinitions(py::module m, T) {
   {
     using Class = MeshcatPointCloudVisualizer<T>;
     constexpr auto& cls_doc = doc.MeshcatPointCloudVisualizer;
-    auto cls = DefineTemplateClassWithDefault<Class, LeafSystem<T>>(m,
-        "MeshcatPointCloudVisualizerCpp", param,
-        (std::string(cls_doc.doc) + R"""(
-Note that we are temporarily re-mapping MeshcatPointCloudVisualizer =>
-MeshcatPointCloudVisualizerCpp to avoid collisions with the python
-MeshcatPointCloudVisualizer.  See #13038.)""")
-            .c_str());
+    auto cls = DefineTemplateClassWithDefault<Class, LeafSystem<T>>(
+        m, "MeshcatPointCloudVisualizer", param, cls_doc.doc);
     cls  // BR
         .def(py::init<std::shared_ptr<Meshcat>, std::string, double>(),
             py::arg("meshcat"), py::arg("path"),
@@ -106,13 +101,8 @@ MeshcatPointCloudVisualizer.  See #13038.)""")
   {
     using Class = MeshcatVisualizer<T>;
     constexpr auto& cls_doc = doc.MeshcatVisualizer;
-    auto cls = DefineTemplateClassWithDefault<Class, LeafSystem<T>>(m,
-        "MeshcatVisualizerCpp", param,
-        (std::string(cls_doc.doc) + R"""(
-Note that we are temporarily re-mapping MeshcatVisualizer =>
-MeshcatVisualizerCpp to avoid collisions with the python
-MeshcatVisualizer.  See #13038.)""")
-            .c_str());
+    auto cls = DefineTemplateClassWithDefault<Class, LeafSystem<T>>(
+        m, "MeshcatVisualizer", param, cls_doc.doc);
     cls  // BR
         .def(py::init<std::shared_ptr<Meshcat>, MeshcatVisualizerParams>(),
             py::arg("meshcat"), py::arg("params") = MeshcatVisualizerParams{},
@@ -177,15 +167,19 @@ void DoScalarIndependentDefinitions(py::module m) {
         .def_readwrite("show_hydroelastic",
             &DrakeVisualizerParams::show_hydroelastic,
             cls_doc.show_hydroelastic.doc)
+        .def_readwrite("use_role_channel_suffix",
+            &DrakeVisualizerParams::use_role_channel_suffix,
+            cls_doc.use_role_channel_suffix.doc)
         .def("__repr__", [](const Class& self) {
           return py::str(
               "DrakeVisualizerParams("
               "publish_period={}, "
               "role={}, "
               "default_color={}, "
-              "show_hydroelastic={})")
+              "show_hydroelastic={}, "
+              "use_role_channel_suffix={})")
               .format(self.publish_period, self.role, self.default_color,
-                  self.show_hydroelastic);
+                  self.show_hydroelastic, self.use_role_channel_suffix);
         });
   }
 
@@ -201,12 +195,15 @@ void DoScalarIndependentDefinitions(py::module m) {
         .def_readwrite("port", &MeshcatParams::port, cls_doc.port.doc)
         .def_readwrite("web_url_pattern", &MeshcatParams::web_url_pattern,
             cls_doc.web_url_pattern.doc)
+        .def_readwrite("show_stats_plot", &MeshcatParams::show_stats_plot,
+            cls_doc.show_stats_plot.doc)
         .def("__repr__", [](const Class& self) {
           return py::str(
               "MeshcatParams("
               "port={}, "
-              "web_url_pattern={})")
-              .format(self.port, self.web_url_pattern);
+              "web_url_pattern={}, "
+              "show_stats_plot={})")
+              .format(self.port, self.web_url_pattern, self.show_stats_plot);
         });
   }
 
@@ -284,6 +281,8 @@ void DoScalarIndependentDefinitions(py::module m) {
                 const Eigen::Ref<const Eigen::Matrix4d>&>(&Class::SetTransform),
             py::arg("path"), py::arg("matrix"), cls_doc.SetTransform.doc_matrix)
         .def("Delete", &Class::Delete, py::arg("path") = "", cls_doc.Delete.doc)
+        .def("SetRealtimeRate", &Class::SetRealtimeRate, py::arg("rate"),
+            cls_doc.SetRealtimeRate.doc)
         .def("SetProperty",
             py::overload_cast<std::string_view, std::string, bool>(
                 &Class::SetProperty),

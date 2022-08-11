@@ -10,16 +10,18 @@
 #include <vector>
 
 #include "drake/common/drake_copyable.h"
-#include "drake/multibody/rational_forward_kinematics/convex_geometry.h"
+#include "drake/multibody/rational_forward_kinematics/collision_geometry.h"
 #include "drake/multibody/rational_forward_kinematics/plane_side.h"
 #include "drake/multibody/rational_forward_kinematics/rational_forward_kinematics.h"
+#include "drake/solvers/constraint.h"
 #include "drake/solvers/mathematical_program.h"
 #include "drake/solvers/mathematical_program_result.h"
 
 /**
  * This file is largely the same as configuration_space_collision_free_region.h.
  * The major differences are
- * 1. The separating hyperplane is parameterized as aᵀx + b ≥ 1 and aᵀx+b ≤ −1
+ * 1. The separating hyperplane is parameterized as aᵀx + b ≥ δ and aᵀx+b ≤ −δ,
+ * where δ is a small positive number.
  * 2. We first focus on the generic polytopic region C*t<=d in the configuration
  * space (we will add the special case for axis-aligned bounding box region
  * t_lower <= t <= t_upper later).
@@ -27,7 +29,7 @@
 
 namespace drake {
 namespace multibody {
-/* The separating plane aᵀx + b ≥ 1, aᵀx+b ≤ −1 has parameters a and b. These
+/* The separating plane aᵀx + b ≥ δ, aᵀx+b ≤ −δ has parameters a and b. These
  * parameters can be a constant of affine function of t.
  */
 enum class SeparatingPlaneOrder {
@@ -36,9 +38,9 @@ enum class SeparatingPlaneOrder {
 };
 
 /**
- * One polytope is on the "positive" side of the separating plane, namely {x|
- * aᵀx + b ≥ 1}, and the other polytope is on the "negative" side of the
- * separating plane, namely {x|aᵀx+b ≤ −1}.
+ * One collision geometry is on the "positive" side of the separating plane,
+ * namely {x| aᵀx + b ≥ δ} (with δ ≥ 0}, and the other collision geometry is on
+ * the "negative" side of the separating plane, namely {x|aᵀx+b ≤ −δ}.
  * @tparam T The type of decision_variables. By default T=symbolic::Variable,
  * but when we store the solution to the separating plane, T=double.
  */
@@ -51,23 +53,23 @@ struct SeparatingPlane {
 
   SeparatingPlane(drake::Vector3<symbolic::Expression> m_a,
                   symbolic::Expression m_b,
-                  const ConvexPolytope* m_positive_side_polytope,
-                  const ConvexPolytope* m_negative_side_polytope,
+                  const CollisionGeometry* m_positive_side_geometry,
+                  const CollisionGeometry* m_negative_side_geometry,
                   multibody::BodyIndex m_expressed_link,
                   SeparatingPlaneOrder m_order,
                   const Eigen::Ref<const VectorX<T>>& m_decision_variables)
       : a{std::move(m_a)},
         b{std::move(m_b)},
-        positive_side_polytope{m_positive_side_polytope},
-        negative_side_polytope{m_negative_side_polytope},
+        positive_side_geometry{m_positive_side_geometry},
+        negative_side_geometry{m_negative_side_geometry},
         expressed_link{std::move(m_expressed_link)},
         order{m_order},
         decision_variables{m_decision_variables} {}
 
   Vector3<symbolic::Expression> a;
   symbolic::Expression b;
-  const ConvexPolytope* positive_side_polytope;
-  const ConvexPolytope* negative_side_polytope;
+  const CollisionGeometry* positive_side_geometry;
+  const CollisionGeometry* negative_side_geometry;
   multibody::BodyIndex expressed_link;
   SeparatingPlaneOrder order;
   VectorX<T> decision_variables;
@@ -113,7 +115,7 @@ void CalcPlane(const VectorX<T>& decision_variables,
 
 /**
  * We need to verify that C * t <= d implies p(t) >= 0, where p(t) is the
- * numerator of the rational function aᵀx + b - 1 or -1 - aᵀx-b. Namely we need
+ * numerator of the rational function aᵀx + b - δ or -δ - aᵀx-b. Namely we need
  * to verify the non-negativity of the lagrangian polynomial l(t), together with
  * p(t) - l(t)ᵀ(d - C * t). We can choose the type of the non-negative
  * polynomials (sos, dsos, sdsos).
@@ -154,8 +156,7 @@ struct CspaceFreeRegionSolution {
         separating_planes{std::move(m_separating_planes)} {}
   //
   CspaceFreeRegionSolution(Eigen::MatrixXd m_C, Eigen::MatrixXd m_d)
-      : C{m_C},
-        d{m_d} {}
+      : C{m_C}, d{m_d} {}
 
   // values defining Hpolyhedron Ct <= d
   Eigen::MatrixXd C;
@@ -182,34 +183,45 @@ struct CspaceFreeRegionSolution {
 };
 
 /**
- * The rational function representing that a link vertex V is on the desired
- * side of the plane. If the link is on the positive side of the plane, then the
- * rational is aᵀx + b - 1, otherwise it is -1 - aᵀx - b
+ * The rational function representing that a link is on the desired
+ * side of the plane. If the link is on the positive side of the plane, then
+ * the rational is aᵀx + b - δ, otherwise it is -δ - aᵀx - b
  */
-struct LinkVertexOnPlaneSideRational {
-  LinkVertexOnPlaneSideRational(
+struct LinkOnPlaneSideRational {
+  LinkOnPlaneSideRational(
       symbolic::RationalFunction m_rational,
-      const ConvexPolytope* m_link_polytope,
+      const CollisionGeometry* m_link_geometry,
       multibody::BodyIndex m_expressed_body_index,
-      const ConvexPolytope* m_other_side_link_polytope,
+      const CollisionGeometry* m_other_side_link_geometry,
       Vector3<symbolic::Expression> m_a_A, symbolic::Expression m_b,
-      PlaneSide m_plane_side, SeparatingPlaneOrder m_plane_order)
+      PlaneSide m_plane_side, SeparatingPlaneOrder m_plane_order,
+      std::vector<solvers::Binding<solvers::LorentzConeConstraint>>
+          m_lorentz_cone_constraints)
       : rational{std::move(m_rational)},
-        link_polytope{m_link_polytope},
+        link_geometry{m_link_geometry},
         expressed_body_index{m_expressed_body_index},
-        other_side_link_polytope{m_other_side_link_polytope},
+        other_side_link_geometry{m_other_side_link_geometry},
         a_A{std::move(m_a_A)},
         b{std::move(m_b)},
         plane_side{m_plane_side},
-        plane_order{m_plane_order} {}
+        plane_order{m_plane_order},
+        lorentz_cone_constraints{std::move(m_lorentz_cone_constraints)} {}
   const symbolic::RationalFunction rational;
-  const ConvexPolytope* const link_polytope;
+  const CollisionGeometry* const link_geometry;
   const multibody::BodyIndex expressed_body_index;
-  const ConvexPolytope* const other_side_link_polytope;
+  const CollisionGeometry* const other_side_link_geometry;
+  /**
+   * a_A is the normal vector of the separating plane expressed in the frame A
+   * (namely exprssed_body_index).
+   */
   const Vector3<symbolic::Expression> a_A;
   const symbolic::Expression b;
   const PlaneSide plane_side;
   const SeparatingPlaneOrder plane_order;
+  // Some geometries (ellipsoid, capsules, etc) require imposing
+  // additional Lorentz cone constraints.
+  const std::vector<solvers::Binding<drake::solvers::LorentzConeConstraint>>
+      lorentz_cone_constraints;
 };
 
 enum class CspaceRegionType { kGenericPolytope, kAxisAlignedBoundingBox };
@@ -231,51 +243,56 @@ enum class EllipsoidVolume { kLog, kNthRoot };
 /**
  * This class tries to find a large convex set in the configuration space, such
  * that this whole convex set is collision free. We assume that the obstacles
- * are unions of polytopes in the workspace, and the robot link poses
+ * are unions of convex geometries in the workspace, and the robot link poses
  * (position/orientation) can be written as rational functions of some
  * variables. Such robot can have only revolute (or prismatic joint). We also
  * suppose that the each link of the robot is represented as a union of
- * polytopes. We will find the convex collision free set in the configuration
- * space through convex optimization.
+ * convex geometries. We will find the convex collision free set in the
+ * configuration space through convex optimization.
  */
 class CspaceFreeRegion {
  public:
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(CspaceFreeRegion)
 
-  using FilteredCollisionPairs =
-      std::unordered_set<drake::SortedPair<ConvexGeometry::Id>>;
+  virtual ~CspaceFreeRegion() = default;
 
+  using FilteredCollisionPairs =
+      std::unordered_set<drake::SortedPair<geometry::GeometryId>>;
+
+  /**
+   * @param diagram The diagram containing both the plant and the scene graph.
+   * @param plane_order The order of the polynomials in the plane to separate a
+   * pair of polytopic collision geometries. If either or both of the collision
+   * geometry is not a polyhedron, then we can only use
+   * SeparatingPlaneOrder::kConstant for that plane.
+   * @param separating_polytope_delta δ in the separating plane that separates a
+   * pair of polytopes. This should be a strictly positive number.
+   */
   CspaceFreeRegion(const systems::Diagram<double>& diagram,
                    const multibody::MultibodyPlant<double>* plant,
                    const geometry::SceneGraph<double>* scene_graph,
                    SeparatingPlaneOrder plane_order,
-                   CspaceRegionType cspace_region_type);
+                   CspaceRegionType cspace_region_type,
+                   double separating_polytope_delta = 1.);
 
-  CspaceFreeRegion(const multibody::MultibodyPlant<double>& plant,
-                   const std::vector<const ConvexPolytope*>& link_polytopes,
-                   const std::vector<const ConvexPolytope*>& obstacles,
-                   SeparatingPlaneOrder plane_order,
-                   CspaceRegionType cspace_region_type);
-
-  /** separating_planes()[map_polytopes_to_separating_planes.at(geometry1_id,
+  /** separating_planes()[map_geometries_to_separating_planes.at(geometry1_id,
    * geometry2_id)] is the separating plane that separates geometry1 and
    * geometry 2.
    */
-  const std::unordered_map<SortedPair<ConvexGeometry::Id>, int>&
-  map_polytopes_to_separating_planes() const {
-    return map_polytopes_to_separating_planes_;
+  const std::unordered_map<SortedPair<geometry::GeometryId>, int>&
+  map_geometries_to_separating_planes() const {
+    return map_geometries_to_separating_planes_;
   }
 
   /**
-   * Generate all the rational functions in the form aᵀx + b -1 or -1-aᵀx-b
+   * Generate all the rational functions in the form aᵀx + b -δ or -δ-aᵀx-b
    * whose non-negativity implies that the separating plane aᵀx + b =0 separates
-   * a pair of polytopes.
-   * This function loops over all pair of polytopes between a link and an
-   * obstacle that are not in filtered_collision_pair.
+   * a pair of collision geometries.
+   * This function loops over all pair of collision geometries  that are not in
+   * filtered_collision_pair.
    */
-  // TODO(hongkai.dai): also consider the self-collision pairs.
-  std::vector<LinkVertexOnPlaneSideRational>
-  GenerateLinkOnOneSideOfPlaneRationals(
+  virtual std::vector<LinkOnPlaneSideRational>
+  GenerateRationalsForLinkOnOneSideOfPlane(
       const Eigen::Ref<const Eigen::VectorXd>& q_star,
       const CspaceFreeRegion::FilteredCollisionPairs& filtered_collision_pairs)
       const;
@@ -294,7 +311,7 @@ class CspaceFreeRegion {
 
     std::unique_ptr<solvers::MathematicalProgram> prog;
     // polytope_lagrangians has size rationals.size(), namely it is the number
-    // of (link_polytope, obstacle_polytope) pairs. lagrangians[i] has size
+    // of (link_geometry, obstacle_geometry) pairs. lagrangians[i] has size
     // C.rows()
     std::vector<VectorX<symbolic::Polynomial>> polytope_lagrangians;
     // t_lower_lagrangians[i][j] is the lagrangian for t(j) >= t_lower(j) to
@@ -314,7 +331,7 @@ class CspaceFreeRegion {
    */
   CspacePolytopeProgramReturn ConstructProgramForCspacePolytope(
       const Eigen::Ref<const Eigen::VectorXd>& q_star,
-      const std::vector<LinkVertexOnPlaneSideRational>& rationals,
+      const std::vector<LinkOnPlaneSideRational>& rationals,
       const Eigen::Ref<const Eigen::MatrixXd>& C,
       const Eigen::Ref<const Eigen::VectorXd>& d,
       const FilteredCollisionPairs& filtered_collision_pairs,
@@ -322,7 +339,7 @@ class CspaceFreeRegion {
 
   bool IsPostureInCollision(const systems::Context<double>& context) const;
 
-  /** Each tuple corresponds to one rational aᵀx + b - 1 or -1 - aᵀx - b.
+  /** Each tuple corresponds to one rational aᵀx + b - δ or -δ - aᵀx - b.
    * This tuple should be used with GenerateTuplesForBilinearAlternation. To
    * save computation time, this class minimizes using dynamic memory
    * allocation.
@@ -346,7 +363,7 @@ class CspaceFreeRegion {
           monomial_basis{std::move(m_monomial_basis)} {}
 
     // This is the numerator of the rational
-    // aᵀx+b-1 or -1-aᵀx-b
+    // aᵀx+b-δ or -δ-aᵀx-b
     symbolic::Polynomial rational_numerator;
     // lagrangian_gram_var.segment(polytope_lagrangian_gram_lower_start,
     // n(n+1)/2) is the low diagonal entries of the gram matrix in
@@ -387,6 +404,9 @@ class CspaceFreeRegion {
    * based on the separating planes. separating_plane_to_tuples[i] are the
    * indices in alternation_tuples such that these tuples are all for
    * this->separating_planes()[i].
+   * @param[out] separating_plane_lorentz_cone_constraints If the collision
+   * geometry is not a polyhedron, but instead ellipsoid, capsules or cylinders,
+   * we will also impose Lorentz cone constraints.
    */
   void GenerateTuplesForBilinearAlternation(
       const Eigen::Ref<const Eigen::VectorXd>& q_star,
@@ -399,7 +419,10 @@ class CspaceFreeRegion {
       VectorX<symbolic::Variable>* lagrangian_gram_vars,
       VectorX<symbolic::Variable>* verified_gram_vars,
       VectorX<symbolic::Variable>* separating_plane_vars,
-      std::vector<std::vector<int>>* separating_plane_to_tuples) const;
+      std::vector<std::vector<int>>* separating_plane_to_tuples,
+      std::vector<
+          std::vector<solvers::Binding<solvers::LorentzConeConstraint>>>*
+          separating_plane_to_lorentz_cone_constraints) const;
 
   /**
    * Given the C-space free region candidate C*t<=d,
@@ -418,12 +441,14 @@ class CspaceFreeRegion {
    * GenerateTuplesForBilinearAlternation.
    * @param separating_plane_vars computed from
    * GenerateTuplesForBilinearAlternation.
+   * @param separating_plane_lorentz_cone_constraints computed from
+   * GenerateTuplesForBilinearAlternation.
    * @param t_lower The lower bounds of t computed from joint limits.
    * @param t_upper The upper bounds of t computed from joint limits.
    * @param redundant_tighten. We aggregate the constraint {C*t<=d, t_lower <= t
-   * <= t_upper} as C̅t ≤ d̅. A row of C̅t ≤ d̅is regarded as redundant, if the C̅ᵢt
-   * ≤ d̅ᵢ − δ is implied by the rest of the constraint, where
-   * δ=redundant_tighten. If redundant_tighten=std::nullopt, then we don't try
+   * <= t_upper} as C̅t ≤ d̅. A row of C̅t ≤ d̅ is regarded as redundant, if the C̅ᵢt
+   * ≤ d̅ᵢ − Δ is implied by the rest of the constraint, where
+   * Δ=redundant_tighten. If redundant_tighten=std::nullopt, then we don't try
    * to identify the redundant constraints.
    * @param[out] P The inscribed ellipsoid is parameterized as {Py+q | |y|₂ ≤
    * 1}. Set P=nullptr if you don't want the inscribed ellipsoid.
@@ -438,6 +463,8 @@ class CspaceFreeRegion {
       const VectorX<symbolic::Variable>& lagrangian_gram_vars,
       const VectorX<symbolic::Variable>& verified_gram_vars,
       const VectorX<symbolic::Variable>& separating_plane_vars,
+      const std::vector<solvers::Binding<solvers::LorentzConeConstraint>>&
+          separating_plane_lorentz_cone_constraints,
       const Eigen::Ref<const Eigen::VectorXd>& t_lower,
       const Eigen::Ref<const Eigen::VectorXd>& t_upper,
       const VerificationOption& option, std::optional<double> redundant_tighten,
@@ -473,6 +500,9 @@ class CspaceFreeRegion {
       const Eigen::VectorXd& lagrangian_gram_var_vals,
       const VectorX<symbolic::Variable>& verified_gram_vars,
       const VectorX<symbolic::Variable>& separating_plane_vars,
+      const std::vector<
+          std::vector<solvers::Binding<solvers::LorentzConeConstraint>>>&
+          separating_plane_to_lorentz_cone_constraints,
       const VectorX<symbolic::Polynomial>& t_minus_t_lower,
       const VectorX<symbolic::Polynomial>& t_upper_minus_t,
       const VerificationOption& option) const;
@@ -572,6 +602,8 @@ class CspaceFreeRegion {
     // The objective function used in maximizing the volume of the inscribed
     // ellipsoid.
     EllipsoidVolume ellipsoid_volume{EllipsoidVolume::kNthRoot};
+    // Whether to check the Lagrangian program for C*t <= d + epsilon_min
+    bool check_epsilon_min = true;
   };
 
   /**
@@ -619,51 +651,125 @@ class CspaceFreeRegion {
     return separating_planes_;
   }
 
-  const std::map<multibody::BodyIndex, std::vector<ConvexPolytope>>&
-  polytope_geometries() const {
-    return polytope_geometries_;
+  const std::map<multibody::BodyIndex,
+                 std::vector<std::unique_ptr<CollisionGeometry>>>&
+  link_geometries() const {
+    return link_geometries_;
   }
+
+  double separating_polytope_delta() const {
+    return separating_polytope_delta_;
+  }
+
+ protected:
+  /**
+   * A helper method for GenerateTuplesForBilinearAlternation. This method is
+   * responsible for actually constructing the tuples and proves useful in the
+   * CspaceFreeLine.
+   */
+  void ConstructTuplesInMemory(
+      const Eigen::Ref<const Eigen::VectorXd>& q_star,
+      const FilteredCollisionPairs& filtered_collision_pairs, int C_rows,
+      int t_rows,
+      std::vector<CspaceFreeRegion::CspacePolytopeTuple>* alternation_tuples,
+      VectorX<symbolic::Variable>* lagrangian_gram_vars,
+      VectorX<symbolic::Variable>* verified_gram_vars,
+      VectorX<symbolic::Variable>* separating_plane_vars,
+      std::vector<std::vector<int>>* separating_plane_to_tuples,
+      std::vector<
+          std::vector<solvers::Binding<solvers::LorentzConeConstraint>>>*
+          separating_plane_to_lorentz_cone_constraints) const;
+
+  /**
+   * Given t[i], t_lower and t_upper, construct the polynomial t - t_lower and
+   * t_upper - t.
+   */
+  static void ConstructTBoundsPolynomial(
+      const std::vector<symbolic::Monomial>& t_monomial,
+      const Eigen::Ref<const Eigen::VectorXd>& t_lower,
+      const Eigen::Ref<const Eigen::VectorXd>& t_upper,
+      VectorX<symbolic::Polynomial>* t_minus_t_lower,
+      VectorX<symbolic::Polynomial>* t_upper_minus_t);
+
+  /**
+   * Impose the constraint
+   * l_polytope(t) >= 0
+   * l_lower(t)>=0
+   * l_upper(t)>=0
+   * p(t) - l_polytope(t)ᵀ(d - C*t) - l_lower(t)ᵀ(t-t_lower) -
+   * l_upper(t)ᵀ(t_upper-t) >=0
+   * where l_polytope, l_lower, l_upper are Lagrangian
+   * multipliers. p(t) is the numerator of polytope_on_one_side_rational
+   * @param monomial_basis The monomial basis for all non-negative
+   * polynomials above.
+   * @param t_lower_needs_lagrangian If t_lower_needs_lagrangian[i]=false,
+   * then lagrangian_lower(i) = 0
+   * @param t_upper_needs_lagrangian If t_upper_needs_lagrangian[i]=false,
+   * then lagrangian_upper(i) = 0
+   * @param[out] lagrangian_polytope l_polytope(t).
+   * @param[out] lagrangian_lower l_lower(t).
+   * @param[out] lagrangian_upper l_upper(t).
+   * @param[out] verified_polynomial p(t) - l_polytope(t)ᵀ(d - C*t) -
+   * l_lower(t)ᵀ(t-t_lower) - l_upper(t)ᵀ(t_upper-t)
+   */
+  static void AddNonnegativeConstraintForGeometryOnOneSideOfPlane(
+      solvers::MathematicalProgram* prog,
+      const symbolic::RationalFunction& polytope_on_one_side_rational,
+      const VectorX<symbolic::Polynomial>& d_minus_Ct,
+      const VectorX<symbolic::Polynomial>& t_minus_t_lower,
+      const VectorX<symbolic::Polynomial>& t_upper_minus_t,
+      const VectorX<symbolic::Monomial>& monomial_basis,
+      const VerificationOption& verification_option,
+      const std::vector<bool>& t_lower_needs_lagrangian,
+      const std::vector<bool>& t_upper_needs_lagrangian,
+      VectorX<symbolic::Polynomial>* lagrangian_polytope,
+      VectorX<symbolic::Polynomial>* lagrangian_lower,
+      VectorX<symbolic::Polynomial>* lagrangian_upper,
+      symbolic::Polynomial* verified_polynomial);
 
  private:
   RationalForwardKinematics rational_forward_kinematics_;
   const geometry::SceneGraph<double>* scene_graph_;
-  std::map<multibody::BodyIndex, std::vector<ConvexPolytope>>
-      polytope_geometries_;
+  std::map<multibody::BodyIndex,
+           std::vector<std::unique_ptr<CollisionGeometry>>>
+      link_geometries_;
 
-  SeparatingPlaneOrder plane_order_;
+  SeparatingPlaneOrder plane_order_for_polytope_;
   CspaceRegionType cspace_region_type_;
+  double separating_polytope_delta_;
   std::vector<SeparatingPlane<symbolic::Variable>> separating_planes_;
 
   // separating_planes_[(geometry1_id, geometry2_id)] is the separating plane
   // that separates geometry1 and geometry 2.
-  std::unordered_map<SortedPair<ConvexGeometry::Id>, int>
-      map_polytopes_to_separating_planes_;
+  std::unordered_map<SortedPair<geometry::GeometryId>, int>
+      map_geometries_to_separating_planes_;
 };
 
 /**
- * Generate the rational functions a_A.dot(p_AVi(t)) + b(i) - 1 or -1 -
+ * Generate the rational functions a_A.dot(p_AVi(t)) + b(i) - δ or -δ -
  * a_A.dot(p_AVi(t)) - b(i). Which represents that the link (whose vertex Vi has
  * position p_AVi in the frame A) is on the positive (or negative) side of the
  * plane a_A * x + b = 0
  * @param X_AB_multilinear The pose of the link frame B in the expressed body
  * frame A. Note that this pose is a multilinear function of sinθ and cosθ.
  */
-std::vector<LinkVertexOnPlaneSideRational>
+std::vector<LinkOnPlaneSideRational>
 GenerateLinkOnOneSideOfPlaneRationalFunction(
     const RationalForwardKinematics& rational_forward_kinematics,
-    const ConvexPolytope* polytope, const ConvexPolytope* other_side_polytope,
+    const CollisionGeometry* link_geometry,
+    const CollisionGeometry* other_side_geometry,
     const RationalForwardKinematics::Pose<symbolic::Polynomial>&
         X_AB_multilinear,
     const drake::Vector3<symbolic::Expression>& a_A,
     const symbolic::Expression& b, PlaneSide plane_side,
-    SeparatingPlaneOrder plane_order);
+    SeparatingPlaneOrder plane_order, double separating_polytope_delta);
 
 bool IsGeometryPairCollisionIgnored(
-    ConvexGeometry::Id id1, ConvexGeometry::Id id2,
+    geometry::GeometryId id1, geometry::GeometryId id2,
     const CspaceFreeRegion::FilteredCollisionPairs& filtered_collision_pairs);
 
 bool IsGeometryPairCollisionIgnored(
-    const SortedPair<ConvexGeometry::Id>& geometry_pair,
+    const SortedPair<geometry::GeometryId>& geometry_pair,
     const CspaceFreeRegion::FilteredCollisionPairs& filtered_collision_pairs);
 
 void ComputeBoundsOnT(const Eigen::Ref<const Eigen::VectorXd>& q_star,
@@ -771,12 +877,12 @@ void AddOuterPolytope(
 
 /**
  * Given a diagram (which contains the plant and the scene_graph), returns all
- * the convex polytopes.
+ * the collision geometries.
  */
-std::map<BodyIndex, std::vector<ConvexPolytope>> GetConvexPolytopes(
-    const systems::Diagram<double>& diagram,
-    const MultibodyPlant<double>* plant,
-    const geometry::SceneGraph<double>* scene_graph);
+std::map<BodyIndex, std::vector<std::unique_ptr<CollisionGeometry>>>
+GetCollisionGeometries(const systems::Diagram<double>& diagram,
+                       const MultibodyPlant<double>* plant,
+                       const geometry::SceneGraph<double>* scene_graph);
 
 /**
  * Find the redundant constraint in {C*t<=d, t_lower<=t<=t_upper}. We regard a
@@ -904,6 +1010,9 @@ bool FindLagrangianAndSeparatingPlanes(
     const VectorX<symbolic::Variable>& lagrangian_gram_vars,
     const VectorX<symbolic::Variable>& verified_gram_vars,
     const VectorX<symbolic::Variable>& separating_plane_vars,
+    const std::vector<
+        std::vector<solvers::Binding<solvers::LorentzConeConstraint>>>&
+        separating_plane_to_lorentz_cone_constraints,
     const Eigen::VectorXd& t_lower, const Eigen::VectorXd& t_upper,
     const VerificationOption& verification_option,
     std::optional<double> redundant_tighten,
@@ -924,6 +1033,21 @@ std::vector<SeparatingPlane<double>> GetSeparatingPlanesSolution(
     const CspaceFreeRegion& cspace_free_region,
     const std::vector<bool>& is_plane_active,
     const solvers::MathematicalProgramResult& result);
+
+/**
+ * In bilinear alternation, each conic program (with a linear cost) finds an
+ * optimal solution at the boundary of the cone. Namely the solution is very
+ * close to being infeasible, which is a bad starting point for the next conic
+ * program in alternation, as the next conic program can be regarded infeasible
+ * due to numerical problems. To resolve this issue, we solve a feasibility
+ * problem (with no cost) that finds a strictly feasible solution at the
+ * interior of the cone.
+ * @param cost_val is the optimal cost of the optimization program (which
+ * minimizes `linear_cost`).
+ */
+solvers::MathematicalProgramResult BackoffProgram(
+    solvers::MathematicalProgram* prog, double cost_val, double backoff_scale,
+    const solvers::SolverOptions& solver_options);
 }  // namespace internal
 }  // namespace multibody
 }  // namespace drake

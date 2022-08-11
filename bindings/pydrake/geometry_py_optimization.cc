@@ -120,12 +120,11 @@ void DefineGeometryOptimization(py::module m) {
         .def("A", &HPolyhedron::A, cls_doc.A.doc)
         .def("b", &HPolyhedron::b, cls_doc.b.doc)
         .def("ContainedIn", &HPolyhedron::ContainedIn, py::arg("other"),
-             cls_doc.ContainedIn.doc)
+            cls_doc.ContainedIn.doc)
         .def("Intersection", &HPolyhedron::Intersection, py::arg("other"),
-             py::arg("check_redundancy") = false,
-             cls_doc.Intersection.doc)
+            py::arg("check_redundancy") = false, cls_doc.Intersection.doc)
         .def("ReduceInequalities", &HPolyhedron::ReduceInequalities,
-             cls_doc.ReduceInequalities.doc)
+            cls_doc.ReduceInequalities.doc)
         .def("MaximumVolumeInscribedEllipsoid",
             &HPolyhedron::MaximumVolumeInscribedEllipsoid,
             cls_doc.MaximumVolumeInscribedEllipsoid.doc)
@@ -135,6 +134,8 @@ void DefineGeometryOptimization(py::module m) {
             py::arg("other"), cls_doc.CartesianProduct.doc)
         .def("CartesianPower", &HPolyhedron::CartesianPower, py::arg("n"),
             cls_doc.CartesianPower.doc)
+        .def("PontryaginDifference", &HPolyhedron::PontryaginDifference,
+            py::arg("other"), cls_doc.PontryaginDifference.doc)
         .def_static("MakeBox", &HPolyhedron::MakeBox, py::arg("lb"),
             py::arg("ub"), cls_doc.MakeBox.doc)
         .def_static("MakeUnitBox", &HPolyhedron::MakeUnitBox, py::arg("dim"),
@@ -278,7 +279,8 @@ void DefineGeometryOptimization(py::module m) {
           doc.IrisOptions.configuration_space_margin.doc)
       .def_readwrite("enable_ibex", &IrisOptions::enable_ibex,
           doc.IrisOptions.enable_ibex.doc)
-      .def_readwrite("max_faces_per_collision_pair", &IrisOptions::max_faces_per_collision_pair,
+      .def_readwrite("max_faces_per_collision_pair",
+          &IrisOptions::max_faces_per_collision_pair,
           doc.IrisOptions.max_faces_per_collision_pair.doc)
       .def("__repr__", [](const IrisOptions& self) {
         return py::str(
@@ -294,14 +296,17 @@ void DefineGeometryOptimization(py::module m) {
             .format(self.require_sample_point_is_contained,
                 self.iteration_limit, self.termination_threshold,
                 self.relative_termination_threshold,
-                self.configuration_space_margin, self.enable_ibex, self.max_faces_per_collision_pair);
+                self.configuration_space_margin, self.enable_ibex,
+                self.max_faces_per_collision_pair);
       });
-  py::class_<IrisOptionsRationalSpace>(m, "IrisOptionsRationalSpace", doc.IrisOptionsRationalSpace.doc)
+  py::class_<IrisOptionsRationalSpace>(
+      m, "IrisOptionsRationalSpace", doc.IrisOptionsRationalSpace.doc)
       .def(py::init<>(), doc.IrisOptionsRationalSpace.ctor.doc)
       .def_readwrite("require_sample_point_is_contained",
           &IrisOptionsRationalSpace::require_sample_point_is_contained,
           doc.IrisOptions.require_sample_point_is_contained.doc)
-      .def_readwrite("iteration_limit", &IrisOptionsRationalSpace::iteration_limit,
+      .def_readwrite("iteration_limit",
+          &IrisOptionsRationalSpace::iteration_limit,
           doc.IrisOptions.iteration_limit.doc)
       .def_readwrite("termination_threshold",
           &IrisOptionsRationalSpace::termination_threshold,
@@ -314,14 +319,19 @@ void DefineGeometryOptimization(py::module m) {
           doc.IrisOptions.configuration_space_margin.doc)
       .def_readwrite("enable_ibex", &IrisOptionsRationalSpace::enable_ibex,
           doc.IrisOptions.enable_ibex.doc)
-      .def_readwrite("max_faces_per_collision_pair", &IrisOptionsRationalSpace::max_faces_per_collision_pair,
+      .def_readwrite("max_faces_per_collision_pair",
+          &IrisOptionsRationalSpace::max_faces_per_collision_pair,
           doc.IrisOptions.max_faces_per_collision_pair.doc)
-      .def_readwrite("certify_region_with_sos_during_generation", &IrisOptionsRationalSpace::certify_region_with_sos_during_generation,
-          doc.IrisOptionsRationalSpace.certify_region_with_sos_during_generation.doc)
-      .def_readwrite("certify_region_with_sos_after_generation", &IrisOptionsRationalSpace::certify_region_with_sos_after_generation,
-          doc.IrisOptionsRationalSpace.certify_region_with_sos_after_generation.doc)
+      .def_readwrite("certify_region_with_sos_during_generation",
+          &IrisOptionsRationalSpace::certify_region_with_sos_during_generation,
+          doc.IrisOptionsRationalSpace.certify_region_with_sos_during_generation
+              .doc)
+      .def_readwrite("certify_region_with_sos_after_generation",
+          &IrisOptionsRationalSpace::certify_region_with_sos_after_generation,
+          doc.IrisOptionsRationalSpace.certify_region_with_sos_after_generation
+              .doc)
       .def_readwrite("q_star", &IrisOptionsRationalSpace::q_star,
-                     doc.IrisOptionsRationalSpace.q_star.doc)
+          doc.IrisOptionsRationalSpace.q_star.doc)
       .def("__repr__", [](const IrisOptionsRationalSpace& self) {
         return py::str(
             "IrisOptionsRationalSpace("
@@ -341,8 +351,7 @@ void DefineGeometryOptimization(py::module m) {
                 self.configuration_space_margin, self.enable_ibex,
                 self.max_faces_per_collision_pair,
                 self.certify_region_with_sos_during_generation,
-                self.certify_region_with_sos_after_generation
-                );
+                self.certify_region_with_sos_after_generation);
       });
 
   m.def("Iris", &Iris, py::arg("obstacles"), py::arg("sample"),
@@ -355,15 +364,12 @@ void DefineGeometryOptimization(py::module m) {
       py::arg("reference_frame") = std::nullopt, doc.MakeIrisObstacles.doc);
 
   m.def("IrisInRationalConfigurationSpace",
-        py::overload_cast<const multibody::MultibodyPlant<double>&,
-          const systems::Context<double>&,
-          const IrisOptionsRationalSpace&,
-          const std::optional<HPolyhedron>&>(
-                &IrisInRationalConfigurationSpace),
+      py::overload_cast<const multibody::MultibodyPlant<double>&,
+          const systems::Context<double>&, const IrisOptionsRationalSpace&,
+          const std::optional<HPolyhedron>&>(&IrisInRationalConfigurationSpace),
       py::arg("plant"), py::arg("context"),
       py::arg("options") = IrisOptionsRationalSpace(),
-      py::arg("starting_polyhedron") = std::nullopt
-      );
+      py::arg("starting_polyhedron") = std::nullopt);
 
   m.def("IrisInConfigurationSpace",
       py::overload_cast<const multibody::MultibodyPlant<double>&,
@@ -438,7 +444,7 @@ void DefineGeometryOptimization(py::module m) {
                 },
                 cls_doc.Edges.doc)
             .def("GetGraphvizString", &GraphOfConvexSets::GetGraphvizString,
-                py::arg("result"), py::arg("show_slacks") = true,
+                py::arg("result") = std::nullopt, py::arg("show_slacks") = true,
                 py::arg("precision") = 3, py::arg("scientific") = false,
                 cls_doc.GetGraphvizString.doc)
             .def("SolveShortestPath",

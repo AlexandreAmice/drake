@@ -5,12 +5,16 @@
 
 #include <gtest/gtest.h>
 
+#include "drake/common/find_resource.h"
 #include "drake/common/temp_directory.h"
 #include "drake/common/test_utilities/eigen_matrix_compare.h"
 #include "drake/common/test_utilities/symbolic_test_util.h"
 #include "drake/geometry/collision_filter_declaration.h"
+#include "drake/geometry/optimization/hyperellipsoid.h"
+#include "drake/geometry/optimization/vpolytope.h"
 #include "drake/multibody/inverse_kinematics/inverse_kinematics.h"
 #include "drake/multibody/plant/coulomb_friction.h"
+#include "drake/multibody/rational_forward_kinematics/collision_geometry.h"
 #include "drake/multibody/rational_forward_kinematics/rational_forward_kinematics.h"
 #include "drake/multibody/rational_forward_kinematics/rational_forward_kinematics_internal.h"
 #include "drake/multibody/rational_forward_kinematics/test/rational_forward_kinematics_test_utilities.h"
@@ -113,6 +117,70 @@ class IiwaCspaceTest : public ::testing::Test {
   std::vector<geometry::GeometryId> obstacles_id_;
 };
 
+/**
+ * Similar to IiwaCspaceTest but with both polytope and non-polytope collision
+ * geometries.
+ */
+class IiwaNonpolytopeCollisionCspaceTest : public ::testing::Test {
+ public:
+  IiwaNonpolytopeCollisionCspaceTest() {
+    auto iiwa = ConstructIiwaPlant("iiwa14_no_collision.sdf", false);
+    iiwa_link_.resize(iiwa->num_bodies());
+    for (int i = 0; i < 8; ++i) {
+      iiwa_link_[i] =
+          iiwa->GetBodyByName("iiwa_link_" + std::to_string(i)).index();
+    }
+    systems::DiagramBuilder<double> builder;
+    plant_ = builder.AddSystem<MultibodyPlant<double>>(std::move(iiwa));
+    scene_graph_ = builder.AddSystem<geometry::SceneGraph<double>>();
+    plant_->RegisterAsSourceForSceneGraph(scene_graph_);
+
+    builder.Connect(scene_graph_->get_query_output_port(),
+                    plant_->get_geometry_query_input_port());
+
+    builder.Connect(
+        plant_->get_geometry_poses_output_port(),
+        scene_graph_->get_source_pose_port(plant_->get_source_id().value()));
+
+    // Arbitrarily add some collision geometries to links
+    link7_geometries_id_.push_back(plant_->RegisterCollisionGeometry(
+        plant_->get_body(iiwa_link_[7]), {}, geometry::Box(0.1, 0.1, 0.2),
+        "link7_box1", CoulombFriction<double>()));
+    const RigidTransformd X_7P{RotationMatrixd(Eigen::AngleAxisd(
+                                   0.2 * M_PI, Eigen::Vector3d::UnitX())),
+                               {0.1, 0.2, -0.1}};
+    link7_geometries_id_.push_back(plant_->RegisterCollisionGeometry(
+        plant_->get_body(iiwa_link_[7]), X_7P, geometry::Sphere(0.2),
+        "link7_sphere", CoulombFriction<double>()));
+
+    RigidTransformd X_WO = Eigen::Translation3d(0.25, -0.4, 0.05);
+    obstacles_id_.push_back(plant_->RegisterCollisionGeometry(
+        plant_->world_body(), X_WO, geometry::Box(0.1, 0.2, 0.15), "world_box1",
+        CoulombFriction<double>()));
+    link1_geometries_id_.push_back(plant_->RegisterCollisionGeometry(
+        plant_->GetBodyByName("iiwa_link_1"), {}, geometry::Sphere(0.01),
+        "link1_sphere", CoulombFriction<double>()));
+    link2_geometries_id_.push_back(plant_->RegisterCollisionGeometry(
+        plant_->GetBodyByName("iiwa_link_2"),
+        math::RigidTransformd(Eigen::Vector3d(0.05, 0.02, 0.01)),
+        geometry::Capsule(0.05, 0.3), "link2_capsule",
+        CoulombFriction<double>()));
+
+    plant_->Finalize();
+    diagram_ = builder.Build();
+  }
+
+ protected:
+  std::unique_ptr<systems::Diagram<double>> diagram_;
+  MultibodyPlant<double>* plant_;
+  geometry::SceneGraph<double>* scene_graph_;
+  std::vector<BodyIndex> iiwa_link_;
+  std::vector<geometry::GeometryId> link7_geometries_id_;
+  std::vector<geometry::GeometryId> link1_geometries_id_;
+  std::vector<geometry::GeometryId> link2_geometries_id_;
+  std::vector<geometry::GeometryId> obstacles_id_;
+};
+
 // Checks if p is an affine polynomial of x, namely p = a * x + b.
 void CheckIsAffinePolynomial(
     const symbolic::Polynomial& p,
@@ -132,27 +200,27 @@ void TestCspaceFreeRegionConstructor(
     const systems::Diagram<double>& diagram,
     const multibody::MultibodyPlant<double>* plant,
     const geometry::SceneGraph<double>* scene_graph,
-    SeparatingPlaneOrder plane_order, CspaceRegionType cspace_region_type) {
+    SeparatingPlaneOrder plane_order, CspaceRegionType cspace_region_type,
+    double separating_polytope_delta) {
   const CspaceFreeRegion dut(diagram, plant, scene_graph, plane_order,
-                             cspace_region_type);
+                             cspace_region_type, separating_polytope_delta);
   const auto& model_inspector = scene_graph->model_inspector();
   const auto collision_pairs = model_inspector.GetCollisionCandidates();
   EXPECT_EQ(dut.separating_planes().size(), collision_pairs.size());
-  EXPECT_EQ(dut.map_polytopes_to_separating_planes().size(),
+  EXPECT_EQ(dut.map_geometries_to_separating_planes().size(),
             collision_pairs.size());
   // Check that each pair of geometry show up in
   // map_polytopes_to_separating_planes()
   for (const auto& collision_pair : collision_pairs) {
-    auto it = dut.map_polytopes_to_separating_planes().find(
+    auto it = dut.map_geometries_to_separating_planes().find(
         SortedPair<geometry::GeometryId>(collision_pair.first,
                                          collision_pair.second));
-    EXPECT_NE(it, dut.map_polytopes_to_separating_planes().end());
+    EXPECT_NE(it, dut.map_geometries_to_separating_planes().end());
     const SeparatingPlane<symbolic::Variable>& separating_plane =
         dut.separating_planes()[it->second];
-    EXPECT_EQ(it->first,
-              SortedPair<geometry::GeometryId>(
-                  separating_plane.positive_side_polytope->get_id(),
-                  separating_plane.negative_side_polytope->get_id()));
+    EXPECT_EQ(it->first, SortedPair<geometry::GeometryId>(
+                             separating_plane.positive_side_geometry->id(),
+                             separating_plane.negative_side_geometry->id()));
     const auto& a = separating_plane.a;
     const auto& b = separating_plane.b;
     const symbolic::Variables t_vars(dut.rational_forward_kinematics().t());
@@ -168,8 +236,8 @@ void TestCspaceFreeRegionConstructor(
         t_for_plane = dut.rational_forward_kinematics().t();
       } else {
         t_for_plane = dut.rational_forward_kinematics().FindTOnPath(
-            separating_plane.positive_side_polytope->body_index(),
-            separating_plane.negative_side_polytope->body_index());
+            separating_plane.positive_side_geometry->body_index(),
+            separating_plane.negative_side_geometry->body_index());
       }
       // Check if a, b are affine function of t_for_plane.
       const symbolic::Variables decision_vars(
@@ -186,52 +254,71 @@ void TestCspaceFreeRegionConstructor(
 }
 
 TEST_F(IiwaCspaceTest, TestConstructor) {
-  TestCspaceFreeRegionConstructor(*diagram_, plant_, scene_graph_,
-                                  SeparatingPlaneOrder::kConstant,
-                                  CspaceRegionType::kGenericPolytope);
+  const double separating_polytope_delta = 0.1;
+  TestCspaceFreeRegionConstructor(
+      *diagram_, plant_, scene_graph_, SeparatingPlaneOrder::kConstant,
+      CspaceRegionType::kGenericPolytope, separating_polytope_delta);
   // Add some collision filters.
   const auto filter_ids = ApplyFilter();
-  TestCspaceFreeRegionConstructor(*diagram_, plant_, scene_graph_,
-                                  SeparatingPlaneOrder::kConstant,
-                                  CspaceRegionType::kGenericPolytope);
+  TestCspaceFreeRegionConstructor(
+      *diagram_, plant_, scene_graph_, SeparatingPlaneOrder::kConstant,
+      CspaceRegionType::kGenericPolytope, separating_polytope_delta);
   for (const auto filter_id : filter_ids) {
     scene_graph_->collision_filter_manager().RemoveDeclaration(filter_id);
   }
   // Test with as axis-aligned bounding box
-  TestCspaceFreeRegionConstructor(*diagram_, plant_, scene_graph_,
-                                  SeparatingPlaneOrder::kConstant,
-                                  CspaceRegionType::kAxisAlignedBoundingBox);
+  TestCspaceFreeRegionConstructor(
+      *diagram_, plant_, scene_graph_, SeparatingPlaneOrder::kConstant,
+      CspaceRegionType::kAxisAlignedBoundingBox, separating_polytope_delta);
+}
+
+// The Lorentz cone constraint is [1; a] in Lorentz cone.
+void CheckRationalLorentzConeConstraint(
+    const solvers::Binding<solvers::LorentzConeConstraint>& binding,
+    const Vector3<symbolic::Expression>& a, double tol) {
+  EXPECT_EQ(binding.variables().rows(), 3);
+  for (int i = 0; i < 3; ++i) {
+    EXPECT_EQ(a(i), symbolic::Expression(binding.variables()(i)));
+  }
+  Eigen::Matrix<double, 4, 3> lorentz_cone_A_expected;
+  lorentz_cone_A_expected.setZero();
+  lorentz_cone_A_expected.bottomRows<3>() = Eigen::Matrix3d::Identity();
+  EXPECT_TRUE(CompareMatrices(lorentz_cone_A_expected,
+                              binding.evaluator()->A_dense(), tol));
+  EXPECT_TRUE(CompareMatrices(Eigen::Vector4d(1, 0, 0, 0),
+                              binding.evaluator()->b(), tol));
 }
 
 void TestGenerateLinkOnOneSideOfPlaneRationalFunction(
     const RationalForwardKinematics& rational_forward_kinematics,
     const SeparatingPlane<symbolic::Variable>& separating_plane,
-    PlaneSide plane_side, const Eigen::Ref<const Eigen::VectorXd>& q_star) {
-  const ConvexPolytope* link_polytope;
-  const ConvexPolytope* other_side_polytope;
+    PlaneSide plane_side, const Eigen::Ref<const Eigen::VectorXd>& q_star,
+    double separating_polytope_delta) {
+  const CollisionGeometry* link_geometry;
+  const CollisionGeometry* other_side_geometry;
   if (plane_side == PlaneSide::kPositive) {
-    link_polytope = separating_plane.positive_side_polytope;
-    other_side_polytope = separating_plane.negative_side_polytope;
+    link_geometry = separating_plane.positive_side_geometry;
+    other_side_geometry = separating_plane.negative_side_geometry;
   } else {
-    link_polytope = separating_plane.negative_side_polytope;
-    other_side_polytope = separating_plane.positive_side_polytope;
+    link_geometry = separating_plane.negative_side_geometry;
+    other_side_geometry = separating_plane.positive_side_geometry;
   }
   const auto X_AB_multilinear =
       rational_forward_kinematics.CalcLinkPoseAsMultilinearPolynomial(
-          q_star, link_polytope->body_index(), separating_plane.expressed_link);
+          q_star, link_geometry->body_index(), separating_plane.expressed_link);
 
   const auto rationals = GenerateLinkOnOneSideOfPlaneRationalFunction(
-      rational_forward_kinematics, link_polytope, other_side_polytope,
+      rational_forward_kinematics, link_geometry, other_side_geometry,
       X_AB_multilinear, separating_plane.a, separating_plane.b, plane_side,
-      separating_plane.order);
-  EXPECT_EQ(rationals.size(), link_polytope->p_BV().cols());
+      separating_plane.order, separating_polytope_delta);
   for (const auto& rational : rationals) {
-    EXPECT_EQ(rational.link_polytope->get_id(), link_polytope->get_id());
-    EXPECT_EQ(rational.other_side_link_polytope->get_id(),
-              other_side_polytope->get_id());
+    EXPECT_EQ(rational.link_geometry->id(), link_geometry->id());
+    EXPECT_EQ(rational.other_side_link_geometry->id(),
+              other_side_geometry->id());
   }
-  // Now take many samples of q, evaluate a.dot(x) + b - 1 or -1 - a.dot(x) - b
-  // for these sampled q.
+
+  // Now take many samples of q, evaluate a.dot(x) + b - δ or -δ - a.dot(x)
+  // - b for these sampled q.
   std::vector<Eigen::VectorXd> q_samples;
   q_samples.push_back(
       q_star +
@@ -251,11 +338,6 @@ void TestGenerateLinkOnOneSideOfPlaneRationalFunction(
   auto context = plant.CreateDefaultContext();
   for (const auto& q : q_samples) {
     plant.SetPositions(context.get(), q);
-    Eigen::Matrix3Xd p_AV(3, link_polytope->p_BV().cols());
-    plant.CalcPointsPositions(
-        *context, plant.get_body(link_polytope->body_index()).body_frame(),
-        link_polytope->p_BV(),
-        plant.get_body(separating_plane.expressed_link).body_frame(), &p_AV);
     const Eigen::VectorXd t_val = ((q - q_star) / 2).array().tan();
     for (int i = 0; i < t_val.rows(); ++i) {
       auto it = env.find(rational_forward_kinematics.t()(i));
@@ -265,31 +347,119 @@ void TestGenerateLinkOnOneSideOfPlaneRationalFunction(
         it->second = t_val(i);
       }
     }
+    double separating_delta = 0;
+    if (link_geometry->type() == CollisionGeometryType::kPolytope &&
+        other_side_geometry->type() == CollisionGeometryType::kPolytope) {
+      separating_delta = separating_polytope_delta;
+    }
+    switch (link_geometry->type()) {
+      case CollisionGeometryType::kPolytope: {
+        const Eigen::Matrix3Xd p_BV =
+            link_geometry->X_BG() * GetVertices(link_geometry->geometry());
+        EXPECT_EQ(rationals.size(), p_BV.cols());
+        Eigen::Matrix3Xd p_AV(3, p_BV.cols());
+        plant.CalcPointsPositions(
+            *context, plant.get_body(link_geometry->body_index()).body_frame(),
+            p_BV, plant.get_body(separating_plane.expressed_link).body_frame(),
+            &p_AV);
 
-    for (int i = 0; i < static_cast<int>(rationals.size()); ++i) {
-      const double rational_val = rationals[i].rational.Evaluate(env);
-      // Now evaluate this rational function.
-      Eigen::Vector3d a_val;
-      for (int j = 0; j < 3; ++j) {
-        a_val(j) = separating_plane.a(j).Evaluate(env);
+        for (int i = 0; i < static_cast<int>(rationals.size()); ++i) {
+          EXPECT_TRUE(rationals[i].lorentz_cone_constraints.empty());
+          const double rational_val = rationals[i].rational.Evaluate(env);
+          // Now evaluate this rational function.
+          Eigen::Vector3d a_val;
+          for (int j = 0; j < 3; ++j) {
+            a_val(j) = separating_plane.a(j).Evaluate(env);
+          }
+          const double b_val = separating_plane.b.Evaluate(env);
+          const double rational_val_expected =
+              plane_side == PlaneSide::kPositive
+                  ? a_val.dot(p_AV.col(i)) + b_val - separating_delta
+                  : -separating_delta - a_val.dot(p_AV.col(i)) - b_val;
+          EXPECT_NEAR(rational_val, rational_val_expected, 1E-12);
+        }
+        break;
       }
-      const double b_val = separating_plane.b.Evaluate(env);
-      const double rational_val_expected =
-          plane_side == PlaneSide::kPositive
-              ? a_val.dot(p_AV.col(i)) + b_val - 1
-              : -1 - a_val.dot(p_AV.col(i)) - b_val;
-      EXPECT_NEAR(rational_val, rational_val_expected, 1E-12);
+      case CollisionGeometryType::kSphere: {
+        const auto* link_sphere =
+            dynamic_cast<const geometry::Sphere*>(&link_geometry->geometry());
+        Eigen::Vector3d p_AC;
+        plant.CalcPointsPositions(
+            *context, plant.get_body(link_geometry->body_index()).body_frame(),
+            link_geometry->X_BG().translation(),
+            plant.get_body(separating_plane.expressed_link).body_frame(),
+            &p_AC);
+        EXPECT_EQ(rationals.size(), 1u);
+        const double rational_val = rationals[0].rational.Evaluate(env);
+        const double radius = link_sphere->radius();
+        // Now evaluate this rational function.
+        Eigen::Vector3d a_val;
+        for (int j = 0; j < 3; ++j) {
+          a_val(j) = separating_plane.a(j).Evaluate(env);
+        }
+        const double b_val = separating_plane.b.Evaluate(env);
+        const double rational_val_expected =
+            plane_side == PlaneSide::kPositive
+                ? a_val.dot(p_AC) + b_val - separating_delta - radius
+                : -separating_delta - radius - a_val.dot(p_AC) - b_val;
+        EXPECT_NEAR(rational_val, rational_val_expected, 1E-12);
+        EXPECT_EQ(rationals[0].lorentz_cone_constraints.size(), 1u);
+        CheckRationalLorentzConeConstraint(
+            rationals[0].lorentz_cone_constraints[0], separating_plane.a,
+            1E-12);
+        break;
+      }
+      case CollisionGeometryType::kCapsule: {
+        const auto* link_capsule =
+            dynamic_cast<const geometry::Capsule*>(&link_geometry->geometry());
+        Eigen::Matrix<double, 3, 2> p_AC;
+        Eigen::Matrix<double, 3, 2> p_BC;
+        p_BC.col(0) = link_geometry->X_BG() *
+                      Eigen::Vector3d(0, 0, -link_capsule->length() / 2);
+        p_BC.col(1) = link_geometry->X_BG() *
+                      Eigen::Vector3d(0, 0, link_capsule->length() / 2);
+        plant.CalcPointsPositions(
+            *context, plant.get_body(link_geometry->body_index()).body_frame(),
+            p_BC, plant.get_body(separating_plane.expressed_link).body_frame(),
+            &p_AC);
+        Eigen::Vector3d a_val;
+        for (int j = 0; j < 3; ++j) {
+          a_val(j) = separating_plane.a(j).Evaluate(env);
+        }
+        const double b_val = separating_plane.b.Evaluate(env);
+        EXPECT_EQ(rationals.size(), 2u);
+        for (int i = 0; i < 2; ++i) {
+          const double rational_val = rationals[i].rational.Evaluate(env);
+          const double radius = link_capsule->radius();
+          // Now evaluate this rational function.
+          const double rational_val_expected =
+              plane_side == PlaneSide::kPositive
+                  ? a_val.dot(p_AC.col(i)) + b_val - separating_delta - radius
+                  : -separating_delta - radius - a_val.dot(p_AC.col(i)) - b_val;
+          EXPECT_NEAR(rational_val, rational_val_expected, 1E-12);
+        }
+        EXPECT_EQ(rationals[0].lorentz_cone_constraints.size(), 1u);
+        CheckRationalLorentzConeConstraint(
+            rationals[0].lorentz_cone_constraints[0], separating_plane.a,
+            1E-12);
+        EXPECT_TRUE(rationals[1].lorentz_cone_constraints.empty());
+        break;
+      }
+      default: {
+        throw std::runtime_error("Not implemented yet");
+      }
     }
   }
 }
 
-TEST_F(IiwaCspaceTest, GenerateLinkOnOneSideOfPlaneRationalFunction1) {
+TEST_F(IiwaCspaceTest, GenerateLinkOnOneSideOfPlaneRationalFunction) {
   scene_graph_->collision_filter_manager().ApplyTransient(
       geometry::CollisionFilterDeclaration().AllowWithin(
           geometry::GeometrySet({link7_polytopes_id_[0], obstacles_id_[0]})));
-  const CspaceFreeRegion dut(*diagram_, plant_, scene_graph_,
-                             SeparatingPlaneOrder::kAffine,
-                             CspaceRegionType::kGenericPolytope);
+  const double separating_polytope_delta = 0.1;
+  const CspaceFreeRegion dut(
+      *diagram_, plant_, scene_graph_, SeparatingPlaneOrder::kAffine,
+      CspaceRegionType::kGenericPolytope, separating_polytope_delta);
   const Eigen::VectorXd q_star1 = Eigen::VectorXd::Zero(7);
   const Eigen::VectorXd q_star2 =
       (Eigen::VectorXd(7) << 0.1, 0.2, -0.1, 0.3, 0.2, 0.4, 0.2).finished();
@@ -298,60 +468,121 @@ TEST_F(IiwaCspaceTest, GenerateLinkOnOneSideOfPlaneRationalFunction1) {
   for (const auto plane_side : {PlaneSide::kPositive, PlaneSide::kNegative}) {
     TestGenerateLinkOnOneSideOfPlaneRationalFunction(
         dut.rational_forward_kinematics(), separating_plane, plane_side,
-        q_star1);
+        q_star1, separating_polytope_delta);
     TestGenerateLinkOnOneSideOfPlaneRationalFunction(
         dut.rational_forward_kinematics(), separating_plane, plane_side,
-        q_star2);
+        q_star2, separating_polytope_delta);
   }
 }
 
-void TestGenerateLinkOnOneSideOfPlaneRationals(
+TEST_F(IiwaNonpolytopeCollisionCspaceTest,
+       GenerateLinkOnOneSideOfPlaneRationalFunction) {
+  const double separating_polytope_delta = 0.1;
+  const CspaceFreeRegion dut(
+      *diagram_, plant_, scene_graph_, SeparatingPlaneOrder::kConstant,
+      CspaceRegionType::kGenericPolytope, separating_polytope_delta);
+  const Eigen::VectorXd q_star1 = Eigen::VectorXd::Zero(7);
+
+  for (const auto& separating_plane : dut.separating_planes()) {
+    for (const auto plane_side : {PlaneSide::kPositive, PlaneSide::kNegative}) {
+      TestGenerateLinkOnOneSideOfPlaneRationalFunction(
+          dut.rational_forward_kinematics(), separating_plane, plane_side,
+          q_star1, separating_polytope_delta);
+    }
+  }
+}
+
+void TestGenerateRationalsForLinkOnOneSideOfPlane(
     const CspaceFreeRegion& dut,
     const Eigen::Ref<const Eigen::VectorXd>& q_star,
-    const CspaceFreeRegion::FilteredCollisionPairs& filtered_collision_pairs) {
-  const auto rationals = dut.GenerateLinkOnOneSideOfPlaneRationals(
+    const CspaceFreeRegion::FilteredCollisionPairs& filtered_collision_pairs,
+    SeparatingPlaneOrder plane_order_for_polytope) {
+  const auto rationals = dut.GenerateRationalsForLinkOnOneSideOfPlane(
       q_star, filtered_collision_pairs);
   // Check the size of rationals.
   int rationals_size = 0;
   for (const auto& [link_pair, separating_plane_index] :
-       dut.map_polytopes_to_separating_planes()) {
+       dut.map_geometries_to_separating_planes()) {
     if (!IsGeometryPairCollisionIgnored(link_pair.first(), link_pair.second(),
                                         filtered_collision_pairs)) {
-      rationals_size += dut.separating_planes()[separating_plane_index]
-                            .positive_side_polytope->p_BV()
-                            .cols() +
-                        dut.separating_planes()[separating_plane_index]
-                            .negative_side_polytope->p_BV()
-                            .cols();
+      const auto& separating_plane =
+          dut.separating_planes()[separating_plane_index];
+      for (const auto link_geometry :
+           {separating_plane.positive_side_geometry,
+            separating_plane.negative_side_geometry}) {
+        switch (link_geometry->type()) {
+          case CollisionGeometryType::kPolytope: {
+            rationals_size += GetVertices(link_geometry->geometry()).cols();
+            break;
+          }
+          case CollisionGeometryType::kSphere: {
+            rationals_size += 1;
+            break;
+          }
+          case CollisionGeometryType::kCapsule: {
+            rationals_size += 2;
+            break;
+          }
+          default: {
+            throw std::runtime_error("Not implemented");
+          }
+        }
+      }
     }
   }
   EXPECT_EQ(rationals.size(), rationals_size);
+  // Check if each rationals has the plane order matching the geometry type.
+  for (const auto& rational : rationals) {
+    if (rational.link_geometry->type() == CollisionGeometryType::kPolytope &&
+        rational.other_side_link_geometry->type() ==
+            CollisionGeometryType::kPolytope) {
+      EXPECT_EQ(rational.plane_order, plane_order_for_polytope);
+    } else {
+      EXPECT_EQ(rational.plane_order, SeparatingPlaneOrder::kConstant);
+    }
+  }
 }
 
-TEST_F(IiwaCspaceTest, GenerateLinkOnOneSideOfPlaneRationals) {
+TEST_F(IiwaCspaceTest, GenerateRationalsForLinkOnOneSideOfPlane) {
   const geometry::FilterId filter_id =
       scene_graph_->collision_filter_manager().ApplyTransient(
           geometry::CollisionFilterDeclaration().ExcludeWithin(
               geometry::GeometrySet({link7_polytopes_id_[1],
                                      link5_polytopes_id_[0], obstacles_id_[0],
                                      obstacles_id_[1]})));
-  const CspaceFreeRegion dut1(*diagram_, plant_, scene_graph_,
-                              SeparatingPlaneOrder::kAffine,
-                              CspaceRegionType::kGenericPolytope);
+  const double separating_polytope_delta{0.1};
+  SeparatingPlaneOrder plane_order_for_polytope = SeparatingPlaneOrder::kAffine;
+  const CspaceFreeRegion dut1(
+      *diagram_, plant_, scene_graph_, plane_order_for_polytope,
+      CspaceRegionType::kGenericPolytope, separating_polytope_delta);
   const Eigen::VectorXd q_star = Eigen::VectorXd::Zero(7);
-  TestGenerateLinkOnOneSideOfPlaneRationals(dut1, q_star, {});
+  TestGenerateRationalsForLinkOnOneSideOfPlane(dut1, q_star, {},
+                                               plane_order_for_polytope);
 
   // Multiple pairs of polytopes.
   scene_graph_->collision_filter_manager().RemoveDeclaration(filter_id);
-  const CspaceFreeRegion dut2(*diagram_, plant_, scene_graph_,
-                              SeparatingPlaneOrder::kAffine,
-                              CspaceRegionType::kGenericPolytope);
-  TestGenerateLinkOnOneSideOfPlaneRationals(dut2, q_star, {});
+  const CspaceFreeRegion dut2(
+      *diagram_, plant_, scene_graph_, plane_order_for_polytope,
+      CspaceRegionType::kGenericPolytope, separating_polytope_delta);
+  TestGenerateRationalsForLinkOnOneSideOfPlane(dut2, q_star, {},
+                                               plane_order_for_polytope);
   // Now test with filtered collision pairs.
   const CspaceFreeRegion::FilteredCollisionPairs filtered_collision_pairs{
       {{link7_polytopes_id_[0], obstacles_id_[0]}}};
-  TestGenerateLinkOnOneSideOfPlaneRationals(dut2, q_star,
-                                            filtered_collision_pairs);
+  TestGenerateRationalsForLinkOnOneSideOfPlane(
+      dut2, q_star, filtered_collision_pairs, plane_order_for_polytope);
+}
+
+TEST_F(IiwaNonpolytopeCollisionCspaceTest,
+       GenerateRationalsForLinkOnOneSideOfPlane) {
+  const double separating_polytope_delta{0.1};
+  SeparatingPlaneOrder plane_order_for_polytope = SeparatingPlaneOrder::kAffine;
+  const CspaceFreeRegion dut1(
+      *diagram_, plant_, scene_graph_, plane_order_for_polytope,
+      CspaceRegionType::kGenericPolytope, separating_polytope_delta);
+  const Eigen::VectorXd q_star = Eigen::VectorXd::Zero(7);
+  TestGenerateRationalsForLinkOnOneSideOfPlane(dut1, q_star, {},
+                                               plane_order_for_polytope);
 }
 
 // Check p has degree at most 2 for each variable in t.
@@ -363,17 +594,20 @@ void CheckPolynomialDegree2(const symbolic::Polynomial& p,
 }
 
 void ConstructInitialCspacePolytope(const CspaceFreeRegion& dut,
+                                    const systems::Diagram<double>& diagram,
                                     Eigen::VectorXd* q_star, Eigen::MatrixXd* C,
                                     Eigen::VectorXd* d,
                                     Eigen::VectorXd* q_not_in_collision) {
   const auto& plant = dut.rational_forward_kinematics().plant();
-  auto context = plant.CreateDefaultContext();
+  auto diagram_context = diagram.CreateDefaultContext();
+  auto context =
+      &diagram.GetMutableSubsystemContext(plant, diagram_context.get());
   *q_star = Eigen::VectorXd::Zero(7);
 
   // I will build a small C-space polytope C*t<=d around q_not_in_collision;
   *q_not_in_collision =
       (Eigen::VectorXd(7) << 0.5, 0.3, -0.3, 0.1, 0.4, 0.2, 0.1).finished();
-  plant.SetPositions(context.get(), *q_not_in_collision);
+  plant.SetPositions(context, *q_not_in_collision);
   ASSERT_FALSE(dut.IsPostureInCollision(*context));
 
   // First generate a region C * t <= d.
@@ -441,10 +675,12 @@ TEST_F(IiwaCspaceTest, ConstructProgramForCspacePolytope) {
       geometry::CollisionFilterDeclaration().ExcludeWithin(
           geometry::GeometrySet({link7_polytopes_id_[1], link5_polytopes_id_[0],
                                  obstacles_id_[0], obstacles_id_[1]})));
+  const double separating_polytope_delta{0.1};
   const CspaceFreeRegion dut(*diagram_, plant_, scene_graph_,
 
                              SeparatingPlaneOrder::kAffine,
-                             CspaceRegionType::kGenericPolytope);
+                             CspaceRegionType::kGenericPolytope,
+                             separating_polytope_delta);
   const auto& plant = dut.rational_forward_kinematics().plant();
   auto context = plant.CreateDefaultContext();
 
@@ -452,11 +688,12 @@ TEST_F(IiwaCspaceTest, ConstructProgramForCspacePolytope) {
   Eigen::MatrixXd C;
   Eigen::VectorXd d;
   Eigen::VectorXd q_not_in_collision;
-  ConstructInitialCspacePolytope(dut, &q_star, &C, &d, &q_not_in_collision);
+  ConstructInitialCspacePolytope(dut, *diagram_, &q_star, &C, &d,
+                                 &q_not_in_collision);
 
   CspaceFreeRegion::FilteredCollisionPairs filtered_collision_pairs{};
   auto clock_start = std::chrono::system_clock::now();
-  const auto rationals = dut.GenerateLinkOnOneSideOfPlaneRationals(
+  const auto rationals = dut.GenerateRationalsForLinkOnOneSideOfPlane(
       q_star, filtered_collision_pairs);
   auto ret = dut.ConstructProgramForCspacePolytope(q_star, rationals, C, d,
                                                    filtered_collision_pairs);
@@ -561,9 +798,9 @@ void CheckReadAndWriteCspacePolytope(const CspaceFreeRegion& dut,
   EXPECT_TRUE(CompareMatrices(solution.d, d, tol));
   EXPECT_EQ(solution.separating_planes.size(), separating_planes.size());
   for (const auto& plane : solution.separating_planes) {
-    auto it = separating_planes.find(SortedPair<geometry::GeometryId>(
-        plane.positive_side_polytope->get_id(),
-        plane.negative_side_polytope->get_id()));
+    auto it = separating_planes.find(
+        SortedPair<geometry::GeometryId>(plane.positive_side_geometry->id(),
+                                         plane.negative_side_geometry->id()));
     EXPECT_NE(it, separating_planes.end());
     EXPECT_EQ(it->second.first, plane.expressed_link);
     EXPECT_TRUE(
@@ -571,12 +808,9 @@ void CheckReadAndWriteCspacePolytope(const CspaceFreeRegion& dut,
   }
 }
 
-TEST_F(IiwaCspaceTest, GenerateTuplesForBilinearAlternation) {
-  const CspaceFreeRegion dut(*diagram_, plant_, scene_graph_,
-                             SeparatingPlaneOrder::kAffine,
-                             CspaceRegionType::kGenericPolytope);
-  const Eigen::VectorXd q_star = Eigen::VectorXd::Zero(7);
-  const int C_rows = 5;
+void CheckGenerateTuplesForBilinearAlternation(const CspaceFreeRegion& dut,
+                                               const Eigen::VectorXd& q_star,
+                                               int C_rows) {
   std::vector<CspaceFreeRegion::CspacePolytopeTuple> alternation_tuples;
   VectorX<symbolic::Polynomial> d_minus_Ct;
   Eigen::VectorXd t_lower, t_upper;
@@ -585,16 +819,52 @@ TEST_F(IiwaCspaceTest, GenerateTuplesForBilinearAlternation) {
   VectorX<symbolic::Variable> d_var, lagrangian_gram_vars, verified_gram_vars,
       separating_plane_vars;
   std::vector<std::vector<int>> separating_plane_to_tuples;
+  std::vector<std::vector<solvers::Binding<solvers::LorentzConeConstraint>>>
+      separating_plane_to_lorentz_cone_constraints;
   dut.GenerateTuplesForBilinearAlternation(
       q_star, {}, C_rows, &alternation_tuples, &d_minus_Ct, &t_lower, &t_upper,
       &t_minus_t_lower, &t_upper_minus_t, &C_var, &d_var, &lagrangian_gram_vars,
-      &verified_gram_vars, &separating_plane_vars, &separating_plane_to_tuples);
+      &verified_gram_vars, &separating_plane_vars, &separating_plane_to_tuples,
+      &separating_plane_to_lorentz_cone_constraints);
   int rational_count = 0;
+  std::vector<int> separating_plane_to_lorentz_cone_constraints_count(
+      dut.separating_planes().size(), 0);
   for (const auto& separating_plane : dut.separating_planes()) {
-    rational_count += separating_plane.positive_side_polytope->p_BV().cols() +
-                      separating_plane.negative_side_polytope->p_BV().cols();
+    const int plane_index = dut.map_geometries_to_separating_planes().at(
+        SortedPair<geometry::GeometryId>(
+            separating_plane.positive_side_geometry->id(),
+            separating_plane.negative_side_geometry->id()));
+    for (const CollisionGeometry* link_geometry :
+         {separating_plane.positive_side_geometry,
+          separating_plane.negative_side_geometry}) {
+      switch (link_geometry->type()) {
+        case CollisionGeometryType::kPolytope: {
+          rational_count += GetVertices(link_geometry->geometry()).cols();
+          break;
+        }
+        case CollisionGeometryType::kSphere: {
+          rational_count += 1;
+          separating_plane_to_lorentz_cone_constraints_count[plane_index] += 1;
+          break;
+        }
+        case CollisionGeometryType::kCapsule: {
+          rational_count += 2;
+          separating_plane_to_lorentz_cone_constraints_count[plane_index] += 1;
+          break;
+        }
+        default: {
+          throw std::runtime_error("Not implemented yet.");
+        }
+      }
+    }
   }
   EXPECT_EQ(alternation_tuples.size(), rational_count);
+  EXPECT_EQ(separating_plane_to_lorentz_cone_constraints.size(),
+            dut.separating_planes().size());
+  for (int i = 0; i < static_cast<int>(dut.separating_planes().size()); ++i) {
+    EXPECT_EQ(separating_plane_to_lorentz_cone_constraints[i].size(),
+              separating_plane_to_lorentz_cone_constraints_count[i]);
+  }
   // Now count the total number of lagrangian gram vars.
   int lagrangian_gram_vars_count = 0;
   int verified_gram_vars_count = 0;
@@ -660,6 +930,27 @@ TEST_F(IiwaCspaceTest, GenerateTuplesForBilinearAlternation) {
     }
   }
   EXPECT_EQ(tuple_indices_set.size(), rational_count);
+}
+
+TEST_F(IiwaCspaceTest, GenerateTuplesForBilinearAlternation) {
+  const double separating_polytope_delta{0.1};
+  const CspaceFreeRegion dut(
+      *diagram_, plant_, scene_graph_, SeparatingPlaneOrder::kAffine,
+      CspaceRegionType::kGenericPolytope, separating_polytope_delta);
+  const Eigen::VectorXd q_star = Eigen::VectorXd::Zero(7);
+  const int C_rows = 5;
+  CheckGenerateTuplesForBilinearAlternation(dut, q_star, C_rows);
+}
+
+TEST_F(IiwaNonpolytopeCollisionCspaceTest,
+       GenerateTuplesForBilinearAlternation) {
+  const double separating_polytope_delta{0.001};
+  const CspaceFreeRegion dut(
+      *diagram_, plant_, scene_graph_, SeparatingPlaneOrder::kAffine,
+      CspaceRegionType::kGenericPolytope, separating_polytope_delta);
+  const Eigen::VectorXd q_star = Eigen::VectorXd::Zero(7);
+  const int C_rows = 4;
+  CheckGenerateTuplesForBilinearAlternation(dut, q_star, C_rows);
 }
 
 void CheckPsd(const Eigen::Ref<const Eigen::MatrixXd>& mat, double tol) {
@@ -746,9 +1037,10 @@ TEST_F(IiwaCspaceTest, ConstructLagrangianAndPolytopeProgram) {
   // Test both ConstructLagrangianProgram and ConstructPolytopeProgram (the
   // latter needs the result from the former).
   ApplyFilter();
-  const CspaceFreeRegion dut(*diagram_, plant_, scene_graph_,
-                             SeparatingPlaneOrder::kAffine,
-                             CspaceRegionType::kGenericPolytope);
+  const double separating_polytope_delta{0.1};
+  const CspaceFreeRegion dut(
+      *diagram_, plant_, scene_graph_, SeparatingPlaneOrder::kAffine,
+      CspaceRegionType::kGenericPolytope, separating_polytope_delta);
   const auto& plant = dut.rational_forward_kinematics().plant();
   auto context = plant.CreateDefaultContext();
 
@@ -756,7 +1048,8 @@ TEST_F(IiwaCspaceTest, ConstructLagrangianAndPolytopeProgram) {
   Eigen::MatrixXd C;
   Eigen::VectorXd d;
   Eigen::VectorXd q_not_in_collision;
-  ConstructInitialCspacePolytope(dut, &q_star, &C, &d, &q_not_in_collision);
+  ConstructInitialCspacePolytope(dut, *diagram_, &q_star, &C, &d,
+                                 &q_not_in_collision);
 
   CspaceFreeRegion::FilteredCollisionPairs filtered_collision_pairs{};
   std::vector<CspaceFreeRegion::CspacePolytopeTuple> alternation_tuples;
@@ -767,19 +1060,30 @@ TEST_F(IiwaCspaceTest, ConstructLagrangianAndPolytopeProgram) {
   VectorX<symbolic::Variable> d_var, lagrangian_gram_vars, verified_gram_vars,
       separating_plane_vars;
   std::vector<std::vector<int>> separating_plane_to_tuples;
+  std::vector<std::vector<solvers::Binding<solvers::LorentzConeConstraint>>>
+      separating_plane_to_lorentz_cone_constraints;
   dut.GenerateTuplesForBilinearAlternation(
       q_star, filtered_collision_pairs, C.rows(), &alternation_tuples,
       &d_minus_Ct, &t_lower, &t_upper, &t_minus_t_lower, &t_upper_minus_t,
       &C_var, &d_var, &lagrangian_gram_vars, &verified_gram_vars,
-      &separating_plane_vars, &separating_plane_to_tuples);
+      &separating_plane_vars, &separating_plane_to_tuples,
+      &separating_plane_to_lorentz_cone_constraints);
 
   MatrixX<symbolic::Variable> P;
   VectorX<symbolic::Variable> q;
   auto clock_start = std::chrono::system_clock::now();
   double redundant_tighten = 0;
+  std::vector<solvers::Binding<solvers::LorentzConeConstraint>>
+      separating_plane_lorentz_cone_constraints;
+  for (const auto& bindings : separating_plane_to_lorentz_cone_constraints) {
+    separating_plane_lorentz_cone_constraints.insert(
+        separating_plane_lorentz_cone_constraints.end(), bindings.begin(),
+        bindings.end());
+  }
   auto prog = dut.ConstructLagrangianProgram(
       alternation_tuples, C, d, lagrangian_gram_vars, verified_gram_vars,
-      separating_plane_vars, t_lower, t_upper, {}, redundant_tighten, &P, &q);
+      separating_plane_vars, separating_plane_lorentz_cone_constraints, t_lower,
+      t_upper, {}, redundant_tighten, &P, &q);
   auto clock_finish = std::chrono::system_clock::now();
   std::cout << "ConstructLagrangianProgram takes "
             << static_cast<float>(
@@ -823,7 +1127,8 @@ TEST_F(IiwaCspaceTest, ConstructLagrangianAndPolytopeProgram) {
   clock_start = std::chrono::system_clock::now();
   auto prog_polytope = dut.ConstructPolytopeProgram(
       alternation_tuples, C_var, d_var, d_minus_Ct, lagrangian_gram_var_vals,
-      verified_gram_vars, separating_plane_vars, t_minus_t_lower,
+      verified_gram_vars, separating_plane_vars,
+      separating_plane_to_lorentz_cone_constraints, t_minus_t_lower,
       t_upper_minus_t, {});
   margin = prog_polytope->NewContinuousVariables(C_var.rows(), "margin");
   AddOuterPolytope(prog_polytope.get(), P_sol, q_sol, C_var, d_var, margin);
@@ -911,11 +1216,16 @@ TEST_F(IiwaCspaceTest, ConstructLagrangianAndPolytopeProgram) {
   }
 }
 
-TEST_F(IiwaCspaceTest, CspacePolytopeBilinearAlternation) {
-  ApplyFilter();
-  const CspaceFreeRegion dut(*diagram_, plant_, scene_graph_,
-                             SeparatingPlaneOrder::kAffine,
-                             CspaceRegionType::kGenericPolytope);
+TEST_F(IiwaNonpolytopeCollisionCspaceTest,
+       ConstructLagrangianAndPolytopeProgram) {
+  // Test ConstructLagrangianProgram and ConstructPolytopeProgram. Similar to
+  // the test IiwaCspaceTest.ConstructLagrangianAndPolytopeProgram, but with
+  // non-polytope collision geometries, hence we need to check whether the
+  // additional Lorentz cone constraints are satisfied for the separating plane.
+  const double separating_polytope_delta{0.001};
+  const CspaceFreeRegion dut(
+      *diagram_, plant_, scene_graph_, SeparatingPlaneOrder::kAffine,
+      CspaceRegionType::kGenericPolytope, separating_polytope_delta);
   const auto& plant = dut.rational_forward_kinematics().plant();
   auto context = plant.CreateDefaultContext();
 
@@ -923,7 +1233,148 @@ TEST_F(IiwaCspaceTest, CspacePolytopeBilinearAlternation) {
   Eigen::MatrixXd C;
   Eigen::VectorXd d;
   Eigen::VectorXd q_not_in_collision;
-  ConstructInitialCspacePolytope(dut, &q_star, &C, &d, &q_not_in_collision);
+  ConstructInitialCspacePolytope(dut, *diagram_, &q_star, &C, &d,
+                                 &q_not_in_collision);
+
+  CspaceFreeRegion::FilteredCollisionPairs filtered_collision_pairs{};
+  std::vector<CspaceFreeRegion::CspacePolytopeTuple> alternation_tuples;
+  VectorX<symbolic::Polynomial> d_minus_Ct;
+  Eigen::VectorXd t_lower, t_upper;
+  VectorX<symbolic::Polynomial> t_minus_t_lower, t_upper_minus_t;
+  MatrixX<symbolic::Variable> C_var;
+  VectorX<symbolic::Variable> d_var, lagrangian_gram_vars, verified_gram_vars,
+      separating_plane_vars;
+  std::vector<std::vector<int>> separating_plane_to_tuples;
+  std::vector<std::vector<solvers::Binding<solvers::LorentzConeConstraint>>>
+      separating_plane_to_lorentz_cone_constraints;
+  dut.GenerateTuplesForBilinearAlternation(
+      q_star, filtered_collision_pairs, C.rows(), &alternation_tuples,
+      &d_minus_Ct, &t_lower, &t_upper, &t_minus_t_lower, &t_upper_minus_t,
+      &C_var, &d_var, &lagrangian_gram_vars, &verified_gram_vars,
+      &separating_plane_vars, &separating_plane_to_tuples,
+      &separating_plane_to_lorentz_cone_constraints);
+
+  MatrixX<symbolic::Variable> P;
+  VectorX<symbolic::Variable> q;
+  auto clock_start = std::chrono::system_clock::now();
+  double redundant_tighten = 0;
+  std::vector<solvers::Binding<solvers::LorentzConeConstraint>>
+      separating_plane_lorentz_cone_constraints;
+  for (const auto& binding : separating_plane_to_lorentz_cone_constraints) {
+    separating_plane_lorentz_cone_constraints.insert(
+        separating_plane_lorentz_cone_constraints.end(), binding.begin(),
+        binding.end());
+  }
+  auto prog = dut.ConstructLagrangianProgram(
+      alternation_tuples, C, d, lagrangian_gram_vars, verified_gram_vars,
+      separating_plane_vars, separating_plane_lorentz_cone_constraints, t_lower,
+      t_upper, {}, redundant_tighten, &P, &q);
+  auto clock_finish = std::chrono::system_clock::now();
+  std::cout << "ConstructLagrangianProgram takes "
+            << static_cast<float>(
+                   std::chrono::duration_cast<std::chrono::milliseconds>(
+                       clock_finish - clock_start)
+                       .count()) /
+                   1000
+            << "s\n";
+  prog->AddMaximizeLogDeterminantCost(P.cast<symbolic::Expression>());
+  solvers::SolverOptions solver_options;
+  solver_options.SetOption(solvers::CommonSolverOption::kPrintToConsole, 1);
+  auto result_lagrangian = solvers::Solve(*prog, std::nullopt, solver_options);
+  // Back off a little bit so that we can search for polytope using the
+  // Lagrangian.
+  result_lagrangian = internal::BackoffProgram(
+      prog.get(), result_lagrangian.get_optimal_cost(), 0.01, solver_options);
+
+  EXPECT_TRUE(result_lagrangian.is_success());
+
+  // Now test if the additional Lorentz cone constraints on the separating
+  // planes are satisfied.
+  auto check_separating_plane_lorentz_cone =
+      [&dut](const solvers::MathematicalProgramResult& result) {
+        for (const auto& plane : dut.separating_planes()) {
+          if (plane.positive_side_geometry->type() !=
+                  CollisionGeometryType::kPolytope ||
+              plane.negative_side_geometry->type() !=
+                  CollisionGeometryType::kPolytope) {
+            symbolic::Environment env;
+            env.insert(plane.decision_variables,
+                       result.GetSolution(plane.decision_variables));
+            Eigen::Vector3d a_val;
+            for (int i = 0; i < 3; ++i) {
+              a_val(i) = plane.a(i).Evaluate(env);
+            }
+            for (const auto collision_geometry :
+                 {plane.positive_side_geometry, plane.negative_side_geometry}) {
+              switch (collision_geometry->type()) {
+                case CollisionGeometryType::kSphere: {
+                  EXPECT_LE(a_val.norm(), 1 + 1E-8);
+                  break;
+                }
+                case CollisionGeometryType::kCapsule: {
+                  EXPECT_LE(a_val.norm(), 1 + 1E-8);
+                  break;
+                }
+                default: {
+                }
+              }
+            }
+          }
+        }
+      };
+
+  check_separating_plane_lorentz_cone(result_lagrangian);
+
+  const auto P_sol = result_lagrangian.GetSolution(P);
+  const auto q_sol = result_lagrangian.GetSolution(q);
+
+  const Eigen::VectorXd lagrangian_gram_var_vals =
+      result_lagrangian.GetSolution(lagrangian_gram_vars);
+
+  // Now test ConstructPolytopeProgram using the lagrangian result.
+  VectorX<symbolic::Variable> margin;
+  clock_start = std::chrono::system_clock::now();
+  auto prog_polytope = dut.ConstructPolytopeProgram(
+      alternation_tuples, C_var, d_var, d_minus_Ct, lagrangian_gram_var_vals,
+      verified_gram_vars, separating_plane_vars,
+      separating_plane_to_lorentz_cone_constraints, t_minus_t_lower,
+      t_upper_minus_t, {});
+  margin = prog_polytope->NewContinuousVariables(C_var.rows(), "margin");
+  AddOuterPolytope(prog_polytope.get(), P_sol, q_sol, C_var, d_var, margin);
+  prog_polytope->AddBoundingBoxConstraint(0, kInf, margin);
+  clock_finish = std::chrono::system_clock::now();
+  std::cout << "ConstructPolytopeProgram takes "
+            << static_cast<float>(
+                   std::chrono::duration_cast<std::chrono::milliseconds>(
+                       clock_finish - clock_start)
+                       .count()) /
+                   1000
+            << "s\n";
+  // Number of PSD constraint is the number of SOS constraint, equal to the
+  // number of rational numerators.
+  // Maximize the geometric mean of the margin.
+  prog_polytope->AddMaximizeGeometricMeanCost(
+      Eigen::MatrixXd::Identity(margin.rows(), margin.rows()),
+      1E-4 * Eigen::VectorXd::Ones(margin.rows()), margin);
+  const auto result_polytope =
+      solvers::Solve(*prog_polytope, std::nullopt, solver_options);
+  EXPECT_TRUE(result_polytope.is_success());
+
+  check_separating_plane_lorentz_cone(result_polytope);
+}
+
+void TestBilinearAlternation(const CspaceFreeRegion& dut,
+                             const systems::Diagram<double>& diagram,
+                             std::optional<int> num_threads) {
+  const auto& plant = dut.rational_forward_kinematics().plant();
+  auto context = plant.CreateDefaultContext();
+
+  Eigen::VectorXd q_star;
+  Eigen::MatrixXd C;
+  Eigen::VectorXd d;
+  Eigen::VectorXd q_not_in_collision;
+  ConstructInitialCspacePolytope(dut, diagram, &q_star, &C, &d,
+                                 &q_not_in_collision);
 
   CspaceFreeRegion::FilteredCollisionPairs filtered_collision_pairs{};
   // Intentially multiplies a factor to make the rows of C unnormalized.
@@ -941,7 +1392,8 @@ TEST_F(IiwaCspaceTest, CspacePolytopeBilinearAlternation) {
                                    .convergence_tol = 0.001,
                                    .lagrangian_backoff_scale = 0.05,
                                    .polytope_backoff_scale = 0.05,
-                                   .verbose = true};
+                                   .verbose = true,
+                                   .num_threads = num_threads};
   solvers::SolverOptions solver_options;
   solver_options.SetOption(solvers::CommonSolverOption::kPrintToConsole, true);
   const Eigen::VectorXd t_inner_pts =
@@ -968,11 +1420,31 @@ TEST_F(IiwaCspaceTest, CspacePolytopeBilinearAlternation) {
   EXPECT_TRUE(((C_final * t_inner_pts).array() <= d_final.array()).all());
 }
 
+TEST_F(IiwaCspaceTest, CspacePolytopeBilinearAlternation) {
+  ApplyFilter();
+  const double separating_polytope_delta{0.1};
+  const CspaceFreeRegion dut(
+      *diagram_, plant_, scene_graph_, SeparatingPlaneOrder::kAffine,
+      CspaceRegionType::kGenericPolytope, separating_polytope_delta);
+  std::optional<int> num_threads = std::nullopt;
+  TestBilinearAlternation(dut, *diagram_, num_threads);
+}
+
+TEST_F(IiwaNonpolytopeCollisionCspaceTest, CspacePolytopeBilinearAlternation) {
+  const double separating_polytope_delta{0.1};
+  const CspaceFreeRegion dut(
+      *diagram_, plant_, scene_graph_, SeparatingPlaneOrder::kAffine,
+      CspaceRegionType::kGenericPolytope, separating_polytope_delta);
+  const int num_threads = -1;
+  TestBilinearAlternation(dut, *diagram_, num_threads);
+}
+
 TEST_F(IiwaCspaceTest, CspacePolytopeBinarySearch) {
   ApplyFilter();
-  const CspaceFreeRegion dut(*diagram_, plant_, scene_graph_,
-                             SeparatingPlaneOrder::kAffine,
-                             CspaceRegionType::kGenericPolytope);
+  const double separating_polytope_delta{0.1};
+  const CspaceFreeRegion dut(
+      *diagram_, plant_, scene_graph_, SeparatingPlaneOrder::kAffine,
+      CspaceRegionType::kGenericPolytope, separating_polytope_delta);
   const auto& plant = dut.rational_forward_kinematics().plant();
   auto context = plant.CreateDefaultContext();
 
@@ -980,7 +1452,8 @@ TEST_F(IiwaCspaceTest, CspacePolytopeBinarySearch) {
   Eigen::MatrixXd C;
   Eigen::VectorXd d;
   Eigen::VectorXd q_not_in_collision;
-  ConstructInitialCspacePolytope(dut, &q_star, &C, &d, &q_not_in_collision);
+  ConstructInitialCspacePolytope(dut, *diagram_, &q_star, &C, &d,
+                                 &q_not_in_collision);
 
   CspaceFreeRegion::FilteredCollisionPairs filtered_collision_pairs{};
   // Intentially multiplies a factor to make the rows of C unnormalized.
@@ -992,7 +1465,7 @@ TEST_F(IiwaCspaceTest, CspacePolytopeBinarySearch) {
   CspaceFreeRegion::BinarySearchOption binary_search_option{
       .epsilon_max = 1, .epsilon_min = 0.1, .max_iters = 4, .search_d = false};
   solvers::SolverOptions solver_options;
-  solver_options.SetOption(solvers::CommonSolverOption::kPrintToConsole, true);
+  solver_options.SetOption(solvers::CommonSolverOption::kPrintToConsole, false);
   Eigen::VectorXd d_final;
   CspaceFreeRegionSolution cspace_free_region_solution;
   const Eigen::VectorXd t_inner_pts =
@@ -1027,49 +1500,77 @@ void CheckSeparatingPlanesSol(
        plane_index < static_cast<int>(dut.separating_planes().size());
        ++plane_index) {
     if (is_plane_active[plane_index]) {
-      EXPECT_EQ(separating_planes_sol[active_plane_count]
-                    .positive_side_polytope->get_id(),
-                dut.separating_planes()[plane_index]
-                    .positive_side_polytope->get_id());
-      EXPECT_EQ(separating_planes_sol[active_plane_count]
-                    .negative_side_polytope->get_id(),
-                dut.separating_planes()[plane_index]
-                    .negative_side_polytope->get_id());
+      const SeparatingPlane<double>& separating_plane_sol =
+          separating_planes_sol[active_plane_count];
+      EXPECT_EQ(
+          separating_plane_sol.positive_side_geometry->id(),
+          dut.separating_planes()[plane_index].positive_side_geometry->id());
+      EXPECT_EQ(
+          separating_plane_sol.negative_side_geometry->id(),
+          dut.separating_planes()[plane_index].negative_side_geometry->id());
       for (int i = 0; i < 3; ++i) {
-        EXPECT_TRUE(separating_planes_sol[active_plane_count]
-                        .a(i)
-                        .GetVariables()
-                        .IsSubsetOf(t_vars));
+        EXPECT_TRUE(
+            separating_plane_sol.a(i).GetVariables().IsSubsetOf(t_vars));
       }
-      EXPECT_TRUE(
-          separating_planes_sol[active_plane_count].b.GetVariables().IsSubsetOf(
-              t_vars));
+      EXPECT_TRUE(separating_plane_sol.b.GetVariables().IsSubsetOf(t_vars));
+      for (const auto* collision :
+           {dut.separating_planes()[plane_index].positive_side_geometry,
+            dut.separating_planes()[plane_index].negative_side_geometry}) {
+        switch (collision->type()) {
+          case CollisionGeometryType::kPolytope: {
+            break;
+          }
+          case CollisionGeometryType::kSphere:
+          case CollisionGeometryType::kCapsule: {
+            switch (dut.separating_planes()[plane_index].order) {
+              case SeparatingPlaneOrder::kConstant: {
+                Eigen::Vector3d a_val;
+                for (int i = 0; i < 3; ++i) {
+                  a_val(i) =
+                      symbolic::get_constant_value(separating_plane_sol.a(i));
+                }
+                EXPECT_LE(a_val.norm(), 1 + 1e-6);
+                break;
+              }
+              default: {
+                throw std::runtime_error("Not implemented yet.");
+              }
+            }
+            break;
+          }
+          default: {
+            throw std::runtime_error("Not implemented yet.");
+          }
+        }
+      }
       active_plane_count++;
     }
   }
   EXPECT_EQ(separating_planes_sol.size(), active_plane_count);
 }
 
-TEST_F(IiwaCspaceTest, FindLagrangianAndSeparatingPlanes) {
-  // Test both the single-thread version and the multiple-thread version. Make
-  // sure the result are correct.
-  ApplyFilter();
-  const CspaceFreeRegion dut(*diagram_, plant_, scene_graph_,
+// Test both the single-thread version and the multiple-thread version. Make
+// sure the result are correct.
+void TestFindLagrangianAndSeparatingPlanes(
+    const systems::Diagram<double>& diagram,
+    const MultibodyPlant<double>& plant,
+    const geometry::SceneGraph<double>& scene_graph) {
+  const CspaceFreeRegion dut(diagram, &plant, &scene_graph,
                              SeparatingPlaneOrder::kAffine,
                              CspaceRegionType::kGenericPolytope);
-  const auto& plant = dut.rational_forward_kinematics().plant();
   auto context = plant.CreateDefaultContext();
 
   Eigen::VectorXd q_star;
   Eigen::MatrixXd C;
   Eigen::VectorXd d;
   Eigen::VectorXd q_not_in_collision;
-  ConstructInitialCspacePolytope(dut, &q_star, &C, &d, &q_not_in_collision);
+  ConstructInitialCspacePolytope(dut, diagram, &q_star, &C, &d,
+                                 &q_not_in_collision);
 
   CspaceFreeRegion::FilteredCollisionPairs filtered_collision_pairs{
       {SortedPair<geometry::GeometryId>(
-          dut.separating_planes()[0].positive_side_polytope->get_id(),
-          dut.separating_planes()[0].negative_side_polytope->get_id())}};
+          dut.separating_planes()[0].positive_side_geometry->id(),
+          dut.separating_planes()[0].negative_side_geometry->id())}};
   std::vector<CspaceFreeRegion::CspacePolytopeTuple> alternation_tuples;
   VectorX<symbolic::Polynomial> d_minus_Ct;
   Eigen::VectorXd t_lower, t_upper;
@@ -1078,11 +1579,14 @@ TEST_F(IiwaCspaceTest, FindLagrangianAndSeparatingPlanes) {
   VectorX<symbolic::Variable> d_var, lagrangian_gram_vars, verified_gram_vars,
       separating_plane_vars;
   std::vector<std::vector<int>> separating_plane_to_tuples;
+  std::vector<std::vector<solvers::Binding<solvers::LorentzConeConstraint>>>
+      separating_plane_to_lorentz_cone_constraints;
   dut.GenerateTuplesForBilinearAlternation(
       q_star, filtered_collision_pairs, C.rows(), &alternation_tuples,
       &d_minus_Ct, &t_lower, &t_upper, &t_minus_t_lower, &t_upper_minus_t,
       &C_var, &d_var, &lagrangian_gram_vars, &verified_gram_vars,
-      &separating_plane_vars, &separating_plane_to_tuples);
+      &separating_plane_vars, &separating_plane_to_tuples,
+      &separating_plane_to_lorentz_cone_constraints);
   const std::vector<bool> is_plane_active = internal::IsPlaneActive(
       dut.separating_planes(), filtered_collision_pairs);
   EXPECT_FALSE(is_plane_active[0]);
@@ -1103,11 +1607,11 @@ TEST_F(IiwaCspaceTest, FindLagrangianAndSeparatingPlanes) {
     const bool verbose{true};
     bool is_success = internal::FindLagrangianAndSeparatingPlanes(
         dut, alternation_tuples, C, d, lagrangian_gram_vars, verified_gram_vars,
-        separating_plane_vars, t_lower, t_upper, verification_option,
-        redundant_tighten, solver_options, verbose, num_threads,
-        separating_plane_to_tuples, &lagrangian_gram_var_vals,
-        &verified_gram_var_vals, &separating_plane_var_vals,
-        &cspace_free_region_solution);
+        separating_plane_vars, separating_plane_to_lorentz_cone_constraints,
+        t_lower, t_upper, verification_option, redundant_tighten,
+        solver_options, verbose, num_threads, separating_plane_to_tuples,
+        &lagrangian_gram_var_vals, &verified_gram_var_vals,
+        &separating_plane_var_vals, &cspace_free_region_solution);
     EXPECT_TRUE(is_success);
     EXPECT_EQ(cspace_free_region_solution.separating_planes.size(),
               num_active_planes);
@@ -1122,13 +1626,22 @@ TEST_F(IiwaCspaceTest, FindLagrangianAndSeparatingPlanes) {
     const Eigen::VectorXd d_infeasible = (d.array() + 1E5).matrix();
     is_success = internal::FindLagrangianAndSeparatingPlanes(
         dut, alternation_tuples, C, d_infeasible, lagrangian_gram_vars,
-        verified_gram_vars, separating_plane_vars, t_lower, t_upper,
+        verified_gram_vars, separating_plane_vars,
+        separating_plane_to_lorentz_cone_constraints, t_lower, t_upper,
         verification_option, redundant_tighten, solver_options, verbose,
         num_threads, separating_plane_to_tuples, &lagrangian_gram_var_vals,
         &verified_gram_var_vals, &separating_plane_var_vals,
         &cspace_free_region_solution);
     EXPECT_FALSE(is_success);
   }
+}
+
+TEST_F(IiwaCspaceTest, FindLagrangianAndSeparatingPlanes) {
+  TestFindLagrangianAndSeparatingPlanes(*diagram_, *plant_, *scene_graph_);
+}
+
+TEST_F(IiwaNonpolytopeCollisionCspaceTest, FindLagrangianAndSeparatingPlanes) {
+  TestFindLagrangianAndSeparatingPlanes(*diagram_, *plant_, *scene_graph_);
 }
 
 GTEST_TEST(CalcPolynomialFromGram, Test1) {
@@ -1151,11 +1664,11 @@ GTEST_TEST(CalcPolynomialFromGram, Test1) {
                                            {symbolic::Monomial(x, 4), 2},
                                            {symbolic::Monomial(x, 2), 7},
                                            {symbolic::Monomial(), 3}}};
-  EXPECT_TRUE(ret1.EqualToAfterExpansion(ret_expected));
+  EXPECT_TRUE(ret1.Expand().EqualTo(ret_expected.Expand()));
 
   const auto ret2 =
       CalcPolynomialFromGramLower<double>(monomial_basis, Q_lower);
-  EXPECT_TRUE(ret2.EqualToAfterExpansion(ret_expected));
+  EXPECT_TRUE(ret2.Expand().EqualTo(ret_expected.Expand()));
 }
 
 GTEST_TEST(CalcPolynomialFromGram, Test2) {
@@ -1202,10 +1715,10 @@ GTEST_TEST(CalcPolynomialFromGram, Test2) {
                                            {symbolic::Monomial(x, 4), 2},
                                            {symbolic::Monomial(x, 2), 9},
                                            {symbolic::Monomial(), 3}}};
-  EXPECT_TRUE(ret1.EqualToAfterExpansion(ret_expected));
+  EXPECT_TRUE(ret1.Expand().EqualTo(ret_expected.Expand()));
   const auto ret2 =
       CalcPolynomialFromGramLower(monomial_basis, Q_lower_var, result);
-  EXPECT_TRUE(ret2.EqualToAfterExpansion(ret_expected));
+  EXPECT_TRUE(ret2.Expand().EqualTo(ret_expected.Expand()));
 }
 
 GTEST_TEST(SymmetricMatrixFromLower, Test) {
@@ -1336,7 +1849,23 @@ GTEST_TEST(AddOuterPolytope, Test) {
   }
 }
 
-GTEST_TEST(GetConvexPolytopes, Test) {
+void CheckVertices(const Eigen::Ref<const Eigen::Matrix3Xd>& vert1,
+                   const Eigen::Ref<const Eigen::Matrix3Xd>& vert2,
+                   double tol) {
+  EXPECT_EQ(vert1.cols(), vert2.cols());
+  for (int i = 0; i < vert1.cols(); ++i) {
+    bool found_match = false;
+    for (int j = 0; j < vert2.cols(); ++j) {
+      if (CompareMatrices(vert1.col(i), vert2.col(j), tol)) {
+        found_match = true;
+        break;
+      }
+    }
+    EXPECT_TRUE(found_match);
+  }
+}
+
+GTEST_TEST(GetCollisionGeometry, Test) {
   systems::DiagramBuilder<double> builder;
   auto iiwa = builder.AddSystem<MultibodyPlant<double>>(
       ConstructIiwaPlant("iiwa14_no_collision.sdf", false));
@@ -1360,49 +1889,122 @@ GTEST_TEST(GetConvexPolytopes, Test) {
       iiwa->GetBodyByName("iiwa_link_7"), X_7P2,
       geometry::Box(box2_size(0), box2_size(1), box2_size(2)), "link7_box2",
       CoulombFriction<double>());
+  const math::RigidTransformd X_5O(Eigen::Vector3d(0.2, 0.3, 0.4));
+  const auto link5_octahedron_id = iiwa->RegisterCollisionGeometry(
+      iiwa->GetBodyByName("iiwa_link_5"), X_5O,
+      geometry::Convex(
+          FindResourceOrThrow("drake/geometry/test/octahedron.obj")),
+      "link5_octahedron", CoulombFriction<double>());
+
+  const math::RigidTransformd X_4S(
+      math::RotationMatrixd(
+          Eigen::AngleAxisd(0.2, Eigen::Vector3d(0.1, 0.3, 0.5).normalized())),
+      Eigen::Vector3d(0.1, 0.5, -0.2));
+  const double link4_sphere_radius{0.2};
+  const auto link4_sphere_id = iiwa->RegisterCollisionGeometry(
+      iiwa->GetBodyByName("iiwa_link_4"), X_4S,
+      geometry::Sphere(link4_sphere_radius), "link4_sphere",
+      CoulombFriction<double>());
 
   const auto world_box_id = iiwa->RegisterCollisionGeometry(
       iiwa->world_body(), {}, geometry::Box(0.2, 0.1, 0.3), "world_box",
       CoulombFriction<double>());
+
+  const math::RigidTransformd X_1Capsule(
+      math::RotationMatrixd(
+          Eigen::AngleAxisd(0.2, Eigen::Vector3d(1. / 3, 2. / 3, 2. / 3))),
+      Eigen::Vector3d(0.2, 0.3, 0.5));
+  const double link1_capsule_radius = 0.2;
+  const double link1_capsule_length = 0.5;
+  const auto link1_capsule_id = iiwa->RegisterCollisionGeometry(
+      iiwa->GetBodyByName("iiwa_link_1"), X_1Capsule,
+      geometry::Capsule(link1_capsule_radius, link1_capsule_length),
+      "link1_capsule", CoulombFriction<double>());
+
   iiwa->Finalize();
   auto diagram = builder.Build();
 
-  const auto polytope_geometries = GetConvexPolytopes(*diagram, iiwa, sg);
-  EXPECT_EQ(polytope_geometries.size(), 2u);
-  const auto& link7_polytopes =
-      polytope_geometries.at(iiwa->GetBodyByName("iiwa_link_7").index());
-  EXPECT_EQ(link7_polytopes.size(), 2u);
-  const auto& obstacles = polytope_geometries.at(iiwa->world_body().index());
-  EXPECT_EQ(obstacles[0].body_index(), iiwa->world_body().index());
-  EXPECT_EQ(obstacles[0].get_id(), world_box_id);
+  const auto collision_geometries = GetCollisionGeometries(*diagram, iiwa, sg);
+  EXPECT_EQ(collision_geometries.size(), 5u);
+  const auto& link7_geometries =
+      collision_geometries.at(iiwa->GetBodyByName("iiwa_link_7").index());
+  EXPECT_EQ(link7_geometries.size(), 2u);
+  const auto& obstacles = collision_geometries.at(iiwa->world_body().index());
+  EXPECT_EQ(obstacles[0]->body_index(), iiwa->world_body().index());
+  EXPECT_EQ(obstacles[0]->id(), world_box_id);
 
-  std::unordered_map<ConvexGeometry::Id, const ConvexPolytope*>
-      link7_polytope_map;
-  for (const auto& link7_polytope : link7_polytopes) {
-    link7_polytope_map.emplace(link7_polytope.get_id(), &link7_polytope);
+  std::unordered_map<geometry::GeometryId, const CollisionGeometry*>
+      link7_geometry_map;
+  for (const auto& link7_geometry : link7_geometries) {
+    link7_geometry_map.emplace(link7_geometry->id(), link7_geometry.get());
   }
-  EXPECT_EQ(link7_polytope_map.size(), 2u);
-  const ConvexPolytope* link7_box1 = link7_polytope_map.at(link7_box1_id);
-  const ConvexPolytope* link7_box2 = link7_polytope_map.at(link7_box2_id);
-  EXPECT_EQ(link7_box1->body_index(),
+  EXPECT_EQ(link7_geometry_map.size(), 2u);
+  const CollisionGeometry* link7_geometry1 =
+      link7_geometry_map.at(link7_box1_id);
+  const CollisionGeometry* link7_geometry2 =
+      link7_geometry_map.at(link7_box2_id);
+  EXPECT_EQ(link7_geometry1->type(), CollisionGeometryType::kPolytope);
+  EXPECT_EQ(link7_geometry2->type(), CollisionGeometryType::kPolytope);
+  EXPECT_EQ(link7_geometry1->body_index(),
             iiwa->GetBodyByName("iiwa_link_7").index());
-  EXPECT_EQ(link7_box2->body_index(),
+  EXPECT_EQ(link7_geometry2->body_index(),
             iiwa->GetBodyByName("iiwa_link_7").index());
   // Now compute the geometry vertices manually and check with
   // link7_box1->p_BV().
   const Eigen::Matrix<double, 3, 8> link7_box2_vertices =
       GenerateBoxVertices(box2_size, X_7P2);
-  EXPECT_EQ(link7_box2->p_BV().cols(), 8);
-  for (int i = 0; i < 8; ++i) {
-    bool found_match = false;
-    for (int j = 0; j < 8; ++j) {
-      if ((link7_box2->p_BV().col(i) - link7_box2_vertices.col(j)).norm() <
-          1E-8) {
-        found_match = true;
-      }
-    }
-    EXPECT_TRUE(found_match);
-  }
+  CheckVertices(
+      link7_geometry2->X_BG() * GetVertices(link7_geometry2->geometry()),
+      link7_box2_vertices, 1E-8);
+
+  // Check the geometry of link5_octahedron.
+  const BodyIndex link5_index = iiwa->GetBodyByName("iiwa_link_5").index();
+  EXPECT_GT(collision_geometries.count(link5_index), 0);
+  EXPECT_EQ(collision_geometries.at(link5_index).size(), 1u);
+  const auto& link5_octahedron = collision_geometries.at(link5_index)[0];
+  EXPECT_EQ(link5_octahedron->body_index(), link5_index);
+  EXPECT_EQ(link5_octahedron->id(), link5_octahedron_id);
+  EXPECT_EQ(link5_octahedron->type(), CollisionGeometryType::kPolytope);
+  Eigen::Matrix<double, 3, 6> link5_octahedron_vertices;
+  // clang-format off
+  link5_octahedron_vertices << 1, 1, -1, -1, 0, 0,
+                               -1, 1, -1, 1, 0, 0,
+                               0, 0, 0, 0, std::sqrt(2), -std::sqrt(2);
+  // clang-format on
+  link5_octahedron_vertices = X_5O * link5_octahedron_vertices;
+  CheckVertices(
+      link5_octahedron->X_BG() * GetVertices(link5_octahedron->geometry()),
+      link5_octahedron_vertices, 1E-8);
+
+  // Check link 4 sphere.
+  const BodyIndex link4_index = iiwa->GetBodyByName("iiwa_link_4").index();
+  EXPECT_GT(collision_geometries.count(link4_index), 0);
+  EXPECT_EQ(collision_geometries.at(link4_index).size(), 1u);
+  const auto& link4_sphere = collision_geometries.at(link4_index)[0];
+  EXPECT_EQ(link4_sphere->type(), CollisionGeometryType::kSphere);
+  EXPECT_EQ(link4_sphere->body_index(), link4_index);
+  EXPECT_EQ(link4_sphere->id(), link4_sphere_id);
+  auto link4_sphere_geometry =
+      dynamic_cast<const geometry::Sphere*>(&link4_sphere->geometry());
+  const double tol{1E-10};
+  EXPECT_EQ(link4_sphere_geometry->radius(), link4_sphere_radius);
+  EXPECT_TRUE(CompareMatrices(link4_sphere->X_BG().translation(),
+                              X_4S.translation(), tol));
+
+  // Check link 1 capsule.
+  const BodyIndex link1_index = iiwa->GetBodyByName("iiwa_link_1").index();
+  EXPECT_GT(collision_geometries.count(link1_index), 0);
+  EXPECT_EQ(collision_geometries.at(link1_index).size(), 1u);
+  const auto& link1_capsule = collision_geometries.at(link1_index)[0];
+  EXPECT_EQ(link1_capsule->type(), CollisionGeometryType::kCapsule);
+  EXPECT_EQ(link1_capsule->body_index(), link1_index);
+  EXPECT_EQ(link1_capsule->id(), link1_capsule_id);
+  auto link1_capsule_geometry =
+      dynamic_cast<const geometry::Capsule*>(&link1_capsule->geometry());
+  EXPECT_EQ(link1_capsule_geometry->radius(), link1_capsule_radius);
+  EXPECT_EQ(link1_capsule_geometry->length(), link1_capsule_length);
+  EXPECT_TRUE(CompareMatrices(link1_capsule->X_BG().GetAsMatrix4(),
+                              X_1Capsule.GetAsMatrix4(), tol));
 }
 
 GTEST_TEST(FindRedundantInequalities, Test) {

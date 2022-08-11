@@ -66,12 +66,16 @@ void VerifyMatchWithTestDataRoot(const PackageMap& package_map) {
   map<string, string> expected_packages = {
     {"package_map_test_package_a", root_path +
         "package_map_test_package_a/"},
+    {"package_map_test_package_aa", root_path +
+        "package_map_test_package_a/package_map_test_package_aa/"},
     {"package_map_test_package_b", root_path +
         "package_map_test_package_b/"},
     {"package_map_test_package_c", root_path +
         "package_map_test_package_set/package_map_test_package_c/"},
     {"package_map_test_package_d", root_path +
         "package_map_test_package_set/package_map_test_package_d/"},
+    {"package_map_test_package_e", root_path +
+        "package_map_test_package_e/"},
   };
   VerifyMatch(package_map, expected_packages);
 }
@@ -224,31 +228,6 @@ GTEST_TEST(PackageMapTest, TestPopulateMapFromFolderExtraTrailingSlashes) {
   VerifyMatchWithTestDataRoot(package_map);
 }
 
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-// Tests that PackageMap can be populated by crawling up a directory tree.
-GTEST_TEST(PackageMapTest, DeprecatedTestPopulateUpstreamToDrake) {
-  const string root_path = GetTestDataRoot();
-  const string sdf_file_name = FindResourceOrThrow(
-      "drake/multibody/parsing/test/"
-      "package_map_test_packages/package_map_test_package_a/"
-      "sdf/test_model.sdf");
-
-  PackageMap package_map = PackageMap::MakeEmpty();
-  package_map.PopulateUpstreamToDrake(sdf_file_name);
-
-  map<string, string> expected_packages = {
-    {"package_map_test_package_a", root_path + "package_map_test_package_a"}
-  };
-
-  VerifyMatch(package_map, expected_packages);
-
-  // Call it again to exercise the "don't add things twice" code.
-  package_map.PopulateUpstreamToDrake(sdf_file_name);
-  VerifyMatch(package_map, expected_packages);
-}
-#pragma GCC diagnostic pop
-
 // Tests that PackageMap can be populated from an env var.
 GTEST_TEST(PackageMapTest, TestPopulateFromEnvironment) {
   PackageMap package_map = PackageMap::MakeEmpty();
@@ -270,6 +249,41 @@ GTEST_TEST(PackageMapTest, TestPopulateFromEnvironment) {
   ::setenv("FOOBAR", value.c_str(), 1);
   package_map.PopulateFromEnvironment("FOOBAR");
   VerifyMatchWithTestDataRoot(package_map);
+}
+
+// Tests that PackageMap can be populated from the
+// ROS_PACKAGE_PATH env var.
+GTEST_TEST(PackageMapTest, TestPopulateFromRosPackagePath) {
+  PackageMap package_map = PackageMap::MakeEmpty();
+
+  // Test a null environment.
+  package_map.PopulateFromRosPackagePath();
+  EXPECT_EQ(package_map.size(), 0);
+
+  // Test an empty environment.
+  ::setenv("ROS_PACKAGE_PATH", "", 1);
+  package_map.PopulateFromRosPackagePath();
+  EXPECT_EQ(package_map.size(), 0);
+
+  // Test three environment entries, concatenated:
+  // - one bad path
+  // - one good path
+  // - one empty path
+  const std::string root_path = GetTestDataRoot();
+  const std::string value = "/does/not/exist:" + root_path + ":";
+  ::setenv("ROS_PACKAGE_PATH", value.c_str(), 1);
+  package_map.PopulateFromRosPackagePath();
+  map<string, string> expected_packages = {
+    {"package_map_test_package_a", root_path +
+        "package_map_test_package_a/"},
+    {"package_map_test_package_b", root_path +
+        "package_map_test_package_b/"},
+    {"package_map_test_package_c", root_path +
+        "package_map_test_package_set/package_map_test_package_c/"},
+    {"package_map_test_package_d", root_path +
+        "package_map_test_package_set/package_map_test_package_d/"},
+  };
+  VerifyMatch(package_map, expected_packages);
 }
 
 // Tests that PackageMap's streaming to-string operator works.

@@ -1,5 +1,8 @@
 #pragma once
 
+#include <memory>
+#include <string>
+
 #include "drake/geometry/proximity/volume_mesh.h"
 #include "drake/geometry/shape_specification.h"
 
@@ -7,31 +10,33 @@ namespace drake {
 namespace geometry {
 namespace internal {
 
-/* Returns a volume mesh suitable for deformable body simulation that
- discretizes the shape with the resolution provided at construction. There is a
- seperate function for each concrete shape derived from Shape.
- @pre resolution_hint > 0.
- @throws std::exception if `shape` doesn't support a mesh discretization. */
-//@{
-VolumeMesh<double> MakeMeshForDeformable(const Sphere& sphere,
-                                         double resolution_hint);
-VolumeMesh<double> MakeMeshForDeformable(const Cylinder& cylinder,
-                                         double resolution_hint);
-VolumeMesh<double> MakeMeshForDeformable(const HalfSpace& half_space,
-                                         double resolution_hint);
-VolumeMesh<double> MakeMeshForDeformable(const Box& box,
-                                         double resolution_hint);
-VolumeMesh<double> MakeMeshForDeformable(const Capsule& capsule,
-                                         double resolution_hint);
-VolumeMesh<double> MakeMeshForDeformable(const Ellipsoid& ellipsoid,
-                                         double resolution_hint);
-VolumeMesh<double> MakeMeshForDeformable(const Mesh& mesh,
-                                         double resolution_hint);
-VolumeMesh<double> MakeMeshForDeformable(const Convex& convex,
-                                         double resolution_hint);
-VolumeMesh<double> MakeMeshForDeformable(const MeshcatCone& cone,
-                                         double resolution_hint);
-//@}
+/* See Build() function. */
+class MeshBuilderForDeformable : public ShapeReifier {
+ public:
+  MeshBuilderForDeformable() = default;
+
+  /* Returns a volume mesh suitable for deformable body simulation that
+   discretizes the shape with the resolution provided at construction.
+   @pre resolution_hint > 0.
+   @throws std::exception if `shape` doesn't support a mesh discretization. */
+  std::unique_ptr<VolumeMesh<double>> Build(const Shape& shape,
+                                            double resolution_hint);
+
+ private:
+  /* Data to be used during reification. It is passed as the `user_data`
+   parameter in the ImplementGeometry API. */
+  struct ReifyData {
+    double resolution_hint{};
+    std::unique_ptr<VolumeMesh<double>> mesh;
+  };
+
+  using ShapeReifier::ImplementGeometry;
+  void ImplementGeometry(const Sphere& sphere, void* user_data) override;
+  // TODO(xuchenhan-tri): As other shapes get supported, include their specific
+  //  overrides here.
+
+  void ThrowUnsupportedGeometry(const std::string& shape_name) override;
+};
 
 }  // namespace internal
 }  // namespace geometry

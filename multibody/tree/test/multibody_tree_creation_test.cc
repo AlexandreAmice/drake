@@ -832,6 +832,89 @@ GTEST_TEST(WeldedBodies, CreateListOfWeldedBodies) {
   }
 }
 
+// Helper function to create a unit inertia for a uniform-density cube B about
+// Bo (B's origin point) from a given dimension (length).
+// If length = 0, the spatial inertia is that of a particle.
+// @param[in] length The length of any of the cube's edges.
+// @retval M_BBo_B Cube B's unit inertia about point Bo (B's origin),
+// expressed in terms of unit vectors Bx, By, Bz, each of which are parallel
+// to sides (edges) of the cube. Point Bo is the centroid of the face of the
+// cube whose outward normal is -Bx. Hence, the position vector from Bo to Bcm
+// (B's center of mass) is p_BoBcm_B = Lx/2 Bx.
+UnitInertia<double> MakeTestCubeUnitInertia(const double length = 1.0) {
+    const UnitInertia<double> G_BBcm_B = UnitInertia<double>::SolidCube(length);
+    const Vector3<double> p_BoBcm_B(length / 2, 0, 0);
+    const UnitInertia<double> G_BBo_B =
+        G_BBcm_B.ShiftFromCenterOfMass(-p_BoBcm_B);
+    return G_BBo_B;
+}
+
+// Helper function to add a rigid body to a model.
+const RigidBody<double>& AddRigidBody(MultibodyTree<double>* model,
+                                      const std::string& name,
+                                      const double mass,
+                                      const double link_length = 1.0) {
+    DRAKE_DEMAND(model != nullptr);
+    const Vector3<double> p_BoBcm_B(link_length / 2, 0, 0);
+    const UnitInertia<double> G_BBo_B = MakeTestCubeUnitInertia(link_length);
+    const SpatialInertia<double> M_BBo_B(mass, p_BoBcm_B, G_BBo_B);
+    return model->AddRigidBody(name, M_BBo_B);
+}
+
+// Verify Body::default_rotational_inertia() and related MultibodyTree methods.
+GTEST_TEST(DefaultInertia, VerifyDefaultRotationalInertia) {
+  // Create a model and add three rigid bodies.
+  MultibodyTree<double> model;
+  const double mA = 0, mB = 1, mC = 3;  // Mass of link A, B, and C.
+  const double length = 3;         // Length of each thin uniform-density link.
+  const RigidBody<double>& body_A = AddRigidBody(&model, "bodyA", mA, length);
+  const RigidBody<double>& body_B = AddRigidBody(&model, "bodyB", mB, length);
+  const RigidBody<double>& body_C = AddRigidBody(&model, "bodyC", mC, length);
+
+  // Verify the default mass for each of the bodies.
+  EXPECT_EQ(body_A.default_mass(), mA);
+  EXPECT_EQ(body_B.default_mass(), mB);
+  EXPECT_EQ(body_C.default_mass(), mC);
+
+  // Verify the default rotational inertia for each of the bodies.
+  // To help with testing, create a RotationalInertia for a unit mass cube.
+  const UnitInertia<double> G_SSo_S = MakeTestCubeUnitInertia(length);
+  const RotationalInertia<double> I_A = body_A.default_rotational_inertia();
+  const RotationalInertia<double> I_B = body_B.default_rotational_inertia();
+  const RotationalInertia<double> I_C = body_C.default_rotational_inertia();
+  EXPECT_EQ(I_A.CopyToFullMatrix3(), (mA * G_SSo_S).CopyToFullMatrix3());
+  EXPECT_EQ(I_B.CopyToFullMatrix3(), (mB * G_SSo_S).CopyToFullMatrix3());
+  EXPECT_EQ(I_C.CopyToFullMatrix3(), (mC * G_SSo_S).CopyToFullMatrix3());
+
+  // Check if the default rotational inertia for each of rigid body is zero.
+  EXPECT_TRUE(I_A.IsZero());
+  EXPECT_FALSE(I_B.IsZero());
+  EXPECT_FALSE(I_C.IsZero());
+
+  // Create various sets of body indexes.
+  std::set<BodyIndex> bodies_AA, bodies_AB, bodies_BC, bodies_ABC;
+  bodies_AA.insert({body_A.index(), body_A.index()});
+  bodies_AB.insert({body_A.index(), body_B.index()});
+  bodies_BC.insert({body_B.index(), body_C.index()});
+  bodies_ABC.insert({body_A.index(), body_B.index(), body_C.index()});
+
+  // Verify the sum of the default masses in these sets of body indexes.
+  const double mass_AA = model.CalcTotalDefaultMass(bodies_AA);
+  const double mass_AB = model.CalcTotalDefaultMass(bodies_AB);
+  const double mass_BC = model.CalcTotalDefaultMass(bodies_BC);
+  const double mass_ABC = model.CalcTotalDefaultMass(bodies_ABC);
+  EXPECT_EQ(mass_AA, mA);
+  EXPECT_EQ(mass_AB, mA + mB);
+  EXPECT_EQ(mass_BC, mB + mC);
+  EXPECT_EQ(mass_ABC, mA + mB + mC);
+
+  // Verify whether all default rotational inertia in these sets are zero.
+  EXPECT_TRUE(model.IsAllDefaultRotationalInertiaZeroOrNaN(bodies_AA));
+  EXPECT_FALSE(model.IsAllDefaultRotationalInertiaZeroOrNaN(bodies_AB));
+  EXPECT_FALSE(model.IsAllDefaultRotationalInertiaZeroOrNaN(bodies_BC));
+  EXPECT_FALSE(model.IsAllDefaultRotationalInertiaZeroOrNaN(bodies_ABC));
+}
+
 }  // namespace
 }  // namespace internal
 }  // namespace multibody

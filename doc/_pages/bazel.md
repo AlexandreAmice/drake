@@ -28,11 +28,10 @@ target label (and optional configuration options if desired).  We give some
 typical examples below; for more reading about target patterns, see:
 [https://docs.bazel.build/versions/main/user-manual.html#target-patterns](https://docs.bazel.build/versions/main/user-manual.html#target-patterns).
 
-On Ubuntu, the default compiler is the first ``gcc`` compiler in the
-``PATH``, usually GCC 9.3 on Focal. On macOS, the default
-compiler is the Apple LLVM compiler. To use Clang 9 on Ubuntu, set the ``CC``
-and ``CXX`` environment variables before running **bazel build**, **bazel test**
-or any other **bazel** commands.
+On Ubuntu, the default compiler is the first ``gcc`` compiler in the ``PATH``.
+On macOS, the default compiler is the Apple LLVM compiler. To use Clang on
+Ubuntu, add ``--config=clang`` after any **bazel build**, **bazel test** or any
+other **bazel** commands.
 
 Cheat sheet for operating on the entire project:
 
@@ -171,7 +170,7 @@ bazel build //tools/lint:buildifier
 The Drake Bazel build currently supports the following proprietary solvers:
 
 * Gurobi 9.5.1
-* MOSEK™ 9.2
+* MOSEK™ 9.3
 * SNOPT 7.4
 
 ## Gurobi 9.5.1
@@ -181,7 +180,7 @@ The Drake Bazel build currently supports the following proprietary solvers:
 1. Register for an account on [https://www.gurobi.com](https://www.gurobi.com).
 2. Set up your Gurobi license file in accordance with Gurobi documentation.
 3. ``export GRB_LICENSE_FILE=/path/to/gurobi.lic``.
-4. Download ``gurobi9.5.1_linux64.tar.gz``
+4. Download ``gurobi9.5.1_linux64.tar.gz``. You may need to manually edit the URL to get the correct minor version.
 5. Unzip it.  We suggest that you use ``/opt/gurobi951`` to simplify working with Drake installations.
 6. If you unzipped into a location other than ``/opt/gurobi951``, then call ``export GUROBI_HOME=GUROBI_UNZIP_PATH/linux64`` to set the path you used, where in ``GUROBI_HOME`` folder you can find ``bin`` folder.
 
@@ -203,7 +202,7 @@ See [https://docs.bazel.build/versions/main/user-manual.html#bazelrc](https://do
 
 ## MOSEK
 
-The Drake Bazel build system downloads MOSEK™ 9.2.33 automatically. No manual
+The Drake Bazel build system downloads MOSEK™ 9.3.20 automatically. No manual
 installation is required.  Set the location of your license file as follows:
 
   ```export MOSEKLM_LICENSE_FILE=/path/to/mosek.lic```
@@ -248,6 +247,25 @@ See [https://docs.bazel.build/versions/main/user-manual.html#bazelrc](https://do
 
 SNOPT support has some known problems on certain programs (see drake issue
 [#10422](https://github.com/RobotLocomotion/drake/issues/10422) for a summary).
+
+# Other optional dependencies
+
+## OpenMP
+
+Drake is
+[in the process](https://github.com/RobotLocomotion/drake/issues/14858)
+of adding support for multiprocessing using
+[OpenMP](https://en.wikipedia.org/wiki/OpenMP).
+At the moment, that support is experimental and is not recommended for Drake's
+users.
+
+For Drake Developers who wish to enable OpenMP, use this config switch:
+
+```
+bazel test --config omp //...
+```
+
+This switch is enabled in CI under the "Ubuntu Everything" build flavor.
 
 # Optional Tools
 

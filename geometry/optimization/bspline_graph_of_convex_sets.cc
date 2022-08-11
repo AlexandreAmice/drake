@@ -7,15 +7,13 @@
 #include <fmt/format.h>
 
 #include "drake/common/pointer_cast.h"
-#include "drake/common/symbolic.h"
-#include "drake/common/symbolic_decompose.h"
+#include "drake/common/symbolic/decompose.h"
 #include "drake/geometry/optimization/graph_of_convex_sets.h"
 #include "drake/math/bspline_basis.h"
 #include "drake/math/knot_vector_type.h"
 #include "drake/solvers/constraint.h"
 #include "drake/solvers/mathematical_program.h"
 #include "drake/solvers/mathematical_program_result.h"
-#include "drake/solvers/solve.h"
 
 namespace drake {
 namespace geometry {
@@ -56,7 +54,8 @@ BsplineTrajectoryThroughUnionOfHPolyhedra::
 }
 
 std::optional<trajectories::BsplineTrajectory<double>>
-BsplineTrajectoryThroughUnionOfHPolyhedra::SolveVerbose(bool use_rounding) const {
+BsplineTrajectoryThroughUnionOfHPolyhedra::SolveVerbose(
+    bool use_rounding) const {
   DRAKE_THROW_UNLESS(max_repetitions() == 1);
   GraphOfConvexSets problem{};
 
@@ -115,8 +114,8 @@ BsplineTrajectoryThroughUnionOfHPolyhedra::SolveVerbose(bool use_rounding) const
                                  KnotVectorType::kUniform, 0.0,
                                  control_points_per_edge - (order() - 1.0)),
         edge_control_points};
-    int min_derivative_order{std::min(1, order()-1)};
-    int max_derivative_order{std::min(order()-1, order()-1)};
+    int min_derivative_order{std::min(1, order() - 1)};
+    int max_derivative_order{std::min(order() - 1, order() - 1)};
     std::vector<Expression> cost_components{};
     Variables variables_in_u_control_points{Eigen::Map<VectorX<Variable>>(
         u_control_points.data(), u_control_points.size())};
@@ -236,7 +235,7 @@ BsplineTrajectoryThroughUnionOfHPolyhedra::SolveVerbose(bool use_rounding) const
                 VectorXd::Zero(ambient_dimension())),
             {edge.xu(), edge.xv()}));
         drake::log()->debug("Added velocity constraints for edge {}",
-                           edge.name());
+                            edge.name());
       }
     }
   }
@@ -244,7 +243,7 @@ BsplineTrajectoryThroughUnionOfHPolyhedra::SolveVerbose(bool use_rounding) const
   solvers::MathematicalProgramResult result =
       problem.SolveShortestPath(*source_region, *target_region, use_rounding);
   drake::log()->debug("Cost: {}, Solver ID: {}", result.get_optimal_cost(),
-                     result.get_solver_id());
+                      result.get_solver_id());
 
   if (!result.is_success()) return std::nullopt;
 
@@ -266,7 +265,7 @@ BsplineTrajectoryThroughUnionOfHPolyhedra::SolveVerbose(bool use_rounding) const
                       next_active_edge->name(), max_phi);
   while (&active_edges.back()->v() != target_region) {
     drake::log()->debug("Looking for successor to {}",
-                       active_edges.back()->name());
+                        active_edges.back()->name());
     max_phi = 0;
     for (const auto& edge : edges) {
       const double phi{result.GetSolution(edge->phi())};
@@ -289,9 +288,9 @@ BsplineTrajectoryThroughUnionOfHPolyhedra::SolveVerbose(bool use_rounding) const
       }
     }
     result =
-      problem.SolveShortestPath(*source_region, *target_region, use_rounding);
+        problem.SolveShortestPath(*source_region, *target_region, use_rounding);
     drake::log()->debug("Cost: {}, Solver ID: {}", result.get_optimal_cost(),
-                       result.get_solver_id());
+                        result.get_solver_id());
   }
 
   // Extract the solution trajectory.
@@ -301,7 +300,7 @@ BsplineTrajectoryThroughUnionOfHPolyhedra::SolveVerbose(bool use_rounding) const
     VectorXd vertex_control_points_flattened =
         result.GetSolution(active_edges.front()->xu());
     drake::log()->debug("vertex_control_points_flattened.size(): {}",
-                       vertex_control_points_flattened.size());
+                        vertex_control_points_flattened.size());
     Eigen::Map<MatrixXd> vertex_control_points(
         vertex_control_points_flattened.data(), ambient_dimension(),
         control_points_per_region);
@@ -313,7 +312,7 @@ BsplineTrajectoryThroughUnionOfHPolyhedra::SolveVerbose(bool use_rounding) const
   for (const auto& edge : active_edges) {
     VectorXd vertex_control_points_flattened = result.GetSolution(edge->xv());
     drake::log()->debug("vertex_control_points_flattened.size(): {}",
-                       vertex_control_points_flattened.size());
+                        vertex_control_points_flattened.size());
     Eigen::Map<MatrixXd> vertex_control_points(
         vertex_control_points_flattened.data(), ambient_dimension(),
         control_points_per_region);
@@ -323,7 +322,7 @@ BsplineTrajectoryThroughUnionOfHPolyhedra::SolveVerbose(bool use_rounding) const
     }
   }
   drake::log()->debug("Solution trajectory has {} control points",
-                     control_points.size());
+                      control_points.size());
 
   for (const auto& control_point : control_points) {
     drake::log()->debug(control_point.transpose());
@@ -401,8 +400,8 @@ BsplineTrajectoryThroughUnionOfHPolyhedra::Solve(bool use_rounding) const {
                                  KnotVectorType::kUniform, 0.0,
                                  control_points_per_edge - (order() - 1.0)),
         edge_control_points};
-    int min_derivative_order{std::min(1, order()-1)};
-    int max_derivative_order{std::min(order()-1, order()-1)};
+    int min_derivative_order{std::min(1, order() - 1)};
+    int max_derivative_order{std::min(order() - 1, order() - 1)};
     std::vector<Expression> cost_components{};
     Variables variables_in_u_control_points{Eigen::Map<VectorX<Variable>>(
         u_control_points.data(), u_control_points.size())};
@@ -522,7 +521,7 @@ BsplineTrajectoryThroughUnionOfHPolyhedra::Solve(bool use_rounding) const {
                 VectorXd::Zero(ambient_dimension())),
             {edge.xu(), edge.xv()}));
         drake::log()->debug("Added velocity constraints for edge {}",
-                           edge.name());
+                            edge.name());
       }
     }
   }
@@ -530,7 +529,7 @@ BsplineTrajectoryThroughUnionOfHPolyhedra::Solve(bool use_rounding) const {
   solvers::MathematicalProgramResult result =
       problem.SolveShortestPath(*source_region, *target_region, use_rounding);
   drake::log()->debug("Cost: {}, Solver ID: {}", result.get_optimal_cost(),
-                     result.get_solver_id());
+                      result.get_solver_id());
 
   if (!result.is_success()) return std::nullopt;
 
@@ -552,7 +551,7 @@ BsplineTrajectoryThroughUnionOfHPolyhedra::Solve(bool use_rounding) const {
                       next_active_edge->name(), max_phi);
   while (&active_edges.back()->v() != target_region) {
     drake::log()->debug("Looking for successor to {}",
-                       active_edges.back()->name());
+                        active_edges.back()->name());
     max_phi = 0;
     for (const auto& edge : edges) {
       const double phi{result.GetSolution(edge->phi())};
@@ -575,9 +574,9 @@ BsplineTrajectoryThroughUnionOfHPolyhedra::Solve(bool use_rounding) const {
       }
     }
     result =
-      problem.SolveShortestPath(*source_region, *target_region, use_rounding);
+        problem.SolveShortestPath(*source_region, *target_region, use_rounding);
     drake::log()->debug("Cost: {}, Solver ID: {}", result.get_optimal_cost(),
-                       result.get_solver_id());
+                        result.get_solver_id());
   }
 
   // Extract the solution trajectory.
@@ -587,7 +586,7 @@ BsplineTrajectoryThroughUnionOfHPolyhedra::Solve(bool use_rounding) const {
     VectorXd vertex_control_points_flattened =
         result.GetSolution(active_edges.front()->xu());
     drake::log()->debug("vertex_control_points_flattened.size(): {}",
-                       vertex_control_points_flattened.size());
+                        vertex_control_points_flattened.size());
     Eigen::Map<MatrixXd> vertex_control_points(
         vertex_control_points_flattened.data(), ambient_dimension(),
         control_points_per_region);
@@ -599,7 +598,7 @@ BsplineTrajectoryThroughUnionOfHPolyhedra::Solve(bool use_rounding) const {
   for (const auto& edge : active_edges) {
     VectorXd vertex_control_points_flattened = result.GetSolution(edge->xv());
     drake::log()->debug("vertex_control_points_flattened.size(): {}",
-                       vertex_control_points_flattened.size());
+                        vertex_control_points_flattened.size());
     Eigen::Map<MatrixXd> vertex_control_points(
         vertex_control_points_flattened.data(), ambient_dimension(),
         control_points_per_region);
@@ -609,7 +608,7 @@ BsplineTrajectoryThroughUnionOfHPolyhedra::Solve(bool use_rounding) const {
     }
   }
   drake::log()->debug("Solution trajectory has {} control points",
-                     control_points.size());
+                      control_points.size());
 
   for (const auto& control_point : control_points) {
     drake::log()->debug(control_point.transpose());

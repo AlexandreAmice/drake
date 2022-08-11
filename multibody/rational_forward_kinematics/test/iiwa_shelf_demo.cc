@@ -4,11 +4,13 @@
 #include "drake/common/find_resource.h"
 #include "drake/geometry/collision_filter_declaration.h"
 #include "drake/geometry/meshcat_visualizer.h"
+#include "drake/geometry/meshcat_visualizer_params.h"
 #include "drake/geometry/optimization/hpolyhedron.h"
 #include "drake/geometry/optimization/polytope_cover.h"
 #include "drake/multibody/inverse_kinematics/inverse_kinematics.h"
 #include "drake/multibody/parsing/parser.h"
 #include "drake/multibody/rational_forward_kinematics/cspace_free_region.h"
+#include "drake/multibody/rational_forward_kinematics/rational_forward_kinematics.h"
 #include "drake/multibody/rational_forward_kinematics/test/rational_forward_kinematics_test_utilities.h"
 #include "drake/solvers/common_solver_option.h"
 #include "drake/solvers/gurobi_solver.h"
@@ -98,15 +100,29 @@ class IiwaDiagram {
               geometry::GeometrySet(iiwa_geometry_ids)));
     }
 
-    const std::string shelf_file_path =
-        FindResourceOrThrow("drake/multibody/"
-                            "rational_forward_kinematics/models/shelves.sdf");
+    const std::string shelf_file_path = FindResourceOrThrow(
+        "drake/multibody/"
+        "rational_forward_kinematics/models/shelves.sdf");
     const auto shelf_instance =
         parser.AddModelFromFile(shelf_file_path, "shelves");
     const auto& shelf_frame =
         plant_->GetFrameByName("shelves_body", shelf_instance);
     const math::RigidTransformd X_WShelf(Eigen::Vector3d(0.8, 0, 0.4));
     plant_->WeldFrames(plant_->world_frame(), shelf_frame, X_WShelf);
+
+    // Add a sphere as an obstacle.
+    math::RigidTransformd X_WSphere = X_WShelf;
+    X_WSphere.set_translation(X_WShelf.translation() +
+                              Eigen::Vector3d(-0.2, 0.3, 0.1));
+    plant_->RegisterCollisionGeometry(plant_->world_body(), X_WSphere,
+                                      geometry::Sphere(0.1), "world_sphere",
+                                      CoulombFriction<double>());
+
+    // Add a capsule as an obstacle.
+    math::RigidTransformd X_WCapsule(Eigen::Vector3d(0.5, -0.3, 0.3));
+    plant_->RegisterCollisionGeometry(
+        plant_->world_body(), X_WCapsule, geometry::Capsule(0.03, 0.4),
+        "world_capsule", CoulombFriction<double>());
 
     plant_->Finalize();
     // If we have multiple IIWAs, then color them differently
@@ -173,8 +189,8 @@ Eigen::VectorXd FindInitialPosture(const MultibodyPlant<double>& plant,
   const auto& link7 = plant.GetFrameByName("iiwa_link_7");
   const auto& shelf = plant.GetFrameByName("shelves_body");
   ik.AddPositionConstraint(link7, Eigen::Vector3d::Zero(), shelf,
-                           Eigen::Vector3d(-0.4, -0.2, -0.2),
-                           Eigen::Vector3d(-.1, 0.2, 0.2));
+                           Eigen::Vector3d(-0.25, -0.2, -0.2),
+                           Eigen::Vector3d(-.0, 0.2, 0.2));
   ik.AddMinimumDistanceConstraint(0.02);
 
   Eigen::Matrix<double, 7, 1> q_init;
@@ -223,8 +239,7 @@ void BuildCandidateCspacePolytope(const Eigen::VectorXd q_free,
   for (int i = 0; i < C_rows; ++i) {
     C->row(i).normalize();
   }
-  *d = (*C) * (q_free / 2).array().tan().matrix() +
-       0.0001 * Eigen::VectorXd::Ones(C_rows);
+  *d = (*C) * (q_free / 2).array().tan().matrix();
   if (!geometry::optimization::HPolyhedron(*C, *d).IsBounded()) {
     throw std::runtime_error("C*t <= d is not bounded");
   }
@@ -260,10 +275,11 @@ void SearchCspacePolytope(
     BuildCandidateCspacePolytope(q0, &C_init, &d_init);
   }
 
-  const CspaceFreeRegion dut(iiwa_diagram.diagram(), &(iiwa_diagram.plant()),
-                             &(iiwa_diagram.scene_graph()),
-                             SeparatingPlaneOrder::kAffine,
-                             CspaceRegionType::kGenericPolytope);
+  const double separating_polytope_delta{0.001};
+  const CspaceFreeRegion dut(
+      iiwa_diagram.diagram(), &(iiwa_diagram.plant()),
+      &(iiwa_diagram.scene_graph()), SeparatingPlaneOrder::kAffine,
+      CspaceRegionType::kGenericPolytope, separating_polytope_delta);
 
   CspaceFreeRegion::FilteredCollisionPairs filtered_collision_pairs{};
 
@@ -302,16 +318,7 @@ void SearchCspacePolytope(
   Eigen::VectorXd q_final(cspace_free_region_solution.q);
 
   // Compute the determinant of the final polytope.
-  drake::log()->info("det(P) {}", P_final.determinant());
-
-  const Eigen::VectorXd t_lower =
-      (iiwa_diagram.plant().GetPositionLowerLimits().array() / 2)
-          .tan()
-          .matrix();
-  const Eigen::VectorXd t_upper =
-      (iiwa_diagram.plant().GetPositionUpperLimits().array() / 2)
-          .tan()
-          .matrix();
+  drake::log()->info("det(P) {}", cspace_free_region_solution.P.determinant());
 
   WriteCspacePolytopeToFile(cspace_free_region_solution, iiwa_diagram.plant(),
                             iiwa_diagram.scene_graph().model_inspector(),

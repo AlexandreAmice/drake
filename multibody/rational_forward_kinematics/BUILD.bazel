@@ -27,7 +27,8 @@ drake_cc_package_library(
     name = "rational_forward_kinematics",
     visibility = ["//visibility:public"],
     deps = [
-        ":convex_geometry",
+        ":collision_geometry",
+        ":cspace_free_line",
         ":cspace_free_region",
         ":generate_monomial_basis_util",
         ":plane_side",
@@ -80,15 +81,16 @@ drake_cc_library(
 )
 
 drake_cc_library(
-    name = "convex_geometry",
-    srcs = ["convex_geometry.cc"],
-    hdrs = ["convex_geometry.h"],
+    name = "collision_geometry",
+    srcs = ["collision_geometry.cc"],
+    hdrs = ["collision_geometry.h"],
     deps = [
         ":plane_side",
         "//geometry:geometry_ids",
-        "//multibody/tree",
-        "//solvers:mathematical_program",
-        "//solvers:solve",
+        "//geometry:read_obj",
+        "//geometry/optimization:convex_set",
+        "//multibody/tree:multibody_tree_indexes",
+        "@qhull_internal//:qhull",
     ],
 )
 
@@ -101,7 +103,30 @@ drake_cc_library(
         "cspace_free_region.h",
     ],
     deps = [
-        ":convex_geometry",
+        ":collision_geometry",
+        ":generate_monomial_basis_util",
+        ":plane_side",
+        ":rational_forward_kinematics_core",
+        ":redundant_inequality_pruning",
+        "//geometry/optimization:convex_set",
+        "//solvers:mathematical_program",
+        "//solvers:mathematical_program_result",
+        "//solvers:mosek_solver",
+        "@qhull_internal//:qhull",
+    ],
+)
+
+drake_cc_library(
+    name = "cspace_free_line",
+    srcs = [
+        "cspace_free_line.cc",
+    ],
+    hdrs = [
+        "cspace_free_line.h",
+    ],
+    deps = [
+        ":collision_geometry",
+        ":cspace_free_region",
         ":generate_monomial_basis_util",
         ":plane_side",
         ":rational_forward_kinematics_core",
@@ -125,7 +150,7 @@ drake_cc_library(
         "//manipulation/models/iiwa_description:models",
     ],
     deps = [
-        ":convex_geometry",
+        ":collision_geometry",
         "//common:find_resource",
         "//multibody/benchmarks/kuka_iiwa_robot",
         "//multibody/parsing:parser",
@@ -133,15 +158,20 @@ drake_cc_library(
         "//solvers:solve",
         "//systems/analysis:simulator",
         "//systems/rendering:multibody_position_to_geometry_pose",
+        "@gtest//:without_main",
     ],
 )
 
 drake_cc_googletest(
     name = "cspace_free_region_test",
     timeout = "long",
+    data = [
+        "//geometry:test_obj_files",
+    ],
     deps = [
         ":cspace_free_region",
         ":rational_forward_kinematics_test_utilities",
+        "//common:find_resource",
         "//common/test_utilities:eigen_matrix_compare",
         "//common/test_utilities:symbolic_test_util",
         "//multibody/inverse_kinematics",
@@ -149,11 +179,17 @@ drake_cc_googletest(
 )
 
 drake_cc_googletest(
-    name = "convex_geometry_test",
-    size = "medium",
+    name = "cspace_free_line_test",
+    timeout = "long",
     deps = [
-        ":convex_geometry",
+        ":cspace_free_line",
+        ":rational_forward_kinematics_test_utilities",
         "//common/test_utilities:eigen_matrix_compare",
+        "//common/test_utilities:symbolic_test_util",
+        "//multibody/inverse_kinematics",
+        "//multibody/parsing:parser",
+        "//solvers:get_program_type",
+        "//systems/framework:diagram_builder",
     ],
 )
 
@@ -208,6 +244,27 @@ drake_cc_binary(
         "//multibody/inverse_kinematics",
         "//multibody/parsing:parser",
         "//multibody/plant",
+        "//solvers:gurobi_solver",
+    ],
+)
+
+drake_cc_binary(
+    name = "dual_iiwa_demo",
+    srcs = ["test/dual_iiwa_demo.cc"],
+    data = [
+        "//examples/kuka_iiwa_arm:models",
+        "//manipulation/models/iiwa_description:models",
+        "//manipulation/models/wsg_50_description:models",
+    ],
+    deps = [
+        ":cspace_free_region",
+        "//common:find_resource",
+        "//geometry:meshcat_visualizer",
+        "//geometry/optimization:polytope_cover",
+        "//multibody/inverse_kinematics",
+        "//multibody/parsing:parser",
+        "//multibody/plant",
+        "//solvers:gurobi_solver",
     ],
 )
 

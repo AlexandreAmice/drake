@@ -5,9 +5,52 @@
 #include <fmt/format.h>
 
 #include "drake/common/unused.h"
+#include "drake/math/autodiff.h"
 
 namespace drake {
 namespace math {
+
+namespace {
+// Returns true if all the elements of a quaternion are zero, otherwise false.
+template <typename T>
+bool IsQuaternionZero(const Eigen::Quaternion<T>& quaternion) {
+  // Note: This special-purpose function avoids memory allocation on the heap
+  // that sometimes occurs in quaternion.coeffs().isZero().  Alternatively, the
+  // pseudo-code below uses DiscardGradient to reduce memory allocations.
+  // return math::DiscardGradient(quaternion.coeffs()).isZero(0);
+  return quaternion.w() == 0.0 && quaternion.x() == 0.0 &&
+         quaternion.y() == 0.0 && quaternion.z() == 0.0;
+}
+
+template <typename T>
+void ThrowIfAllElementsInQuaternionAreZero(
+    const Eigen::Quaternion<T>& quaternion, const char* function_name) {
+  if constexpr (scalar_predicate<T>::is_bool) {
+    if (IsQuaternionZero(quaternion)) {
+      std::string message = fmt::format("{}():"
+        " All the elements in a quaternion are zero.", function_name);
+      throw std::logic_error(message);
+    }
+  } else {
+    unused(quaternion, function_name);
+  }
+}
+
+template <typename T>
+void ThrowIfAnyElementInQuaternionIsInfinityOrNaN(
+    const Eigen::Quaternion<T>& quaternion, const char* function_name) {
+  if constexpr (scalar_predicate<T>::is_bool) {
+    if (!quaternion.coeffs().allFinite()) {
+      std::string message = fmt::format("{}():"
+        " Quaternion contains an element that is infinity or NaN.",
+        function_name);
+      throw std::logic_error(message);
+    }
+  } else {
+    unused(quaternion, function_name);
+  }
+}
+}  // namespace
 
 template <typename T>
 RotationMatrix<T> RotationMatrix<T>::MakeFromOneUnitVector(
@@ -119,6 +162,44 @@ RotationMatrix<T> RotationMatrix<T>::MakeFromOneUnitVector(
 }
 
 template <typename T>
+Matrix3<T> RotationMatrix<T>::QuaternionToRotationMatrix(
+    const Eigen::Quaternion<T>& quaternion, const T& two_over_norm_squared) {
+  ThrowIfAllElementsInQuaternionAreZero(quaternion, __func__);
+  DRAKE_ASSERT_VOID(
+      ThrowIfAnyElementInQuaternionIsInfinityOrNaN(quaternion, __func__));
+
+  const T& w = quaternion.w();
+  const T& x = quaternion.x();
+  const T& y = quaternion.y();
+  const T& z = quaternion.z();
+  const T sx = two_over_norm_squared * x;  // scaled x-value.
+  const T sy = two_over_norm_squared * y;  // scaled y-value.
+  const T sz = two_over_norm_squared * z;  // scaled z-value.
+  const T swx = sx * w;
+  const T swy = sy * w;
+  const T swz = sz * w;
+  const T sxx = sx * x;
+  const T sxy = sy * x;
+  const T sxz = sz * x;
+  const T syy = sy * y;
+  const T syz = sz * y;
+  const T szz = sz * z;
+
+  Matrix3<T> m;
+  m.coeffRef(0, 0) = T(1) - syy - szz;
+  m.coeffRef(0, 1) = sxy - swz;
+  m.coeffRef(0, 2) = sxz + swy;
+  m.coeffRef(1, 0) = sxy + swz;
+  m.coeffRef(1, 1) = T(1) - sxx - szz;
+  m.coeffRef(1, 2) = syz - swx;
+  m.coeffRef(2, 0) = sxz - swy;
+  m.coeffRef(2, 1) = syz + swx;
+  m.coeffRef(2, 2) = T(1) - sxx - syy;
+
+  return m;
+}
+
+template <typename T>
 void RotationMatrix<T>::ThrowIfNotValid(const Matrix3<T>& R) {
   if constexpr (scalar_predicate<T>::is_bool) {
     if (!R.allFinite()) {
@@ -151,6 +232,23 @@ void RotationMatrix<T>::ThrowIfNotValid(const Matrix3<T>& R) {
   } else {
     unused(R);
   }
+}
+
+template <typename T>
+Matrix3<T> RotationMatrix<T>::ProjectMatrix3ToOrthonormalMatrix3(
+    const Matrix3<T>& M, T* quality_factor) {
+  const auto svd = M.jacobiSvd(Eigen::ComputeFullU | Eigen::ComputeFullV);
+  if (quality_factor != nullptr) {
+    // Singular values are always non-negative and sorted in decreasing order.
+    const auto singular_values = svd.singularValues();
+    const T s_max = singular_values(0);  // maximum singular value.
+    const T s_min = singular_values(2);  // minimum singular value.
+    const T s_f = (s_max != 0.0 && s_min < 1.0/s_max) ? s_min : s_max;
+    const T det = M.determinant();
+    const double sign_det = (det > 0.0) ? 1 : ((det < 0.0) ? -1 : 0);
+    *quality_factor = s_f * sign_det;
+  }
+  return svd.matrixU() * svd.matrixV().transpose();
 }
 
 double ProjectMatToRotMatWithAxis(const Eigen::Matrix3d& M,

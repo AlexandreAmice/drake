@@ -30,10 +30,10 @@ Mac are available to download as attachments from Drake's GitHub
 [releases](https://github.com/RobotLocomotion/drake/releases) page.
 
 The most recent release is
-[v1.2.0](https://github.com/RobotLocomotion/drake/releases/tag/v1.2.0):
+[v1.5.0](https://github.com/RobotLocomotion/drake/releases/tag/v1.5.0):
 
-* [https://github.com/RobotLocomotion/drake/releases/download/v1.2.0/drake-20220420-focal.tar.gz](https://github.com/RobotLocomotion/drake/releases/download/v1.2.0/drake-20220420-focal.tar.gz)
-* [https://github.com/RobotLocomotion/drake/releases/download/v1.2.0/drake-20220420-mac.tar.gz](https://github.com/RobotLocomotion/drake/releases/download/v1.2.0/drake-20220420-mac.tar.gz)
+* [https://github.com/RobotLocomotion/drake/releases/download/v1.5.0/drake-20220714-focal.tar.gz](https://github.com/RobotLocomotion/drake/releases/download/v1.5.0/drake-20220714-focal.tar.gz)
+* [https://github.com/RobotLocomotion/drake/releases/download/v1.5.0/drake-202201714-mac.tar.gz](https://github.com/RobotLocomotion/drake/releases/download/v1.5.0/drake-20220714-mac.tar.gz)
 
 ### Use as a C++ library
 
@@ -61,7 +61,7 @@ Create and activate the envionment:
 ```bash
 mkdir -p env
 tar -xvzf drake.tar.gz -C env --strip-components=1
-python3 -m virtualenv -p python3 env --system-site-packages
+python3 -m venv env --system-site-packages
 source env/bin/activate
 ```
 
@@ -86,8 +86,8 @@ Mac are generated nightly and are available to download at:
 Older packages for specific dates are available by replacing ``latest`` with an
 8-digit date, e.g., ``20200102`` for January 2nd, 2020.
 
-* [https://drake-packages.csail.mit.edu/drake/nightly/drake-YYYYMMDD-focal.tar.gz](https://drake-packages.csail.mit.edu/drake/nightly/drake-YYYYMMDD-focal.tar.gz)
-* [https://drake-packages.csail.mit.edu/drake/nightly/drake-YYYYMMDD-mac.tar.gz](https://drake-packages.csail.mit.edu/drake/nightly/drake-YYYYMMDD-mac.tar.gz)
+* [https://drake-packages.csail.mit.edu/drake/nightly/drake-20220714-focal.tar.gz](https://drake-packages.csail.mit.edu/drake/nightly/drake-20220714-focal.tar.gz)
+* [https://drake-packages.csail.mit.edu/drake/nightly/drake-20220714-mac.tar.gz](https://drake-packages.csail.mit.edu/drake/nightly/drake-20220714-mac.tar.gz)
 
 Individual packages are archived two years from their date of creation.
 

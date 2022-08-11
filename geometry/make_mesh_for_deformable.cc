@@ -1,5 +1,7 @@
 #include "drake/geometry/make_mesh_for_deformable.h"
 
+#include <utility>
+
 #include "drake/common/drake_assert.h"
 #include "drake/geometry/proximity/make_sphere_mesh.h"
 
@@ -7,48 +9,30 @@ namespace drake {
 namespace geometry {
 namespace internal {
 
-VolumeMesh<double> MakeMeshForDeformable(const Sphere& sphere,
-                                         double resolution_hint) {
-  DRAKE_DEMAND(resolution_hint > 0);
-  return MakeSphereVolumeMesh<double>(
-      sphere, resolution_hint, TessellationStrategy::kDenseInteriorVertices);
+std::unique_ptr<VolumeMesh<double>> MeshBuilderForDeformable::Build(
+    const Shape& shape, double resolution_hint) {
+  DRAKE_DEMAND(resolution_hint > 0.0);
+  ReifyData data{resolution_hint, nullptr};
+  shape.Reify(this, &data);
+  return std::move(data.mesh);
 }
 
-// TODO(xuchenhan-tri): Implement these shapes.
-VolumeMesh<double> MakeMeshForDeformable(const Cylinder&, double) {
-  throw std::logic_error(
-      "Cylinder shape is not supported in MakeMeshForDeformable().");
-}
-VolumeMesh<double> MakeMeshForDeformable(const HalfSpace&, double) {
-  throw std::logic_error(
-      "Half space shape is not supported in MakeMeshForDeformable().");
-}
-VolumeMesh<double> MakeMeshForDeformable(const Box&, double) {
-  throw std::logic_error(
-      "Box shape is not supported in MakeMeshForDeformable().");
-}
-VolumeMesh<double> MakeMeshForDeformable(const Capsule&, double) {
-  throw std::logic_error(
-      "Capsule shape is not supported in MakeMeshForDeformable().");
-}
-VolumeMesh<double> MakeMeshForDeformable(const Ellipsoid&, double) {
-  throw std::logic_error(
-      "Ellipsoid shape is not supported in MakeMeshForDeformable().");
-}
-VolumeMesh<double> MakeMeshForDeformable(const Mesh&, double) {
-  throw std::logic_error(
-      "Mesh shape is not supported in MakeMeshForDeformable().");
+void MeshBuilderForDeformable::ImplementGeometry(const Sphere& sphere,
+                                                 void* user_data) {
+  ReifyData& data = *static_cast<ReifyData*>(user_data);
+  DRAKE_DEMAND(data.resolution_hint > 0);
+  // Relying on move construction from r-value return from MakeSphereVolumeMesh.
+  data.mesh = std::make_unique<VolumeMesh<double>>(MakeSphereVolumeMesh<double>(
+      sphere, data.resolution_hint,
+      TessellationStrategy::kDenseInteriorVertices));
 }
 
-VolumeMesh<double> MakeMeshForDeformable(const Convex&, double) {
+void MeshBuilderForDeformable::ThrowUnsupportedGeometry(
+    const std::string& shape_name) {
   throw std::logic_error(
-      "Convex shape is not supported in MakeMeshForDeformable().");
-}
-
-/* Unsupported shapes. */
-VolumeMesh<double> MakeMeshForDeformable(const MeshcatCone&, double) {
-  throw std::logic_error(
-      "MeshcatCone shape is not supported in MakeMeshForDeformable().");
+      fmt::format("MeshBuilderForDeformable: We don't yet generate deformable "
+                  "meshes from {}.",
+                  shape_name));
 }
 
 }  // namespace internal

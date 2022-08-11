@@ -8,9 +8,4 @@ load("//tools/lint:lint.bzl", "add_lint_tests")
 
 package(default_visibility = ["//visibility:public"])
 
-install(
-    name = "install",
-    deps = ["@ibex//:install"],
-)
-
 add_lint_tests()

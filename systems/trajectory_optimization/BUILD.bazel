@@ -30,8 +30,8 @@ drake_cc_library(
     ],
     deps = [
         "//common:essential",
-        "//common:symbolic",
         "//common:unused",
+        "//common/symbolic:expression",
     ],
 )
 
@@ -75,6 +75,7 @@ drake_cc_library(
     ],
     deps = [
         ":multiple_shooting",
+        "//common/symbolic:polynomial",
         "//common/trajectories:piecewise_polynomial",
         "//math:autodiff",
         "//math:gradient",
@@ -101,6 +102,7 @@ drake_cc_googletest(
     deps = [
         ":multiple_shooting",
         "//common/test_utilities:eigen_matrix_compare",
+        "//solvers:osqp_solver",
         "//solvers:solve",
     ],
 )
@@ -128,6 +130,7 @@ drake_cc_googletest(
         "//common/test_utilities:eigen_matrix_compare",
         "//multibody/parsing",
         "//multibody/plant",
+        "//solvers:snopt_solver",
         "//solvers:solve",
         "//systems/primitives:symbolic_vector_system",
         "//systems/primitives:trajectory_linear_system",

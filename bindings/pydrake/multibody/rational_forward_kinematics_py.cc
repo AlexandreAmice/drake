@@ -1,6 +1,3 @@
-//
-// Created by amice on 11/8/21.
-//
 #include "pybind11/eigen.h"
 #include "pybind11/pybind11.h"
 #include "pybind11/stl.h"
@@ -9,6 +6,8 @@
 #include "drake/bindings/pydrake/common/default_scalars_pybind.h"
 #include "drake/bindings/pydrake/common/value_pybind.h"
 #include "drake/bindings/pydrake/pydrake_pybind.h"
+#include "drake/multibody/rational_forward_kinematics/collision_geometry.h"
+#include "drake/multibody/rational_forward_kinematics/cspace_free_line.h"
 #include "drake/multibody/rational_forward_kinematics/cspace_free_region.h"
 #include "drake/multibody/rational_forward_kinematics/generate_monomial_basis_util.h"
 #include "drake/multibody/rational_forward_kinematics/rational_forward_kinematics.h"
@@ -47,12 +46,12 @@ void DoScalarDependentDefinitions(py::module m, T) {
         m, "SeparatingPlane", param, cls_doc.doc)
                    .def_readonly("a", &Class::a, py_rvp::copy, cls_doc.a.doc)
                    .def_readonly("b", &Class::b, cls_doc.b.doc)
-                   .def_readonly("positive_side_polytope",
-                       &Class::positive_side_polytope,
-                       cls_doc.positive_side_polytope.doc)
-                   .def_readonly("negative_side_polytope",
-                       &Class::negative_side_polytope,
-                       cls_doc.negative_side_polytope.doc)
+                   .def_readonly("positive_side_geometry",
+                       &Class::positive_side_geometry,
+                       cls_doc.positive_side_geometry.doc)
+                   .def_readonly("negative_side_geometry",
+                       &Class::negative_side_geometry,
+                       cls_doc.negative_side_geometry.doc)
                    .def_readonly("expressed_link", &Class::expressed_link,
                        cls_doc.expressed_link.doc)
                    .def_readonly("order", &Class::order, cls_doc.order.doc)
@@ -71,6 +70,7 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
 
   py::module::import("pydrake.math");
   py::module::import("pydrake.multibody.plant");
+  py::module::import("pydrake.solvers.mathematicalprogram");
   // RationalForwardKinematics Class
   {
     using Class = RationalForwardKinematics;
@@ -146,16 +146,26 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
 
   // Pose
   constexpr auto& doc = pydrake_doc.drake.multibody;
-  py::class_<multibody::ConvexPolytope>(
-      m, "ConvexPolytope", doc.ConvexPolytope.doc)
-      .def(py::init<BodyIndex, geometry::GeometryId,
-               const Eigen::Ref<const Eigen::Matrix3Xd>>(),
-          py::arg("body_index"), py::arg("id"), py::arg("vertices"),
-          doc.ConvexPolytope.doc)
-      .def("p_BV", &ConvexPolytope::p_BV, doc.ConvexPolytope.p_BV.doc)
-      .def("get_id", &ConvexPolytope::get_id, doc.ConvexGeometry.get_id.doc)
-      .def("body_index", &ConvexPolytope::body_index,
-          doc.ConvexGeometry.body_index.doc);
+
+  py::enum_<multibody::CollisionGeometryType>(
+      m, "CollisionGeometryType", doc.CollisionGeometryType.doc)
+      .value("kPolytope", multibody::CollisionGeometryType::kPolytope,
+          doc.CollisionGeometryType.kPolytope.doc)
+      .value("kSphere", multibody::CollisionGeometryType::kSphere,
+          doc.CollisionGeometryType.kSphere.doc)
+      .value("kCapsule", multibody::CollisionGeometryType::kCapsule,
+          doc.CollisionGeometryType.kCapsule.doc);
+
+  py::class_<multibody::CollisionGeometry>(
+      m, "CollisionGeometry", doc.CollisionGeometry.doc)
+      .def("type", &CollisionGeometry::type, doc.CollisionGeometryType.doc)
+      .def("geometry", &CollisionGeometry::geometry, py_rvp::reference_internal,
+          doc.CollisionGeometry.geometry.doc)
+      .def("body_index", &CollisionGeometry::body_index,
+          doc.CollisionGeometry.body_index.doc)
+      .def("id", &CollisionGeometry::id, doc.CollisionGeometry.id.doc);
+
+  m.def("GetVertices", &GetVertices, py::arg("shape"), doc.GetVertices.doc);
 
   py::enum_<multibody::SeparatingPlaneOrder>(
       m, "SeparatingPlaneOrder", doc.SeparatingPlaneOrder.doc)
@@ -178,28 +188,30 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
       .def_readonly("lagrangian_type", &VerificationOption::lagrangian_type,
           doc.VerificationOption.lagrangian_type.doc);
 
-  // LinkVertexOnPlaneSideRational
-  py::class_<LinkVertexOnPlaneSideRational>(
-      m, "LinkVertexOnPlaneSideRational", doc.LinkVertexOnPlaneSideRational.doc)
-      .def_readonly("rational", &LinkVertexOnPlaneSideRational::rational,
-          doc.LinkVertexOnPlaneSideRational.rational.doc)
-      .def_readonly("link_polytope",
-          &LinkVertexOnPlaneSideRational::link_polytope,
-          doc.LinkVertexOnPlaneSideRational.link_polytope.doc)
+  // LinkOnPlaneSideRational
+  py::class_<LinkOnPlaneSideRational>(
+      m, "LinkOnPlaneSideRational", doc.LinkOnPlaneSideRational.doc)
+      .def_readonly("rational", &LinkOnPlaneSideRational::rational,
+          doc.LinkOnPlaneSideRational.rational.doc)
+      .def_readonly("link_geometry", &LinkOnPlaneSideRational::link_geometry,
+          doc.LinkOnPlaneSideRational.link_geometry.doc)
       .def_readonly("expressed_body_index",
-          &LinkVertexOnPlaneSideRational::expressed_body_index,
-          doc.LinkVertexOnPlaneSideRational.expressed_body_index.doc)
-      .def_readonly("other_side_link_polytope",
-          &LinkVertexOnPlaneSideRational::other_side_link_polytope,
-          doc.LinkVertexOnPlaneSideRational.other_side_link_polytope.doc)
-      .def_readonly("a_A", &LinkVertexOnPlaneSideRational::a_A,
-          doc.LinkVertexOnPlaneSideRational.a_A.doc)
-      .def_readonly("b", &LinkVertexOnPlaneSideRational::b,
-          doc.LinkVertexOnPlaneSideRational.b.doc)
-      .def_readonly("plane_side", &LinkVertexOnPlaneSideRational::plane_side,
-          doc.LinkVertexOnPlaneSideRational.plane_side.doc)
-      .def_readonly("plane_order", &LinkVertexOnPlaneSideRational::plane_order,
-          doc.LinkVertexOnPlaneSideRational.plane_order.doc);
+          &LinkOnPlaneSideRational::expressed_body_index,
+          doc.LinkOnPlaneSideRational.expressed_body_index.doc)
+      .def_readonly("other_side_link_geometry",
+          &LinkOnPlaneSideRational::other_side_link_geometry,
+          doc.LinkOnPlaneSideRational.other_side_link_geometry.doc)
+      .def_readonly("a_A", &LinkOnPlaneSideRational::a_A, py_rvp::copy,
+          doc.LinkOnPlaneSideRational.a_A.doc)
+      .def_readonly(
+          "b", &LinkOnPlaneSideRational::b, doc.LinkOnPlaneSideRational.b.doc)
+      .def_readonly("plane_side", &LinkOnPlaneSideRational::plane_side,
+          doc.LinkOnPlaneSideRational.plane_side.doc)
+      .def_readonly("plane_order", &LinkOnPlaneSideRational::plane_order,
+          doc.LinkOnPlaneSideRational.plane_order.doc)
+      .def_readonly("lorentz_cone_constraints",
+          &LinkOnPlaneSideRational::lorentz_cone_constraints,
+          doc.LinkOnPlaneSideRational.lorentz_cone_constraints.doc);
 
   // CspaceRegionType
   py::enum_<CspaceRegionType>(m, "CspaceRegionType", doc.CspaceRegionType.doc)
@@ -300,17 +312,19 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
   cspace_cls.def(
       py::init<const systems::Diagram<double>&, const MultibodyPlant<double>*,
           const geometry::SceneGraph<double>*, SeparatingPlaneOrder,
-          CspaceRegionType>(),
-      doc.CspaceFreeRegion.ctor.doc);
+          CspaceRegionType, double>(),
+      py::arg("diagram"), py::arg("plant"), py::arg("scene_graph"),
+      py::arg("plane_order"), py::arg("cspace_region_type"),
+      py::arg("separating_polytope_delta") = 1., doc.CspaceFreeRegion.ctor.doc);
 
   cspace_cls
-      .def("map_polytopes_to_separating_planes",
-          &CspaceFreeRegion::map_polytopes_to_separating_planes,
-          doc.CspaceFreeRegion.map_polytopes_to_separating_planes.doc)
-      .def("GenerateLinkOnOneSideOfPlaneRationals",
-          &CspaceFreeRegion::GenerateLinkOnOneSideOfPlaneRationals,
+      .def("map_geometries_to_separating_planes",
+          &CspaceFreeRegion::map_geometries_to_separating_planes,
+          doc.CspaceFreeRegion.map_geometries_to_separating_planes.doc)
+      .def("GenerateRationalsForLinkOnOneSideOfPlane",
+          &CspaceFreeRegion::GenerateRationalsForLinkOnOneSideOfPlane,
           py::arg("q_star"), py::arg("filtered_collision_pairs"),
-          doc.CspaceFreeRegion.GenerateLinkOnOneSideOfPlaneRationals.doc)
+          doc.CspaceFreeRegion.GenerateRationalsForLinkOnOneSideOfPlane.doc)
       .def_property_readonly("rational_forward_kinematics",
           &CspaceFreeRegion::rational_forward_kinematics,
           doc.CspaceFreeRegion.rational_forward_kinematics.doc);
@@ -346,6 +360,10 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
           doc.CspaceFreeRegion.CspacePolytopeTuple.monomial_basis.doc);
 
   cspace_cls
+      // note that the output of this function is now useless as
+      // separating_plane_to_lorentz_cone_constraints can return as a list of
+      // empty lists and so has the wrong type to pass to
+      // ConstructLagrangainProgram
       .def(
           "GenerateTuplesForBilinearAlternation",
           [](const CspaceFreeRegion* self,
@@ -366,16 +384,21 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
             VectorX<symbolic::Variable> verified_gram_vars;
             VectorX<symbolic::Variable> separating_plane_vars;
             std::vector<std::vector<int>> separating_plane_to_tuples;
+            std::vector<
+                std::vector<solvers::Binding<solvers::LorentzConeConstraint>>>
+                separating_plane_to_lorentz_cone_constraints;
             self->GenerateTuplesForBilinearAlternation(q_star,
                 filtered_collision_pairs, C_rows, &alternation_tuples,
                 &d_minus_Ct, &t_lower, &t_upper, &t_minus_t_lower,
                 &t_upper_minus_t, &C, &d, &lagrangian_gram_vars,
                 &verified_gram_vars, &separating_plane_vars,
-                &separating_plane_to_tuples);
+                &separating_plane_to_tuples,
+                &separating_plane_to_lorentz_cone_constraints);
             return std::make_tuple(alternation_tuples, d_minus_Ct, t_lower,
                 t_upper, t_minus_t_lower, t_upper_minus_t, C, d,
                 lagrangian_gram_vars, verified_gram_vars, separating_plane_vars,
-                separating_plane_to_tuples);
+                separating_plane_to_tuples,
+                separating_plane_to_lorentz_cone_constraints);
           },
           py::arg("q_star"), py::arg("filtered_collision_pairs"),
           py::arg("C_rows"),
@@ -390,26 +413,33 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
               const VectorX<symbolic::Variable>& lagrangian_gram_vars,
               const VectorX<symbolic::Variable>& verified_gram_vars,
               const VectorX<symbolic::Variable>& separating_plane_vars,
+              const std::vector<
+                  solvers::Binding<solvers::LorentzConeConstraint>>&
+                  separating_plane_lorentz_cone_constraints,
               const Eigen::Ref<const Eigen::VectorXd>& t_lower,
               const Eigen::Ref<const Eigen::VectorXd>& t_upper,
               const VerificationOption& option,
               std::optional<double> redundant_tighten) {
             auto prog = self->ConstructLagrangianProgram(alternation_tuples, C,
                 d, lagrangian_gram_vars, verified_gram_vars,
-                separating_plane_vars, t_lower, t_upper, option,
-                redundant_tighten, nullptr, nullptr);
+                separating_plane_vars,
+                separating_plane_lorentz_cone_constraints, t_lower, t_upper,
+                option, redundant_tighten, nullptr, nullptr);
             return prog;
           },
           py::arg("alternation_tuples"), py::arg("C"), py::arg("d"),
           py::arg("lagrangian_gram_vars"), py::arg("verified_gram_vars"),
-          py::arg("separating_plane_vars"), py::arg("t_lower"),
-          py::arg("t_upper"), py::arg("option"), py::arg("redundant_tighten"),
+          py::arg("separating_plane_vars"),
+          py::arg("separating_plane_lorentz_cone_constraints"),
+          py::arg("t_lower"), py::arg("t_upper"), py::arg("option"),
+          py::arg("redundant_tighten") = std::nullopt,
           doc.CspaceFreeRegion.ConstructLagrangianProgram.doc)
       .def("ConstructPolytopeProgram",
           &CspaceFreeRegion::ConstructPolytopeProgram,
           py::arg("alternation_tuples"), py::arg("C"), py::arg("d"),
           py::arg("d_minus_Ct"), py::arg("lagrangian_gram_var_vals"),
           py::arg("verified_gram_vars"), py::arg("separating_plane_vars"),
+          py::arg("separating_plane_lorentz_cone_constraints"),
           py::arg("t_minus_t_lower"), py::arg("t_upper_minus_t"),
           py::arg("option"), doc.CspaceFreeRegion.ConstructPolytopeProgram.doc)
       .def(
@@ -427,7 +457,8 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
               const std::optional<std::pair<Eigen::MatrixXd, Eigen::VectorXd>>&
                   inner_polytope) {
             CspaceFreeRegionSolution cspace_free_region_solution;
-            std::vector<double> polytope_volumes, ellipsoid_determinants;
+            std::vector<double> polytope_volumes;
+            std::vector<double> ellipsoid_determinants;
             self->CspacePolytopeBilinearAlternation(q_star,
                 filtered_collision_pairs, C_init, d_init,
                 bilinear_alternation_option, solver_options, t_inner_pts,
@@ -475,8 +506,8 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
       .def("separating_planes", &CspaceFreeRegion::separating_planes,
           py_rvp::reference, doc.CspaceFreeRegion.separating_planes.doc);
 
-  m.def("GetConvexPolytopes", &GetConvexPolytopes, py::arg("diagram"),
-      py::arg("plant"), py::arg("scene_graph"), doc.GetConvexPolytopes.doc);
+  m.def("GetCollisionGeometries", &GetCollisionGeometries, py::arg("diagram"),
+      py::arg("plant"), py::arg("scene_graph"), doc.GetCollisionGeometries.doc);
 
   m.def("AddInscribedEllipsoid", &AddInscribedEllipsoid, py::arg("prog"),
        py::arg("C"), py::arg("d"), py::arg("t_lower"), py::arg("t_upper"),
@@ -549,9 +580,42 @@ PYBIND11_MODULE(rational_forward_kinematics, m) {
   m.def("CalcCspacePolytopeVolume", &CalcCspacePolytopeVolume, py::arg("C"),
       py::arg("d"), py::arg("t_lower"), py::arg("t_upper"),
       doc.CalcCspacePolytopeVolume.doc);
+  m.def(
+      "ReadCspacePolytopeFromFile",
+      [](const std::string& filename, const MultibodyPlant<double>& plant,
+          const geometry::SceneGraphInspector<double>& inspector) {
+        Eigen::MatrixXd C;
+        Eigen::VectorXd d;
+        std::unordered_map<SortedPair<geometry::GeometryId>,
+            std::pair<BodyIndex, Eigen::VectorXd>>
+            separating_planes;
+        ReadCspacePolytopeFromFile(
+            filename, plant, inspector, &C, &d, &separating_planes);
+        return std::make_tuple(C, d, separating_planes);
+      },
+      py::arg("filename"), py::arg("plant"), py::arg("scene_graph"),
+      doc.ReadCspacePolytopeFromFile.doc);
 
-  py::module::import("pydrake.solvers.mathematicalprogram");
-
+  // CspaceFreeLine
+  py::class_<CspaceFreeLine>(m, "CspaceFreeLine", doc.CspaceFreeLine.doc)
+      .def(py::init<const systems::Diagram<double>&,
+               const multibody::MultibodyPlant<double>*,
+               const geometry::SceneGraph<double>*,
+               multibody::SeparatingPlaneOrder, std::optional<Eigen::VectorXd>,
+               const CspaceFreeRegion::FilteredCollisionPairs&,
+               const multibody::VerificationOption&>(),
+          py::arg("diagram"), py::arg("plant"), py::arg("scene_graph"),
+          py::arg("plane_order"), py::arg("q_star") = std::nullopt,
+          py::arg("filtered_collision_pairs") =
+              CspaceFreeRegion::FilteredCollisionPairs(),
+          py::arg("option") = VerificationOption(), doc.CspaceFreeLine.ctor.doc)
+      .def("get_mu", &CspaceFreeLine::get_mu, doc.CspaceFreeLine.get_mu.doc)
+      .def("get_s0", &CspaceFreeLine::get_s0, doc.CspaceFreeLine.get_s0.doc)
+      .def("get_s1", &CspaceFreeLine::get_s1, doc.CspaceFreeLine.get_s1.doc)
+      .def("CertifyTangentConfigurationSpaceLine",
+          &CspaceFreeLine::CertifyTangentConfigurationSpaceLine, py::arg("s0"),
+          py::arg("s1"), py::arg("solver_options") = solvers::SolverOptions(),
+          doc.CspaceFreeLine.CertifyTangentConfigurationSpaceLine.doc);
   type_pack<symbolic::Polynomial, symbolic::RationalFunction> sym_pack;
   type_visit([m](auto dummy) { DoPoseDeclaration(m, dummy); }, sym_pack);
   type_visit([m](auto dummy) { DoScalarDependentDefinitions(m, dummy); },

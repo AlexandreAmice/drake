@@ -34,8 +34,8 @@ class TestMeldis(unittest.TestCase):
         meshcat = dut.meshcat
         lcm = dut._lcm
 
-        # The path is created by the constructor.
-        self.assertEqual(meshcat.HasPath("/DRAKE_VIEWER"), True)
+        # Polling before any messages doesn't crash.
+        dut._invoke_poll()
 
         # Enqueue the load + draw messages.
         sdf_file = FindResourceOrThrow(
@@ -52,16 +52,19 @@ class TestMeldis(unittest.TestCase):
         diagram.Publish(context)
 
         # The geometry isn't registered until the load is processed.
+        self.assertEqual(meshcat.HasPath("/DRAKE_VIEWER"), False)
         link_path = "/DRAKE_VIEWER/2/plant/acrobot/Link2/0"
         self.assertEqual(meshcat.HasPath(link_path), False)
 
         # Process the load + draw; make sure the geometry exists now.
         lcm.HandleSubscriptions(timeout_millis=0)
         dut._invoke_subscriptions()
+        self.assertEqual(meshcat.HasPath("/DRAKE_VIEWER"), True)
         self.assertEqual(meshcat.HasPath(link_path), True)
 
-    def test_contact_applet(self):
-        """Check that _ContactApplet doesn't crash when receiving messages.
+    def test_contact_applet_point_pair(self):
+        """Check that _ContactApplet doesn't crash when receiving point
+           contact messages.
         """
         # Create the device under test.
         dut = mut.Meldis()
@@ -101,3 +104,45 @@ class TestMeldis(unittest.TestCase):
         lcm.HandleSubscriptions(timeout_millis=0)
         dut._invoke_subscriptions()
         self.assertEqual(meshcat.HasPath(pair_path), True)
+
+    def test_contact_applet_hydroelastic(self):
+        """Check that _ContactApplet doesn't crash when receiving hydroelastic
+           messages.
+        """
+        # Create the device under test.
+        dut = mut.Meldis()
+        meshcat = dut.meshcat
+        lcm = dut._lcm
+
+        # Enqueue a hydroelastic contact message.
+        sdf_file = FindResourceOrThrow(
+            "drake/multibody/meshcat/test/hydroelastic.sdf")
+        builder = DiagramBuilder()
+        plant, scene_graph = AddMultibodyPlantSceneGraph(builder, 0.001)
+        parser = Parser(plant=plant)
+        parser.AddModelFromFile(sdf_file)
+        body1 = plant.GetBodyByName("body1")
+        body2 = plant.GetBodyByName("body2")
+        plant.AddJoint(PrismaticJoint(
+            name="sphere1", frame_on_parent=plant.world_body().body_frame(),
+            frame_on_child=body1.body_frame(), axis=[1, 0, 0]))
+        plant.AddJoint(PrismaticJoint(
+            name="sphere2", frame_on_parent=plant.world_body().body_frame(),
+            frame_on_child=body2.body_frame(), axis=[1, 0, 0]))
+        plant.Finalize()
+        ConnectContactResultsToDrakeVisualizer(
+            builder=builder, plant=plant, scene_graph=scene_graph, lcm=lcm)
+        diagram = builder.Build()
+        context = diagram.CreateDefaultContext()
+        plant.SetPositions(plant.GetMyMutableContextFromRoot(context),
+                           [-0.05, 0.1])
+        diagram.Publish(context)
+
+        # The geometry isn't registered until the load is processed.
+        hydro_path = "/CONTACT_RESULTS/hydroelastic/body1+body2"
+        self.assertEqual(meshcat.HasPath(hydro_path), False)
+
+        # Process the load + draw; contact results should now exist.
+        lcm.HandleSubscriptions(timeout_millis=0)
+        dut._invoke_subscriptions()
+        self.assertEqual(meshcat.HasPath(hydro_path), True)

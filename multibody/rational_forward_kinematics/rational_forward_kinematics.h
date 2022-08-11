@@ -3,7 +3,9 @@
 #include <unordered_map>
 #include <vector>
 
-#include "drake/common/symbolic.h"
+#include "drake/common/symbolic/expression.h"
+#include "drake/common/symbolic/polynomial.h"
+#include "drake/common/symbolic/rational_function.h"
 #include "drake/multibody/plant/multibody_plant.h"
 #include "drake/multibody/tree/multibody_tree.h"
 #include "drake/multibody/tree/prismatic_mobilizer.h"
