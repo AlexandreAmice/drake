@@ -347,6 +347,9 @@ void DefineGeometryOptimization(py::module m) {
 
   m.def("Iris", &Iris, py::arg("obstacles"), py::arg("sample"),
       py::arg("domain"), py::arg("options") = IrisOptions(), doc.Iris.doc);
+  
+  m.def("IrisMultiContainment", &IrisMultiContainment, py::arg("obstacles"), py::arg("samples"),
+      py::arg("initellipse"), py::arg("domain"), py::arg("options") = IrisOptions(), doc.Iris.doc);
 
   m.def("MakeIrisObstacles", &MakeIrisObstacles, py::arg("query_object"),
       py::arg("reference_frame") = std::nullopt, doc.MakeIrisObstacles.doc);

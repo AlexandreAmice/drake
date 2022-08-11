@@ -119,6 +119,98 @@ HPolyhedron Iris(const ConvexSets& obstacles, const Ref<const VectorXd>& sample,
   return P;
 }
 
+HPolyhedron IrisMultiContainment(const ConvexSets& obstacles, 
+                                 const Ref<const MatrixXd>& samples,
+                                 const Hyperellipsoid& initellipse,
+                                 const HPolyhedron& domain, 
+                                 const IrisOptions& options) {
+  const int dim = samples.cols();
+  const int N = obstacles.size();
+  
+  DRAKE_DEMAND(domain.ambient_dimension() == dim);
+  for (int i = 0; i < N; ++i) {
+    DRAKE_DEMAND(obstacles[i]->ambient_dimension() == dim);
+  }
+  DRAKE_DEMAND(domain.IsBounded());
+  //const double kEpsilonEllipsoid = 1e-2;
+  Hyperellipsoid E = initellipse; //Hyperellipsoid::MakeHypersphere(kEpsilonEllipsoid, sample);
+  HPolyhedron P = domain;
+
+  // On each iteration, we will build the collision-free polytope represented as
+  // {x | A * x <= b}.  Here we pre-allocate matrices of the maximum size.
+  Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> A(
+      domain.A().rows() + N, dim);
+  VectorXd b(domain.A().rows() + N);
+  A.topRows(domain.A().rows()) = domain.A();
+  b.head(domain.A().rows()) = domain.b();
+  // Use pairs {scale, index}, so that I can back out the indices after a sort.
+  std::vector<std::pair<double, int>> scaling(N);
+  MatrixXd closest_points(dim, N);
+
+  double best_volume = E.Volume();
+  int iteration = 0;
+  MatrixXd tangent_matrix;
+
+  while (true) {
+    DRAKE_ASSERT(best_volume > 0);
+    // Find separating hyperplanes
+    for (int i = 0; i < N; ++i) {
+      const auto touch = E.MinimumUniformScalingToTouch(*obstacles[i]);
+      scaling[i].first = touch.first;
+      scaling[i].second = i;
+      closest_points.col(i) = touch.second;
+    }
+    std::sort(scaling.begin(), scaling.end());
+
+    int num_constraints = domain.A().rows();
+    tangent_matrix = 2.0 * E.A().transpose() * E.A();
+    for (int i = 0; i < N; ++i) {
+      const VectorXd point = closest_points.col(scaling[i].second);
+      // Only add a constraint if this point is still within the set that has
+      // been constructed so far on this iteration.
+      if (((A.topRows(num_constraints) * point).array() <=
+           b.head(num_constraints).array())
+              .all()) {
+        // Add the tangent to the (scaled) ellipsoid at this point as a
+        // constraint.
+        A.row(num_constraints) =
+            (tangent_matrix * (point - E.center())).normalized();
+        b[num_constraints] = A.row(num_constraints) * point;
+        num_constraints++;
+      }
+    }
+
+    for(int i = 0; i<samples.rows(); i++ ){
+        if (options.require_sample_point_is_contained &&
+            ((A.topRows(num_constraints) * samples.row(i).transpose()).array() >=
+            b.head(num_constraints).array())
+                .any()) {
+            return P;
+        }
+    }
+    
+    P = HPolyhedron(A.topRows(num_constraints), b.head(num_constraints));
+
+    iteration++;
+    if (iteration >= options.iteration_limit) {
+      break;
+    }
+
+    E = P.MaximumVolumeInscribedEllipsoid();
+    const double volume = E.Volume();
+    const double delta_volume = volume - best_volume;
+    if (delta_volume <= options.termination_threshold) {
+      break;
+    }
+    if (delta_volume / best_volume <= options.relative_termination_threshold) {
+      break;
+    }
+    best_volume = volume;
+  }
+
+  return P;
+}
+
 namespace {
 // Constructs a ConvexSet for each supported Shape and adds it to the set.
 class IrisConvexSetMaker final : public ShapeReifier {

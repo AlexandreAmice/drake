@@ -214,6 +214,43 @@ HPolyhedron Iris(const ConvexSets& obstacles,
                  const HPolyhedron& domain,
                  const IrisOptions& options = IrisOptions());
 
+/** The IRIS (Iterative Region Inflation by Semidefinite programming) algorithm,
+as described in
+
+R. L. H. Deits and R. Tedrake, “Computing large convex regions of obstacle-free
+space through semidefinite programming,” Workshop on the Algorithmic
+Fundamentals of Robotics, Istanbul, Aug. 2014.
+http://groups.csail.mit.edu/robotics-center/public_papers/Deits14.pdf
+
+This algorithm attempts to locally maximize the volume of a convex polytope
+representing obstacle-free space given a sample point and list of convex
+obstacles. Rather than compute the volume of the polytope directly, the
+algorithm maximizes the volume of an inscribed ellipsoid. It alternates between
+finding separating hyperplanes between the ellipsoid and the obstacles and then
+finding a new maximum-volume inscribed ellipsoid.
+
+@param obstacles is a vector of convex sets representing the occupied space.
+@param samples provides a list of points in the space; the algorithm is initialized using
+an initial ellipse containing all samples. The algorithm is only guaranteed to succeed if
+all sample points and the initial ellipse are collision free (outside of all obstacles), but in practice
+the algorithm can often escape bad initialization (assuming the
+require_sample_point_is_contained option is false).
+@param domain describes the total region of interest; computed IRIS regions will
+be inside this domain.  It must be bounded, and is typically a simple bounding
+box (e.g. from HPolyhedron::MakeBox).
+
+The @p obstacles, @p samples, @p initellipse and the @p domain must describe elements in the
+same ambient dimension (but that dimension can be any positive integer).
+
+
+@ingroup geometry_optimization
+*/
+HPolyhedron IrisMultiContainment(const ConvexSets& obstacles,
+                                 const Eigen::Ref<const Eigen::MatrixXd>& samples,
+                                 const Hyperellipsoid& initellipse,
+                                 const HPolyhedron& domain,
+                                 const IrisOptions& options = IrisOptions());
+
 /** Constructs ConvexSet representations of obstacles for IRIS in 3D using the
 geometry from a SceneGraph QueryObject. All geometry in the scene with a
 proximity role, both anchored and dynamic, are consider to be *fixed* obstacles
