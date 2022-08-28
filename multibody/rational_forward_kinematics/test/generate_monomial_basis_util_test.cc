@@ -50,7 +50,7 @@ void CheckGenerateMonomialBasisOrderAllUpToOneExceptOneUpToTwo(
   for (int i = 0; i < expected_size; ++i) {
     monomial_set.insert(monomial_basis(i));
     int num_order_two_variables = 0;
-    for (const auto ti : t) {
+    for (const auto& ti : t) {
       const int ti_degree = monomial_basis(i).degree(ti);
       EXPECT_LE(ti_degree, 2);
       if (ti_degree == 2) {

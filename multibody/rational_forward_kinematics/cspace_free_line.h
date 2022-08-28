@@ -189,7 +189,6 @@ class CspaceFreeLine : public CspaceFreeRegion {
   std::vector<std::vector<int>> separating_plane_to_tuples_;
   std::vector<std::vector<solvers::Binding<solvers::LorentzConeConstraint>>>
       separating_plane_to_lorentz_cone_constraints_;
-
 };
 
 }  // namespace multibody

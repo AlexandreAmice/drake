@@ -373,7 +373,8 @@ CspaceFreeLine::GenerateRationalsForLinkOnOneSideOfPlane(
   symbolic::Polynomial numerator_poly;
   int ctr = 0;
 
-  // TODO(Alex.Amice) We could parallelize this too to avoid long construction times but for now I think it is okay.
+  // TODO(Alex.Amice) We could parallelize this too to avoid long construction
+  // times but for now I think it is okay.
   for (const auto& rational : generic_rationals) {
     auto clock_start = std::chrono::system_clock::now();
     numerator_poly = PerformTtoMuSubstitution(rational.rational.numerator(),
