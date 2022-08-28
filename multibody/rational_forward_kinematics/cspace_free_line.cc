@@ -373,13 +373,14 @@ CspaceFreeLine::GenerateRationalsForLinkOnOneSideOfPlane(
   symbolic::Polynomial numerator_poly;
   int ctr = 0;
 
+  // TODO(Alex.Amice) We could parallelize this too to avoid long construction times but for now I think it is okay.
   for (const auto& rational : generic_rationals) {
     auto clock_start = std::chrono::system_clock::now();
     numerator_poly = PerformTtoMuSubstitution(rational.rational.numerator(),
                                               mu_, t_to_line_subs_map,
                                               t_monomial_to_mu_polynomial_map);
     auto clock_end = std::chrono::system_clock::now();
-    drake::log()->info(fmt::format(
+    drake::log()->debug(fmt::format(
         "numerator poly constructed in {} s. Has degree: {}",
         static_cast<float>(
             std::chrono::duration_cast<std::chrono::milliseconds>(clock_end -
@@ -394,7 +395,7 @@ CspaceFreeLine::GenerateRationalsForLinkOnOneSideOfPlane(
         rational.other_side_link_geometry, rational.a_A, rational.b,
         rational.plane_side, rational.plane_order,
         rational.lorentz_cone_constraints);
-    drake::log()->info(fmt::format("Done rational {}/{}", ctr, num_rats));
+    drake::log()->debug(fmt::format("Done rational {}/{}", ctr, num_rats));
     ctr++;
   }
   return rationals;
