@@ -283,6 +283,59 @@ std::vector<bool> CspaceFreeLine::CertifyTangentConfigurationSpaceLines(
   return pair_is_safe_bool;
 }
 
+namespace {
+// Performing the substitution t = μ*s₀ + (1−μ)*s₁ can require expanding very
+// high large products of μ which requires a lot of time using factory methods.
+// Here we construct the substitution manually to avoid these long substitution
+// times.
+// @param t_to_line_subs: a dictionary containing the substitution t[i] =
+// μ*s₀[i] + (1−μ)*s₁[i]
+// @param t_monomial_to_mu_polynomial_map: a dictionary mapping monomials of the
+// form ∏ᵢt[i] to expanded polynomial products of ∏ᵢ(μ*s₀[i] + (1−μ)*s₁[i]).
+// This dictionary will be updated with new expanded products as this method is
+// called to avoid needing to recompute the expansion several times.
+symbolic::Polynomial PerformTtoMuSubstitution(
+    const symbolic::Polynomial& t_polynomial, const symbolic::Variable& mu,
+    const std::unordered_map<symbolic::Variable, symbolic::Expression>&
+        t_to_line_subs,
+    std::unordered_map<symbolic::Monomial, symbolic::Polynomial>&
+        t_monomial_to_mu_polynomial_map) {
+  // This is the final monomial to coefficient map for the returned polynomial.
+  symbolic::Polynomial::MapType mu_monomial_to_coeff_map;
+
+  for (const auto& [t_monomial, t_coeff] :
+       t_polynomial.monomial_to_coefficient_map()) {
+    // If we haven't already computed the substitution for the current monomial
+    // ∏ᵢt[i] then do so now. Each t_monomial maps to a polynomial with
+    // indeterminates μ and coefficients in s₀ and s₁
+    if (t_monomial_to_mu_polynomial_map.find(t_monomial) ==
+        t_monomial_to_mu_polynomial_map.end()) {
+      symbolic::Expression t_monomial_expression =
+          t_monomial.ToExpression().Substitute(t_to_line_subs).Expand();
+      symbolic::Polynomial t_monomial_to_mu_substitution =
+          symbolic::Polynomial(t_monomial_expression, {mu});
+      t_monomial_to_mu_polynomial_map.insert(
+          {t_monomial, t_monomial_to_mu_substitution});
+    }
+
+    // Now add the value of t_coeff * t_monomial maps to the monomials in μ.
+    for (const auto& [mu_monomial, mu_coeff] :
+         t_monomial_to_mu_polynomial_map.at(t_monomial)
+             .monomial_to_coefficient_map()) {
+      // We don't have this basis element in μ yet so add it in.
+      if (mu_monomial_to_coeff_map.find(mu_monomial) ==
+          mu_monomial_to_coeff_map.end()) {
+        mu_monomial_to_coeff_map.insert({mu_monomial, symbolic::Expression()});
+      }
+
+      mu_monomial_to_coeff_map.at(mu_monomial) += mu_coeff * t_coeff;
+    }
+  }
+  return symbolic::Polynomial(mu_monomial_to_coeff_map);
+}
+
+}  // namespace
+
 std::vector<LinkOnPlaneSideRational>
 CspaceFreeLine::GenerateRationalsForLinkOnOneSideOfPlane(
     const Eigen::Ref<const Eigen::VectorXd>& q_star,
@@ -297,8 +350,7 @@ CspaceFreeLine::GenerateRationalsForLinkOnOneSideOfPlane(
   // Now we will perform the substitution t = μ*s₀ + (1−μ)*s₁ to take the
   // forward kinematics from an n-variate function in t to a univariate function
   // in μ. First we precompute the map for performing substitution from t to
-  // μ*s₀
-  // + (1−μ)*s₁
+  // μ*s₀ + (1−μ)*s₁
   std::unordered_map<symbolic::Variable, symbolic::Expression>
       t_to_line_subs_map;
   const drake::VectorX<drake::symbolic::Variable>& t =
@@ -310,6 +362,8 @@ CspaceFreeLine::GenerateRationalsForLinkOnOneSideOfPlane(
     // sustitutions
     t_to_line_subs_map[t[i]] = (s0_[i] - s1_[i]) * mu_ + s1_[i];
   }
+  std::unordered_map<symbolic::Monomial, symbolic::Polynomial>
+      t_monomial_to_mu_polynomial_map;
 
   std::vector<LinkOnPlaneSideRational> rationals;
   int num_rats = generic_rationals.size();
@@ -319,40 +373,13 @@ CspaceFreeLine::GenerateRationalsForLinkOnOneSideOfPlane(
   symbolic::Polynomial numerator_poly;
   int ctr = 0;
 
-  auto clock_start = std::chrono::system_clock::now();
-  auto clock_end = std::chrono::system_clock::now();
   for (const auto& rational : generic_rationals) {
-    drake::log()->debug(fmt::format("Building rational {}/{}", ctr, num_rats));
-
-    clock_start = std::chrono::system_clock::now();
-    numerator_expr = rational.rational.numerator().ToExpression();
-    clock_end = std::chrono::system_clock::now();
-    drake::log()->debug(fmt::format(
-        "numerator to expression {} s",
-        static_cast<float>(
-            std::chrono::duration_cast<std::chrono::milliseconds>(clock_end -
-                                                                  clock_start)
-                .count()) /
-            1000));
-
-    clock_start = std::chrono::system_clock::now();
-
-    symbolic::Expression numerator_substituted =
-        numerator_expr.Substitute(t_to_line_subs_map);
-    clock_end = std::chrono::system_clock::now();
-    drake::log()->debug(fmt::format(
-        "numerator substituted in {} s",
-        static_cast<float>(
-            std::chrono::duration_cast<std::chrono::milliseconds>(clock_end -
-                                                                  clock_start)
-                .count()) /
-            1000));
-
-    clock_start = std::chrono::system_clock::now();
-    numerator_poly =
-        symbolic::Polynomial(numerator_substituted, symbolic::Variables{mu_});
-    clock_end = std::chrono::system_clock::now();
-    drake::log()->debug(fmt::format(
+    auto clock_start = std::chrono::system_clock::now();
+    numerator_poly = PerformTtoMuSubstitution(rational.rational.numerator(),
+                                              mu_, t_to_line_subs_map,
+                                              t_monomial_to_mu_polynomial_map);
+    auto clock_end = std::chrono::system_clock::now();
+    drake::log()->info(fmt::format(
         "numerator poly constructed in {} s. Has degree: {}",
         static_cast<float>(
             std::chrono::duration_cast<std::chrono::milliseconds>(clock_end -
@@ -361,14 +388,13 @@ CspaceFreeLine::GenerateRationalsForLinkOnOneSideOfPlane(
             1000,
         numerator_poly.TotalDegree()));
 
-    clock_start = std::chrono::system_clock::now();
     rationals.emplace_back(
         symbolic::RationalFunction(numerator_poly, symbolic::Polynomial(1)),
         rational.link_geometry, rational.expressed_body_index,
         rational.other_side_link_geometry, rational.a_A, rational.b,
         rational.plane_side, rational.plane_order,
         rational.lorentz_cone_constraints);
-    drake::log()->debug(fmt::format("Done rational {}/{}", ctr, num_rats));
+    drake::log()->info(fmt::format("Done rational {}/{}", ctr, num_rats));
     ctr++;
   }
   return rationals;

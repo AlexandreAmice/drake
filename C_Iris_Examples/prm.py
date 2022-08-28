@@ -21,6 +21,7 @@ class PRM:
                  num_neighbours=5,
                  dist_thresh=0.1,
                  num_col_checks=10,
+                 max_it = 1e4,
                  verbose=False,
                  plotcallback=None
                  ):
@@ -41,7 +42,7 @@ class PRM:
         # generate n samples using rejection sampling
         nodes = []
         for idx in range(num_points):
-            nodes.append(self.sample_node_pos())
+            nodes.append(self.sample_node_pos(MAXIT=max_it))
             if self.verbose and idx % 30 == 0:
                 print('[PRM] Samples', idx)
         self.nodes_list = nodes
