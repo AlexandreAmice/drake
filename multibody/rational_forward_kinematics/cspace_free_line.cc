@@ -298,7 +298,7 @@ symbolic::Polynomial PerformTtoMuSubstitution(
     const symbolic::Polynomial& t_polynomial, const symbolic::Variable& mu,
     const std::unordered_map<symbolic::Variable, symbolic::Expression>&
         t_to_line_subs,
-    std::unordered_map<symbolic::Monomial, symbolic::Polynomial>&
+    std::unordered_map<symbolic::Monomial, symbolic::Polynomial>*
         t_monomial_to_mu_polynomial_map) {
   // This is the final monomial to coefficient map for the returned polynomial.
   symbolic::Polynomial::MapType mu_monomial_to_coeff_map;
@@ -308,19 +308,19 @@ symbolic::Polynomial PerformTtoMuSubstitution(
     // If we haven't already computed the substitution for the current monomial
     // ∏ᵢt[i] then do so now. Each t_monomial maps to a polynomial with
     // indeterminates μ and coefficients in s₀ and s₁
-    if (t_monomial_to_mu_polynomial_map.find(t_monomial) ==
-        t_monomial_to_mu_polynomial_map.end()) {
+    if (t_monomial_to_mu_polynomial_map->find(t_monomial) ==
+        t_monomial_to_mu_polynomial_map->end()) {
       symbolic::Expression t_monomial_expression =
           t_monomial.ToExpression().Substitute(t_to_line_subs).Expand();
       symbolic::Polynomial t_monomial_to_mu_substitution =
           symbolic::Polynomial(t_monomial_expression, {mu});
-      t_monomial_to_mu_polynomial_map.insert(
+      t_monomial_to_mu_polynomial_map->insert(
           {t_monomial, t_monomial_to_mu_substitution});
     }
 
     // Now add the value of t_coeff * t_monomial maps to the monomials in μ.
     for (const auto& [mu_monomial, mu_coeff] :
-         t_monomial_to_mu_polynomial_map.at(t_monomial)
+         t_monomial_to_mu_polynomial_map->at(t_monomial)
              .monomial_to_coefficient_map()) {
       // We don't have this basis element in μ yet so add it in.
       if (mu_monomial_to_coeff_map.find(mu_monomial) ==
@@ -379,7 +379,7 @@ CspaceFreeLine::GenerateRationalsForLinkOnOneSideOfPlane(
     auto clock_start = std::chrono::system_clock::now();
     numerator_poly = PerformTtoMuSubstitution(rational.rational.numerator(),
                                               mu_, t_to_line_subs_map,
-                                              t_monomial_to_mu_polynomial_map);
+                                              &t_monomial_to_mu_polynomial_map);
     auto clock_end = std::chrono::system_clock::now();
     drake::log()->debug(fmt::format(
         "numerator poly constructed in {} s. Has degree: {}",
