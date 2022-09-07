@@ -15,9 +15,9 @@ class CspaceLineTuple {
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(CspaceLineTuple)
 
   CspaceLineTuple(const symbolic::Variable& mu,
-                  const drake::VectorX<symbolic::Variable>& s0,
-                  const drake::VectorX<symbolic::Variable>& s1,
-                  const symbolic::Polynomial& m_rational_numerator,
+                  drake::VectorX<symbolic::Variable>  s0,
+                  drake::VectorX<symbolic::Variable>  s1,
+                  symbolic::Polynomial  m_rational_numerator,
                   const VerificationOption& option);
 
   void AddTupleOnSideOfPlaneConstraint(

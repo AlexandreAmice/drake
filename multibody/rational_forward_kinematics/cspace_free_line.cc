@@ -37,14 +37,15 @@ SeparatingPlane<double> GetSeparatingPlaneSolution(
 }  // namespace
 
 CspaceLineTuple::CspaceLineTuple(
-    const symbolic::Variable& mu, const drake::VectorX<symbolic::Variable>& s0,
-    const drake::VectorX<symbolic::Variable>& s1,
-    const symbolic::Polynomial& m_rational_numerator,
+    const symbolic::Variable& mu,
+    drake::VectorX<symbolic::Variable>  s0,
+    drake::VectorX<symbolic::Variable>  s1,
+    symbolic::Polynomial  m_rational_numerator,
     const VerificationOption& option)
-    : p_{m_rational_numerator},
+    : p_{std::move(m_rational_numerator)},
       psatz_variables_and_psd_constraints_{solvers::MathematicalProgram()},
-      s0_{s0},
-      s1_{s1} {
+      s0_{std::move(s0)},
+      s1_{std::move(s1)} {
   psatz_variables_and_psd_constraints_.AddIndeterminates(
       solvers::VectorIndeterminate<1>(mu));
   p_.SetIndeterminates({mu});
@@ -145,6 +146,7 @@ bool CspaceFreeLine::CertifyTangentConfigurationSpaceLine(
     return false;
   }
 
+  drake::log() -> debug("Starting certification");
   std::vector<bool> is_success(separating_planes().size());
   separating_planes_sol->resize(separating_planes().size());
 
@@ -176,9 +178,14 @@ bool CspaceFreeLine::CertifyTangentConfigurationSpaceLine(
   solvers::MathematicalProgram prog = solvers::MathematicalProgram();
   prog.AddDecisionVariables(separating_plane_vars_);
   prog.AddIndeterminates(solvers::VectorIndeterminate<1>(mu_));
+
   for (int i = 0; i < static_cast<int>(separating_planes().size()); ++i) {
+    drake::log() -> debug(fmt::format("doing constraint {}/{}", i+1,
+                                          static_cast<int>(separating_planes().size())));
+
     AddCertifySeparatingPlaneConstraintToProg(&prog, i, s0, s1);
   }
+  drake::log() -> debug(fmt::format("Starting solve of Line\n s0: {}\n s1: {}", s0, s1));
   auto result = solvers::Solve(prog, std::nullopt, solver_options);
   auto clock_now = std::chrono::system_clock::now();
   drake::log()->debug(fmt::format(
@@ -225,11 +232,21 @@ std::vector<bool> CspaceFreeLine::CertifyTangentConfigurationSpaceLines(
   const auto certify_line = [this, &pair_is_safe, &s0, &s1, &solver_options,
                              &separating_planes_sol_per_row](int i) {
     solvers::MathematicalProgram prog = solvers::MathematicalProgram();
+    auto clock_start = std::chrono::system_clock::now();
     pair_is_safe.at(i) = this->CertifyTangentConfigurationSpaceLine(
                              s0.row(i), s1.row(i), solver_options,
                              &(separating_planes_sol_per_row->at(i)))
                              ? 1
                              : 0;
+    auto clock_end = std::chrono::system_clock::now();
+    drake::log()->debug(fmt::format(
+        "Certification of row {} in {}s",
+        i,
+        static_cast<float>(
+            std::chrono::duration_cast<std::chrono::milliseconds>(clock_end -
+                                                                  clock_start)
+                .count()) /
+            1000));
     return i;
   };
 
@@ -238,7 +255,8 @@ std::vector<bool> CspaceFreeLine::CertifyTangentConfigurationSpaceLines(
   // openMP library. Storage for active parallel SOS operations.
 
   // use as many threads as optimal for hardware.
-  unsigned int num_threads = std::thread::hardware_concurrency();
+  unsigned int num_threads = std::min(std::thread::hardware_concurrency(),
+                                      static_cast<unsigned int>(s0.rows()));
   drake::log()->debug("Certifying with {} threads", num_threads);
   std::list<std::future<int>> active_operations;
   // Keep track of how many certifications have been dispatched already.
@@ -266,15 +284,20 @@ std::vector<bool> CspaceFreeLine::CertifyTangentConfigurationSpaceLines(
     // Dispatch new certification.
     while (active_operations.size() < num_threads &&
            certs_dispatched < s0.rows()) {
+      drake::log()->debug(
+            "entering active operation loop");
       active_operations.emplace_back(std::async(
           std::launch::async, std::move(certify_line), certs_dispatched));
       drake::log()->debug("Certification of {}/{} dispatched",
                           certs_dispatched + 1, s0.rows());
       ++certs_dispatched;
+//      drake::log() -> debug(fmt::format("active_operations.size() < num_threads = {}",active_operations.size() < num_threads));
+//      drake::log() -> debug(fmt::format("certs_dispatched < s0.rows() = {}", certs_dispatched < s0.rows()));
     }
     // Wait a bit before checking for completion.
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
+    drake::log() -> debug("exitted loop");
 
   std::vector<bool> pair_is_safe_bool(pair_is_safe.size());
   for (int i = 0; i < static_cast<int>(pair_is_safe.size()); ++i) {
@@ -376,19 +399,19 @@ CspaceFreeLine::GenerateRationalsForLinkOnOneSideOfPlane(
   // TODO(Alex.Amice) We could parallelize this too to avoid long construction
   // times but for now I think it is okay.
   for (const auto& rational : generic_rationals) {
-    auto clock_start = std::chrono::system_clock::now();
+//    auto clock_start = std::chrono::system_clock::now();
     numerator_poly = PerformTtoMuSubstitution(rational.rational.numerator(),
                                               mu_, t_to_line_subs_map,
                                               &t_monomial_to_mu_polynomial_map);
-    auto clock_end = std::chrono::system_clock::now();
-    drake::log()->debug(fmt::format(
-        "numerator poly constructed in {} s. Has degree: {}",
-        static_cast<float>(
-            std::chrono::duration_cast<std::chrono::milliseconds>(clock_end -
-                                                                  clock_start)
-                .count()) /
-            1000,
-        numerator_poly.TotalDegree()));
+//    auto clock_end = std::chrono::system_clock::now();
+//    drake::log()->debug(fmt::format(
+//        "numerator poly constructed in {} s. Has degree: {}",
+//        static_cast<float>(
+//            std::chrono::duration_cast<std::chrono::milliseconds>(clock_end -
+//                                                                  clock_start)
+//                .count()) /
+//            1000,
+//        numerator_poly.TotalDegree()));
 
     rationals.emplace_back(
         symbolic::RationalFunction(numerator_poly, symbolic::Polynomial(1)),
@@ -396,7 +419,7 @@ CspaceFreeLine::GenerateRationalsForLinkOnOneSideOfPlane(
         rational.other_side_link_geometry, rational.a_A, rational.b,
         rational.plane_side, rational.plane_order,
         rational.lorentz_cone_constraints);
-    drake::log()->debug(fmt::format("Done rational {}/{}", ctr, num_rats));
+    drake::log()->debug(fmt::format("Done rational {}/{}", ctr+1, num_rats));
     ctr++;
   }
   return rationals;
@@ -416,9 +439,11 @@ void CspaceFreeLine::GenerateTuplesForCertification(
 
   separating_plane_to_tuples->resize(
       static_cast<int>(this->separating_planes().size()));
-  separating_plane_to_tuples->resize(3);
+//  separating_plane_to_tuples->resize(3);
 
+  int ctr = 0;
   for (const auto& rational : rationals) {
+    drake::log() -> debug(fmt::format("constructing tuple {}/{}", ctr, rationals.size()));
     tuples->emplace_back(mu_, s0_, s1_, rational.rational.numerator(), option_);
     (*separating_plane_to_tuples)
         [this->map_geometries_to_separating_planes().at(
@@ -426,6 +451,7 @@ void CspaceFreeLine::GenerateTuplesForCertification(
                  rational.link_geometry->id(),
                  rational.other_side_link_geometry->id()))]
             .push_back(tuples->size() - 1);
+    ++ctr;
   }
 
   // Set separating_plane_vars.
@@ -457,6 +483,7 @@ void CspaceFreeLine::GenerateTuplesForCertification(
           rational.lorentz_cone_constraints.end());
     }
   }
+  drake::log() -> debug("done building tuples");
 }
 
 void CspaceFreeLine::AddCertifySeparatingPlaneConstraintToProg(

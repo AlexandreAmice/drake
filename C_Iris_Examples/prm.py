@@ -68,7 +68,7 @@ class PRM:
             pos_samp = self.min_pos + rand * self.min_max_diff
             good_sample = not self.in_collision(pos_samp)
             it += 1
-
+        # good_sample = True
         if not good_sample:
             print("[PRM ERROR] Could not find collision free point in MAXIT")
             raise NotImplementedError
