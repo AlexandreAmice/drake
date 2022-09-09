@@ -105,6 +105,16 @@ drake_jupyter_py_binary(
 )
 
 drake_jupyter_py_binary(
+    name = "2d_collisions",
+    add_test_rule = 0,
+    data = [
+    ],
+    deps = [
+        "//bindings/pydrake",
+    ],
+)
+
+drake_jupyter_py_binary(
     name = "simple_pendulum_example",
     add_test_rule = 0,
     data = [
