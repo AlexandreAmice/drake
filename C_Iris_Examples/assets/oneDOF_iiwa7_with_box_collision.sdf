@@ -34,8 +34,9 @@
         </geometry>
       </collision>
       <gravity>1</gravity>
-      <velocity_decay/>
-      <self_collide>0</self_collide>
+      <!-- <velocity_decay/> -->
+      <!-- <self_collide>0</self_collide> -->
+
     </link>
     <link name="iiwa_oneDOF_link_1">
       <pose>0 0 0.1575 0 0 0</pose>
@@ -71,8 +72,9 @@
         </geometry>
       </collision>
       <gravity>1</gravity>
-      <velocity_decay/>
-      <self_collide>0</self_collide>
+      <!-- <velocity_decay/> -->
+      <!-- <self_collide>0</self_collide> -->
+
     </link>
     <joint name="iiwa_joint_1" type="fixed">
       <child>iiwa_oneDOF_link_1</child>
@@ -127,8 +129,9 @@
         </geometry>
       </collision>
       <gravity>1</gravity>
-      <velocity_decay/>
-      <self_collide>0</self_collide>
+      <!-- <velocity_decay/> -->
+      <!-- <self_collide>0</self_collide> -->
+
     </link>
     <joint name="iiwa_joint_2" type="revolute">
       <child>iiwa_oneDOF_link_2</child>
@@ -183,8 +186,9 @@
         </geometry>
       </collision>
       <gravity>1</gravity>
-      <velocity_decay/>
-      <self_collide>0</self_collide>
+      <!-- <velocity_decay/> -->
+      <!-- <self_collide>0</self_collide> -->
+
     </link>
     <joint name="iiwa_joint_3" type="fixed">
       <child>iiwa_oneDOF_link_3</child>
@@ -239,8 +243,9 @@
         </geometry>
       </collision>
       <gravity>1</gravity>
-      <velocity_decay/>
-      <self_collide>0</self_collide>
+      <!-- <velocity_decay/> -->
+      <!-- <self_collide>0</self_collide> -->
+
     </link>
     <joint name="iiwa_joint_4" type="fixed">
       <child>iiwa_oneDOF_link_4</child>
@@ -295,8 +300,9 @@
         </geometry>
       </collision>
       <gravity>1</gravity>
-      <velocity_decay/>
-      <self_collide>0</self_collide>
+      <!-- <velocity_decay/> -->
+      <!-- <self_collide>0</self_collide> -->
+
     </link>
     <joint name="iiwa_joint_5" type="fixed">
       <child>iiwa_oneDOF_link_5</child>
@@ -351,8 +357,9 @@
         </geometry>
       </collision>
       <gravity>1</gravity>
-      <velocity_decay/>
-      <self_collide>0</self_collide>
+      <!-- <velocity_decay/> -->
+      <!-- <self_collide>0</self_collide> -->
+
     </link>
     <joint name="iiwa_joint_6" type="fixed">
       <child>iiwa_oneDOF_link_6</child>
@@ -407,8 +414,9 @@
         </geometry>
       </collision>
       <gravity>1</gravity>
-      <velocity_decay/>
-      <self_collide>0</self_collide>
+      <!-- <velocity_decay/> -->
+      <!-- <self_collide>0</self_collide> -->
+
     </link>
     <joint name="iiwa_joint_7" type="fixed">
       <child>iiwa_oneDOF_link_7</child>

@@ -91,13 +91,13 @@ void CspaceLineTuple::AddTupleOnSideOfPlaneConstraint(
     const Eigen::Ref<const Eigen::VectorXd>& s0,
     const Eigen::Ref<const Eigen::VectorXd>& s1) const {
   // p_ is a constant and therefore must be non-negative to be a non-negative
-  // function
+  // function.
   if (p_.TotalDegree() == 0) {
     for (const auto& [monomial, coeff] : p_.monomial_to_coefficient_map()) {
       prog->AddLinearConstraint(coeff >= 0);
     }
   }
-  // p_ is a polynomial function and therefore requires a psatz condition
+  // p_ is a polynomial function and therefore requires a psatz condition to enforce positivity.
   else {
     prog->AddDecisionVariables(
         psatz_variables_and_psd_constraints_.decision_variables());
@@ -146,10 +146,9 @@ bool CspaceFreeLine::CertifyTangentConfigurationSpaceLine(
     return false;
   }
 
-  drake::log() -> debug("Starting certification");
   std::vector<bool> is_success(separating_planes().size());
   separating_planes_sol->resize(separating_planes().size());
-
+  drake::log() -> debug("Resize complete");
   // TODO(Alex.Amice) parallelize the certification of each plane.
   auto clock_start = std::chrono::system_clock::now();
   //  std::for_each(std::execution::par_unseq, separating_planes().begin(),
@@ -227,12 +226,16 @@ std::vector<bool> CspaceFreeLine::CertifyTangentConfigurationSpaceLines(
   DRAKE_DEMAND(s0.cols() == s1.cols());
 
   // cannot use vector of bools as they aren't thread safe like other types.
+  drake::log()->debug(fmt::format(
+        "entered CertifyTangentConfigurationSpaceLines certification of row {}"));
   std::vector<uint8_t> pair_is_safe(s0.rows(), 0);
   separating_planes_sol_per_row->resize(s0.rows());
   const auto certify_line = [this, &pair_is_safe, &s0, &s1, &solver_options,
                              &separating_planes_sol_per_row](int i) {
     solvers::MathematicalProgram prog = solvers::MathematicalProgram();
     auto clock_start = std::chrono::system_clock::now();
+    drake::log()->debug(fmt::format(
+        "Starting certification of row {}", i));
     pair_is_safe.at(i) = this->CertifyTangentConfigurationSpaceLine(
                              s0.row(i), s1.row(i), solver_options,
                              &(separating_planes_sol_per_row->at(i)))
@@ -287,7 +290,7 @@ std::vector<bool> CspaceFreeLine::CertifyTangentConfigurationSpaceLines(
       drake::log()->debug(
             "entering active operation loop");
       active_operations.emplace_back(std::async(
-          std::launch::async, std::move(certify_line), certs_dispatched));
+          std::launch::async, certify_line, certs_dispatched));
       drake::log()->debug("Certification of {}/{} dispatched",
                           certs_dispatched + 1, s0.rows());
       ++certs_dispatched;
