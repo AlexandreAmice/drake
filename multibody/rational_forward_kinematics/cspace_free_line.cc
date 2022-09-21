@@ -148,9 +148,8 @@ bool CspaceFreeLine::CertifyTangentConfigurationSpaceLine(
 
   std::vector<bool> is_success(separating_planes().size());
   separating_planes_sol->resize(separating_planes().size());
-  drake::log() -> debug("Resize complete");
+
   // TODO(Alex.Amice) parallelize the certification of each plane.
-  auto clock_start = std::chrono::system_clock::now();
   //  std::for_each(std::execution::par_unseq, separating_planes().begin(),
   //                separating_planes().end(),
   //                [&is_success, &separating_planes_sol, &solver_options,
@@ -177,16 +176,27 @@ bool CspaceFreeLine::CertifyTangentConfigurationSpaceLine(
   solvers::MathematicalProgram prog = solvers::MathematicalProgram();
   prog.AddDecisionVariables(separating_plane_vars_);
   prog.AddIndeterminates(solvers::VectorIndeterminate<1>(mu_));
-
+  auto clock_start = std::chrono::system_clock::now();
   for (int i = 0; i < static_cast<int>(separating_planes().size()); ++i) {
     drake::log() -> debug(fmt::format("doing constraint {}/{}", i+1,
                                           static_cast<int>(separating_planes().size())));
 
     AddCertifySeparatingPlaneConstraintToProg(&prog, i, s0, s1);
   }
+  auto clock_now = std::chrono::system_clock::now();
+  drake::log()->debug(fmt::format(
+      "Time to assign constraints is {}",
+      static_cast<float>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                             clock_now - clock_start)
+                             .count()) /
+          1000));
+
+  drake::log() -> debug(fmt::format("Program has {} variables and {} constraints.", prog.decision_variables().size(), prog.GetAllConstraints().size()));
+
+  clock_start = std::chrono::system_clock::now();
   drake::log() -> debug(fmt::format("Starting solve of Line\n s0: {}\n s1: {}", s0, s1));
   auto result = solvers::Solve(prog, std::nullopt, solver_options);
-  auto clock_now = std::chrono::system_clock::now();
+  clock_now = std::chrono::system_clock::now();
   drake::log()->debug(fmt::format(
       "Line\n s0: {}\n s1: {}\n certified in {} s", s0, s1,
       static_cast<float>(std::chrono::duration_cast<std::chrono::milliseconds>(
