@@ -1,1 +1,8 @@
+scipy
+pyyaml
+numpy
+matplotlib
+umsgpack
+ipywidgets
 PyMcubes
+python-cdd

@@ -10,7 +10,7 @@ from pydrake.all import (HPolyhedron,
 from pydrake.all import GetVertices
 from functools import partial
 import mcubes
-import C_Iris_Examples.visualizations_utils as viz_utils
+import visualizations_utils as viz_utils
 import pydrake.symbolic as sym
 from IPython.display import display
 from scipy.spatial import Delaunay, ConvexHull
