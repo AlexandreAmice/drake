@@ -19,14 +19,22 @@ namespace pydrake {
 PYBIND11_MODULE(common_robotics_utilities, m) {
   // NOLINTNEXTLINE(build/namespaces): Emulate placement in namespace.
   using namespace common_robotics_utilities;
+  // NOLINTNEXTLINE(build/namespaces): Emulate placement in namespace.
+  using namespace common_robotics_utilities::simple_astar_search;
+  // NOLINTNEXTLINE(build/namespaces): Emulate placement in namespace.
+  using namespace common_robotics_utilities::simple_graph;
+  // NOLINTNEXTLINE(build/namespaces): Emulate placement in namespace.
+  using namespace common_robotics_utilities::simple_prm_planner;
+  // NOLINTNEXTLINE(build/namespaces): Emulate placement in namespace.
+  using namespace common_robotics_utilities::simple_rrt_planner;
 
-  using RNG = RandomGenerator;
+  // using RNG = RandomGenerator;
   using T = Eigen::VectorXd;
 
   py::module::import("pydrake.common");
 
   {
-    using Class = simple_rrt_planner::SimpleRRTPlannerState<T>;
+    using Class = SimpleRRTPlannerState<T>;
     py::class_<Class>(m, "SimpleRRTPlannerState", "")
         .def(py::init<>(), "")
         .def(py::init<const T&>(), py::arg("value"), "")
@@ -48,7 +56,7 @@ PYBIND11_MODULE(common_robotics_utilities, m) {
   }
 
   {
-    using Class = simple_rrt_planner::PropagatedState<T>;
+    using Class = PropagatedState<T>;
     py::class_<Class>(m, "PropagatedState", "")
         .def(py::init<const T&, const int64_t>(), py::arg("state"),
             py::arg("relative_parent_index"), "")
@@ -60,95 +68,108 @@ PYBIND11_MODULE(common_robotics_utilities, m) {
   }
 
   {
-    using Class = simple_rrt_planner::MultipleSolutionPlanningResults<T>;
+    using Class = SimpleRRTPlannerTree<T>;
+    py::class_<Class>(m, "SimpleRRTPlannerTree", "")
+        .def(py::init<>(), "")
+        .def(py::init<const int64_t>(), py::arg("anticipated_size"), "")
+        .def(py::init<const SimpleRRTPlannerStateVector<T>&>(),
+            py::arg("nodes"), "")
+        .def("Size", &Class::Size, "")
+        .def("Empty", &Class::Empty, "")
+        .def("Clear", &Class::Clear, "")
+        .def("GetNodeImmutable", &Class::GetNodeImmutable, py::arg("index"), "")
+        .def("GetNodeMutable", &Class::GetNodeMutable, py::arg("index"), "")
+        .def("AddNode", &Class::AddNode, py::arg("value"), "")
+        .def("AddNodeAndConnect", &Class::AddNodeAndConnect, py::arg("value"),
+            py::arg("parent_index"), "")
+        .def("GetNodesImmutable", &Class::GetNodesImmutable, "")
+        .def("GetNodesMutable", &Class::GetNodesMutable, "")
+        .def_static(
+            "CheckNodeLinkage", &Class::CheckNodeLinkage, py::arg("nodes"), "");
+  }
+
+  {
+    using Class = MultipleSolutionPlanningResults<T>;
     py::class_<Class>(m, "MultipleSolutionPlanningResults", "")
         .def("Paths", &Class::Paths, "")
         .def("Statistics", &Class::Statistics, "");
   }
 
   {
-    using Class = simple_rrt_planner::SingleSolutionPlanningResults<T>;
+    using Class = SingleSolutionPlanningResults<T>;
     py::class_<Class>(m, "SingleSolutionPlanningResults", "")
         .def("Path", &Class::Path, "")
         .def("Statistics", &Class::Statistics, "");
   }
 
   m.def("MakeKinematicLinearRRTNearestNeighborsFunction",
-      &simple_rrt_planner::MakeKinematicLinearRRTNearestNeighborsFunction<T>,
+      &MakeKinematicLinearRRTNearestNeighborsFunction<T>,
       py::arg("distance_fn"), py::arg("use_parallel") = true, "");
 
   m.def("MakeKinematicLinearBiRRTNearestNeighborsFunction",
-      &simple_rrt_planner::MakeKinematicLinearBiRRTNearestNeighborsFunction<T>,
+      &MakeKinematicLinearBiRRTNearestNeighborsFunction<T>,
       py::arg("distance_fn"), py::arg("use_parallel") = true, "");
 
   m.def("MakeKinematicBiRRTExtendPropagationFunction",
-      &simple_rrt_planner::MakeKinematicBiRRTExtendPropagationFunction<T>,
-      py::arg("distance_fn"), py::arg("state_interpolation_fn"),
-      py::arg("edge_validity_check_fn"), py::arg("step_size"), "");
+      &MakeKinematicBiRRTExtendPropagationFunction<T>, py::arg("distance_fn"),
+      py::arg("state_interpolation_fn"), py::arg("edge_validity_check_fn"),
+      py::arg("step_size"), "");
 
   m.def("MakeKinematicBiRRTConnectPropagationFunction",
-      &simple_rrt_planner::MakeKinematicBiRRTConnectPropagationFunction<T>,
-      py::arg("distance_fn"), py::arg("state_interpolation_fn"),
-      py::arg("edge_validity_check_fn"), py::arg("step_size"), "");
+      &MakeKinematicBiRRTConnectPropagationFunction<T>, py::arg("distance_fn"),
+      py::arg("state_interpolation_fn"), py::arg("edge_validity_check_fn"),
+      py::arg("step_size"), "");
 
-
-  m.def("MakeRRTTimeoutTerminationFunction",
-      &simple_rrt_planner::MakeRRTTimeoutTerminationFunction,
+  m.def("MakeRRTTimeoutTerminationFunction", &MakeRRTTimeoutTerminationFunction,
       py::arg("planning_timeout"), "");
 
   m.def("MakeBiRRTTimeoutTerminationFunction",
-      &simple_rrt_planner::MakeBiRRTTimeoutTerminationFunction,
-      py::arg("planning_timeout"), "");
+      &MakeBiRRTTimeoutTerminationFunction, py::arg("planning_timeout"), "");
 
-  m.def("RRTPlanMultiPath", &simple_rrt_planner::RRTPlanMultiPath<T>,
-      py::arg("tree"), py::arg("sampling_fn"), py::arg("nearest_neighbor_fn"),
+  m.def("RRTPlanMultiPath", &RRTPlanMultiPath<T>, py::arg("tree"),
+      py::arg("sampling_fn"), py::arg("nearest_neighbor_fn"),
       py::arg("forward_propagation_fn"), py::arg("state_added_callback_fn"),
       py::arg("check_goal_reached_fn"), py::arg("goal_reached_callback_fn"),
       py::arg("termination_check_fn"), "");
 
-  m.def("RRTPlanSinglePath", &simple_rrt_planner::RRTPlanSinglePath<T>,
-      py::arg("tree"), py::arg("sampling_fn"), py::arg("nearest_neighbor_fn"),
+  m.def("RRTPlanSinglePath", &RRTPlanSinglePath<T>, py::arg("tree"),
+      py::arg("sampling_fn"), py::arg("nearest_neighbor_fn"),
       py::arg("forward_propagation_fn"), py::arg("state_added_callback_fn"),
       py::arg("check_goal_reached_fn"), py::arg("goal_reached_callback_fn"),
       py::arg("termination_check_fn"), "");
 
-  m.def("BiRRTPlanMultiPath", &simple_rrt_planner::BiRRTPlanMultiPath<RNG, T>,
-      py::arg("start_tree"), py::arg("goal_tree"), py::arg("state_sampling_fn"),
+  m.def("BiRRTPlanMultiPath", &BiRRTPlanMultiPath<T>, py::arg("start_tree"),
+      py::arg("goal_tree"), py::arg("state_sampling_fn"),
       py::arg("nearest_neighbor_fn"), py::arg("propagation_fn"),
       py::arg("state_added_callback_fn"), py::arg("states_connected_fn"),
       py::arg("goal_bridge_callback_fn"), py::arg("tree_sampling_bias"),
-      py::arg("p_switch_tree"), py::arg("termination_check_fn"), py::arg("rng"),
-      "");
+      py::arg("p_switch_tree"), py::arg("termination_check_fn"),
+      py::arg("uniform_unit_real_fn"), "");
 
-  m.def("BiRRTPlanSinglePath", &simple_rrt_planner::BiRRTPlanSinglePath<RNG, T>,
-      py::arg("start_tree"), py::arg("goal_tree"), py::arg("state_sampling_fn"),
+  m.def("BiRRTPlanSinglePath", &BiRRTPlanSinglePath<T>, py::arg("start_tree"),
+      py::arg("goal_tree"), py::arg("state_sampling_fn"),
       py::arg("nearest_neighbor_fn"), py::arg("propagation_fn"),
       py::arg("state_added_callback_fn"), py::arg("states_connected_fn"),
       py::arg("goal_bridge_callback_fn"), py::arg("tree_sampling_bias"),
-      py::arg("p_switch_tree"), py::arg("termination_check_fn"), py::arg("rng"),
-      "");
+      py::arg("p_switch_tree"), py::arg("termination_check_fn"),
+      py::arg("uniform_unit_real_fn"), "");
 
   // Path Processing
-//  m.def("ResamplePath", &path_processing::ResamplePath<T>, py::arg("path"),
-//      py::arg("resampled_state_distance"), py::arg("state_distance_fn"),
-//      py::arg("state_interpolation_fn"), "");
-    
-  m.def("ShortcutSmoothPath", &path_processing::ShortcutSmoothPath<RNG, T>,
-    py::arg("path"),
-    py::arg("max_iterations"),
-    py::arg("max_failed_iterations"),
-    py::arg("max_backtracking_steps"),
-    py::arg("max_shortcut_fraction"),
-    py::arg("resample_shortcuts_interval"),
-    py::arg("check_for_marginal_shortcuts"),
-    py::arg("edge_validity_check_fn"),
-    py::arg("state_distance_fn"),
-    py::arg("state_interpolation_fn"),
-    py::arg("prng"), "");
+  //  m.def("ResamplePath", &path_processing::ResamplePath<T>, py::arg("path"),
+  //      py::arg("resampled_state_distance"), py::arg("state_distance_fn"),
+  //      py::arg("state_interpolation_fn"), "");
+
+  m.def("ShortcutSmoothPath", &path_processing::ShortcutSmoothPath<T>,
+      py::arg("path"), py::arg("max_iterations"),
+      py::arg("max_failed_iterations"), py::arg("max_backtracking_steps"),
+      py::arg("max_shortcut_fraction"), py::arg("resample_shortcuts_interval"),
+      py::arg("check_for_marginal_shortcuts"),
+      py::arg("edge_validity_check_fn"), py::arg("state_distance_fn"),
+      py::arg("state_interpolation_fn"), py::arg("uniform_unit_real_fn"), "");
 
   // Simple Astar Search
   {
-    using Class = simple_astar_search::AstarResult<T>;
+    using Class = AstarResult<T>;
     py::class_<Class>(m, "AstarResult", "")
         .def(py::init<>(), "")
         .def(py::init<const std::vector<T>&, const double>(), py::arg("path"),
@@ -159,7 +180,7 @@ PYBIND11_MODULE(common_robotics_utilities, m) {
 
   // Simple Graph
   {
-    using Class = simple_graph::GraphEdge;
+    using Class = GraphEdge;
     py::class_<Class>(m, "GraphEdge", "")
         .def(py::init<>(), "")
         .def(py::init<const int64_t, int64_t, double>(), py::arg("from_index"),
@@ -180,20 +201,21 @@ PYBIND11_MODULE(common_robotics_utilities, m) {
         .def("__str__", &Class::Print)
         .def(py::pickle(
             [](const Class& self) {
-              return std::make_tuple(self.GetFromIndex(), self.GetToIndex(), self.GetWeight(), self.GetScratchpad());
+              return std::make_tuple(self.GetFromIndex(), self.GetToIndex(),
+                  self.GetWeight(), self.GetScratchpad());
             },
             [](std::tuple<int64_t, int64_t, double, uint64_t> args) {
-              return Class(
-                  std::get<0>(args), std::get<1>(args), std::get<2>(args), std::get<3>(args));
+              return Class(std::get<0>(args), std::get<1>(args),
+                  std::get<2>(args), std::get<3>(args));
             }));
   }
   {
-    using Class = simple_graph::GraphNode<T>;
+    using Class = GraphNode<T>;
     py::class_<Class>(m, "GraphNode", "")
         .def(py::init<>(), "")
         .def(py::init<const T&>(), py::arg("value"), "")
-        .def(py::init<const T&, std::vector<simple_graph::GraphEdge>&,
-                 std::vector<simple_graph::GraphEdge>&>(),
+        .def(py::init<const T&, std::vector<GraphEdge>&,
+                 std::vector<GraphEdge>&>(),
             py::arg("value"), py::arg("new_in_edges"), py::arg("new_out_edges"),
             "")
         .def("GetValueImmutable", &Class::GetValueImmutable, "")
@@ -208,25 +230,26 @@ PYBIND11_MODULE(common_robotics_utilities, m) {
         .def("GetOutEdgesMutable", &Class::GetOutEdgesMutable, "")
         .def("SetInEdges", &Class::SetInEdges, py::arg("new_in_edges"), "")
         .def("SetOutEdges", &Class::SetOutEdges, py::arg("new_out_edges"), "")
-        .def("__str__", &Class::Print) 
+        .def("__str__", &Class::Print)
         .def(py::pickle(
             [](const Class& self) {
-              return std::make_tuple(self.GetValueImmutable(), self.GetInEdgesImmutable(), self.GetOutEdgesImmutable());
+              return std::make_tuple(self.GetValueImmutable(),
+                  self.GetInEdgesImmutable(), self.GetOutEdgesImmutable());
             },
-            [](std::tuple<T, std::vector<simple_graph::GraphEdge>,
-                 std::vector<simple_graph::GraphEdge>> args) {
+            [](std::tuple<T, std::vector<GraphEdge>, std::vector<GraphEdge>>
+                    args) {
               return Class(
                   std::get<0>(args), std::get<1>(args), std::get<2>(args));
             }));
   }
 
   {
-    using Class = simple_graph::Graph<T>;
+    using Class = Graph<T>;
     py::class_<Class>(m, "Graph", "")
         .def(py::init<>(), "")
         .def(py::init<const size_t>(), py::arg("expected_size"), "")
-        .def(py::init<const std::vector<simple_graph::GraphNode<T>,
-                 Eigen::aligned_allocator<simple_graph::GraphNode<T>>>&>(),
+        .def(py::init<const std::vector<GraphNode<T>,
+                 Eigen::aligned_allocator<GraphNode<T>>>&>(),
             py::arg("nodes"), "")
         .def("MakePrunedCopy", &Class::MakePrunedCopy,
             py::arg("nodes_to_prune"), py::arg("use_parallel"), "")
@@ -237,9 +260,7 @@ PYBIND11_MODULE(common_robotics_utilities, m) {
         .def("GetNodesImmutable", &Class::GetNodesImmutable, "")
         .def("GetNodesMutable", &Class::GetNodesMutable, "")
         .def("GetNodeImmutable", &Class::GetNodeImmutable, py::arg("index"), "")
-        .def("AddNode",
-            py::overload_cast<const simple_graph::GraphNode<T>&>(
-                &Class::AddNode),
+        .def("AddNode", py::overload_cast<const GraphNode<T>&>(&Class::AddNode),
             py::arg("new_node"), "")
         .def("AddNode", py::overload_cast<const T&>(&Class::AddNode),
             py::arg("new_value"), "")
@@ -248,69 +269,75 @@ PYBIND11_MODULE(common_robotics_utilities, m) {
             "")
         .def("__str__", &Class::Print)
         .def(py::pickle(
-            [](const Class& self) {
-              return self.GetNodesImmutable();
-            },
-            [](std::vector<simple_graph::GraphNode<T>, Eigen::aligned_allocator<simple_graph::GraphNode<T>>> node) {
-              return Class(node);
-            }));
+            [](const Class& self) { return self.GetNodesImmutable(); },
+            [](std::vector<GraphNode<T>, Eigen::aligned_allocator<GraphNode<T>>>
+                    node) { return Class(node); }));
   }
 
   // PRM
   {
-    using Class = simple_prm_planner::NNDistanceDirection;
-    py::class_<Class>(m, "NNDistanceDirection", "")
-        .def(py::init<>(), "");
+    using Class = NNDistanceDirection;
+    py::class_<Class>(m, "NNDistanceDirection", "").def(py::init<>(), "");
   }
 
-  m.def("AddNodeToRoadmap", &simple_prm_planner::AddNodeToRoadmap<T>,
-      py::arg("state"), py::arg("nn_distance_direction"), py::arg("roadmap"),
+  m.def("AddNodeToRoadmap", &AddNodeToRoadmap<T, Graph<T>>, py::arg("state"),
+      py::arg("nn_distance_direction"), py::arg("roadmap"),
       py::arg("distance_fn"), py::arg("edge_validity_check_fn"), py::arg("K"),
-      py::arg("use_parallel") = true, py::arg("distance_is_symmetric") = true,
+      py::arg("use_parallel") = true, py::arg("connection_is_symmetric") = true,
       py::arg("add_duplicate_states") = false, "");
 
-  m.def("GrowRoadMap", &simple_prm_planner::GrowRoadMap<T>, py::arg("roadmap"),
+  m.def("GrowRoadMap", &GrowRoadMap<T, Graph<T>>, py::arg("roadmap"),
       py::arg("sampling_fn"), py::arg("distance_fn"),
       py::arg("state_validity_check_fn"), py::arg("edge_validity_check_fn"),
       py::arg("termination_check_fn"), py::arg("K"),
-      py::arg("use_parallel") = true, py::arg("distance_is_symmetric") = true,
+      py::arg("use_parallel") = true, py::arg("connection_is_symmetric") = true,
       py::arg("add_duplicate_states") = false, "");
 
-  m.def("UpdateRoadMapEdges", &simple_prm_planner::UpdateRoadMapEdges<T>,
+  m.def("BuildRoadMap", &BuildRoadMap<T, Graph<T>>, py::arg("roadmap_size"),
+      py::arg("sampling_fn"), py::arg("distance_fn"),
+      py::arg("state_validity_check_fn"), py::arg("edge_validity_check_fn"),
+      py::arg("K"), py::arg("max_valid_sample_tries"),
+      py::arg("use_parallel") = true, py::arg("connection_is_symmetric") = true,
+      py::arg("add_duplicate_states") = false, "");
+
+  m.def("UpdateRoadMapEdges", &UpdateRoadMapEdges<T, Graph<T>>,
       py::arg("roadmap"), py::arg("edge_validity_check_fn"),
       py::arg("distance_fn"), py::arg("use_parallel") = true, "");
 
-  m.def("ExtractSolution", &simple_prm_planner::ExtractSolution<T>,
+  m.def("ExtractSolution", &ExtractSolution<T, std::vector<T>, Graph<T>>,
       py::arg("roadmap"), py::arg("astar_index_solution"), "");
 
   m.def("LazyQueryPathAndAddNodes",
-      &simple_prm_planner::LazyQueryPathAndAddNodes<T>, py::arg("starts"),
+      &LazyQueryPathAndAddNodes<T, std::vector<T>, Graph<T>>, py::arg("starts"),
       py::arg("goals"), py::arg("roadmap"), py::arg("distance_fn"),
       py::arg("edge_validity_check_fn"), py::arg("K"),
-      py::arg("use_parallel") = true, py::arg("distance_is_symmetric") = true,
+      py::arg("use_parallel") = true, py::arg("connection_is_symmetric") = true,
       py::arg("add_duplicate_states") = false,
       py::arg("limit_astar_pqueue_duplicates") = true, "");
 
-  m.def("QueryPathAndAddNodes", &simple_prm_planner::QueryPathAndAddNodes<T>,
-      py::arg("starts"), py::arg("goals"), py::arg("roadmap"),
-      py::arg("distance_fn"), py::arg("edge_validity_check_fn"), py::arg("K"),
-      py::arg("use_parallel") = true, py::arg("distance_is_symmetric") = true,
-      py::arg("add_duplicate_states") = false,
-      py::arg("limit_astar_pqueue_duplicates") = true, "");
-
-  m.def("LazyQueryPath", &simple_prm_planner::LazyQueryPath<T>,
-      py::arg("starts"), py::arg("goals"), py::arg("roadmap"),
-      py::arg("distance_fn"), py::arg("edge_validity_check_fn"), py::arg("K"),
-      py::arg("use_parallel") = true, py::arg("distance_is_symmetric") = true,
-      py::arg("add_duplicate_states") = false,
-      py::arg("limit_astar_pqueue_duplicates") = true, "");
-
-  m.def("QueryPath", &simple_prm_planner::QueryPath<T>, py::arg("starts"),
+  m.def("QueryPathAndAddNodes",
+      &QueryPathAndAddNodes<T, std::vector<T>, Graph<T>>, py::arg("starts"),
       py::arg("goals"), py::arg("roadmap"), py::arg("distance_fn"),
       py::arg("edge_validity_check_fn"), py::arg("K"),
-      py::arg("use_parallel") = true, py::arg("distance_is_symmetric") = true,
+      py::arg("use_parallel") = true, py::arg("connection_is_symmetric") = true,
       py::arg("add_duplicate_states") = false,
       py::arg("limit_astar_pqueue_duplicates") = true, "");
+
+  m.def("LazyQueryPath", &LazyQueryPath<T, std::vector<T>, Graph<T>>,
+      py::arg("starts"), py::arg("goals"), py::arg("roadmap"),
+      py::arg("distance_fn"), py::arg("edge_validity_check_fn"), py::arg("K"),
+      py::arg("use_parallel") = true, py::arg("connection_is_symmetric") = true,
+      py::arg("add_duplicate_states") = false,
+      py::arg("limit_astar_pqueue_duplicates") = true,
+      py::arg("use_roadmap_overlay") = true, "");
+
+  m.def("QueryPath", &QueryPath<T, std::vector<T>, Graph<T>>, py::arg("starts"),
+      py::arg("goals"), py::arg("roadmap"), py::arg("distance_fn"),
+      py::arg("edge_validity_check_fn"), py::arg("K"),
+      py::arg("use_parallel") = true, py::arg("connection_is_symmetric") = true,
+      py::arg("add_duplicate_states") = false,
+      py::arg("limit_astar_pqueue_duplicates") = true,
+      py::arg("use_roadmap_overlay") = true, "");
 }
 
 }  // namespace pydrake

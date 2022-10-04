@@ -11,6 +11,7 @@ from pydrake.planning.common_robotics_utilities import (
     RRTPlanSinglePath,
     BiRRTPlanSinglePath,
     SimpleRRTPlannerState,
+    SimpleRRTPlannerTree,
     Graph,
     GrowRoadMap,
     UpdateRoadMapEdges,
@@ -29,7 +30,7 @@ class TestCommonRoboticsUtilities(unittest.TestCase):
         check_step = 0.01
         solve_timeout = 2
 
-        rrt_tree = [SimpleRRTPlannerState(start)]
+        rrt_tree = SimpleRRTPlannerTree([SimpleRRTPlannerState(start)])
 
         def sampling_fn():
             if (np.random.rand() < goal_bias):
@@ -85,8 +86,8 @@ class TestCommonRoboticsUtilities(unittest.TestCase):
         check_step = 0.01
         solve_timeout = 2
 
-        start_tree = [SimpleRRTPlannerState(start)]
-        goal_tree = [SimpleRRTPlannerState(goal)]
+        start_tree = SimpleRRTPlannerTree([SimpleRRTPlannerState(start)])
+        goal_tree = SimpleRRTPlannerTree([SimpleRRTPlannerState(goal)])
 
         def sampling_fn():
             return np.random.rand(2) * 3
@@ -160,26 +161,30 @@ class TestCommonRoboticsUtilities(unittest.TestCase):
         extend_result = BiRRTPlanSinglePath(
             start_tree=start_tree, goal_tree=goal_tree,
             state_sampling_fn=sampling_fn,
-            nearest_neighbor_fn=nearest_neighbor_fn, propagation_fn=extend_fn,
+            nearest_neighbor_fn=nearest_neighbor_fn,
+            propagation_fn=extend_fn,
             state_added_callback_fn=None,
             states_connected_fn=states_connected_fn,
             goal_bridge_callback_fn=None,
             tree_sampling_bias=0.5, p_switch_tree=0.25,
-            termination_check_fn=termination_fn, rng=RandomGenerator(seed))
+            termination_check_fn=termination_fn,
+            uniform_unit_real_fn=np.random.rand)
 
         print(extend_result.Path())
 
         connect_result = BiRRTPlanSinglePath(
             start_tree=start_tree, goal_tree=goal_tree,
             state_sampling_fn=sampling_fn,
-            nearest_neighbor_fn=nearest_neighbor_fn, propagation_fn=connect_fn,
+            nearest_neighbor_fn=nearest_neighbor_fn,
+            propagation_fn=connect_fn,
             state_added_callback_fn=None,
             states_connected_fn=states_connected_fn,
             goal_bridge_callback_fn=None,
             tree_sampling_bias=0.5, p_switch_tree=0.25,
-            termination_check_fn=termination_fn, rng=RandomGenerator(seed))
+            termination_check_fn=termination_fn,
+            uniform_unit_real_fn=np.random.rand)
 
-        print(connect_result.Path())
+        # print(connect_result.Path())
 
     def test_prm(self):
         np.random.seed(42)
@@ -367,7 +372,7 @@ class TestCommonRoboticsUtilities(unittest.TestCase):
                 path = QueryPath([start], [goal], roadmap, distance_fn,
                                  check_edge_validity_fn, K,
                                  use_parallel=False,
-                                 distance_is_symmetric=True,
+                                 connection_is_symmetric=True,
                                  add_duplicate_states=False,
                                  limit_astar_pqueue_duplicates=True).Path()
                 checkPlan([start], [goal], path)
@@ -377,7 +382,7 @@ class TestCommonRoboticsUtilities(unittest.TestCase):
                 lazy_path = LazyQueryPath(
                     [start], [goal], roadmap, distance_fn,
                     check_edge_validity_fn, K, use_parallel=False,
-                    distance_is_symmetric=True, add_duplicate_states=False,
+                    connection_is_symmetric=True, add_duplicate_states=False,
                     limit_astar_pqueue_duplicates=True).Path()
 
                 checkPlan([start], [goal], lazy_path)
@@ -387,7 +392,7 @@ class TestCommonRoboticsUtilities(unittest.TestCase):
         print(f"Multi start/goal PRM Path ({starts} to {goals})")
         multi_path = QueryPath(starts, goals, roadmap, distance_fn,
                                check_edge_validity_fn, K, use_parallel=False,
-                               distance_is_symmetric=True,
+                               connection_is_symmetric=True,
                                add_duplicate_states=False,
                                limit_astar_pqueue_duplicates=True).Path()
 
