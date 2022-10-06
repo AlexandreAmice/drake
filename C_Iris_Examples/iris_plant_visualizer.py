@@ -270,7 +270,7 @@ class IrisPlantVisualizer:
         meshcat.SetTriangleMesh(path, vertices.T, faces.T, rgba, wireframe,
                                 wireframe_line_width)
 
-    def visualize_collision_constraint2d(self, factor=2, num_points=20):
+    def visualize_collision_constraint2d(self, factor=2, num_points=20, color = Rgba(1,0,0,1)):
         s0 = np.linspace(factor * self.s_lower_limits[0], factor * self.s_upper_limits[0], num_points)
         s1 = np.linspace(factor * self.s_lower_limits[0], factor * self.s_upper_limits[0], num_points)
         X, Y = np.meshgrid(s0, s1)
@@ -281,7 +281,7 @@ class IrisPlantVisualizer:
                 if Z[i, j] == 0:
                     Z[i, j] = np.nan
         Z = Z-1
-        self.plot_surface(self.meshcat2, "/collision_constraint", X, Y, Z, Rgba(1,0,0,1))
+        self.plot_surface(self.meshcat2, "/collision_constraint", X, Y, Z, color)
         return Z
 
     def plot_regions(self, regions, ellipses = None,

@@ -15,9 +15,9 @@ class CspaceLineTuple {
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(CspaceLineTuple)
 
   CspaceLineTuple(const symbolic::Variable& mu,
-                  drake::VectorX<symbolic::Variable>  s0,
-                  drake::VectorX<symbolic::Variable>  s1,
-                  symbolic::Polynomial  m_rational_numerator,
+                  const drake::VectorX<symbolic::Variable>& s0,
+                  const drake::VectorX<symbolic::Variable>& s1,
+                  const symbolic::Polynomial& m_rational_numerator,
                   const VerificationOption& option);
 
   void AddTupleOnSideOfPlaneConstraint(
@@ -189,6 +189,7 @@ class CspaceFreeLine : public CspaceFreeRegion {
   std::vector<std::vector<int>> separating_plane_to_tuples_;
   std::vector<std::vector<solvers::Binding<solvers::LorentzConeConstraint>>>
       separating_plane_to_lorentz_cone_constraints_;
+
 };
 
 }  // namespace multibody
