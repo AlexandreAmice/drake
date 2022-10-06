@@ -218,6 +218,26 @@ class IrisPlantVisualizer:
                                       TriangleSurfaceMesh(tri_drake, vertices),
                                       Rgba(1, 0, 0, 1), wireframe=wireframe)
 
+    def plot_path(self, verts, width = 0.01, sphere_rad = 0.01, color = Rgba(0.0, 0.0, 1, 1), prefix = ""):
+        self.meshcat2.SetObject(f"/{prefix}path/start",
+                                Sphere(sphere_rad),
+                                color)
+        self.meshcat2.SetTransform(f"/{prefix}path/start",
+                                   RigidTransform(RotationMatrix(),
+                                                  viz_utils.stretch_array_to_3d(verts[:, 0][:, np.newaxis])))
+        self.meshcat2.SetObject(f"/{prefix}path/end",
+                                Sphere(sphere_rad),
+                                color)
+        self.meshcat2.SetTransform(f"/{prefix}path/end",
+                                   RigidTransform(RotationMatrix(),
+                                                  viz_utils.stretch_array_to_3d(verts[:, -1][:, np.newaxis])))
+        for idx in range(verts.shape[1] - 1):
+            v1 = viz_utils.stretch_array_to_3d(verts[:, idx])
+            v2 = viz_utils.stretch_array_to_3d(verts[:, idx + 1])
+            name = f"/{prefix}path/rm/line{idx}"
+            self.meshcat2.SetLine(name, np.hstack([v1[:, np.newaxis], v2[:, np.newaxis]]),
+                                        line_width=width, rgba=color)
+
     def plot_surface(self, meshcat,
                      path,
                      X,

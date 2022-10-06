@@ -91,6 +91,20 @@ drake_jupyter_py_binary(
 )
 
 drake_jupyter_py_binary(
+    name = "pinball_iiwas_prm_certify_viz_junk",
+    add_test_rule = 0,
+    data = [
+        "//C_Iris_Examples:models",
+    ],
+    deps = [
+        "//C_Iris_Examples:iris_plant_visualizer",
+        "//C_Iris_Examples:prm",
+        "//C_Iris_Examples:visualizations_utils",
+        "//bindings/pydrake",
+    ],
+)
+
+drake_jupyter_py_binary(
     name = "7dof_iiwas_prm_certify",
     add_test_rule = 0,
     data = [
