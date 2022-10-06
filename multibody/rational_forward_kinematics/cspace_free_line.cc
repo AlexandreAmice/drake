@@ -354,9 +354,11 @@ CspaceFreeLine::GenerateRationalsForLinkOnOneSideOfPlane(
     const {
   // First we reuse the code from CspaceFreeRegion to obtain the rational
   // forward kinematics expressions for all the objects in the scene
+  std::cout << "calling generate rationals" << std::endl;
   std::vector<LinkOnPlaneSideRational> generic_rationals =
       CspaceFreeRegion::GenerateRationalsForLinkOnOneSideOfPlane(
           q_star, filtered_collision_pairs);
+  std::cout << "passed generate rationals" << std::endl;
 
   // Now we will perform the substitution t = μ*s₀ + (1−μ)*s₁ to take the
   // forward kinematics from an n-variate function in t to a univariate function
@@ -370,7 +372,7 @@ CspaceFreeLine::GenerateRationalsForLinkOnOneSideOfPlane(
        i < ((this->rational_forward_kinematics()).plant().num_positions());
        ++i) {
     // equivalent to μ*s₀ + (1−μ)*s₁ but requires less traversal in
-    // sustitutions
+    // substitutions
     t_to_line_subs_map[t[i]] = (s0_[i] - s1_[i]) * mu_ + s1_[i];
   }
   std::unordered_map<symbolic::Monomial, symbolic::Polynomial>
@@ -405,7 +407,7 @@ CspaceFreeLine::GenerateRationalsForLinkOnOneSideOfPlane(
         rational.other_side_link_geometry, rational.a_A, rational.b,
         rational.plane_side, rational.plane_order,
         rational.lorentz_cone_constraints);
-    drake::log()->info(fmt::format("Done rational {}/{}", ctr, num_rats));
+    drake::log()->debug(fmt::format("Done rational {}/{}", ctr+1, num_rats));
     ctr++;
   }
   return rationals;
@@ -420,14 +422,20 @@ void CspaceFreeLine::GenerateTuplesForCertification(
     std::vector<std::vector<solvers::Binding<solvers::LorentzConeConstraint>>>*
         separating_plane_to_lorentz_cone_constraints) const {
   // Build tuples.
+  std::cout << "GETTING HERE" << std::endl;
+  std::cout << "Generating Rationals from parent class" << std::endl;
+  drake::log() -> debug("Generating Rationals from parent class");
   const auto rationals = GenerateRationalsForLinkOnOneSideOfPlane(
       q_star, filtered_collision_pairs);
+  drake::log() -> debug("Done Generating Rationals from parent class");
 
   separating_plane_to_tuples->resize(
       static_cast<int>(this->separating_planes().size()));
   separating_plane_to_tuples->resize(3);
 
+  int ctr = 0;
   for (const auto& rational : rationals) {
+    drake::log() -> debug(fmt::format("constructing tuple {}/{}", ctr, rationals.size()));
     tuples->emplace_back(mu_, s0_, s1_, rational.rational.numerator(), option_);
     (*separating_plane_to_tuples)
         [this->map_geometries_to_separating_planes().at(
@@ -435,6 +443,7 @@ void CspaceFreeLine::GenerateTuplesForCertification(
                  rational.link_geometry->id(),
                  rational.other_side_link_geometry->id()))]
             .push_back(tuples->size() - 1);
+    ++ctr;
   }
 
   // Set separating_plane_vars.
@@ -466,6 +475,7 @@ void CspaceFreeLine::GenerateTuplesForCertification(
           rational.lorentz_cone_constraints.end());
     }
   }
+  drake::log() -> debug("done building tuples");
 }
 
 void CspaceFreeLine::AddCertifySeparatingPlaneConstraintToProg(

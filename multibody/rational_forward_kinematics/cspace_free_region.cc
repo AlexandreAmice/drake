@@ -276,8 +276,11 @@ CspaceFreeRegion::CspaceFreeRegion(
       collision_pairs;
   int num_collision_pairs = 0;
   const auto& model_inspector = scene_graph->model_inspector();
+  drake::log()->debug("constructing link geometry pairs");
+  int ctr = 0;
   for (const auto& [link1, geometries1] : link_geometries_) {
     for (const auto& [link2, geometries2] : link_geometries_) {
+       ++ctr;
       if (link1 < link2) {
         // link_collision_pairs stores all the pair of collision geometry on
         // (link1, link2).
@@ -376,7 +379,10 @@ CspaceFreeRegion::GenerateRationalsForLinkOnOneSideOfPlane(
                      DirectedKinematicsChainHash>
       body_pair_to_X_AB_multilinear;
   std::vector<LinkOnPlaneSideRational> rationals;
+  int ctr = 0;
   for (const auto& separating_plane : separating_planes_) {
+    ++ctr;
+    drake::log() -> debug(fmt::format("doing separating planes {}/{}",ctr,separating_planes_.size()));
     if (!IsGeometryPairCollisionIgnored(
             separating_plane.positive_side_geometry->id(),
             separating_plane.negative_side_geometry->id(),
@@ -2009,6 +2015,8 @@ GenerateLinkOnOneSideOfPlaneRationalFunction(
         // Step 1: Compute p_AQ.
         const Vector3<drake::symbolic::Polynomial> p_AQ =
             X_AB_multilinear.p_AB + X_AB_multilinear.R_AB * p_BQ;
+
+        drake::log() -> debug(fmt::format("degree of polynomial = {}", p_AQ(0).TotalDegree()));
 
         // Step 2: Compute a_A.dot(p_AQ) + b
         const drake::symbolic::Polynomial point_on_hyperplane_side =
