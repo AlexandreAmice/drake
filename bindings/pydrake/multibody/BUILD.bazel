@@ -199,6 +199,23 @@ drake_jupyter_py_binary(
     ],
 )
 
+drake_pybind_library(
+    name = "rational_forward_kinematics_py",
+    cc_deps = [
+        "//bindings/pydrake:documentation_pybind",
+        "//bindings/pydrake/common:default_scalars_pybind",
+        "//bindings/pydrake/common:sorted_pair_pybind",
+        "//bindings/pydrake/common:value_pybind",
+    ],
+    cc_srcs = ["rational_forward_kinematics_py.cc"],
+    package_info = PACKAGE_INFO,
+    py_deps = [
+        ":module_py",
+        ":plant_py",
+        "//bindings/pydrake/solvers",
+    ],
+)
+
 PY_LIBRARIES_WITH_INSTALL = [
     ":benchmarks_py",
     ":inverse_kinematics_py",
@@ -207,6 +224,7 @@ PY_LIBRARIES_WITH_INSTALL = [
     ":optimization_py",
     ":parsing_py",
     ":plant_py",
+    ":rational_forward_kinematics_py",
     ":tree_py",
 ]
 
@@ -230,8 +248,8 @@ drake_py_library(
 
 install(
     name = "install",
-    targets = PY_LIBRARIES + [":all_py"],
     py_dest = PACKAGE_INFO.py_dest,
+    targets = PY_LIBRARIES + [":all_py"],
     deps = get_drake_py_installs(PY_LIBRARIES_WITH_INSTALL),
 )
 
@@ -343,6 +361,23 @@ drake_py_unittest(
         "//bindings/pydrake:trajectories_py",
         "//bindings/pydrake/common/test_utilities",
         "//bindings/pydrake/solvers",
+    ],
+)
+
+drake_py_unittest(
+    name = "rational_forward_kinematics_test",
+    size = "large",
+    data = [
+        "//manipulation/models/iiwa_description:models",
+    ],
+    deps = [
+        ":parsing_py",
+        ":plant_py",
+        ":rational_forward_kinematics_py",
+        "//bindings/pydrake:geometry_py",
+        "//bindings/pydrake:math_py",
+        "//bindings/pydrake/common/test_utilities",
+        "//bindings/pydrake/systems:framework_py",
     ],
 )
 

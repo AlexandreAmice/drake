@@ -1,0 +1,238 @@
+\documentclass{article}
+\usepackage{amsmath,amsfonts,leftidx}
+\renewcommand{\vec}[1]{\mathbf{#1}}
+\begin{document}
+\section{Goal}
+Given a robot and an environment, represent its collision free configuration space as unions of convex sets. This configuration space representation can be used in global collision free motion planning.
+\section{Approach}
+We will show how to represent the collision-free configuration space of a robot arm as unions of convex sets. First we pick a collision free posture of the robot as $\vec{q}^*$, and we aim to find a neighbourhood $\mathcal{S}(\vec{q}^*)$ around $\vec{q}^*$, such that any posture within this neighbourhood $\mathcal{S}(\vec{q}^*)$ is collision free. Also we require that $\mathcal{S}(\vec{q}^*)$ is convex.
+
+\subsection{Rational forward kinematics}
+\label{subsubsection:rational_forward_kinematics}
+To determine if a posture $q$ is collision free, we first notice that the position of a point fixed to the robot link can be written as a function of $\cos(\Delta \vec{q}_i)$ and $\sin(\Delta \vec{q}_i)$, where $\Delta \vec{q}_i = \vec{q}_i - \vec{q}^*_i$. We then use the half-angle formula on $\cos$ and $\sin$
+\begin{align}
+	\cos(\Delta \vec{q}_i) = \frac{1 - \vec{t}_i^2}{1 + \vec{t}_i^2}\\
+	\sin(\Delta \vec{q}_i) = \frac{2\vec{t}_i}{1 + \vec{t}_i^2}
+\end{align}
+where $\vec{t}_i = \tan\frac{\Delta \vec{q}_i}{2}$. Thus the position of a point $Q$ fixed to the robot link can be written as a quotient of polynomials on $t$, namely
+\begin{align}
+	\leftidx{^W}{\vec{p}}^{Q}_{j} = \frac{f_j(\vec{t})}{g_j(\vec{t})}, \; j = 1, 2, 3 \label{eq:position_quotient_polynomial}
+\end{align}
+where both $f$ and $g$ are polynomials of $\vec{t}$.
+
+\subsection{Collision free region in workspace}
+\label{subsection:collision_free_region}
+We represent the workspace obstacles as a union of convex shapes, including polytopes, spheres, capsules and cylinders. We use the fact that two convex objects are not intersecting, if and only if there exists a separating hyperplane $\vec{a}^T\vec{p}+b=0$ between the two convex objects in the task space. Hence we will find a hyperplane between a convex shape attached to the link $\mathcal{A}$, and a convex shape $\mathcal{B}$.
+\begin{subequations}
+\begin{align}
+	\vec{a}^T\leftidx{^W}{\vec{p}}^{A} + b \le 0 \;\forall A\in\mathcal{A}\\
+	\vec{a}^T\leftidx{^W}{\vec{p}}^{B} + b \ge 0 \;\forall B\in\mathcal{B}
+\end{align}
+\label{eq:separating_plane}
+\end{subequations}
+We also need to avoid the trivial solution $\vec{a}=0, b=0$.
+
+Later in the bilinear alternation section, we will see it is helpful to find a separating plane that separates the two geometries $\mathcal{A},\mathcal{B}$ with certain margin, and also we want to maximize that margin. So we will also consider the version of the separating plane with the strictly positive margin as a decision variable.
+
+Now we consider how to rewrite \eqref{eq:separating_plane} for some primitive geometry types, so as to convert \eqref{eq:separating_plane} to a finite number of constraints. For simplicity, we only write the condition when the geometry is on the ``positive" side of the separating plane.
+\subsubsection{Sphere}
+If $\mathcal{B}$ is a sphere with center $\vec{c}$ and a radius $r$, then the condition \eqref{eq:separating_plane} is
+\begin{align}
+	\vec{a}^T \vec{c} + b \ge r |\vec{a}|
+\end{align}
+Since we can scale $\vec{a}, b$ arbitrarily, this condition is equivalent to
+\begin{subequations}
+\begin{align}
+	\vec{a}^T\vec{c} + b \ge r\\
+	|\vec{a}|\le 1
+\end{align}
+\label{eq:separating_plane_sphere}
+\end{subequations}
+Also note that the condition \eqref{eq:separating_plane_sphere} prevents the trivial solution $\vec{a}=0, b=0$.
+
+If we want to find the separating plane with a margin $\epsilon$ to the sphere, then we impose the constraint
+\begin{subequations}
+\begin{align}
+	\vec{a}^T\vec{c} + b \ge r+\epsilon\\
+	|\vec{a}|\le 1
+\end{align}
+\label{eq:separating_plane_sphere_w_margin}
+\end{subequations}
+\subsubsection{Capsule}
+A capsule can be regarded as the convex hull of two spheres at the end. Hence a halfspace contains the capsule is equivalent to that halfspace containing both spheres. We repeat \eqref{eq:separating_plane_sphere} for the two spheres to condition for the capsule
+\begin{subequations}
+\begin{align}
+	\vec{a}^T\vec{c}_1 + b \ge r\\
+	\vec{a}^T\vec{c}_2 + b \ge r\\
+	|\vec{a}|\le 1
+\end{align}
+\label{eq:separating_plane_capsule}
+\end{subequations}
+where $\vec{c}_1, \vec{c}_2$ are the centers of the two spheres.
+
+\subsubsection{Cylinder}
+For a cylinder with the center of two circles as $\vec{c}_1, \vec{c}_2$, the condition \eqref{eq:separating_plane} is equivalent to
+\begin{subequations}
+\begin{align}
+	\vec{a}^T\vec{c}_1 + b \ge r|P\vec{a}|\\
+	\vec{a}^T\vec{c}_2 + b \ge r|P\vec{a}|
+\end{align}
+\label{eq:separating_plane_cylinder1}
+\end{subequations}
+where $P\in\mathbb{R}^{2\times 3}$ is the projection matrix that projects to the plane perpendicular to the cylinder axis.
+
+Condition \eqref{eq:separating_plane_cylinder1} is equivalent to
+\begin{subequations}
+\begin{align}
+	\vec{a}^T\vec{c}_1 + b \ge r\\
+	\vec{a}^T\vec{c}_2 + b \ge r\\
+	|P\vec{a}|\le 1
+\end{align}
+\label{eq:separating_plane_cylinder2}
+\end{subequations}
+
+If we want to maximize the margin as well, we consider the following constraints
+\begin{subequations}
+\begin{align}
+	\vec{a}^T\vec{c}_1 + b \ge r + \epsilon\\
+	\vec{a}^T\vec{c}_2 + b \ge r + \epsilon\\
+	|P\vec{a}|\le 1
+\end{align}
+\label{eq:separating_plane_cylinder3}
+\end{subequations}
+The geometric interpretation is that the halfspace contains an inflated version of the cylinder, that the radius of the two circles increase from $r$ to $r + \epsilon$. Note that this doesn't inflate the cylinder along the axis direction. But unless the separating plane is exactly perpendicular to the cylinder circle, inflating the circles also push the plane away from the cylinder. (We can also inflate the cylinder along the axis direction but that makes the problem more complicated).
+
+\subsubsection{Polytope}
+If the i'th vertex of the polytope is at position $\vec{v}_i$, then the separating condition \eqref{eq:separating_plane} is
+\begin{align}
+	\vec{a}^T\vec{v}_i + b \ge 1 \;\forall i
+\end{align}
+Note that we use 1 in the right hand side to avoid the trivial solution $\vec{a}=0, b=0$.
+
+If we want to search for the margin $\epsilon$ as well, then the constraint is
+\begin{subequations}
+\begin{align}
+	\vec{a}^T\vec{v}_i + b \ge \epsilon |\vec{a}|\;\forall i
+\end{align}
+\end{subequations}
+which is equivalent to the following condition
+\begin{align}
+	\vec{a}^T\vec{v}_i + b \ge \epsilon\;\forall i\\
+	\vec{a}^T\vec{c} + b \ge r\label{eq:separating_plane_polytope_center}\\
+	|\vec{a}|\le 1
+\end{align}
+where $\vec{c}$ is a point in the strict interior of the polytope (like its Chebyshev center) and $r$ is the distance from $\vec{c}$ to the surface of the polytope, $r$ being strictly positive. Constraint \eqref{eq:separating_plane_polytope_center} excludes the trivial solution $\vec{a}=0, b=0$.
+
+To summarize, we can write the separating plane condition as
+\begin{align}
+	\vec{a}^T\vec{p} + b \ge \epsilon\label{eq:separating_plane_certain_point}\\
+	|\bar{P}\vec{a}|\le 1
+\end{align}
+where $\vec{p}$ is the position of certain point, computed from robot forward kinematics. $\bar{P} = I_{3\times 3}$ of $\bar{P}=P$ depending on the geometry type. As mentioned in previous sub-section \ref{subsubsection:rational_forward_kinematics}, the position $\vec{p}$ is written as a rational function of $t$, we turn \eqref{eq:separating_plane_certain_point} to a polynomial condition as
+\begin{align}
+	p_{\vec{a}, b}(\vec{t}) -\epsilon\ge 0
+\end{align}
+We also need the condition $|\bar{P}\vec{a}|\le 1$. As discussed later this will be either a second order cone constraints or a sos-matrix constraint, depending on the parameterization of $\vec{a}$.
+
+\subsection{Verifying collision free region in configuration space}
+We aim to verify that a polytopic region $\{\vec{t} | C\vec{t}\le \vec{d}\}$ in the configuration space is collision free
+
+The condition we will verify is
+\begin{align}
+	Ct\le d \implies\exists \vec{a}, b\text{ s. t}
+	\begin{cases}
+		p_{\vec{a}, b}(\vec{t}) - \epsilon \ge 0\\
+		|P\vec{a}|\le 1
+	\end{cases} \label{eq:box_implies_separating_hyperplane}
+\end{align}
+where the right-hand side of $\Rightarrow$ in \eqref{eq:box_implies_separating_hyperplane} is the separating hyperplane condition mentioned in sub-section \ref{subsection:collision_free_region}.
+
+\subsubsection{Self-collision avoidance}
+\label{subsubsection:self_collision_avoidance}
+The idea for self-collision avoidance is similar to collision avoidance between robot link to obstacles, i.e., we will find a separating hyperplane between two robot links, so as to guarantee that they don't collide.
+
+Take a dual-arm IIWA arm for example, if we denote $\vec{q}_l$ as the joint angles for the left IIWA arm, and $\vec{q}_r$ as the joint angles for the right IIWA arm, we can write the world position of a link point on the left arm as a rational polynomial of $\vec{t}_l$, and similar the position of a link point on the right arm as a rational polynomial of $\vec{t}_r$. Hence we want
+\begin{align}
+	\underline{\vec{t}}_l\le \vec{t}_l \le \bar{\vec{t}}_l\Rightarrow \vec{a}^T\vec{r}_l(\vec{t}_l) - s_l(\vec{t})\le 0\\
+	\underline{\vec{t}}_r\le \vec{t}_r \le \bar{\vec{t}}_r\Rightarrow \vec{a}^T\vec{r}_r(\vec{t}_r) - s_r(\vec{t})\ge 0
+\end{align}
+Again, these implications can be imposed as polynomials being non-negative, by introducing Lagrangian multipliers.
+\subsubsection{Changing root link}
+As mentioned in sub-section \ref{subsubsection:rational_forward_kinematics}, we can compute the position of the link point $\leftidx{^W}{\vec{p}}{^Q}$ as a rational polynomial, and hence get the polynomial $q(\vec{t}) = \vec{a}^T\vec{r}(t)-s(\vec{t})$ in condition \eqref{eq:link_outside_halfspace_polynomial} that the link point $Q$ is outside of the halfplane. It is important to note that the polynomial $q(\vec{t})$ contains all the monomials of $\vec{t}$ in the form $\prod \vec{t}_i^{n_i}$, where $n_i = 0, 1, \text{ or } 2$. Hence $q(\vec{t})$ contains $3^{n_t}$ terms, where $n_t$ is the size of $\vec{t}$. Also note that to compute the position of $Q$ in a root frame, we need all joint angles $\vec{q}$ along the kinematics chain from the root to the link to which $Q$ is attached. Hence by changing the root frame, we can adjust $n_t$, hence the size of the polynomial $q(\vec{t})$, and the size of the verification. This is similar to thinking collision avoidance between the robot link and world obstacles, as self-collision avoidance between robot links and obstacles attached to the world link, and then write the separating hyperplane in the frame in the middle of the kinematics chain from the robot link to the world. For IIWA arm, say $Q$ is attached to link 7. If we compute the position of $Q$ in the world frame, then $n_t$ = 7, and the Grammian matrix of $q(\vec{t})$ is of size $2^7 \times 2^7$. On the other hand, if we choose to compute position of $Q$ in link 3's frame, then $q(t)$ in Eq\eqref{eq:box_implies_link_outside_hyperplane} has a Grammian matrix of size $2^4 \times 2^4$, and we need to compute the position of the obstacles also in link 3's frame, and replace \eqref{eq:obstacle_inside_halfplane2} with the condition similar to \eqref{eq:box_implies_link_outside_hyperplane}. As a result, we will introduce more SOS conditions, but each SOS condition is significantly easier.
+
+\subsubsection{Separating hyperplane order}
+The separating hyperplane should be a function of the posture. If we use a constant separating hyperplane for a range of configurations, then it is possible that every posture in that range is collision free, but there doesn't exist a constant separating hyperplane. One example is to consider that a satellite rotating around the earth on the circular orbit. The satellite never touches the earch, but there doesn't exist a single constant separating hyperplane that works for the entire circular orbit.
+
+To resolve this, we consider the hyperplane normal $a$ is also a polynomial of $t$. If we use linear polynomial, namely $a(t)$ is an affine function of $t$, then we don't need to increase the size of the PSD matrix in the SOS verification, as compared to using constant separating hyperplane.
+
+When $\vec{a}, b$ are not function of $t$, then $|\bar{P}\vec{a}|\le 1$ is a second-order cone constraint. Otherwise, from Schur complement we have
+\begin{align}
+	|\bar{P}\vec{a}(\vec{t})|\le 1 \Leftrightarrow \begin{bmatrix} I & \bar{P}\vec{a}(\vec{t})\\ (\bar{P}\vec{a}(\vec{t}))^T & 1\end{bmatrix}\succeq 0
+\end{align}
+which is a sos-matrix condition. Namely this polynomial $\vec{z}^T\vec{z} + 2\vec{z}\bar{P}\vec{a}(\vec{t}) + 1$ is a sos polynomial of indeterminates $\vec{z}, \vec{t}$ under $Ct\le d$. We only need to consider quadratic polynomials of $z$ as multipliers.
+
+\section{C-space generic polytope}
+If our goal is to find a large generic polytopic region $\mathcal{P}=\{\vec{t} | C\vec{t}\le \vec{d}\}$ being collision free, then we need to think more carefully about how to measure the size of this generic polytopic region. Unlike the axis-aligned bounding box $t_{lower}\le t \le t_{upper}$ whose volume can be computed in the closed form, we can't compute the volume of this polytopic region $\mathcal{P}=\{\vec{t} | C\vec{t} \le \vec{d}\}$ easily.
+
+Here we leverage the idea from IRIS, to measure the size of the polytopic region based on an inscribed ellipsoid. We parameterize an ellipsoid as
+\begin{align}
+	\mathcal{E}: \vec{t} = P\vec{y}+\vec{q}, |\vec{y}|\le 1
+\end{align}
+Namely the ellipsoid is the affine transformation of a unit sphere. This ellipsoid is contained in the polytopic region $\mathcal{P}$ if and only if
+\begin{align}
+	|\vec{c_i}^TP|\le \vec{d}_i - \vec{c_i}^T\vec{q} \;\forall i
+\end{align}
+And in order to maximize the volume of the polytopic region $\mathcal{P}$, we choose to maximize the volume of the inscribed ellipsoid $\mathcal{E}$, namely $\max \log\det(P)$.
+
+For simplicity, let me denote the separating hyperplane polynomial as
+\begin{align}
+	p_{\vec{a}, b}(\vec{t})
+\end{align}
+where $\vec{a}, b$ parameterize the separating hyperplane $\vec{a}^T\vec{x} + b=0$. $p_{\vec{a}, b}(\vec{t})$ is obtained as the numerator of the rational function $\vec{a}^T\vec{x} + b - 1$ or $-1 - \vec{a}^T\vec{x}-b$. And our goal is to find the separating hyperplane such that $p_{\vec{a}, b}(\vec{t}) \ge 0$ if $C\vec{t}\le\vec{d}$.
+
+As a result, we need to solve the following program
+\begin{align}
+	\max\log\det(P)\\
+	\text{s.t } |\vec{c_i}^TP|\le d_i - \vec{c_i}^T\vec{q}\;\forall i\\
+	P\succeq 0\\
+	p_{\vec{a}, b}(\vec{t}) - \vec{l}(\vec{t})^T(\vec{d} - C\vec{t})\ge 0\\
+	|\bar{P}a(\vec{t})|\le 1\\
+	\vec{l}(\vec{t}) \ge 0
+\end{align}
+
+The unknowns are the separating plane parameters $\vec{a}, b$, the inscribed ellipsoid parameters $P, \vec{q}$, the lagrangian $\vec{l}(\vec{t})$, and the C-space polytopic region parameters $C, \vec{d}$.
+
+There are bilinear product between $C$ and $P$, also bilinear product between the lagrangian $\vec{l}$ and $\vec{d}, C$. Hence we can solve this through bilinear alternation.
+\begin{itemize}
+	\item In the ``ellipsoid" step, we fix the polytopic region $C, \vec{d}$, and search for the ellipsoid $P, \vec{q}$, the separating plane parameter $\vec{a}, b$ together with the lagrangian $\vec{l}(\vec{t})$. The goal is to maximize the inscribed ellipsoid volume and find the separating plane that separates the two collision geometries with large margin.
+\begin{align}
+	\max\log\det(P)\\
+	\text{s.t } |\vec{c_i}^TP|\le d_i - \vec{c_i}^T\vec{q}\;\forall i\\
+	P\succeq 0
+\end{align}
+which finds the largest inscribed ellipsoid. And
+\begin{align}
+	\max{\epsilon}\\
+	p_{\vec{a}, b}(\vec{t}) - \epsilon - \vec{l}(\vec{t})^T(\vec{d} - C\vec{t})\ge 0\\
+	|\bar{P}a(\vec{t})|\le 1\\
+	\vec{l}(\vec{t}) \ge 0\\
+	\epsilon \ge 0
+\end{align}
+for the i'th separating plane. It tries to find the separating plane with the largest margin to each of the collision geometries. We can run these programs in parallel for each separating plane.
+
+	\item In the ``polytopic region" step, we fix the inscribed ellipsoid $P, \vec{q}$ and lagrangian $\vec{l}(\vec{t})$, and search for the polytopic region $C, \vec{d}$, together with the separating plane parameter $\vec{a}, b$. The objective is to maximize the margin between the inscribed ellipsoid and the polytope, namely
+		\begin{subequations}
+		\begin{align}
+			\max \prod_i(\delta_i+\epsilon_i)\\
+			\text{s.t } |\vec{c_i}^TP|\le \vec{d}_i - \vec{c_i}^T\vec{q}-\delta_i;\forall i\\
+			|\vec{c_i}|\le 1\\
+			\delta_i\ge 0\\
+			p_{\vec{a}, b}(\vec{t}) - \vec{l}(\vec{t})^T(\vec{d} - C\vec{t})\ge 0
+		\end{align}
+		\end{subequations}
+		where $\epsilon_i$ is a small positive constant to make sure the objective product is strictly positive even when some of the margin $\delta_i$ is 0.
+\end{itemize}
+
+\section{Global collision free motion planning}
+Suppose that we know the initial configuration $\vec{q}_{init}$ and the final configuration $\vec{q}_{final}$, and we plan to find a collision free kinematics trajectory from the initial to the final configuration, we can impose this as a mixed-integer convex problem. If we represent the trajectory as B-splines, and require that the neighbouring 3 control points are all in the same $\mathcal{S}(\vec{q}^*)$ described in the previous section, then based on the convexity property of B-spline, we guarantee that the whole trajectory is collision free.
+\end{document}

@@ -1,0 +1,71 @@
+<?xml version="1.0"?>
+
+<robot name="pendulum">
+<material name="Gray">
+    <color rgba="0.2 0.2 0.2 1.0"/>
+  </material>
+  <material name="Red">
+    <color rgba="0.8 0.0 0.0 1.0"/>
+  </material>
+  <material name="Green">
+    <color rgba="0.0 0.8 0.0 1.0"/>
+  </material>
+
+    <link name="fixed">
+        <collision name="right">
+          <origin rpy="0 0 0" xyz="1 0 0"/>
+          <geometry><box size="1 1 10"/></geometry>
+        </collision>
+        <visual>
+          <origin xyz="1 0 .0" rpy="0 0 0"/>
+          <geometry>
+            <box size="1 1 10"/>
+          </geometry>
+          <material name="Gray"/>
+        </visual>
+        <collision name="left">
+          <origin rpy="0 0 0" xyz="-2 0 0"/>
+          <geometry><box size="1 1 10"/></geometry>
+        </collision>
+        <visual>
+          <origin xyz="-2 0 .0" rpy="0 0 0"/>
+          <geometry>
+            <box size="1 1 10"/>
+          </geometry>
+          <material name="Gray"/>
+        </visual>
+    </link>
+    <joint name="fixed_link_weld" type="fixed">
+        <parent link="world"/>
+        <child link="fixed"/>
+    </joint>
+    <link name="link1">
+        <collision name="box">
+          <origin rpy="0 0 0" xyz="0 0 -1"/>
+          <geometry><box size="0.6 0.6 0.6"/></geometry>
+        </collision>
+        <!-- actual box -->
+        <visual>
+          <origin xyz="0 0 -1" rpy="0 0 0"/>
+          <geometry>
+            <box size="0.6 0.6 0.6"/>
+          </geometry>
+          <material name="Red"/>
+        </visual>
+
+        <!-- pole (no collision geometry-->
+        <visual>
+          <origin xyz="0 0 -0.5" rpy="0 0 0"/>
+          <geometry>
+            <box size="0.1 0.1 1"/>
+          </geometry>
+          <material name="Green"/>
+        </visual>
+    </link>
+    <joint name="joint1" type="revolute">
+        <axis xyz="0 1 0"/>
+        <limit lower="-1.57" upper="1.57"/>
+        <parent link="world"/>
+        <child link="link1"/>
+    </joint>
+</robot>
