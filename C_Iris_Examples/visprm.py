@@ -251,3 +251,200 @@ class SetVPRM:
         if not good_sample:
             raise ValueError("[VPRM ERROR] Could not find collision free point in MAXIT")
         return pos_samp
+
+import networkx as nx
+import matplotlib.pyplot as plt
+
+def default_sample_ranking(vs):
+    samples_outside_regions = vs.samples_outside_regions
+    regions = vs.regions
+    connectivity_graph = vs.connectivity_graph
+    key_max = ''
+    max_vis_components = -1
+    #get connected components
+    components = [list(a) for a in nx.connected_components(connectivity_graph)]
+    for key, s_list in samples_outside_regions.items():
+        vis_components = 0
+        for component in components:
+            vis_regions = s_list[1]
+            vis_regions_idx = [regions.index(r) for r in vis_regions]
+            if len(list(set(vis_regions_idx) & set(component))):
+                vis_components +=1
+        if vis_components > max_vis_components:
+                max_vis_components = vis_components
+                key_max = key
+    return key_max, not (len(samples_outside_regions.keys()) > 0)
+
+class VPRMSeeding:
+    def __init__(self,
+                 samples_to_connect,
+                 limits = None,
+                 alpha = 0.05,
+                 eps = 0.05,
+                 collision_handle = None,
+                 is_in_line_of_sight = None,
+                 iris_handle = None,
+                 iris_handle_with_obstacles = None,
+                 ranking_samples_handle = default_sample_ranking,
+                 plot_node = None,
+                 plot_edge = None,
+                 plot_region = None,
+                 Verbose = True):
+
+        self.verbose = Verbose
+        self.limits = limits
+        self.min_pos = self.limits[0]
+        self.max_pos = self.limits[1]
+        self.min_max_diff = self.max_pos - self.min_pos 
+        self.dim = len(self.min_pos)
+        self.alpha = alpha
+        self.eps = eps
+        self.M = int(np.log(alpha)/np.log(1-eps))
+        if self.verbose: print('[VPRMSeeding] GuardInsertion attempts M:', str(self.M))
+
+        self.col_handle = collision_handle
+        self.is_in_line_of_sight = is_in_line_of_sight
+        self.grow_region_at = iris_handle
+        self.grow_region_at_with_obstacles = iris_handle_with_obstacles 
+        self.guard_regions = []
+        self.regions = []
+        self.seed_points = []
+        self.samples_outside_regions = {}
+        self.samples_to_connect = samples_to_connect
+        self.sample_rank_handle = ranking_samples_handle
+                
+    def set_guard_regions(self, regions = None):
+        if regions is None:
+            if len(self.guard_regions)==0:
+                self.regions = [self.grow_region_at(r) for r in self.samples_to_connect]
+                self.seed_points = [s for s in self.samples_to_connect]
+                for idx in range(len(self.regions)): self.guard_regions.append(idx) 
+            else:
+                raise ValueError("[VPRMSeeding] guard_regions must be an empty list")
+        else:
+            for idx, r in enumerate(regions):
+                seed, reg = r
+                self.regions.append(reg)
+                self.seed_points.append(seed)
+                self.guard_regions.append(idx)
+
+    def point_in_guard_regions(self, q):
+        for r in self.guard_regions:
+            if self.regions[r].PointInSet(q):
+                    return True
+        return False
+
+    def sample_node_pos(self, MAXIT = 1e4):  
+        rand = np.random.rand(self.dim)
+        pos_samp = self.min_pos + rand*self.min_max_diff 
+        good_sample = (not self.col_handle(pos_samp)) and (not self.point_in_guard_regions(pos_samp))
+        it = 0
+        while not good_sample and it < MAXIT:
+            rand = np.random.rand(self.dim)
+            pos_samp = self.min_pos + rand*self.min_max_diff 
+            good_sample = (not self.col_handle(pos_samp)) and (not self.point_in_guard_regions(pos_samp))
+            it+=1
+        if not good_sample:
+            raise ValueError("[VPRMSeeding] ERROR: Could not find collision free point in MAXIT %d".format(MAXIT))
+        return pos_samp
+
+    def run(self):
+        self.set_guard_regions()
+        self.guard_phase()        
+        done_connecting = False
+        while not done_connecting:
+            done_connecting = self.connectivity_phase()
+            
+    def draw_connectivity_graph(self,):
+        fig = plt.figure()
+        colors = []
+        for idx in range(len(self.regions)):
+            if idx<len(self.samples_to_connect):
+                colors.append('c')
+            elif idx<len(self.guard_regions):
+                colors.append('b')
+            else:
+                colors.append('m')
+        nx.draw_spring(self.connectivity_graph, 
+                              with_labels = True, 
+                              node_color = colors)
+
+    def guard_phase(self,):
+        it = 0
+        while it < self.M:
+            p = self.sample_node_pos()
+            add_to_sample_set = False
+            visible_regions = []
+            for idx_guard in self.guard_regions: # zip(self.guard_regions, self.guard_region_seed_points):
+                guard_seed_point = self.seed_points[idx_guard]
+                guard_region = self.regions[idx_guard]
+                if self.is_in_line_of_sight(p.reshape(-1,1), guard_seed_point.reshape(-1,1))[0]:
+                    add_to_sample_set = True
+                    visible_regions.append(guard_region)
+            if add_to_sample_set:
+                self.samples_outside_regions[str(p)] = [p, visible_regions]
+            else:
+                print(it)
+                if self.verbose: print("[VPRMSeeding] New guard placed N = ", str(len(self.guard_regions))) 
+                try:
+                    rnew = self.grow_region_at(p)
+                    self.regions.append(rnew)
+                    self.seed_points.append(p)
+                    self.guard_regions.append(len(self.regions)-1)
+                    
+                    #update visibility and cull points
+                    keys_to_del = []
+                    for s_key in self.samples_outside_regions.keys():
+                        s = self.samples_outside_regions[s_key][0]
+                        if rnew.PointInSet(s.reshape(-1,1)):
+                            keys_to_del.append(s_key)
+                        elif self.is_in_line_of_sight(s.reshape(-1,1), p.reshape(-1,1))[0]:
+                            self.samples_outside_regions[s_key][1].append(rnew)
+                    for k in keys_to_del:
+                        del self.samples_outside_regions[k]
+                except:
+                    print('[VPRMSeeding] Mosek failed, deleting point')
+            it+=1
+
+        self.connectivity_graph = nx.Graph()
+        for idx in range(len(self.guard_regions)):
+            self.connectivity_graph.add_node(idx)
+            
+        for idx1 in range(len(self.guard_regions)):
+            for idx2 in range(idx1 +1, len(self.guard_regions)):
+                r1 = self.regions[idx1]
+                r2 = self.regions[idx2]
+                if r1.IntersectsWith(r2):
+                    self.connectivity_graph.add_edge(idx1,idx2)
+        #if self.verbose: print("[VPRMSeeding] Connectivity phase")
+
+    def connectivity_phase(self,):
+        #done_connecting = False
+        #while not done_connecting:
+        best_sample, done_connecting = self.sample_rank_handle(self)
+        loc_best_sample = self.samples_outside_regions[best_sample][0]
+        try:
+            nr = self.grow_region_at_with_obstacles(loc_best_sample.reshape(-1,1), self.regions)
+            self.regions.append(nr)
+            self.seed_points.append(loc_best_sample.copy())
+            idx_new_region = len(self.regions)-1
+            self.connectivity_graph.add_node(idx_new_region)
+            keys_to_del = []
+            for s_key in self.samples_outside_regions.keys():
+                s = self.samples_outside_regions[s_key][0]
+                if nr.PointInSet(s.reshape(-1,1)):
+                    keys_to_del.append(s_key)
+                #elif is_LOS(s, loc_max)[0]:
+                #    vs.samples_outside_regions[s_key][1].append(nr)
+            for k in keys_to_del:
+                del self.samples_outside_regions[k]
+                
+            #update connectivity graph
+            for idx, r in enumerate(self.regions[:-1]):
+                if r.IntersectsWith(nr):
+                   self.connectivity_graph.add_edge(idx, idx_new_region)
+        except:
+            print('failed, deleting point')
+            del self.samples_outside_regions[best_sample]
+        return done_connecting
+
