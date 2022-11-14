@@ -126,6 +126,20 @@ drake_jupyter_py_binary(
 )
 
 drake_jupyter_py_binary(
+    name = "vprm_iris_seeding_3DOF",
+    add_test_rule = 0,
+    data = [
+        "//C_Iris_Examples:models",
+    ],
+    deps = [
+        "//C_Iris_Examples:iris_plant_visualizer",
+        "//C_Iris_Examples:visualizations_utils",
+        "//bindings/pydrake",
+        "iris_helpers"
+    ],
+)
+
+drake_jupyter_py_binary(
     name = "simple_pendulum_example",
     add_test_rule = 0,
     data = [

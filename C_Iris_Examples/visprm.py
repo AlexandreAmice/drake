@@ -263,6 +263,11 @@ def default_sample_ranking(vs):
     max_vis_components = -1
     #get connected components
     components = [list(a) for a in nx.connected_components(connectivity_graph)]
+    #check if all nodes to connect are part of a single connected component
+    for c in components:
+        if vs.nodes_to_connect & set(c) == vs.nodes_to_connect:
+            return None, True
+
     for key, s_list in samples_outside_regions.items():
         vis_components = 0
         for component in components:
@@ -312,7 +317,8 @@ class VPRMSeeding:
         self.samples_outside_regions = {}
         self.samples_to_connect = samples_to_connect
         self.sample_rank_handle = ranking_samples_handle
-                
+        self.nodes_to_connect = set([idx for idx, s in enumerate(self.samples_to_connect)])
+
     def set_guard_regions(self, regions = None):
         if regions is None:
             if len(self.guard_regions)==0:
@@ -342,7 +348,11 @@ class VPRMSeeding:
         while not good_sample and it < MAXIT:
             rand = np.random.rand(self.dim)
             pos_samp = self.min_pos + rand*self.min_max_diff 
-            good_sample = (not self.col_handle(pos_samp)) and (not self.point_in_guard_regions(pos_samp))
+            col = False
+            for _ in range(10):
+                r  = 0.01*(np.random.rand(self.dim)-0.5)
+                col |= (self.col_handle(pos_samp+r) > 0)
+            good_sample = (not col) and (not self.point_in_guard_regions(pos_samp))
             it+=1
         if not good_sample:
             raise ValueError("[VPRMSeeding] ERROR: Could not find collision free point in MAXIT %d".format(MAXIT))
@@ -419,32 +429,34 @@ class VPRMSeeding:
         #if self.verbose: print("[VPRMSeeding] Connectivity phase")
 
     def connectivity_phase(self,):
-        #done_connecting = False
-        #while not done_connecting:
-        best_sample, done_connecting = self.sample_rank_handle(self)
-        loc_best_sample = self.samples_outside_regions[best_sample][0]
-        try:
-            nr = self.grow_region_at_with_obstacles(loc_best_sample.reshape(-1,1), self.regions)
-            self.regions.append(nr)
-            self.seed_points.append(loc_best_sample.copy())
-            idx_new_region = len(self.regions)-1
-            self.connectivity_graph.add_node(idx_new_region)
-            keys_to_del = []
-            for s_key in self.samples_outside_regions.keys():
-                s = self.samples_outside_regions[s_key][0]
-                if nr.PointInSet(s.reshape(-1,1)):
-                    keys_to_del.append(s_key)
-                #elif is_LOS(s, loc_max)[0]:
-                #    vs.samples_outside_regions[s_key][1].append(nr)
-            for k in keys_to_del:
-                del self.samples_outside_regions[k]
-                
-            #update connectivity graph
-            for idx, r in enumerate(self.regions[:-1]):
-                if r.IntersectsWith(nr):
-                   self.connectivity_graph.add_edge(idx, idx_new_region)
-        except:
-            print('failed, deleting point')
-            del self.samples_outside_regions[best_sample]
+        done_connecting = False
+        while not done_connecting:
+            best_sample, done_connecting = self.sample_rank_handle(self)
+            if done_connecting:
+                break
+            loc_best_sample = self.samples_outside_regions[best_sample][0]
+            try:
+                nr = self.grow_region_at_with_obstacles(loc_best_sample.reshape(-1,1), self.regions)
+                self.regions.append(nr)
+                self.seed_points.append(loc_best_sample.copy())
+                idx_new_region = len(self.regions)-1
+                self.connectivity_graph.add_node(idx_new_region)
+                keys_to_del = []
+                for s_key in self.samples_outside_regions.keys():
+                    s = self.samples_outside_regions[s_key][0]
+                    if nr.PointInSet(s.reshape(-1,1)):
+                        keys_to_del.append(s_key)
+                    #elif is_LOS(s, loc_max)[0]:
+                    #    vs.samples_outside_regions[s_key][1].append(nr)
+                for k in keys_to_del:
+                    del self.samples_outside_regions[k]
+
+                #update connectivity graph
+                for idx, r in enumerate(self.regions[:-1]):
+                    if r.IntersectsWith(nr):
+                        self.connectivity_graph.add_edge(idx, idx_new_region)
+            except:
+                print('failed, deleting point')
+                del self.samples_outside_regions[best_sample]
         return done_connecting
 

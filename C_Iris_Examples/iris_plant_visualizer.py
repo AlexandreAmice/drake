@@ -303,6 +303,23 @@ class IrisPlantVisualizer:
             self.meshcat2.SetTransform(f"/iris/seedpoints/seedpoint{i}",
                                        RigidTransform(RotationMatrix(),
                                                       s))
+    def plot_points(self, points, size = 0.05, color = Rgba(0.06, 0.0, 0, 1), start_idx = 0, prefix = 'point'):
+        for i in range(points.shape[0]):
+            self.meshcat2.SetObject(f"/iris/points/{prefix}/{i+start_idx}",
+                                   Sphere(size),
+                                   color)
+            s = np.zeros(3)
+            s[:len(points[i])] = points[i]
+            self.meshcat2.SetTransform(f"/iris/points/{prefix}/{i+start_idx}",
+                                       RigidTransform(RotationMatrix(),
+                                                      s))
+
+    def plot_lines(self, xstart, xend, colors, width, start_idx = 0):
+        for idx,(xs, xe) in enumerate(zip(xstart, xend)):
+            self.meshcat2.SetObject(f"/iris/lines/line{idx+start_idx}",
+                                    viz_utils.meshcat_line(xs, xe, width),
+                                    Rgba(colors[idx][0],colors[idx][1],colors[idx][2],colors[idx][3]) )
+        
 
     def get_plot_poly_mesh(self, region, resolution):
 
