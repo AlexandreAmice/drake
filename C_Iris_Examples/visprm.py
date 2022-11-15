@@ -254,6 +254,7 @@ class SetVPRM:
 
 import networkx as nx
 import matplotlib.pyplot as plt
+from pydrake.geometry.optimization import HPolyhedron
 
 def default_sample_ranking(vs):
     samples_outside_regions = vs.samples_outside_regions
@@ -278,6 +279,8 @@ def default_sample_ranking(vs):
         if vis_components > max_vis_components:
                 max_vis_components = vis_components
                 key_max = key
+    print('[VPRMSeeding] Num connected Components Vis:', max_vis_components)
+
     return key_max, not (len(samples_outside_regions.keys()) > 0)
 
 class VPRMSeeding:
@@ -305,7 +308,10 @@ class VPRMSeeding:
         self.alpha = alpha
         self.eps = eps
         self.M = int(np.log(alpha)/np.log(1-eps))
-        if self.verbose: print('[VPRMSeeding] GuardInsertion attempts M:', str(self.M))
+        if self.verbose: 
+            print('[VPRMSeeding] GuardInsertion attempts M:', str(self.M))
+            print('[VPRMSeeding] {} probability that unseen region is less than {} "%" of Cfree '.format(1-self.alpha, 100*eps))
+
 
         self.col_handle = collision_handle
         self.is_in_line_of_sight = is_in_line_of_sight
@@ -358,12 +364,33 @@ class VPRMSeeding:
             raise ValueError("[VPRMSeeding] ERROR: Could not find collision free point in MAXIT %d".format(MAXIT))
         return pos_samp
 
+    def load_checkpoint(self, checkpoint):
+        self.seed_points = checkpoint['seedpoints']
+        A = checkpoint['regionsA']
+        B = checkpoint['regionsB']
+        self.regions = [HPolyhedron(a,b) for a,b, in zip(A,B)]
+        self.guard_regions = [idx for idx in range(len(self.regions))]
+        self.samples_outside_regions = {}
+        vis_reg = [[self.regions[idx] for idx in vis] for vis in checkpoint['sample_set_vis_regions']]
+        for i ,pt in enumerate(checkpoint['sample_set_points']):
+            self.samples_outside_regions[str(pt)] = [pt, vis_reg[i]]
+        
+        self.connectivity_graph = nx.Graph()
+        for idx in range(len(self.guard_regions)):
+            self.connectivity_graph.add_node(idx)
+            
+        for idx1 in range(len(self.guard_regions)):
+            for idx2 in range(idx1 +1, len(self.guard_regions)):
+                r1 = self.regions[idx1]
+                r2 = self.regions[idx2]
+                if r1.IntersectsWith(r2):
+                    self.connectivity_graph.add_edge(idx1,idx2)
+        print("[VPRMSeeding] Checkpoint loaded successfully, current state is at end of guard phase")
+
     def run(self):
         self.set_guard_regions()
         self.guard_phase()        
-        done_connecting = False
-        while not done_connecting:
-            done_connecting = self.connectivity_phase()
+        done_connecting = self.connectivity_phase()
             
     def draw_connectivity_graph(self,):
         fig = plt.figure()
@@ -401,7 +428,7 @@ class VPRMSeeding:
                     self.regions.append(rnew)
                     self.seed_points.append(p)
                     self.guard_regions.append(len(self.regions)-1)
-                    
+                    it = 0
                     #update visibility and cull points
                     keys_to_del = []
                     for s_key in self.samples_outside_regions.keys():
@@ -412,6 +439,7 @@ class VPRMSeeding:
                             self.samples_outside_regions[s_key][1].append(rnew)
                     for k in keys_to_del:
                         del self.samples_outside_regions[k]
+                    if self.verbose: print('[VPRMSeeding] Sample set size',len(self.samples_outside_regions.keys()))
                 except:
                     print('[VPRMSeeding] Mosek failed, deleting point')
             it+=1
@@ -437,11 +465,12 @@ class VPRMSeeding:
             loc_best_sample = self.samples_outside_regions[best_sample][0]
             try:
                 nr = self.grow_region_at_with_obstacles(loc_best_sample.reshape(-1,1), self.regions)
+                print('new_region added')
                 self.regions.append(nr)
                 self.seed_points.append(loc_best_sample.copy())
                 idx_new_region = len(self.regions)-1
                 self.connectivity_graph.add_node(idx_new_region)
-                keys_to_del = []
+                keys_to_del = [best_sample]
                 for s_key in self.samples_outside_regions.keys():
                     s = self.samples_outside_regions[s_key][0]
                     if nr.PointInSet(s.reshape(-1,1)):
@@ -450,7 +479,7 @@ class VPRMSeeding:
                     #    vs.samples_outside_regions[s_key][1].append(nr)
                 for k in keys_to_del:
                     del self.samples_outside_regions[k]
-
+                if self.verbose: print('[VPRMSeeding] Sample set size',len(self.samples_outside_regions.keys()), 'num keys to del ', len(keys_to_del))
                 #update connectivity graph
                 for idx, r in enumerate(self.regions[:-1]):
                     if r.IntersectsWith(nr):
