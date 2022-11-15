@@ -465,18 +465,19 @@ class VPRMSeeding:
             loc_best_sample = self.samples_outside_regions[best_sample][0]
             try:
                 nr = self.grow_region_at_with_obstacles(loc_best_sample.reshape(-1,1), self.regions)
-                print('new_region added')
+                if self.verbose: print('[VPRMSeeding] New region added')
                 self.regions.append(nr)
                 self.seed_points.append(loc_best_sample.copy())
                 idx_new_region = len(self.regions)-1
                 self.connectivity_graph.add_node(idx_new_region)
-                keys_to_del = [best_sample]
+                keys_to_del = []
                 for s_key in self.samples_outside_regions.keys():
                     s = self.samples_outside_regions[s_key][0]
                     if nr.PointInSet(s.reshape(-1,1)):
                         keys_to_del.append(s_key)
                     #elif is_LOS(s, loc_max)[0]:
                     #    vs.samples_outside_regions[s_key][1].append(nr)
+                #print(k)
                 for k in keys_to_del:
                     del self.samples_outside_regions[k]
                 if self.verbose: print('[VPRMSeeding] Sample set size',len(self.samples_outside_regions.keys()), 'num keys to del ', len(keys_to_del))
@@ -485,7 +486,7 @@ class VPRMSeeding:
                     if r.IntersectsWith(nr):
                         self.connectivity_graph.add_edge(idx, idx_new_region)
             except:
-                print('failed, deleting point')
+                print('[VPRMSeeding] Failed, deleting point')
                 del self.samples_outside_regions[best_sample]
         return done_connecting
 
