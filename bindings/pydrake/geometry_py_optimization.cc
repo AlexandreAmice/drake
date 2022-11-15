@@ -277,11 +277,12 @@ void DefineGeometryOptimization(py::module m) {
       .def_readwrite("configuration_space_margin",
           &IrisOptions::configuration_space_margin,
           doc.IrisOptions.configuration_space_margin.doc)
-      .def_readwrite("enable_ibex", &IrisOptions::enable_ibex,
-          doc.IrisOptions.enable_ibex.doc)
       .def_readwrite("max_faces_per_collision_pair",
           &IrisOptions::max_faces_per_collision_pair,
           doc.IrisOptions.max_faces_per_collision_pair.doc)
+      .def_readwrite("configuration_obstacles",
+            &IrisOptions::configuration_obstacles,
+            cls_doc.configuration_obstacles.doc)
       .def("__repr__", [](const IrisOptions& self) {
         return py::str(
             "IrisOptions("

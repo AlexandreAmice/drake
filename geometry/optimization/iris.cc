@@ -16,7 +16,6 @@
 #include "drake/math/autodiff_gradient.h"
 #include "drake/multibody/plant/multibody_plant.h"
 #include "drake/solvers/choose_best_solver.h"
-#include "drake/solvers/ibex_solver.h"
 #include "drake/solvers/ipopt_solver.h"
 #include "drake/solvers/snopt_solver.h"
 
@@ -33,6 +32,9 @@ using multibody::Body;
 using multibody::Frame;
 using multibody::JacobianWrtVariable;
 using multibody::MultibodyPlant;
+using solvers::Binding;
+using solvers::Constraint;
+using solvers::MathematicalProgram;
 using symbolic::Expression;
 using systems::Context;
 
@@ -120,21 +122,23 @@ HPolyhedron Iris(const ConvexSets& obstacles, const Ref<const VectorXd>& sample,
   return P;
 }
 
-HPolyhedron IrisMultiContainment(const ConvexSets& obstacles, 
+HPolyhedron IrisMultiContainment(const ConvexSets& obstacles,
                                  const Ref<const MatrixXd>& samples,
                                  const Hyperellipsoid& initellipse,
-                                 const HPolyhedron& domain, 
+                                 const HPolyhedron& domain,
                                  const IrisOptions& options) {
   const int dim = samples.cols();
   const int N = obstacles.size();
-  
+
   DRAKE_DEMAND(domain.ambient_dimension() == dim);
   for (int i = 0; i < N; ++i) {
     DRAKE_DEMAND(obstacles[i]->ambient_dimension() == dim);
   }
   DRAKE_DEMAND(domain.IsBounded());
-  //const double kEpsilonEllipsoid = 1e-2;
-  Hyperellipsoid E = initellipse; //Hyperellipsoid::MakeHypersphere(kEpsilonEllipsoid, sample);
+  // const double kEpsilonEllipsoid = 1e-2;
+  Hyperellipsoid E = initellipse;
+  // Hyperellipsoid::MakeHypersphere(kEpsilonEllipsoid,
+                                   // sample);
   HPolyhedron P = domain;
 
   // On each iteration, we will build the collision-free polytope represented as
@@ -181,15 +185,15 @@ HPolyhedron IrisMultiContainment(const ConvexSets& obstacles,
       }
     }
 
-    for(int i = 0; i<samples.rows(); i++ ){
-        if (options.require_sample_point_is_contained &&
-            ((A.topRows(num_constraints) * samples.row(i).transpose()).array() >=
-            b.head(num_constraints).array())
-                .any()) {
-            return P;
-        }
+    for (int i = 0; i < samples.rows(); i++) {
+      if (options.require_sample_point_is_contained &&
+          ((A.topRows(num_constraints) * samples.row(i).transpose()).array() >=
+           b.head(num_constraints).array())
+              .any()) {
+        return P;
+      }
     }
-    
+
     P = HPolyhedron(A.topRows(num_constraints), b.head(num_constraints));
 
     iteration++;
@@ -343,24 +347,6 @@ bool FindClosestCollision(
   prog.SetInitialGuess(p_AA, Vector3d::Constant(.01));
   prog.SetInitialGuess(p_BB, Vector3d::Constant(.01));
 
-  if (solver.solver_id() == solvers::IbexSolver::id()) {
-    prog.SetSolverOption(solvers::IbexSolver::id(), "rigor", true);
-    // Use kNonconvex instead of the default kConvexSmooth.
-    std::vector<solvers::Binding<solvers::LorentzConeConstraint>> to_replace =
-        prog.lorentz_cone_constraints();
-    for (const auto& binding : to_replace) {
-      const auto c = binding.evaluator();
-      prog.AddConstraint(
-          std::make_shared<solvers::LorentzConeConstraint>(
-              c->A_dense(), c->b(),
-              solvers::LorentzConeConstraint::EvalType::kNonconvex),
-          binding.variables());
-    }
-    for (const auto& binding : to_replace) {
-      prog.RemoveConstraint(binding);
-    }
-  }
-
   solvers::MathematicalProgramResult result;
   solver.Solve(prog, std::nullopt, std::nullopt, &result);
   if (result.is_success()) {
@@ -374,7 +360,7 @@ bool FindClosestCollision(
 // constraint.
 void AddTangentToPolytope(
     const Hyperellipsoid& E, const Eigen::Ref<const Eigen::VectorXd>& point,
-    const IrisOptions& options,
+    double configuration_space_margin,
     Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>* A,
     Eigen::VectorXd* b, int* num_constraints) {
   if (*num_constraints >= A->rows()) {
@@ -386,7 +372,15 @@ void AddTangentToPolytope(
   A->row(*num_constraints) =
       (E.A().transpose() * E.A() * (point - E.center())).normalized();
   (*b)[*num_constraints] =
-      A->row(*num_constraints) * point - options.configuration_space_margin;
+      A->row(*num_constraints) * point - configuration_space_margin;
+  if (A->row(*num_constraints) * E.center() > (*b)[*num_constraints]) {
+    throw std::logic_error(
+        "The current center of the IRIS region is within "
+        "options.configuration_space_margin of being infeasible.  Check your "
+        "sample point and/or any additional constraints you've passed in via "
+        "the options. The configuration space surrounding the sample point "
+        "must have an interior.");
+  }
   *num_constraints += 1;
 }
 
@@ -481,6 +475,8 @@ void _DoIris_(const multibody::MultibodyPlant<double>& plant,
   // Check the inputs.
   plant.ValidateContext(context);
   const int num_joints = plant.num_positions();
+  const int nc = static_cast<int>(options.configuration_obstacles.size());
+
   DRAKE_DEMAND(num_joints == P_ptr->ambient_dimension());
   DRAKE_DEMAND(P_ptr->ambient_dimension() == E_ptr->ambient_dimension());
 
@@ -529,24 +525,54 @@ void _DoIris_(const multibody::MultibodyPlant<double>& plant,
   A.topRows(P_ptr->A().rows()) = P_ptr->A();
   b.head(P_ptr->A().rows()) = P_ptr->b();
 
+  DRAKE_THROW_UNLESS(P_ptr->PointInSet(sample, 1e-12));
+
   double best_volume = E_ptr->Volume();
   int iteration = 0;
   VectorXd closest(num_joints);
 
+  RandomGenerator generator(options.random_seed);
+  std::vector<std::pair<double, int>> scaling(nc);
+  MatrixXd closest_points(num_joints, nc);
+
   auto solver = solvers::MakeFirstAvailableSolver(
       {solvers::SnoptSolver::id(), solvers::IpoptSolver::id()});
-  std::unique_ptr<solvers::IbexSolver> ibex;
-  if (options.enable_ibex) {
-    ibex = std::make_unique<solvers::IbexSolver>();
-    DRAKE_DEMAND(ibex->is_available() && ibex->is_enabled());
-    same_point_constraint->EnableSymbolic();
-  }
 
   while (true) {
     int num_constraints = 2 * num_joints;  // Start with just the joint limits.
     bool sample_point_requirement = true;
     DRAKE_ASSERT(best_volume > 0);
     // Find separating hyperplanes
+
+    // Add constraints from configuration space obstacles to reduce the domain
+    // for later optimization.
+    if (options.configuration_obstacles.size() > 0) {
+      const ConvexSets& obstacles = options.configuration_obstacles;
+      for (int i = 0; i < nc; ++i) {
+        const auto touch = E_ptr->MinimumUniformScalingToTouch(*obstacles[i]);
+        scaling[i].first = touch.first;
+        scaling[i].second = i;
+        closest_points.col(i) = touch.second;
+      }
+      std::sort(scaling.begin(), scaling.end());
+
+      for (int i = 0; i < nc; ++i) {
+        // Only add a constraint if this obstacle still has overlap with the set
+        // that has been constructed so far on this iteration.
+        if (HPolyhedron(A.topRows(num_constraints), b.head(num_constraints))
+                .IntersectsWith(*obstacles[scaling[i].second])) {
+          const VectorXd point = closest_points.col(scaling[i].second);
+          AddTangentToPolytope(*E_ptr, point, 0.0, &A, &b, &num_constraints);
+        }
+      }
+
+      if (options.require_sample_point_is_contained) {
+        sample_point_requirement =
+            ((A.topRows(num_constraints) * sample).array() <=
+             b.head(num_constraints).array())
+                .any();
+      }
+    }
 
     // First use a fast nonlinear optimizer to add as many constraint as it
     // can find.
@@ -560,38 +586,14 @@ void _DoIris_(const multibody::MultibodyPlant<double>& plant,
                  b.head(num_constraints), *solver, sample, &closest) &&
              ((options.max_faces_per_collision_pair < 0) ||
               num_faces <= options.max_faces_per_collision_pair)) {
-        AddTangentToPolytope(*E_ptr, closest, options, &A, &b,
+        AddTangentToPolytope(*E_ptr, closest,
+                             options.configuration_space_margin, &A, &b,
                              &num_constraints);
         if (options.require_sample_point_is_contained) {
           sample_point_requirement =
               A.row(num_constraints - 1) * sample <= b(num_constraints - 1);
         }
         num_faces++;
-      }
-    }
-
-    if (options.enable_ibex) {
-      // Now loop back through and use Ibex for rigorous certification.
-      // TODO(russt): Consider (re-)implementing a "feasibility only" version of
-      // the IRIS check + nonlinear optimization to improve.
-      for (const auto& pair : sorted_pairs) {
-        int num_faces = 0;
-        while (sample_point_requirement &&
-               FindClosestCollision(
-                   same_point_constraint, *frames.at(pair.geomA),
-                   *frames.at(pair.geomB), *sets.at(pair.geomA),
-                   *sets.at(pair.geomB), *E_ptr, A.topRows(num_constraints),
-                   b.head(num_constraints), *ibex, sample, &closest) &&
-               ((options.max_faces_per_collision_pair < 0) ||
-                num_faces <= options.max_faces_per_collision_pair)) {
-          AddTangentToPolytope(*E_ptr, closest, options, &A, &b,
-                               &num_constraints);
-          if (options.require_sample_point_is_contained) {
-            sample_point_requirement =
-                A.row(num_constraints - 1) * sample <= b(num_constraints - 1);
-          }
-          num_faces++;
-        }
       }
     }
 
