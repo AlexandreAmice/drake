@@ -138,7 +138,7 @@ HPolyhedron IrisMultiContainment(const ConvexSets& obstacles,
   // const double kEpsilonEllipsoid = 1e-2;
   Hyperellipsoid E = initellipse;
   // Hyperellipsoid::MakeHypersphere(kEpsilonEllipsoid,
-                                   // sample);
+  // sample);
   HPolyhedron P = domain;
 
   // On each iteration, we will build the collision-free polytope represented as
@@ -498,6 +498,15 @@ void _DoIris_(const multibody::MultibodyPlant<double>& plant,
     inspector.GetShape(geom_id).Reify(&maker, &temp_set);
     sets.emplace(geom_id, std::move(temp_set));
     frames.emplace(geom_id, &plant.GetBodyFromFrameId(frame_id)->body_frame());
+  }
+
+  for (int i = 0; i < nc; ++i) {
+    DRAKE_DEMAND(options.configuration_obstacles[i]->ambient_dimension() ==
+                 num_joints);
+    if (options.configuration_obstacles[i]->PointInSet(sample)) {
+      throw std::runtime_error(
+          fmt::format("The seed point is in configuration obstacle {}", i));
+    }
   }
 
   auto pairs = inspector.GetCollisionCandidates();
