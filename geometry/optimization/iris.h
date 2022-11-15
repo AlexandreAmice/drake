@@ -61,15 +61,45 @@ struct IrisOptions {
   */
   double configuration_space_margin{1e-2};
 
-  /** For IRIS in configuration space, we use IbexSolver to rigorously confirm
-  that regions are collision-free. This step may be computationally
-  demanding, so we allow it to be disabled for a faster algorithm for obtaining
-  regions without the rigorous guarantee. */
-  bool enable_ibex = true;
+  /** For each possible collision, IRIS will search for a counter-example by
+  formulating a (likely nonconvex) optimization problem. The initial guess for
+  this optimization is taken by sampling uniformly inside the current IRIS
+  region. This option controls the termination condition for that
+  counter-example search, defining the number of consecutive failures to find a
+  counter-example requested before moving on to the next constraint. */
+  int num_collision_infeasible_samples{5};
+
+  /** For IRIS in configuration space, it can be beneficial to not only specify
+  task-space obstacles (passed in through the plant) but also obstacles that are
+  defined by convex sets in the configuration space. This option can be used to
+  pass in such configuration space obstacles. */
+  ConvexSets configuration_obstacles{};
 
   /** Maximum number of faces added per collision pair, per iteration. Setting
      this option to -1 imposes no limit. Default value is -1. */
   int max_faces_per_collision_pair{-1};
+
+  /** By default, IRIS in configuration space certifies regions for collision
+  avoidance constraints and joint limits. This option can be used to pass
+  additional constraints that should be satisfied by the IRIS region. We accept
+  these in the form of a MathematicalProgram:
+
+    find q subject to g(q) ≤ 0.
+
+  The decision_variables() for the program are taken to define `q`. IRIS will
+  silently ignore any costs in `prog_with_additional_constraints`, and will
+  throw std::runtime_error if it contains any unsupported constraints.
+
+  For example, one could create an InverseKinematics problem with rich
+  kinematic constraints, and then pass `InverseKinematics::prog()` into this
+  option.
+  */
+  const solvers::MathematicalProgram* prog_with_additional_constraints{};
+
+  /** The only randomization in IRIS is the random sampling done to find
+  counter-examples for the additional constraints using in
+  IrisInConfigurationSpace. Use this option to set the initial seed. */
+  int random_seed{1234};
 };
 
 struct IrisOptionsRationalSpace : public IrisOptions {
