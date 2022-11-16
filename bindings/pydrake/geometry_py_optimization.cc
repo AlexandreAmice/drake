@@ -120,11 +120,13 @@ void DefineGeometryOptimization(py::module m) {
         .def("A", &HPolyhedron::A, cls_doc.A.doc)
         .def("b", &HPolyhedron::b, cls_doc.b.doc)
         .def("ContainedIn", &HPolyhedron::ContainedIn, py::arg("other"),
-            cls_doc.ContainedIn.doc)
+            py::arg("tol") = 1E-9, cls_doc.ContainedIn.doc)
         .def("Intersection", &HPolyhedron::Intersection, py::arg("other"),
-            py::arg("check_redundancy") = false, cls_doc.Intersection.doc)
+            py::arg("check_for_redundancy") = false, py::arg("tol") = 1E-9,
+            cls_doc.Intersection.doc)
         .def("ReduceInequalities", &HPolyhedron::ReduceInequalities,
-            cls_doc.ReduceInequalities.doc)
+            py::arg("tol") = 1E-9, cls_doc.ReduceInequalities.doc)
+        .def("IsEmpty", &HPolyhedron::IsEmpty, cls_doc.IsEmpty.doc)
         .def("MaximumVolumeInscribedEllipsoid",
             &HPolyhedron::MaximumVolumeInscribedEllipsoid,
             cls_doc.MaximumVolumeInscribedEllipsoid.doc)
@@ -136,10 +138,22 @@ void DefineGeometryOptimization(py::module m) {
             cls_doc.CartesianPower.doc)
         .def("PontryaginDifference", &HPolyhedron::PontryaginDifference,
             py::arg("other"), cls_doc.PontryaginDifference.doc)
+        .def("UniformSample",
+            overload_cast_explicit<Eigen::VectorXd, RandomGenerator*,
+                const Eigen::Ref<const Eigen::VectorXd>&>(
+                &HPolyhedron::UniformSample),
+            py::arg("generator"), py::arg("previous_sample"),
+            cls_doc.UniformSample.doc_2args)
+        .def("UniformSample",
+            overload_cast_explicit<Eigen::VectorXd, RandomGenerator*>(
+                &HPolyhedron::UniformSample),
+            py::arg("generator"), cls_doc.UniformSample.doc_1args)
         .def_static("MakeBox", &HPolyhedron::MakeBox, py::arg("lb"),
             py::arg("ub"), cls_doc.MakeBox.doc)
         .def_static("MakeUnitBox", &HPolyhedron::MakeUnitBox, py::arg("dim"),
             cls_doc.MakeUnitBox.doc)
+        .def_static("MakeL1Ball", &HPolyhedron::MakeL1Ball, py::arg("dim"),
+            cls_doc.MakeL1Ball.doc)
         .def(py::pickle(
             [](const HPolyhedron& self) {
               return std::make_pair(self.A(), self.b());
@@ -277,11 +291,12 @@ void DefineGeometryOptimization(py::module m) {
       .def_readwrite("configuration_space_margin",
           &IrisOptions::configuration_space_margin,
           doc.IrisOptions.configuration_space_margin.doc)
-      .def_readwrite("enable_ibex", &IrisOptions::enable_ibex,
-          doc.IrisOptions.enable_ibex.doc)
       .def_readwrite("max_faces_per_collision_pair",
           &IrisOptions::max_faces_per_collision_pair,
           doc.IrisOptions.max_faces_per_collision_pair.doc)
+      .def_readwrite("configuration_obstacles",
+            &IrisOptions::configuration_obstacles,
+            doc.IrisOptions.configuration_obstacles.doc)
       .def("__repr__", [](const IrisOptions& self) {
         return py::str(
             "IrisOptions("
@@ -290,13 +305,12 @@ void DefineGeometryOptimization(py::module m) {
             "termination_threshold={}, "
             "relative_termination_threshold={}, "
             "configuration_space_margin={}, "
-            "enable_ibex={}, "
             "max_faces_per_collision_pair={}, "
             ")")
             .format(self.require_sample_point_is_contained,
                 self.iteration_limit, self.termination_threshold,
                 self.relative_termination_threshold,
-                self.configuration_space_margin, self.enable_ibex,
+                self.configuration_space_margin,
                 self.max_faces_per_collision_pair);
       });
   py::class_<IrisOptionsRationalSpace>(
@@ -317,8 +331,9 @@ void DefineGeometryOptimization(py::module m) {
       .def_readwrite("configuration_space_margin",
           &IrisOptionsRationalSpace::configuration_space_margin,
           doc.IrisOptions.configuration_space_margin.doc)
-      .def_readwrite("enable_ibex", &IrisOptionsRationalSpace::enable_ibex,
-          doc.IrisOptions.enable_ibex.doc)
+      .def_readwrite("configuration_obstacles",
+          &IrisOptionsRationalSpace::configuration_obstacles,
+          doc.IrisOptions.configuration_space_margin.doc)
       .def_readwrite("max_faces_per_collision_pair",
           &IrisOptionsRationalSpace::max_faces_per_collision_pair,
           doc.IrisOptions.max_faces_per_collision_pair.doc)
@@ -340,15 +355,16 @@ void DefineGeometryOptimization(py::module m) {
             "termination_threshold={}, "
             "relative_termination_threshold={}, "
             "configuration_space_margin={}, "
-            "enable_ibex={}, "
+            "configuration_obstacles={},"
             "max_faces_per_collision_pair={}, "
-            "certify_region_with_sos_during_generation={}"
-            "certify_region_with_sos_after_generation={}"
+            "certify_region_with_sos_during_generation={},"
+            "certify_region_with_sos_after_generation={},"
             ")")
             .format(self.require_sample_point_is_contained,
                 self.iteration_limit, self.termination_threshold,
                 self.relative_termination_threshold,
-                self.configuration_space_margin, self.enable_ibex,
+                self.configuration_space_margin,
+                self.configuration_obstacles,
                 self.max_faces_per_collision_pair,
                 self.certify_region_with_sos_during_generation,
                 self.certify_region_with_sos_after_generation);

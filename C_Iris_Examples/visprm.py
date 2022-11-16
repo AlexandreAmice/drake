@@ -294,6 +294,7 @@ class VPRMSeeding:
                  iris_handle = None,
                  iris_handle_with_obstacles = None,
                  ranking_samples_handle = default_sample_ranking,
+                 point_to_region_conversion = None,
                  plot_node = None,
                  plot_edge = None,
                  plot_region = None,
@@ -324,6 +325,8 @@ class VPRMSeeding:
         self.samples_to_connect = samples_to_connect
         self.sample_rank_handle = ranking_samples_handle
         self.nodes_to_connect = set([idx for idx, s in enumerate(self.samples_to_connect)])
+        self.point_to_region_space = point_to_region_conversion
+        self.need_to_convert_samples = True if self.point_to_region_space is not None else False
 
     def set_guard_regions(self, regions = None):
         if regions is None:
@@ -341,8 +344,12 @@ class VPRMSeeding:
                 self.guard_regions.append(idx)
 
     def point_in_guard_regions(self, q):
+        if self.need_to_convert_samples:
+            pt = self.point_to_region_space(q)
+        else:
+            pt = q
         for r in self.guard_regions:
-            if self.regions[r].PointInSet(q):
+            if self.regions[r].PointInSet(pt):
                     return True
         return False
 
@@ -433,6 +440,8 @@ class VPRMSeeding:
                     keys_to_del = []
                     for s_key in self.samples_outside_regions.keys():
                         s = self.samples_outside_regions[s_key][0]
+                        if self.need_to_convert_samples:
+                            s = self.point_to_region_space(s)
                         if rnew.PointInSet(s.reshape(-1,1)):
                             keys_to_del.append(s_key)
                         elif self.is_in_line_of_sight(s.reshape(-1,1), p.reshape(-1,1))[0]:
@@ -465,7 +474,7 @@ class VPRMSeeding:
             loc_best_sample = self.samples_outside_regions[best_sample][0]
             try:
                 nr = self.grow_region_at_with_obstacles(loc_best_sample.reshape(-1,1), self.regions)
-                if self.verbose: print('[VPRMSeeding] New region added')
+                if self.verbose: print('[VPRMSeeding] New region added', loc_best_sample.reshape(-1))
                 self.regions.append(nr)
                 self.seed_points.append(loc_best_sample.copy())
                 idx_new_region = len(self.regions)-1
@@ -473,11 +482,15 @@ class VPRMSeeding:
                 keys_to_del = []
                 for s_key in self.samples_outside_regions.keys():
                     s = self.samples_outside_regions[s_key][0]
+                    if self.need_to_convert_samples:
+                            s = self.point_to_region_space(s)
                     if nr.PointInSet(s.reshape(-1,1)):
                         keys_to_del.append(s_key)
                     #elif is_LOS(s, loc_max)[0]:
                     #    vs.samples_outside_regions[s_key][1].append(nr)
-                #print(k)
+                #numerics
+                if best_sample not in keys_to_del:
+                    keys_to_del.append(best_sample)
                 for k in keys_to_del:
                     del self.samples_outside_regions[k]
                 if self.verbose: print('[VPRMSeeding] Sample set size',len(self.samples_outside_regions.keys()), 'num keys to del ', len(keys_to_del))
