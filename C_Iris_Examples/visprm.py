@@ -310,6 +310,7 @@ class VPRMSeeding:
         self.eps = eps
         self.M = int(np.log(alpha)/np.log(1-eps))
         if self.verbose: 
+            print('[VPRMSeeding] Expecting points of interest in q')
             print('[VPRMSeeding] GuardInsertion attempts M:', str(self.M))
             print('[VPRMSeeding] {} probability that unseen region is less than {} "%" of Cfree '.format(1-self.alpha, 100*eps))
 
