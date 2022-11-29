@@ -354,12 +354,20 @@ class VPRMSeeding:
             if self.regions[r].PointInSet(pt):
                     return True
         return False
+    
+    def point_in_regions(self, q):
+        if self.need_to_convert_samples:
+            pt = self.point_to_region_space(q)
+        else:
+            pt = q
+        for r in self.regions:
+            if r.PointInSet(pt):
+                    return True
+        return False
 
-    def sample_node_pos(self, MAXIT = 1e4):  
-        rand = np.random.rand(self.dim)
-        pos_samp = self.min_pos + rand*self.min_max_diff 
-        good_sample = (not self.col_handle(pos_samp)) and (not self.point_in_guard_regions(pos_samp))
+    def sample_node_pos(self, outside_regions = True, MAXIT = 1e4):  
         it = 0
+        good_sample = False
         while not good_sample and it < MAXIT:
             rand = np.random.rand(self.dim)
             pos_samp = self.min_pos + rand*self.min_max_diff 
@@ -367,10 +375,25 @@ class VPRMSeeding:
             for _ in range(10):
                 r  = 0.01*(np.random.rand(self.dim)-0.5)
                 col |= (self.col_handle(pos_samp+r) > 0)
-            good_sample = (not col) and (not self.point_in_guard_regions(pos_samp))
+            if outside_regions: 
+                good_sample = (not col) and (not self.point_in_guard_regions(pos_samp))
+            else:
+                good_sample = (not col)
             it+=1
         if not good_sample:
             raise ValueError(strftime("[%H:%M:%S] ", gmtime()) +"[VPRMSeeding] ERROR: Could not find collision free point in MAXIT %d".format(MAXIT))
+        return pos_samp
+
+    def sample_in_regions(self, MAXIT = 1e4):  
+        it = 0
+        good_sample = False
+        while not good_sample and it < MAXIT:
+            rand = np.random.rand(self.dim)
+            pos_samp = self.min_pos + rand*self.min_max_diff 
+            good_sample = self.point_in_regions(pos_samp)
+            it+=1
+        if not good_sample:
+            raise ValueError(strftime("[%H:%M:%S] ", gmtime()) +"[VPRMSeeding] ERROR: Could not find point in regions MAXIT %d".format(MAXIT))
         return pos_samp
 
     def load_checkpoint(self, checkpoint):
@@ -503,6 +526,34 @@ class VPRMSeeding:
                 print(strftime("[%H:%M:%S] ", gmtime()) +'[VPRMSeeding] Failed, deleting point')
                 del self.samples_outside_regions[best_sample]
         return done_connecting
+
+    def connectivity_phase2(self,):
+        it = 0
+        while it < self.M:
+            p = self.sample_node_pos(outside_regions=False)
+            if self.point_in_regions(p):
+                it+=1
+            else:
+                if self.verbose: print(strftime("[%H:%M:%S] ", gmtime()) +"[VPRMSeeding] New Region placed N = ", str(len(self.regions)), ", it = ", str(it)) 
+                try:
+                    rnew = self.grow_region_at_with_obstacles(p.reshape(-1, 1), self.regions)
+                    self.regions.append(rnew)
+                    it = 0
+                    idx_new_region = len(self.regions)-1
+                    self.connectivity_graph.add_node(idx_new_region)
+                    #update connectivity graph
+                    for idx, r in enumerate(self.regions[:-1]):
+                        if r.IntersectsWith(rnew):
+                            self.connectivity_graph.add_edge(idx, idx_new_region)
+                    #check if all points in one connected component
+                    #get connected components
+                    components = [list(a) for a in nx.connected_components(self.connectivity_graph)]
+                    #check if all nodes to connect are part of a single connected component
+                    for c in components:
+                        if self.nodes_to_connect & set(c) == self.nodes_to_connect:
+                            return True
+                except:
+                    print(strftime("[%H:%M:%S] ", gmtime()) +'[VPRMSeeding] Mosek failed, deleting point')
 
 
 class RandSeeding:
