@@ -579,8 +579,19 @@ class VPRMSeeding:
                 del self.samples_outside_regions[best_sample]
         return done_connecting
 
-    def connectivity_phase2(self,):
+    def fill_remaining_space_phase(self,):
         it = 0
+        self.connectivity_graph = nx.Graph()
+        for idx in range(len(self.regions)):
+            self.connectivity_graph.add_node(idx)
+
+        for idx1 in range(len(self.regions)):
+            for idx2 in range(idx1 +1, len(self.regions)):
+                r1 = self.regions[idx1]
+                r2 = self.regions[idx2]
+                if r1.IntersectsWith(r2):
+                    self.connectivity_graph.add_edge(idx1,idx2)
+
         while it < self.M:
             p = self.sample_node_pos(outside_regions=False)
             if self.point_in_regions(p):
@@ -590,6 +601,7 @@ class VPRMSeeding:
                 try:
                     rnew = self.grow_region_at_with_obstacles(p.reshape(-1, 1), self.regions)
                     self.regions.append(rnew)
+                    self.seed_points.append(p)
                     it = 0
                     idx_new_region = len(self.regions)-1
                     self.connectivity_graph.add_node(idx_new_region)
@@ -597,16 +609,15 @@ class VPRMSeeding:
                     for idx, r in enumerate(self.regions[:-1]):
                         if r.IntersectsWith(rnew):
                             self.connectivity_graph.add_edge(idx, idx_new_region)
-                    #check if all points in one connected component
-                    #get connected components
-                    components = [list(a) for a in nx.connected_components(self.connectivity_graph)]
-                    #check if all nodes to connect are part of a single connected component
-                    for c in components:
-                        if self.nodes_to_connect & set(c) == self.nodes_to_connect:
-                            return True
                 except:
                     print(strftime("[%H:%M:%S] ", gmtime()) +'[VPRMSeeding] Mosek failed, deleting point')
-
+        #get connected components
+        components = [list(a) for a in nx.connected_components(self.connectivity_graph)]
+        nodes_to_connect = self.nodes_to_connect if len(self.nodes_to_connect) else self.guard_regions
+        for c in components:
+            if set(nodes_to_connect) & set(c) == set(nodes_to_connect):
+                return  True
+        return False    
 
 class RandSeeding:
     def __init__(self,
