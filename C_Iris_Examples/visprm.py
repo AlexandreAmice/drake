@@ -266,9 +266,39 @@ def default_sample_ranking(vs):
     #get connected components
     components = [list(a) for a in nx.connected_components(connectivity_graph)]
     #check if all nodes to connect are part of a single connected component
+    nodes_to_connect = vs.nodes_to_connect if len(vs.nodes_to_connect) else vs.guard_regions
     for c in components:
-        if vs.nodes_to_connect & set(c) == vs.nodes_to_connect:
+        if set(nodes_to_connect) & set(c) == set(nodes_to_connect):
             return None, True
+
+    for key, s_list in samples_outside_regions.items():
+        vis_components = 0
+        for component in components:
+            vis_regions = s_list[1]
+            vis_regions_idx = [regions.index(r) for r in vis_regions]
+            if len(list(set(vis_regions_idx) & set(component))):
+                vis_components +=1
+        if vis_components > max_vis_components:
+                max_vis_components = vis_components
+                key_max = key
+    print(strftime("[%H:%M:%S] ", gmtime()) + '[VPRMSeeding] Num connected Components Vis:', max_vis_components)
+
+    return key_max, not (len(samples_outside_regions.keys()) > 0)
+
+def sample_ranking_connected_components_weight(vs):
+    is_done = False
+    samples_outside_regions = vs.samples_outside_regions
+    regions = vs.regions
+    connectivity_graph = vs.connectivity_graph
+    key_max = ''
+    max_vis_components = -1
+    #get connected components
+    components = [list(a) for a in nx.connected_components(connectivity_graph)]
+    #check if all nodes to connect are part of a single connected component
+    nodes_to_connect = vs.nodes_to_connect if len(vs.nodes_to_connect) else vs.guard_regions
+    for c in components:
+        if nodes_to_connect & set(c) == nodes_to_connect:
+            is_done = True
 
     for key, s_list in samples_outside_regions.items():
         vis_components = 0
@@ -441,7 +471,11 @@ class VPRMSeeding:
     def guard_phase(self,):
         it = 0
         while it < self.M:
-            p = self.sample_node_pos()
+            try:
+                p = self.sample_node_pos()
+            except:
+                print(strftime("[%H:%M:%S] ", gmtime()) +"[VPRMSeeding] No sample found outside of regions ")
+                break
             add_to_sample_set = False
             visible_regions = []
             for idx_guard in self.guard_regions: # zip(self.guard_regions, self.guard_region_seed_points):
@@ -463,15 +497,17 @@ class VPRMSeeding:
                     #update visibility and cull points
                     keys_to_del = []
                     for s_key in self.samples_outside_regions.keys():
-                        s = self.samples_outside_regions[s_key][0]
+                        s_Q = self.samples_outside_regions[s_key][0]
                         if self.need_to_convert_samples:
-                            s = self.point_to_region_space(s)
-                        if rnew.PointInSet(s.reshape(-1,1)):
+                            s_conv = self.point_to_region_space(s_Q)
+                        else:
+                            s_conv = s_Q
+                        if rnew.PointInSet(s_conv.reshape(-1,1)):
                             keys_to_del.append(s_key)
-                        elif self.is_in_line_of_sight(s.reshape(-1,1), p.reshape(-1,1))[0]:
+                        if self.is_in_line_of_sight(s_Q.reshape(-1,1), p.reshape(-1,1))[0]:
                             self.samples_outside_regions[s_key][1].append(rnew)
-                    for k in keys_to_del:
-                        del self.samples_outside_regions[k]
+                    # for k in keys_to_del:
+                    #     del self.samples_outside_regions[k]
                     if self.verbose: print(strftime("[%H:%M:%S] ", gmtime()) +'[VPRMSeeding] Sample set size',len(self.samples_outside_regions.keys()))
                 except:
                     print(strftime("[%H:%M:%S] ", gmtime()) +'[VPRMSeeding] Mosek failed, deleting point')
@@ -488,6 +524,22 @@ class VPRMSeeding:
                 if r1.IntersectsWith(r2):
                     self.connectivity_graph.add_edge(idx1,idx2)
         #if self.verbose: print("[VPRMSeeding] Connectivity phase")
+    def refine_guard(self, guard):
+        kernel = self.compute_kernel_of_guard(guard)
+        for idx, k1 in enumerate(kernel[:-1]):
+            for k2 in kernel[idx:]:
+                #print('a')
+                if not self.is_in_line_of_sight(k1, k2)[0]:
+                    g1 = k1
+                    g2 = k2
+
+    def compute_kernel_of_guard(self, guard):
+        ker = []
+        for sampdat in self.samples_outside_regions.values():
+            pos = sampdat[0]
+            vis = [self.regions.index(rviz) for rviz in sampdat[1]]
+            if len(vis)==1 and vis[0] == guard:
+                ker.append(pos)
 
     def connectivity_phase(self,):
         done_connecting = False
@@ -569,8 +621,10 @@ class RandSeeding:
                  plot_node = None,
                  plot_edge = None,
                  plot_region = None,
+                 terminate_early = True,
                  Verbose = True):
 
+        
         self.verbose = Verbose
         self.limits = limits
         self.min_pos = self.limits[0]
@@ -585,13 +639,16 @@ class RandSeeding:
             print(strftime("[%H:%M:%S] ", gmtime()) +'[RandSeeding] GuardInsertion attempts M:', str(self.M))
             print(strftime("[%H:%M:%S] ", gmtime()) +'[RandSeeding] {} probability that unseen region is less than {} "%" of Cfree '.format(1-self.alpha, 100*eps))
 
-
+        
         self.col_handle = collision_handle
         self.grow_region_at = iris_handle
         self.grow_region_at_with_obstacles = iris_handle_with_obstacles 
         self.regions = []
         self.seed_points = []
         self.samples_to_connect = samples_to_connect
+        self.terminate_early = terminate_early
+        if len(self.samples_to_connect) == 0:
+            self.terminate_early = False
         self.nodes_to_connect = set([idx for idx, s in enumerate(self.samples_to_connect)])
         self.point_to_region_space = point_to_region_conversion
         self.need_to_convert_samples = True if self.point_to_region_space is not None else False
@@ -699,6 +756,7 @@ class RandSeeding:
                 try:
                     rnew = self.grow_region_at_with_obstacles(p.reshape(-1, 1), self.regions)
                     self.regions.append(rnew)
+                    self.seed_points.append(p)
                     it = 0
                     idx_new_region = len(self.regions)-1
                     self.connectivity_graph.add_node(idx_new_region)
@@ -710,9 +768,10 @@ class RandSeeding:
                     #get connected components
                     components = [list(a) for a in nx.connected_components(self.connectivity_graph)]
                     #check if all nodes to connect are part of a single connected component
-                    for c in components:
-                        if self.nodes_to_connect & set(c) == self.nodes_to_connect:
-                            return True
+                    if self.terminate_early:
+                        for c in components:
+                            if self.nodes_to_connect & set(c) == self.nodes_to_connect:
+                                return True
                 except:
                     print(strftime("[%H:%M:%S] ", gmtime()) +'[RandSeeding] Mosek failed, deleting point')
         return False    
