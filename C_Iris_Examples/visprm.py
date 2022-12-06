@@ -540,7 +540,8 @@ class VPRMSeeding:
             vis = [self.regions.index(rviz) for rviz in sampdat[1]]
             if len(vis)==1 and vis[0] == guard:
                 ker.append(pos)
-
+        return ker 
+    
     def connectivity_phase(self,):
         done_connecting = False
         while not done_connecting:
