@@ -414,7 +414,7 @@ class VPRMSeeding:
             raise ValueError(strftime("[%H:%M:%S] ", gmtime()) +"[VPRMSeeding] ERROR: Could not find collision free point in MAXIT %d".format(MAXIT))
         return pos_samp
 
-    def sample_in_regions(self, MAXIT = 1e4):  
+    def sample_in_regions(self, MAXIT = 1e3):  
         it = 0
         good_sample = False
         while not good_sample and it < MAXIT:
@@ -472,16 +472,19 @@ class VPRMSeeding:
         it = 0
         while it < self.M:
             try:
-                p = self.sample_node_pos()
+                p = self.sample_node_pos(outside_regions=True)
             except:
                 print(strftime("[%H:%M:%S] ", gmtime()) +"[VPRMSeeding] No sample found outside of regions ")
                 break
             add_to_sample_set = False
             visible_regions = []
-            for idx_guard in self.guard_regions: # zip(self.guard_regions, self.guard_region_seed_points):
-                guard_seed_point = self.seed_points[idx_guard]
+            p_region_space = self.point_to_region_space(p) if self.need_to_convert_samples else p
+            for idx_guard in self.guard_regions: 
+                guard_seed_point_q = self.seed_points[idx_guard]
+                guard_seed_point_region_space = self.point_to_region_space(guard_seed_point_q) if self.need_to_convert_samples else guard_seed_point_q
                 guard_region = self.regions[idx_guard]
-                if self.is_in_line_of_sight(p.reshape(-1,1), guard_seed_point.reshape(-1,1))[0]:
+                #check visibility in t
+                if self.is_in_line_of_sight(p_region_space.reshape(-1,1), guard_seed_point_region_space.reshape(-1,1))[0]:
                     add_to_sample_set = True
                     visible_regions.append(guard_region)
             if add_to_sample_set:
@@ -502,9 +505,9 @@ class VPRMSeeding:
                             s_conv = self.point_to_region_space(s_Q)
                         else:
                             s_conv = s_Q
-                        if rnew.PointInSet(s_conv.reshape(-1,1)):
-                            keys_to_del.append(s_key)
-                        if self.is_in_line_of_sight(s_Q.reshape(-1,1), p.reshape(-1,1))[0]:
+                        # if rnew.PointInSet(s_conv.reshape(-1,1)):
+                        #     keys_to_del.append(s_key)
+                        if self.is_in_line_of_sight(s_conv.reshape(-1,1), p_region_space.reshape(-1,1))[0]:
                             self.samples_outside_regions[s_key][1].append(rnew)
                     # for k in keys_to_del:
                     #     del self.samples_outside_regions[k]
@@ -524,14 +527,92 @@ class VPRMSeeding:
                 if r1.IntersectsWith(r2):
                     self.connectivity_graph.add_edge(idx1,idx2)
         #if self.verbose: print("[VPRMSeeding] Connectivity phase")
-    def refine_guard(self, guard):
-        kernel = self.compute_kernel_of_guard(guard)
-        for idx, k1 in enumerate(kernel[:-1]):
-            for k2 in kernel[idx:]:
-                #print('a')
-                if not self.is_in_line_of_sight(k1, k2)[0]:
-                    g1 = k1
-                    g2 = k2
+    def find_guard_to_refine(self,):
+        to_split = []
+        for goi in self.guard_regions:
+            #ker = []
+            ker = self.compute_kernel_of_guard(goi)
+            targ_seed = self.seed_points[goi]
+            g1,g2 = None, None
+            if len(ker) >10:
+                found = False
+                for idx, k1 in enumerate(ker[:-1]):
+                    for k2 in ker[idx:]:
+                        #print('a')
+                        if not self.is_in_line_of_sight(k1, k2)[0]:
+                            g1 = k1
+                            g2 = k2
+                            found = True
+                            break
+                    if found:
+                        break
+            ker = np.array(ker)
+            #sample_set = np.array(sample_set)
+            #print(len(ker))
+            #print(g1,g2)
+            if g1 is not None:
+                to_split.append([goi, targ_seed, ker, g1, g2])
+                if self.verbose: print(strftime("[%H:%M:%S] ", gmtime()) +'[VPRMSeeding] Guard found to split')
+                return to_split
+        if self.verbose: print(strftime("[%H:%M:%S] ", gmtime()) +'[VPRMSeeding] No guard to split')
+        return to_split
+
+    def split_refineable_guard(self, to_split):
+        if self.verbose: print(strftime("[%H:%M:%S] ", gmtime()) +'[VPRMSeeding] N = ', len(to_split), ' guards to split')
+        if len(to_split):
+            goi, targ_seed, ker, g1, g2 = to_split[0]
+            #generate new regions
+            r1 = self.grow_region_at(g1)
+            r2 = self.grow_region_at(g2)
+            self.regions += [r1, r2]
+            #vs.guard_regions += [vs.regions.index(r) for r in [r1,r2]]
+            self.seed_points += [g1, g2]
+            r_old = self.regions[goi]
+            keys_to_del = []
+            g1_conv = self.point_to_region_space(g1) if self.need_to_convert_samples else g1
+            g2_conv = self.point_to_region_space(g2) if self.need_to_convert_samples else g2
+
+            for s_key in self.samples_outside_regions.keys():
+                vis_regs = self.samples_outside_regions[s_key][1] 
+                if r_old in vis_regs:
+                    vis_regs.remove(r_old)
+                s_Q = self.samples_outside_regions[s_key][0]
+                if self.need_to_convert_samples:
+                    s_conv = self.point_to_region_space(s_Q)
+                else:
+                    s_conv = s_Q 
+                if self.is_in_line_of_sight(s_conv.reshape(-1,1), g1_conv.reshape(-1,1))[0]:
+                    vis_regs.append(r1)
+                if self.is_in_line_of_sight(s_conv.reshape(-1,1), g2_conv.reshape(-1,1))[0]:
+                    vis_regs.append(r2)
+            for k in keys_to_del:
+                del self.samples_outside_regions[k]
+            del self.seed_points[goi]
+            del self.regions[goi]
+        self.guard_regions = [self.regions.index(r) for r in self.regions]
+    
+    def refine_guards(self,):
+        keep_splitting = True
+        while keep_splitting:
+            to_split = self.find_guard_to_refine()
+            if len(to_split):
+                #goi, targ_seed, ker, g1, g2 = to_split[0]
+                self.split_refineable_guard(to_split)
+                self.guard_phase()
+                keep_splitting = True
+            else:
+                keep_splitting = False
+        #rebuild connectivity graph
+        self.connectivity_graph = nx.Graph()
+        for idx in range(len(self.guard_regions)):
+            self.connectivity_graph.add_node(idx)
+
+        for idx1 in range(len(self.guard_regions)):
+            for idx2 in range(idx1 +1, len(self.guard_regions)):
+                r1 = self.regions[idx1]
+                r2 = self.regions[idx2]
+                if r1.IntersectsWith(r2):
+                    self.connectivity_graph.add_edge(idx1,idx2)
 
     def compute_kernel_of_guard(self, guard):
         ker = []
@@ -582,16 +663,16 @@ class VPRMSeeding:
 
     def fill_remaining_space_phase(self,):
         it = 0
-        self.connectivity_graph = nx.Graph()
-        for idx in range(len(self.regions)):
-            self.connectivity_graph.add_node(idx)
+        # self.connectivity_graph = nx.Graph()
+        # for idx in range(len(self.regions)):
+        #     self.connectivity_graph.add_node(idx)
 
-        for idx1 in range(len(self.regions)):
-            for idx2 in range(idx1 +1, len(self.regions)):
-                r1 = self.regions[idx1]
-                r2 = self.regions[idx2]
-                if r1.IntersectsWith(r2):
-                    self.connectivity_graph.add_edge(idx1,idx2)
+        # for idx1 in range(len(self.regions)):
+        #     for idx2 in range(idx1 +1, len(self.regions)):
+        #         r1 = self.regions[idx1]
+        #         r2 = self.regions[idx2]
+        #         if r1.IntersectsWith(r2):
+        #             self.connectivity_graph.add_edge(idx1,idx2)
 
         while it < self.M:
             p = self.sample_node_pos(outside_regions=False)

@@ -86,6 +86,16 @@ drake_py_library(
     ],
 )
 
+drake_py_library(
+    name = "dijkstraspp",
+    srcs = [
+        "dijkstraspp.py",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//bindings/pydrake",
+    ],
+)
 ##########################################################
 # NOTEBOOKS
 ##########################################################
@@ -155,7 +165,8 @@ drake_jupyter_py_binary(
         "//C_Iris_Examples:iris_plant_visualizer",
         "//C_Iris_Examples:visualizations_utils",
         "//bindings/pydrake",
-        "iris_helpers"
+        "iris_helpers",
+        "dijkstraspp"
     ],
 )
 
@@ -169,7 +180,8 @@ drake_jupyter_py_binary(
         "//C_Iris_Examples:iris_plant_visualizer",
         "//C_Iris_Examples:visualizations_utils",
         "//bindings/pydrake",
-        "iris_helpers"
+        "iris_helpers",
+        "dijkstraspp"
     ],
 )
 
