@@ -160,6 +160,7 @@ drake_jupyter_py_binary(
     add_test_rule = 0,
     data = [
         "//C_Iris_Examples:models",
+        "//C_Iris_Examples:7_dof_directives.yaml"
     ],
     deps = [
         "//C_Iris_Examples:iris_plant_visualizer",
