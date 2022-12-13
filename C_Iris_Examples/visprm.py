@@ -297,7 +297,7 @@ def sample_ranking_connected_components_weight(vs):
     #check if all nodes to connect are part of a single connected component
     nodes_to_connect = vs.nodes_to_connect if len(vs.nodes_to_connect) else vs.guard_regions
     for c in components:
-        if nodes_to_connect & set(c) == nodes_to_connect:
+        if (set(nodes_to_connect) & set(c) == set(nodes_to_connect)) :
             is_done = True
 
     for key, s_list in samples_outside_regions.items():
@@ -306,11 +306,12 @@ def sample_ranking_connected_components_weight(vs):
             vis_regions = s_list[1]
             vis_regions_idx = [regions.index(r) for r in vis_regions]
             if len(list(set(vis_regions_idx) & set(component))):
-                vis_components +=1
+                overlap = 1.0 if len(list(set(vis_regions_idx)&set(nodes_to_connect))) else 0
+                vis_components += 5 + overlap
         if vis_components > max_vis_components:
                 max_vis_components = vis_components
                 key_max = key
-    print(strftime("[%H:%M:%S] ", gmtime()) + '[VPRMSeeding] Num connected Components Vis:', max_vis_components)
+    print(strftime("[%H:%M:%S] ", gmtime()) + '[VPRMSeeding] Num weighted connected components Vis:', max_vis_components)
 
     return key_max, not (len(samples_outside_regions.keys()) > 0)
 
@@ -472,7 +473,7 @@ class VPRMSeeding:
         it = 0
         while it < self.M:
             try:
-                p = self.sample_node_pos(outside_regions=True)
+                p = self.sample_node_pos(outside_regions=False)
             except:
                 print(strftime("[%H:%M:%S] ", gmtime()) +"[VPRMSeeding] No sample found outside of regions ")
                 break

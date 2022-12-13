@@ -1,7 +1,7 @@
 from scipy.sparse.csgraph import dijkstra
 from scipy.sparse import coo_matrix
 import numpy as np
-from pydrake.all import (MathematicalProgram, Variable, HPolyhedron, le, SnoptSolver, Solve) 
+from pydrake.all import (MathematicalProgram, Variable, HPolyhedron, le, SnoptSolver, Solve, eq) 
 
 class node:
     def __init__(self, loc, regs = None):
@@ -14,10 +14,13 @@ class node:
 class DijkstraSPPsolver:
     def __init__(self,
                  regions, 
-                 point_to_region_space_conversion) :
+                 point_to_region_space_conversion,
+                 verbose = True) :
         self.regions = regions
+        self.verbose = verbose
         self.base_ad_mat, self.node_intersections = self.build_base_adjacency_matrix()
         self.point_conversion = point_to_region_space_conversion
+        
 
     def solve(self, 
               start_q,
@@ -30,7 +33,7 @@ class DijkstraSPPsolver:
                 print('[DijkstraSPP] Points not reachable')
                 return [], -1
             if refine_path:
-                location_wps_optimized_t, dist_optimized = self.refine_path_QP(wps, 
+                location_wps_optimized_t, dist_optimized = self.refine_path_SOCP(wps, 
                                                                         self.point_conversion(start_q), 
                                                                         self.point_conversion(target_q), 
                                                                         )
@@ -46,13 +49,15 @@ class DijkstraSPPsolver:
     def build_base_adjacency_matrix(self):    
         nodes_intersections = []
         for idx, r in enumerate(self.regions[:-1]):
+            if (idx%10) == 0:
+                if self.verbose: print('[DijkstraSPP] Pre-Building adjacency matrix ', idx,'/', len(self.regions))
             for r2 in self.regions[idx+1:]:
                 if r.IntersectsWith(r2):
                     try:
-                        loc = r.Intersection(r2).MaximumVolumeInscribedEllipsoid().center()
+                        loc = r.Intersection(r2).ChebyshevCenter() #MaximumVolumeInscribedEllipsoid().center()
                         nodes_intersections.append(node(loc, [r, r2]))
                     except:
-                        print('failed ', idx)
+                        if self.verbose: print('[DijkstraSPP] Failed ellispe prog', idx)
 
         node_locations = [node.loc for node in nodes_intersections]
         adjacency_list = []
@@ -156,42 +161,85 @@ class DijkstraSPPsolver:
         ad_mat_extend = coo_matrix((data, (rows, cols)), shape=(N, N))
         return ad_mat_extend
 
-    def refine_path_QP(self, wps, start_t, target_t):
-        intermediate_nodes = [self.node_intersections[idx] for idx in wps[1:-1]]
-        dim = len(self.node_intersections[0].loc)
-        prog = MathematicalProgram()
-        intermediates = []
-        for idx, wpnode in enumerate(intermediate_nodes):
-            x = prog.NewContinuousVariables(dim, 'x'+str(idx))
-            intermediates.append(x)
-            prog.SetInitialGuess(x, wpnode.loc)
-            for r in wpnode.regions:
-                prog.AddConstraint(le(r.A()@x, r.b())) 
+    # def refine_path_QP(self, wps, start_t, target_t):
+    #     intermediate_nodes = [self.node_intersections[idx] for idx in wps[1:-1]]
+    #     dim = len(self.node_intersections[0].loc)
+    #     prog = MathematicalProgram()
+    #     intermediates = []
+    #     for idx, wpnode in enumerate(intermediate_nodes):
+    #         x = prog.NewContinuousVariables(dim, 'x'+str(idx))
+    #         intermediates.append(x)
+    #         prog.SetInitialGuess(x, wpnode.loc)
+    #         for r in wpnode.regions:
+    #             prog.AddConstraint(le(r.A()@x, r.b())) 
 
-        cost = 0
-        prev = start_t
-        for pt in intermediates + [target_t]:
-            a = (prev-pt) #* np.array([4.0,3.5,3,2.5,2,2.5,1]) 
-            cost += a.T@a
-            prev = pt
-        prog.AddCost(cost)
+    #     cost = 0
+    #     prev = start_t
+    #     for pt in intermediates + [target_t]:
+    #         a = (prev-pt) #* np.array([4.0,3.5,3,2.5,2,2.5,1]) 
+    #         cost += a.T@a
+    #         prev = pt
+    #     prog.AddCost(cost)
 
-        res = Solve(prog)
-        if res.is_success():
-            path = [start_t]
-            for i in intermediates:
-                path.append(res.GetSolution(i))
-            path.append(target_t)
-            wps_start = [self.node_intersections[idx].loc for idx in wps[1:-1]]
-            dist_start = 0
+    #     res = Solve(prog)
+    #     if res.is_success():
+    #         path = [start_t]
+    #         for i in intermediates:
+    #             path.append(res.GetSolution(i))
+    #         path.append(target_t)
+    #         wps_start = [self.node_intersections[idx].loc for idx in wps[1:-1]]
+    #         dist_start = 0
+    #         prev = start_t
+    #         for wp in wps_start + [target_t]:
+    #             #dist_start += np.linalg.norm()#* np.array([4.0,3.5,3,2.5,2,2.5,1])
+    #             a = prev-wp
+    #             dist_start += a.T@a
+    #             prev = wp
+    #         if self.verbose: print("[DijkstraSPP] optimized distance/ start-distance = {opt:.2f} / {start:.2f} = {res:.2f}".format(opt = res.get_optimal_cost(), start = dist_start, res = res.get_optimal_cost()/dist_start))
+    #         return path, res.get_optimal_cost()
+    #     else:
+    #         print("[DijkstraSPP] Refine path QP failed")
+    #         return None, None
+        
+    def refine_path_SOCP(self, wps, start_t, target_t):
+            intermediate_nodes = [self.node_intersections[idx] for idx in wps[1:-1]]
+            dim = len(self.node_intersections[0].loc)
+            prog = MathematicalProgram()
+            intermediates = []
+            for idx, wpnode in enumerate(intermediate_nodes):
+                x = prog.NewContinuousVariables(dim, 'x'+str(idx))
+                intermediates.append(x)
+                prog.SetInitialGuess(x, wpnode.loc)
+                for r in wpnode.regions:
+                    prog.AddConstraint(le(r.A()@x, r.b())) 
+
             prev = start_t
-            for wp in wps_start + [target_t]:
-                #dist_start += np.linalg.norm()#* np.array([4.0,3.5,3,2.5,2,2.5,1])
-                a = prev-wp
-                dist_start += a.T@a
-                prev = wp
-            print("[DijkstraSPP] optimized distance/start distance = {opt:.2f} / {start:.2f} = {res:.2f}".format(opt = res.get_optimal_cost(), start = dist_start, res = res.get_optimal_cost()/dist_start))
-            return path, res.get_optimal_cost()
-        else:
-            print("[DijkstraSPP] Refine path QP failed")
-            return None, None
+            cost = 0 
+            for idx in range(len(intermediate_nodes)+1):
+                t = prog.NewContinuousVariables(dim+1, 't'+str(idx))
+                prog.AddConstraint(eq(t[1:], prev-(intermediates + [target_t])[idx]))
+                prev = (intermediates + [target_t])[idx]
+                prog.AddLorentzConeConstraint(t)
+                cost += t[0]
+    
+            prog.AddCost(cost)
+
+            res = Solve(prog)
+            if res.is_success():
+                path = [start_t]
+                for i in intermediates:
+                    path.append(res.GetSolution(i))
+                path.append(target_t)
+                wps_start = [self.node_intersections[idx].loc for idx in wps[1:-1]]
+                dist_start = 0
+                prev = start_t
+                for wp in wps_start + [target_t]:
+                    #dist_start += np.linalg.norm()#* np.array([4.0,3.5,3,2.5,2,2.5,1])
+                    a = prev-wp
+                    dist_start += np.sqrt(a.T@a)
+                    prev = wp
+                if self.verbose: print("[DijkstraSPP] optimized distance/ start-distance = {opt:.2f} / {start:.2f} = {res:.2f}".format(opt = res.get_optimal_cost(), start = dist_start, res = res.get_optimal_cost()/dist_start))
+                return path, res.get_optimal_cost()
+            else:
+                print("[DijkstraSPP] Refine path SCOP failed")
+                return None, None
