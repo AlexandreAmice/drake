@@ -117,18 +117,16 @@ class DijkstraSPPsolver:
 
     def extend_adjacency_mat(self, start_q, target_q):
         #first check point memberships
-        start_idx = -1
-        target_idx = -1
+        start_idx = []
+        target_idx = []
         start_conv = self.point_conversion(start_q)
         target_conv = self.point_conversion(target_q)
         for idx, r in enumerate(self.regions):
-            if start_idx<0 and r.PointInSet(start_conv):
-                start_idx = idx
-            if target_idx<0 and r.PointInSet(target_conv):
-                target_idx = idx
-            if start_idx >=0 and target_idx >=0:
-                break
-        if start_idx <0 or target_idx <0:
+            if r.PointInSet(start_conv):
+                start_idx.append(idx)
+            if r.PointInSet(target_conv):
+                target_idx.append(idx)
+        if len(start_idx)==0 or len(target_idx)==0:
             print('[DijkstraSPP] Points not in set, idxs', start_idx,', ', target_idx)
             return None
         N = len(self.node_intersections) + 2
@@ -136,12 +134,12 @@ class DijkstraSPPsolver:
         rows = list(self.base_ad_mat.row)
         cols = list(self.base_ad_mat.col)
         #get idstances of all nodes  
-        start_region = self.regions[start_idx]
-        target_region = self.regions[target_idx]
+        start_regions = [self.regions[idx] for idx in start_idx]
+        target_regions = [self.regions[idx] for idx in target_idx]
         start_adj_idx = N-2
         target_adj_idx = N-1
         for node_idx, node in enumerate(self.node_intersections):
-            if start_region in node.regions:
+            if len(list(set(start_regions) & set(node.regions))):
                 dist = np.linalg.norm(start_conv-node.loc)
                 data.append(dist)
                 rows.append(start_adj_idx)
@@ -149,7 +147,7 @@ class DijkstraSPPsolver:
                 data.append(dist)
                 rows.append(node_idx)
                 cols.append(start_adj_idx)
-            if target_region in node.regions:
+            if len(list(set(target_regions) & set(node.regions))):
                 dist = np.linalg.norm(target_conv-node.loc)
                 data.append(dist)
                 rows.append(target_adj_idx)
@@ -157,6 +155,14 @@ class DijkstraSPPsolver:
                 data.append(dist)
                 rows.append(node_idx)
                 cols.append(target_adj_idx)
+        if len(list(set(start_regions) & set(target_regions))):
+            dist = np.linalg.norm(target_conv-start_conv)
+            data.append(dist)
+            rows.append(target_adj_idx)
+            cols.append(start_adj_idx)
+            data.append(dist)
+            rows.append(start_adj_idx)
+            cols.append(target_adj_idx)
         
         ad_mat_extend = coo_matrix((data, (rows, cols)), shape=(N, N))
         return ad_mat_extend

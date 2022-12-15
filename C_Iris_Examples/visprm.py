@@ -531,23 +531,26 @@ class VPRMSeeding:
     def find_guard_to_refine(self,):
         to_split = []
         for goi in self.guard_regions:
-            #ker = []
-            ker = self.compute_kernel_of_guard(goi)
-            targ_seed = self.seed_points[goi]
             g1,g2 = None, None
-            if len(ker) >10:
-                found = False
-                for idx, k1 in enumerate(ker[:-1]):
-                    for k2 in ker[idx:]:
-                        #print('a')
-                        if not self.is_in_line_of_sight(k1, k2)[0]:
-                            g1 = k1
-                            g2 = k2
-                            found = True
+                
+            if goi >= len(self.samples_to_connect): 
+
+                ker = self.compute_kernel_of_guard(goi)
+                targ_seed = self.seed_points[goi]
+                
+                if len(ker) >10:
+                    found = False
+                    for idx, k1 in enumerate(ker[:-1]):
+                        for k2 in ker[idx:]:
+                            #print('a')
+                            if not self.is_in_line_of_sight(k1, k2)[0]:
+                                g1 = k1
+                                g2 = k2
+                                found = True
+                                break
+                        if found:
                             break
-                    if found:
-                        break
-            ker = np.array(ker)
+                ker = np.array(ker)
             #sample_set = np.array(sample_set)
             #print(len(ker))
             #print(g1,g2)
@@ -575,7 +578,7 @@ class VPRMSeeding:
 
             for s_key in self.samples_outside_regions.keys():
                 vis_regs = self.samples_outside_regions[s_key][1] 
-                if r_old in vis_regs:
+                if  r_old in vis_regs:
                     vis_regs.remove(r_old)
                 s_Q = self.samples_outside_regions[s_key][0]
                 if self.need_to_convert_samples:
@@ -588,6 +591,7 @@ class VPRMSeeding:
                     vis_regs.append(r2)
             for k in keys_to_del:
                 del self.samples_outside_regions[k]
+            
             del self.seed_points[goi]
             del self.regions[goi]
         self.guard_regions = [self.regions.index(r) for r in self.regions]
@@ -603,6 +607,7 @@ class VPRMSeeding:
                 keep_splitting = True
             else:
                 keep_splitting = False
+
         #rebuild connectivity graph
         self.connectivity_graph = nx.Graph()
         for idx in range(len(self.guard_regions)):
@@ -625,6 +630,21 @@ class VPRMSeeding:
         return ker 
     
     def connectivity_phase(self,):
+        #delete points in regions
+        keys_to_del = []
+        for s_key in self.samples_outside_regions.keys():
+            s_Q = self.samples_outside_regions[s_key][0]
+            if self.need_to_convert_samples:
+                s_conv = self.point_to_region_space(s_Q)
+            else:
+                s_conv = s_Q
+            for r in self.regions:
+                if r.PointInSet(s_conv.reshape(-1,1)):
+                    keys_to_del.append(s_key)
+                    break
+        for k in keys_to_del:
+            del self.samples_outside_regions[k]
+        #begin connectivity phase    
         done_connecting = False
         while not done_connecting:
             best_sample, done_connecting = self.sample_rank_handle(self)
@@ -864,10 +884,15 @@ class RandSeeding:
                     #check if all nodes to connect are part of a single connected component
                     if self.terminate_early:
                         for c in components:
-                            if self.nodes_to_connect & set(c) == self.nodes_to_connect:
+                            if set(self.nodes_to_connect) & set(c) == set(self.nodes_to_connect):
                                 return True
                 except:
                     print(strftime("[%H:%M:%S] ", gmtime()) +'[RandSeeding] Mosek failed, deleting point')
+        
+        components = [list(a) for a in nx.connected_components(self.connectivity_graph)]
+        for c in components:
+            if set(self.nodes_to_connect) & set(c) == set(self.nodes_to_connect):
+                return True
         return False    
         
             
