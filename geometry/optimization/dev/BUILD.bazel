@@ -12,6 +12,16 @@ load(
 )
 load("//tools/lint:lint.bzl", "add_lint_tests")
 
+drake_cc_package_library(
+    name = "dev",
+    visibility = ["//visibility:public"],
+    deps = [
+        ":collision_geometry",
+        ":separating_plane",
+        ":cspace_free_polytope",
+    ],
+)
+
 drake_cc_library(
     name = "collision_geometry",
     srcs = ["collision_geometry.cc"],
