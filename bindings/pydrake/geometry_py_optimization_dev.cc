@@ -122,14 +122,17 @@ PYBIND11_MODULE(optimization_dev, m) {
               return std::tie(success, certificates);
             },
             py::arg("C"), py::arg("d"), py::arg("ignored_collision_pairs"),
-            py::arg("search_separating_margin"), py::arg("options"));
+            py::arg("search_separating_margin"), py::arg("options"))
+        .def("SearchWithBilinearAlternation",
+            &Class::SearchWithBilinearAlternation,
+            py::arg("ignored_collision_pairs"), py::arg("C_init"),
+            py::arg("d_init"), py::arg("search_margin"), py::arg("options"),
+            cls_doc.SearchWithBilinearAlternation.doc);
 
     py::class_<Class::SeparationCertificateResult>(m,
         "SeparationCertificateResult", cls_doc.SeparationCertificateResult.doc)
-        .def_readonly("C", &Class::SeparationCertificateResult::C,
-            cls_doc.SeparationCertificateResult.C.doc)
-        .def_readonly("d", &Class::SeparationCertificateResult::d,
-            cls_doc.SeparationCertificateResult.d.doc)
+        .def_readonly(
+            "plane_index", &Class::SeparationCertificateResult::plane_index)
         .def_readonly("positive_side_lagrangians",
             &Class::SeparationCertificateResult::positive_side_lagrangians,
             cls_doc.SeparationCertificateResult.positive_side_lagrangians.doc)
@@ -179,6 +182,39 @@ PYBIND11_MODULE(optimization_dev, m) {
         .def_readwrite("solver_options",
             &Class::FindSeparationCertificateGivenPolytopeOptions::
                 solver_options);
+
+    py::class_<Class::FindPolytopeGivenLagrangianOptions>(m,
+        "FindPolytopeGivenLagrangianOptions",
+        cls_doc.FindPolytopeGivenLagrangianOptions.doc)
+        .def_readwrite("backoff_scale",
+            &Class::FindPolytopeGivenLagrangianOptions::backoff_scale)
+        .def_readwrite("ellipsoid_margin_epsilon",
+            &Class::FindPolytopeGivenLagrangianOptions::
+                ellipsoid_margin_epsilon)
+        .def_readwrite(
+            "solver_id", &Class::FindPolytopeGivenLagrangianOptions::solver_id)
+        .def_readwrite("solver_options",
+            &Class::FindPolytopeGivenLagrangianOptions::solver_options)
+        .def_readwrite("s_inner_pts",
+            &Class::FindPolytopeGivenLagrangianOptions::s_inner_pts);
+
+    py::class_<Class::BilinearAlternationResult>(
+        m, "BilinearAlternationResult", cls_doc.BilinearAlternationResult.doc)
+        .def_readonly("C", &Class::BilinearAlternationResult::C)
+        .def_readonly("d", &Class::BilinearAlternationResult::d)
+        .def_readonly("a", &Class::BilinearAlternationResult::a, py_rvp::copy)
+        .def_readonly("b", &Class::BilinearAlternationResult::b)
+        .def_readonly("num_iter", &Class::BilinearAlternationResult::num_iter);
+
+    py::class_<Class::BilinearAlternationOptions>(
+        m, "BilinearAlternationOptions", cls_doc.BilinearAlternationOptions.doc)
+        .def_readwrite("max_iter", &Class::BilinearAlternationOptions::max_iter)
+        .def_readwrite("convergence_tol",
+            &Class::BilinearAlternationOptions::convergence_tol)
+        .def_readwrite("find_polytope_options",
+            &Class::BilinearAlternationOptions::find_polytope_options)
+        .def_readwrite("find_lagrangian_options",
+            &Class::BilinearAlternationOptions::find_lagrangian_options);
   }
   type_visit([m](auto dummy) { DoSeparatingPlaneDeclaration(m, dummy); },
       type_pack<double, symbolic::Variable>());
