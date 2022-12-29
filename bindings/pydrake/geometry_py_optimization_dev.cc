@@ -119,7 +119,18 @@ void DefineGeometryOptimizationDev(py::module m) {
               bool success = self->FindSeparationCertificateGivenPolytope(C, d,
                   ignored_collision_pairs, search_separating_margin, options,
                   &certificates);
-              return std::tie(success, certificates);
+              // the type std::unordered_map<SortedPair<geometry::GeometryId>,
+              // CspaceFreePolytope::SeparationCertificateResult> does not map
+              // to a Python type. Instead we return a list of tuples containing
+              // the geometry ids and the certificate for that pair.
+              std::vector<std::tuple<geometry::GeometryId, geometry::GeometryId,
+                  CspaceFreePolytope::SeparationCertificateResult>>
+                  certificates_ret;
+              certificates_ret.reserve(certificates.size());
+              for (const auto& [key, value] : certificates) {
+                certificates_ret.emplace_back(key.first(), key.second(), value);
+              }
+              return std::pair(success, certificates_ret);
             },
             py::arg("C"), py::arg("d"), py::arg("ignored_collision_pairs"),
             py::arg("search_separating_margin"), py::arg("options"))

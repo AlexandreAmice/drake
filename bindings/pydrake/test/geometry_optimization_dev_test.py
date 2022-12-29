@@ -65,7 +65,7 @@ class TestGeometeryOptimizationDev(unittest.TestCase):
         find_separation_certificate_given_polytope_options.solver_options = solver_options
 
         bilinear_alternation_options = mut.BilinearAlternationOptions()
-        bilinear_alternation_options.max_iter = 2
+        bilinear_alternation_options.max_iter = 4
         bilinear_alternation_options.convergence_tol = 1e-2
         bilinear_alternation_options.find_polytope_options = find_polytope_given_lagrangian_option
         bilinear_alternation_options.find_lagrangian_options = find_separation_certificate_given_polytope_options
@@ -74,15 +74,15 @@ class TestGeometeryOptimizationDev(unittest.TestCase):
         lim = 1e-2
         d_init = lim*np.ones((C_init.shape[0],1))
 
-        # (success, certificate) = cspace_free_polytope.FindSeparationCertificateGivenPolytope(C = C_init,
-        #                                                                                      d = d_init,
-        #                                                                                      ignored_collision_pairs = set(),
-        #                                                                                      search_separating_margin = True,
-        #                                                                                      options = find_separation_certificate_given_polytope_options)
-        # print(success)
+        (success, certificate) = cspace_free_polytope.FindSeparationCertificateGivenPolytope(C = C_init,
+                                                                                             d = d_init,
+                                                                                             ignored_collision_pairs = set(),
+                                                                                             search_separating_margin = True,
+                                                                                             options = find_separation_certificate_given_polytope_options)
         # self.assertTrue(success, "Separation Certificate not found")
 
         result = cspace_free_polytope.SearchWithBilinearAlternation(ignored_collision_pairs = set(),
                                                                     C_init=C_init, d_init=d_init,
                                                                     search_margin=True,
                                                                     options=bilinear_alternation_options)
+        # self.assertGreaterEqual(result.num_iter, 2)
