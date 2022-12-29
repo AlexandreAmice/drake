@@ -30,7 +30,7 @@ PYBIND11_MODULE(geometry, m) {
   DefineGeometrySceneGraph(m);
   DefineGeometryOptimization(m.def_submodule("optimization"));
   DefineGeometryVisualizers(m);
-
+  DefineGeometryOptimizationDev(m.def_submodule("optimization_dev"));
   ExecuteExtraPythonCode(m);
 
   def_geometry_all(m.def_submodule("all"));

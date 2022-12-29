@@ -42,7 +42,7 @@ void DoSeparatingPlaneDeclaration(py::module m, T) {
     AddValueInstantiation<Class>(m);
   }
 }
-PYBIND11_MODULE(optimization_dev, m) {
+void DefineGeometryOptimizationDev(py::module m) {
   // NOLINTNEXTLINE(build/namespaces): Emulate placement in namespace.
   using namespace drake;
   // NOLINTNEXTLINE(build/namespaces): Emulate placement in namespace.
@@ -167,6 +167,7 @@ PYBIND11_MODULE(optimization_dev, m) {
     py::class_<Class::FindSeparationCertificateGivenPolytopeOptions>(m,
         "FindSeparationCertificateGivenPolytopeOptions",
         cls_doc.FindSeparationCertificateGivenPolytopeOptions.doc)
+        .def(py::init<>())
         .def_readwrite("num_threads",
             &Class::FindSeparationCertificateGivenPolytopeOptions::num_threads)
         .def_readwrite("verbose",
@@ -186,6 +187,7 @@ PYBIND11_MODULE(optimization_dev, m) {
     py::class_<Class::FindPolytopeGivenLagrangianOptions>(m,
         "FindPolytopeGivenLagrangianOptions",
         cls_doc.FindPolytopeGivenLagrangianOptions.doc)
+        .def(py::init<>())
         .def_readwrite("backoff_scale",
             &Class::FindPolytopeGivenLagrangianOptions::backoff_scale)
         .def_readwrite("ellipsoid_margin_epsilon",
@@ -208,6 +210,7 @@ PYBIND11_MODULE(optimization_dev, m) {
 
     py::class_<Class::BilinearAlternationOptions>(
         m, "BilinearAlternationOptions", cls_doc.BilinearAlternationOptions.doc)
+        .def(py::init<>())
         .def_readwrite("max_iter", &Class::BilinearAlternationOptions::max_iter)
         .def_readwrite("convergence_tol",
             &Class::BilinearAlternationOptions::convergence_tol)
