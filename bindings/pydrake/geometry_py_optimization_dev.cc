@@ -87,19 +87,6 @@ void DefineGeometryOptimizationDev(py::module m) {
         m, "SeparatingPlaneOrder", doc.SeparatingPlaneOrder.doc)
         .value("kAffine", SeparatingPlaneOrder::kAffine,
             doc.SeparatingPlaneOrder.kAffine.doc);
-
-//        py::class_<SeparatingPlane>(m, "SeparatingPlane",
-//        doc.SeparatingPlane.doc)
-//            .def_readonly("a", &SeparatingPlane::a, py_rvp::copy)
-//            .def_readonly("b", &SeparatingPlane::b)
-//            .def_readonly(
-//                "positive_side_geometry",
-//                &SeparatingPlane::positive_side_geometry)
-//            .def_readonly(
-//                "negative_side_geometry",
-//                &SeparatingPlane::negative_side_geometry)
-//            .def_readonly("expressed_body", &SeparatingPlane::expressed_body)
-//            .def_readonly("plane_order", &SeparatingPlane::plane_order)
   }
   {
     using Class = CspaceFreePolytope;
@@ -136,8 +123,8 @@ void DefineGeometryOptimizationDev(py::module m) {
                   C, d, ignored_collision_pairs, options, &certificates);
               // the type std::unordered_map<SortedPair<geometry::GeometryId>,
               // CspaceFreePolytope::SeparationCertificateResult> does not map
-              // to a Python type. Instead, we return a list of tuples containing
-              // the geometry ids and the certificate for that pair.
+              // to a Python type. Instead, we return a list of tuples
+              // containing the geometry ids and the certificate for that pair.
               std::vector<std::tuple<geometry::GeometryId, geometry::GeometryId,
                   CspaceFreePolytope::SeparationCertificateResult>>
                   certificates_ret;
@@ -272,6 +259,12 @@ void DefineGeometryOptimizationDev(py::module m) {
         .def_readwrite("find_lagrangian_options",
             &Class::BinarySearchOptions::find_lagrangian_options);
   }
+
+  m.def("GetCollisionGeometries",
+      py::overload_cast<const multibody::MultibodyPlant<double>&,
+          const geometry::SceneGraph<double>&>(&GetCollisionGeometries),
+      py::arg("plant"), py::arg("scene_graph"), doc.GetCollisionGeometries.doc);
+
   type_visit([m](auto dummy) { DoSeparatingPlaneDeclaration(m, dummy); },
       type_pack<double, symbolic::Variable>());
 }
