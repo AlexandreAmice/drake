@@ -11,9 +11,9 @@ from pydrake.multibody.parsing import Parser
 from pydrake.multibody.plant import MultibodyPlant, AddMultibodyPlantSceneGraph
 from pydrake.systems.framework import DiagramBuilder
 from pydrake.solvers import MosekSolver, CommonSolverOption, SolverOptions
-from pydrake.solvers import MathematicalProgram as mp
 from pydrake.math import RigidTransform
 from pydrake.solvers import MosekSolver, ScsSolver
+from pydrake.symbolic import Polynomial
 
 
 class TestGeometeryOptimizationDev(unittest.TestCase):
@@ -23,8 +23,17 @@ class TestGeometeryOptimizationDev(unittest.TestCase):
                 <robot name="limits">
                   <link name="movable">
                     <collision>
-                      <geometry><box size="1 1 1"/></geometry>
+                      <geometry><box size="0.1 0.1 0.1"/></geometry>
                     </collision>
+                     <geometry>
+                         <cylinder length="0.1" radius="0.2"/>
+                    </geometry>
+                    <geometry>
+                         <capsule length="0.1" radius="0.2"/>
+                    </geometry>
+                    <geometry>
+                         <sphere radius="0.2"/>
+                    </geometry>
                   </link>
                   <link name="unmovable">
                     <collision>
@@ -40,7 +49,7 @@ class TestGeometeryOptimizationDev(unittest.TestCase):
                   <joint name="unmovable" type = "fixed">
                         <parent link="world"/>
                         <child link="unmovable"/>
-                        <origin xyz="20 0 0"/>
+                        <origin xyz="1 0 0"/>
                   </joint>
                 </robot>"""
 
@@ -48,19 +57,6 @@ class TestGeometeryOptimizationDev(unittest.TestCase):
         self.plant, self.scene_graph = AddMultibodyPlantSceneGraph(
             builder, MultibodyPlant(time_step=0.01))
         Parser(self.plant).AddModelsFromString(limits_urdf, "urdf")
-
-        # self.body0 = self.plant.GetBodyByName("rail_base")
-        # self.body1 = self.plant.GetBodyByName("pendulum")
-
-        # proximity_properties = ProximityProperties()
-        #
-        #
-        # # Register more collision geometries to the pendulum.
-        # self.cylinder = self.plant.RegisterCollisionGeometry(
-        #     self.body1, RigidTransform(np.zeros(3)),
-        #     Cylinder(0.1, 0.5)
-        #
-        # )
 
         self.plant.Finalize()
 
@@ -72,12 +68,6 @@ class TestGeometeryOptimizationDev(unittest.TestCase):
             plane_order=mut.SeparatingPlaneOrder.kAffine,
             q_star=np.zeros(1))
 
-        movable = self.plant.GetBodyByName("movable")
-        unmovable = self.plant.GetBodyByName("unmovable")
-        # print(movable.body_frame().CalcPoseInWorld(
-        #     self.plant.CreateDefaultContext()))
-        # print(unmovable.body_frame().CalcPoseInWorld(
-        #     self.plant.CreateDefaultContext()))
 
     def test_CollisionGeometry(self):
         collision_geometries = mut.GetCollisionGeometries(
@@ -94,11 +84,12 @@ class TestGeometeryOptimizationDev(unittest.TestCase):
 
         for geom_lst in collision_geometries.values():
             for geom in geom_lst:
-                self.assertTrue(geom.type() in geom_type_possible_values)
-                self.assertTrue(type(geom.geometry())
-                                in geom_shape_possible_values)
-                self.assertTrue(
-                    geom.body_index() in collision_geometries.keys())
+                self.assertIn(geom.type(), geom_type_possible_values)
+                self.assertIn(
+                    type(
+                        geom.geometry()),
+                    geom_shape_possible_values)
+                self.assertIn(geom.body_index(), collision_geometries.keys())
                 self.assertGreater(geom.num_rationals(), 0)
                 self.assertIsInstance(geom.X_BG(), RigidTransform)
                 self.assertIsInstance(geom.id(), GeometryId)
@@ -107,27 +98,24 @@ class TestGeometeryOptimizationDev(unittest.TestCase):
         plane_side_possible_values = [mut.PlaneSide.kPositive,
                                       mut.PlaneSide.kNegative]
 
-    def test_separating_plane(self):
-        # Check that the plane orders are properly enumerated.
-        possible_orders = [mut.SeparatingPlaneOrder.kAffine]
-
     def test_CspaceFreePolytope_Options(self):
         solver_options = SolverOptions()
         solver_options.SetOption(CommonSolverOption.kPrintToConsole, 1)
 
         find_polytope_given_lagrangian_option = mut.FindPolytopeGivenLagrangianOptions()
         self.assertIsNone(find_polytope_given_lagrangian_option.backoff_scale)
-        self.assertEquals(
+        self.assertEqual(
             find_polytope_given_lagrangian_option.ellipsoid_margin_epsilon, 1e-5)
-        self.assertEquals(
+        self.assertEqual(
             find_polytope_given_lagrangian_option.solver_id,
             MosekSolver.id())
         self.assertIsNone(find_polytope_given_lagrangian_option.solver_options)
         self.assertIsNone(find_polytope_given_lagrangian_option.s_inner_pts)
         self.assertTrue(
             find_polytope_given_lagrangian_option.search_s_bounds_lagrangians)
-        # TODO (AlexandreAmice) uncomment this once the margin costs are properly enumerated.
-        # self.assertEqual(find_polytope_given_lagrangian_option.ellipsoid_margin_cost)
+        self.assertEqual(
+            find_polytope_given_lagrangian_option.ellipsoid_margin_cost,
+            mut.EllipsoidMarginCost.kGeometricMean)
 
         find_polytope_given_lagrangian_option.backoff_scale = 1e-3
         find_polytope_given_lagrangian_option.ellipsoid_margin_epsilon = 1e-6
@@ -135,13 +123,12 @@ class TestGeometeryOptimizationDev(unittest.TestCase):
         find_polytope_given_lagrangian_option.solver_options = solver_options
         find_polytope_given_lagrangian_option.s_inner_pts = np.zeros((2, 1))
         find_polytope_given_lagrangian_option.search_s_bounds_lagrangians = False
-        # TODO (AlexandreAmice) uncomment this once the margin costs are properly enumerated.
-        # find_polytope_given_lagrangian_option.ellipsoid_margin_cost = True
-        self.assertEquals(
+        find_polytope_given_lagrangian_option.ellipsoid_margin_cost = mut.EllipsoidMarginCost.kSum
+        self.assertEqual(
             find_polytope_given_lagrangian_option.backoff_scale, 1e-3)
-        self.assertEquals(
+        self.assertEqual(
             find_polytope_given_lagrangian_option.ellipsoid_margin_epsilon, 1e-6)
-        self.assertEquals(
+        self.assertEqual(
             find_polytope_given_lagrangian_option.solver_id,
             ScsSolver.id())
         self.assertEqual(
@@ -152,8 +139,9 @@ class TestGeometeryOptimizationDev(unittest.TestCase):
                 (2, 1)), 1e-5)
         self.assertFalse(
             find_polytope_given_lagrangian_option.search_s_bounds_lagrangians)
-        # TODO (AlexandreAmice) uncomment this once the margin costs are properly enumerated.
-        # self.assertEqual(find_polytope_given_lagrangian_option.ellipsoid_margin_cost)
+        self.assertEqual(
+            find_polytope_given_lagrangian_option.ellipsoid_margin_cost,
+            mut.EllipsoidMarginCost.kSum)
 
         find_separation_certificate_given_polytope_options = mut.FindSeparationCertificateGivenPolytopeOptions()
         self.assertEqual(
@@ -246,16 +234,64 @@ class TestGeometeryOptimizationDev(unittest.TestCase):
         options.with_cross_y = True
         self.assertTrue(options.with_cross_y)
 
-    def test_CspaceFreePolytope(self):
+    def test_CspaceFreePolytope_constructor_and_getters(self):
+        dut = self.cspace_free_polytope
+        # rat_forward = dut.rational_forward_kin()
+        # self.assertEqual(
+        #     rat_forward.ComputeSValue(
+        #         np.zeros(self.plant.num_positions()),
+        #         np.zeros(self.plant.num_positions())),
+        #     np.zeros(self.plant.num_positions()))
+        # self.assertGreaterEqual(
+        #     len(dut.map_geometries_to_separating_planes().keys()), 1)
+        self.assertGreaterEqual(
+            len(dut.separating_planes()), 1)
+        self.assertEqual(len(dut.y_slack()), 3)
 
-        C_init = np.array([[1], [-1]])
-        lim = 1e-2
+    def test_separating_plane(self):
+        # Check that the plane orders are properly enumerated.
+        possible_orders = [mut.SeparatingPlaneOrder.kAffine]
+
+        plane = self.cspace_free_polytope.separating_planes()[0]
+        self.assertEqual(len(plane.a), 3)
+        self.assertIsInstance(plane.b, Polynomial)
+        self.assertIsInstance(
+            plane.positive_side_geometry,
+            mut.CollisionGeometry)
+        self.assertIsInstance(
+            plane.negative_side_geometry,
+            mut.CollisionGeometry)
+        self.assertTrue(plane.expressed_body.is_valid())
+        self.assertIn(plane.plane_order, possible_orders)
+        self.assertGreaterEqual(len(plane.decision_variables), 4)
+
+    def test_CspaceFreePolytopeSearchMethods(self):
+
+        C_init = np.vstack([np.atleast_2d(np.eye(self.plant.num_positions(
+        ))), -np.atleast_2d(np.eye(self.plant.num_positions()))])
+        lim = 3
         d_init = lim * np.ones((C_init.shape[0], 1))
 
         bilinear_alternation_options = mut.BilinearAlternationOptions()
         binary_search_options = mut.BinarySearchOptions()
-        bilinear_alternation_options.find_lagrangian_options.verbose = True
-        binary_search_options.find_lagrangian_options.verbose = True
+        binary_search_options.scale_min = 1e-4
+        bilinear_alternation_options.find_lagrangian_options.verbose = False
+        binary_search_options.find_lagrangian_options.verbose = False
+
+        result = self.cspace_free_polytope.BinarySearch(
+            ignored_collision_pairs=set(),
+            C=C_init,
+            d=d_init,
+            s_center=np.zeros(self.plant.num_positions()),
+            options=binary_search_options
+        )
+        # Accesses all members of SearchResult
+        self.assertGreaterEqual(result.num_iter, 1)
+        self.assertEqual(len(result.a), 1)
+        self.assertEqual(len(result.b), 1)
+        self.assertIsInstance(result.a[0][0], Polynomial)
+        C_init = result.C
+        d_init = result.d / 2
 
         success, certificate = self.cspace_free_polytope.FindSeparationCertificateGivenPolytope(
             C=C_init,
@@ -264,20 +300,32 @@ class TestGeometeryOptimizationDev(unittest.TestCase):
             options=bilinear_alternation_options.find_lagrangian_options)
         self.assertTrue(success)
 
-
-        result = self.cspace_free_polytope.BinarySearch(
-            ignored_collision_pairs=set(),
-            C=C_init,
-            d=d_init,
-            s_center= np.zeros(1),
-            options=binary_search_options
-        )
-
-
         result = self.cspace_free_polytope.SearchWithBilinearAlternation(
             ignored_collision_pairs=set(),
             C_init=C_init,
             d_init=d_init,
             options=bilinear_alternation_options)
-        for r in result:
-            print(r.num_iter)
+        self.assertGreaterEqual(len(result), 2)
+        self.assertGreaterEqual(result[-1].num_iter, 0)
+
+        success, certificates = self.cspace_free_polytope.FindSeparationCertificateGivenPolytope(
+            C=C_init,
+            d=d_init,
+            ignored_collision_pairs=set(),
+            options=bilinear_alternation_options.find_lagrangian_options)
+        self.assertTrue(success)
+        geom1, geom2, certificate_result = certificates[0]
+        self.assertGreaterEqual(certificate_result.plane_index, 0)
+        self.assertGreaterEqual(
+            len(certificate_result.positive_side_rational_lagrangians), 1)
+        self.assertGreaterEqual(
+            len(certificate_result.positive_side_rational_lagrangians), 1)
+        self.assertEqual(len(certificate_result.a), 3)
+        self.assertGreaterEqual(
+            len(certificate_result.plane_decision_var_vals), 3)
+        self.assertIsInstance(certificate_result.b, Polynomial)
+
+        lagrangians = certificate_result.positive_side_rational_lagrangians[0]
+        self.assertEqual(len(lagrangians.polytope), C_init.shape[0])
+        self.assertEqual(len(lagrangians.s_lower), self.plant.num_positions())
+        self.assertEqual(len(lagrangians.s_upper), self.plant.num_positions())
