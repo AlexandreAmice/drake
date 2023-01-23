@@ -244,10 +244,8 @@ class TestGeometeryOptimizationDev(unittest.TestCase):
                 np.zeros(self.plant.num_positions()),
                 np.zeros(self.plant.num_positions())),
             np.zeros(self.plant.num_positions()))
-        # TODO (AlexandreAmice) uncomment once I get this binding working.
-        # self.assertGreaterEqual(
-        #     len(dut.map_geometries_to_separating_planes().keys()), 1)
-        # pair = dut.sorted_pair_method()
+        self.assertGreaterEqual(
+            len(dut.map_geometries_to_separating_planes().keys()), 1)
         self.assertGreaterEqual(
             len(dut.separating_planes()), 1)
         self.assertEqual(len(dut.y_slack()), 3)

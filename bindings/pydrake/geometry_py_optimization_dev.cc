@@ -104,31 +104,18 @@ void DefineGeometryOptimizationDev(py::module m) {
             py::keep_alive<1, 3>(), cls_doc.ctor.doc)
         .def("rational_forward_kin", &Class::rational_forward_kin,
             py_rvp::reference_internal, cls_doc.rational_forward_kin.doc)
-        //        .def(
-        //            "map_geometries_to_separating_planes",
-        //            [](const CspaceFreePolytope* self) {
-        //              // Template deduction for drake::SortedPair<GeometryId>
-        //              does not
-        //              // work. Here we manually make map of tuples instead.
-        //              std::unordered_map<std::tuple<drake::SortedPair<GeometryId>,
-        //                                     drake::SortedPair<GeometryId>>,
-        //                  int>
-        //                  ret;
-        //              for (auto [k, v] :
-        //              self->map_geometries_to_separating_planes()) {
-        //                std::tupledrake::SortedPair<GeometryId>> key =
-        //                    std::tie(k.first, k.second);
-        //                ret.emplace(key, v);
-        //              }
-        //              return ret;
-        //            },
-        //            cls_doc.map_geometries_to_separating_planes.doc)
-        //        .def("sorted_pair_method", [](const CspaceFreePolytope* self)
-        //        {
-        //            auto it =
-        //            self->map_geometries_to_separating_planes().begin();
-        //            return it->first;
-        //        }, py_rvp::copy)
+        .def(
+            "map_geometries_to_separating_planes",
+            [](const CspaceFreePolytope* self) {
+              // Template deduction for drake::SortedPair<GeometryId> does not
+              // work. Here we manually make a map of tuples instead.
+              py::dict ret;
+              for (auto [k, v] : self->map_geometries_to_separating_planes()) {
+                ret[py::make_tuple(k.first(), k.second())] = v;
+              }
+              return ret;
+            },
+            cls_doc.map_geometries_to_separating_planes.doc)
         .def("separating_planes", &Class::separating_planes,
             cls_doc.separating_planes.doc)
         .def("y_slack", &Class::y_slack, cls_doc.y_slack.doc)
