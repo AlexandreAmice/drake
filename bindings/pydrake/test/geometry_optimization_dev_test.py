@@ -14,6 +14,7 @@ from pydrake.solvers import MosekSolver, CommonSolverOption, SolverOptions
 from pydrake.math import RigidTransform
 from pydrake.solvers import MosekSolver, ScsSolver
 from pydrake.symbolic import Polynomial
+from pydrake.multibody.rational import RationalForwardKinematics
 
 
 class TestGeometeryOptimizationDev(unittest.TestCase):
@@ -236,14 +237,16 @@ class TestGeometeryOptimizationDev(unittest.TestCase):
 
     def test_CspaceFreePolytope_constructor_and_getters(self):
         dut = self.cspace_free_polytope
-        # rat_forward = dut.rational_forward_kin()
-        # self.assertEqual(
-        #     rat_forward.ComputeSValue(
-        #         np.zeros(self.plant.num_positions()),
-        #         np.zeros(self.plant.num_positions())),
-        #     np.zeros(self.plant.num_positions()))
+        rat_forward = dut.rational_forward_kin()
+        self.assertEqual(
+            rat_forward.ComputeSValue(
+                np.zeros(self.plant.num_positions()),
+                np.zeros(self.plant.num_positions())),
+            np.zeros(self.plant.num_positions()))
+        # TODO (AlexandreAmice) uncomment once I get this binding working.
         # self.assertGreaterEqual(
         #     len(dut.map_geometries_to_separating_planes().keys()), 1)
+        pair = dut.sorted_pair_method()
         self.assertGreaterEqual(
             len(dut.separating_planes()), 1)
         self.assertEqual(len(dut.y_slack()), 3)
@@ -329,3 +332,4 @@ class TestGeometeryOptimizationDev(unittest.TestCase):
         self.assertEqual(len(lagrangians.polytope), C_init.shape[0])
         self.assertEqual(len(lagrangians.s_lower), self.plant.num_positions())
         self.assertEqual(len(lagrangians.s_upper), self.plant.num_positions())
+

@@ -90,7 +90,7 @@ void DefineGeometryOptimizationDev(py::module m) {
         .value("kAffine", SeparatingPlaneOrder::kAffine,
             doc.SeparatingPlaneOrder.kAffine.doc);
     type_visit([m](auto dummy) { DoSeparatingPlaneDeclaration(m, dummy); },
-      type_pack<double, symbolic::Variable>());
+        type_pack<double, symbolic::Variable>());
   }
   {
     using Class = CspaceFreePolytope;
@@ -103,11 +103,30 @@ void DefineGeometryOptimizationDev(py::module m) {
             py::arg("q_star"),
             // Keep alive, reference: `self` keeps `scene_graph` alive.
             py::keep_alive<1, 3>(), cls_doc.ctor.doc)
-//        .def("rational_forward_kin", &Class::rational_forward_kin, py_rvp::reference_internal,
-//            cls_doc.rational_forward_kin.doc)
-//        .def("map_geometries_to_separating_planes",
-//            &Class::map_geometries_to_separating_planes,
+            .def("rational_forward_kin", &Class::rational_forward_kin,
+                py_rvp::reference_internal,
+                    cls_doc.rational_forward_kin.doc)
+//        .def(
+//            "map_geometries_to_separating_planes",
+//            [](const CspaceFreePolytope* self) {
+//              // Template deduction for drake::SortedPair<GeometryId> does not
+//              // work. Here we manually make map of tuples instead.
+//              std::unordered_map<std::tuple<drake::SortedPair<GeometryId>,
+//                                     drake::SortedPair<GeometryId>>,
+//                  int>
+//                  ret;
+//              for (auto [k, v] : self->map_geometries_to_separating_planes()) {
+//                std::tupledrake::SortedPair<GeometryId>> key =
+//                    std::tie(k.first, k.second);
+//                ret.emplace(key, v);
+//              }
+//              return ret;
+//            },
 //            cls_doc.map_geometries_to_separating_planes.doc)
+        .def("sorted_pair_method", [](const CspaceFreePolytope* self) {
+            auto it = self->map_geometries_to_separating_planes().begin();
+            return it->first;
+        })
         .def("separating_planes", &Class::separating_planes,
             cls_doc.separating_planes.doc)
         .def("y_slack", &Class::y_slack, cls_doc.y_slack.doc)
@@ -137,7 +156,7 @@ void DefineGeometryOptimizationDev(py::module m) {
                 certificates_ret.emplace_back(key.first(), key.second(), value);
               }
               return std::pair(success, certificates_ret);
-//                return std::pair(success, certificates);
+              //                return std::pair(success, certificates);
             },
             py::arg("C"), py::arg("d"), py::arg("ignored_collision_pairs"),
             py::arg("options"))
@@ -227,11 +246,10 @@ void DefineGeometryOptimizationDev(py::module m) {
         .def(py::init<>())
         .def_readwrite("with_cross_y", &Class::Options::with_cross_y);
 
-        py::enum_<Class::EllipsoidMarginCost>(
-            m, "EllipsoidMarginCost", cls_doc.EllipsoidMarginCost.doc)
-            .value("kSum", Class::EllipsoidMarginCost::kSum)
-            .value("kGeometricMean",
-            Class::EllipsoidMarginCost::kGeometricMean);
+    py::enum_<Class::EllipsoidMarginCost>(
+        m, "EllipsoidMarginCost", cls_doc.EllipsoidMarginCost.doc)
+        .value("kSum", Class::EllipsoidMarginCost::kSum)
+        .value("kGeometricMean", Class::EllipsoidMarginCost::kGeometricMean);
 
     py::class_<Class::SearchResult>(m, "SearchResult", cls_doc.SearchResult.doc)
         .def_readonly("C", &Class::SearchResult::C)
@@ -269,7 +287,6 @@ void DefineGeometryOptimizationDev(py::module m) {
       py::overload_cast<const multibody::MultibodyPlant<double>&,
           const geometry::SceneGraph<double>&>(&GetCollisionGeometries),
       py::arg("plant"), py::arg("scene_graph"), doc.GetCollisionGeometries.doc);
-
 }
 }  // namespace pydrake
 }  // namespace drake
