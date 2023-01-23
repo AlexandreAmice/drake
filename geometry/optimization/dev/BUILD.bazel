@@ -17,8 +17,8 @@ drake_cc_package_library(
     visibility = ["//visibility:public"],
     deps = [
         ":collision_geometry",
-        ":separating_plane",
         ":cspace_free_polytope",
+        ":separating_plane",
     ],
 )
 
