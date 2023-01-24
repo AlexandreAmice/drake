@@ -449,6 +449,31 @@ class VPRMSeeding:
                 if r1.IntersectsWith(r2):
                     self.connectivity_graph.add_edge(idx1,idx2)
         print(strftime("[%H:%M:%S] ", gmtime()) +"[VPRMSeeding] Checkpoint loaded successfully, current state is at end of guard phase")
+    
+    def load_full_checkpoint(self, checkpoint):
+        self.seed_points = checkpoint['seedpoints']
+        A = checkpoint['regionsA']
+        B = checkpoint['regionsB']
+        self.regions = [HPolyhedron(a,b) for a,b, in zip(A,B)]
+        self.guard_regions = checkpoint['guard_regions'] 
+        self.samples_outside_regions = {}
+        vis_reg = [[self.regions[idx] for idx in vis] for vis in checkpoint['sample_set_vis_regions']]
+        for i ,pt in enumerate(checkpoint['sample_set_points']):
+            self.samples_outside_regions[str(pt)] = [pt, vis_reg[i]]
+        
+        self.connectivity_graph = nx.Graph()
+        for idx in range(len(self.regions)):
+            self.connectivity_graph.add_node(idx)
+        self.connectivity_edges = []
+        for idx1 in range(len(self.regions)):
+            if idx1%10 == 0: print(idx1/len(self.regions))
+            for idx2 in range(idx1 +1, len(self.regions)):
+                r1 = self.regions[idx1]
+                r2 = self.regions[idx2]
+                if r1.IntersectsWith(r2):
+                    self.connectivity_edges.append([idx1, idx2])
+                    #self.connectivity_graph.add_edge(idx1,idx2)
+        print(strftime("[%H:%M:%S] ", gmtime()) +"[VPRMSeeding] Checkpoint loaded successfully")
 
     def run(self):
         self.set_guard_regions()
