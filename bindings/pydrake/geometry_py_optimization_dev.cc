@@ -94,12 +94,24 @@ void DefineGeometryOptimizationDev(py::module m) {
   {
     using Class = CspaceFreePolytope;
     const auto& cls_doc = doc.CspaceFreePolytope;
-    py::class_<Class>(m, "CspaceFreePolytope", cls_doc.doc)
+
+    py::module::import("pydrake.multibody.rational");
+
+    py::class_<Class> cspace_free_polytope_cls(
+        m, "CspaceFreePolytope", cls_doc.doc);
+
+    py::class_<Class::Options>(
+        cspace_free_polytope_cls, "Options", cls_doc.Options.doc)
+        .def(py::init<>())
+        .def_readwrite("with_cross_y", &Class::Options::with_cross_y);
+
+    cspace_free_polytope_cls
         .def(py::init<const multibody::MultibodyPlant<double>*,
                  const geometry::SceneGraph<double>*, SeparatingPlaneOrder,
-                 const Eigen::Ref<const Eigen::VectorXd>&>(),
+                 const Eigen::Ref<const Eigen::VectorXd>&,
+                 const Class::Options&>(),
             py::arg("plant"), py::arg("scene_graph"), py::arg("plane_order"),
-            py::arg("q_star"),
+            py::arg("q_star"), py::arg("options") = Class::Options(),
             // Keep alive, reference: `self` keeps `scene_graph` alive.
             py::keep_alive<1, 3>(), cls_doc.ctor.doc)
         .def("rational_forward_kin", &Class::rational_forward_kin,
@@ -158,7 +170,7 @@ void DefineGeometryOptimizationDev(py::module m) {
             py::arg("ignored_collision_pairs"), py::arg("C"), py::arg("d"),
             py::arg("s_center"), py::arg("options"), cls_doc.BinarySearch.doc);
 
-    py::class_<Class::SeparationCertificateResult>(m,
+    py::class_<Class::SeparationCertificateResult>(cspace_free_polytope_cls,
         "SeparationCertificateResult", cls_doc.SeparationCertificateResult.doc)
         .def_readonly(
             "plane_index", &Class::SeparationCertificateResult::plane_index)
@@ -181,8 +193,8 @@ void DefineGeometryOptimizationDev(py::module m) {
             py_rvp::copy,
             cls_doc.SeparationCertificateResult.plane_decision_var_vals.doc);
 
-    py::class_<Class::SeparatingPlaneLagrangians>(
-        m, "SeparatingPlaneLagrangians", cls_doc.SeparatingPlaneLagrangians.doc)
+    py::class_<Class::SeparatingPlaneLagrangians>(cspace_free_polytope_cls,
+        "SeparatingPlaneLagrangians", cls_doc.SeparatingPlaneLagrangians.doc)
         .def_readonly("polytope", &Class::SeparatingPlaneLagrangians::polytope,
             py_rvp::copy)
         .def_readonly("s_lower", &Class::SeparatingPlaneLagrangians::s_lower,
@@ -190,7 +202,8 @@ void DefineGeometryOptimizationDev(py::module m) {
         .def_readonly("s_upper", &Class::SeparatingPlaneLagrangians::s_upper,
             py_rvp::copy);
 
-    py::class_<Class::FindSeparationCertificateGivenPolytopeOptions>(m,
+    py::class_<Class::FindSeparationCertificateGivenPolytopeOptions>(
+        cspace_free_polytope_cls,
         "FindSeparationCertificateGivenPolytopeOptions",
         cls_doc.FindSeparationCertificateGivenPolytopeOptions.doc)
         .def(py::init<>())
@@ -210,8 +223,8 @@ void DefineGeometryOptimizationDev(py::module m) {
             &Class::FindSeparationCertificateGivenPolytopeOptions::
                 ignore_redundant_C);
 
-    py::class_<Class::FindPolytopeGivenLagrangianOptions>(m,
-        "FindPolytopeGivenLagrangianOptions",
+    py::class_<Class::FindPolytopeGivenLagrangianOptions>(
+        cspace_free_polytope_cls, "FindPolytopeGivenLagrangianOptions",
         cls_doc.FindPolytopeGivenLagrangianOptions.doc)
         .def(py::init<>())
         .def_readwrite("backoff_scale",
@@ -231,24 +244,21 @@ void DefineGeometryOptimizationDev(py::module m) {
         .def_readwrite("ellipsoid_margin_cost",
             &Class::FindPolytopeGivenLagrangianOptions::ellipsoid_margin_cost);
 
-    py::class_<Class::Options>(m, "Options", cls_doc.Options.doc)
-        .def(py::init<>())
-        .def_readwrite("with_cross_y", &Class::Options::with_cross_y);
-
-    py::enum_<Class::EllipsoidMarginCost>(
-        m, "EllipsoidMarginCost", cls_doc.EllipsoidMarginCost.doc)
+    py::enum_<Class::EllipsoidMarginCost>(cspace_free_polytope_cls,
+        "EllipsoidMarginCost", cls_doc.EllipsoidMarginCost.doc)
         .value("kSum", Class::EllipsoidMarginCost::kSum)
         .value("kGeometricMean", Class::EllipsoidMarginCost::kGeometricMean);
 
-    py::class_<Class::SearchResult>(m, "SearchResult", cls_doc.SearchResult.doc)
+    py::class_<Class::SearchResult>(
+        cspace_free_polytope_cls, "SearchResult", cls_doc.SearchResult.doc)
         .def_readonly("C", &Class::SearchResult::C)
         .def_readonly("d", &Class::SearchResult::d)
         .def_readonly("a", &Class::SearchResult::a, py_rvp::copy)
         .def_readonly("b", &Class::SearchResult::b)
         .def_readonly("num_iter", &Class::SearchResult::num_iter);
 
-    py::class_<Class::BilinearAlternationOptions>(
-        m, "BilinearAlternationOptions", cls_doc.BilinearAlternationOptions.doc)
+    py::class_<Class::BilinearAlternationOptions>(cspace_free_polytope_cls,
+        "BilinearAlternationOptions", cls_doc.BilinearAlternationOptions.doc)
         .def(py::init<>())
         .def_readwrite("max_iter", &Class::BilinearAlternationOptions::max_iter)
         .def_readwrite("convergence_tol",
@@ -260,8 +270,8 @@ void DefineGeometryOptimizationDev(py::module m) {
         .def_readwrite("ellipsoid_scaling",
             &Class::BilinearAlternationOptions::ellipsoid_scaling);
 
-    py::class_<Class::BinarySearchOptions>(
-        m, "BinarySearchOptions", cls_doc.BinarySearchOptions.doc)
+    py::class_<Class::BinarySearchOptions>(cspace_free_polytope_cls,
+        "BinarySearchOptions", cls_doc.BinarySearchOptions.doc)
         .def(py::init<>())
         .def_readwrite("scale_max", &Class::BinarySearchOptions::scale_max)
         .def_readwrite("scale_min", &Class::BinarySearchOptions::scale_min)
