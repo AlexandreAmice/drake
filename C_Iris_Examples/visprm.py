@@ -553,86 +553,57 @@ class VPRMSeeding:
                 if r1.IntersectsWith(r2):
                     self.connectivity_graph.add_edge(idx1,idx2)
         #if self.verbose: print("[VPRMSeeding] Connectivity phase")
-    def find_guard_to_refine(self,):
-        to_split = []
-        for goi in self.guard_regions:
-            g1,g2 = None, None
-                
-            if goi >= len(self.samples_to_connect): 
-
-                ker = self.compute_kernel_of_guard(goi)
-                targ_seed = self.seed_points[goi]
-                
-                if len(ker) >10:
-                    found = False
-                    for idx, k1 in enumerate(ker[:-1]):
-                        for k2 in ker[idx:]:
-                            #print('a')
-                            if not self.is_in_line_of_sight(k1, k2)[0]:
-                                g1 = k1
-                                g2 = k2
-                                found = True
-                                break
-                        if found:
-                            break
-                ker = np.array(ker)
-            #sample_set = np.array(sample_set)
-            #print(len(ker))
-            #print(g1,g2)
-            if g1 is not None:
-                to_split.append([goi, targ_seed, ker, g1, g2])
-                if self.verbose: print(strftime("[%H:%M:%S] ", gmtime()) +'[VPRMSeeding] Guard found to split')
-                return to_split
-        if self.verbose: print(strftime("[%H:%M:%S] ", gmtime()) +'[VPRMSeeding] No guard to split')
-        return to_split
-
-    def split_refineable_guard(self, to_split):
-        if self.verbose: print(strftime("[%H:%M:%S] ", gmtime()) +'[VPRMSeeding] N = ', len(to_split), ' guards to split')
-        if len(to_split):
-            goi, targ_seed, ker, g1, g2 = to_split[0]
-            #generate new regions
-            r1 = self.grow_region_at(g1)
-            r2 = self.grow_region_at(g2)
-            self.regions += [r1, r2]
-            #vs.guard_regions += [vs.regions.index(r) for r in [r1,r2]]
-            self.seed_points += [g1, g2]
-            r_old = self.regions[goi]
-            keys_to_del = []
-            g1_conv = self.point_to_region_space(g1) if self.need_to_convert_samples else g1
-            g2_conv = self.point_to_region_space(g2) if self.need_to_convert_samples else g2
-
-            for s_key in self.samples_outside_regions.keys():
-                vis_regs = self.samples_outside_regions[s_key][1] 
-                if  r_old in vis_regs:
-                    vis_regs.remove(r_old)
-                s_Q = self.samples_outside_regions[s_key][0]
-                if self.need_to_convert_samples:
-                    s_conv = self.point_to_region_space(s_Q)
-                else:
-                    s_conv = s_Q 
-                if self.is_in_line_of_sight(s_conv.reshape(-1,1), g1_conv.reshape(-1,1))[0]:
-                    vis_regs.append(r1)
-                if self.is_in_line_of_sight(s_conv.reshape(-1,1), g2_conv.reshape(-1,1))[0]:
-                    vis_regs.append(r2)
-            for k in keys_to_del:
-                del self.samples_outside_regions[k]
-            
-            del self.seed_points[goi]
-            del self.regions[goi]
-        self.guard_regions = [self.regions.index(r) for r in self.regions]
     
-    def refine_guards(self,):
-        keep_splitting = True
-        while keep_splitting:
-            to_split = self.find_guard_to_refine()
-            if len(to_split):
-                #goi, targ_seed, ker, g1, g2 = to_split[0]
-                self.split_refineable_guard(to_split)
-                self.guard_phase()
-                keep_splitting = True
-            else:
-                keep_splitting = False
+    def get_new_seed_candidates(self, guard):
+        vertices = self.compute_kernel_of_guard(guard)
+        graph = nx.Graph()
+        if len(vertices)>1:
+            for i1, v1 in enumerate(vertices):
+                for i2, v2 in enumerate(vertices):
+                    if i1!=i2 and self.is_in_line_of_sight(v1.reshape(-1,1), v2.reshape(-1,1))[0]:
+                        graph.add_edge(i1,i2)
+            # print(len(vertices))
+            # print(len(graph.edges))
+            new_cands = nx.maximal_independent_set(graph)
+            return [vertices[c] for c in new_cands]
+        else:
+            return [self.seed_points[guard]]
 
+    def refine_gurads_greedy(self):
+        continue_splitting = True
+        while continue_splitting:
+            candidate_splits = [self.get_new_seed_candidates(g) for g in self.guard_regions]
+            best_split = max(candidate_splits, key = len)
+            best_split_idx = candidate_splits.index(best_split) 
+            if len(best_split)>1:
+                if self.verbose: print(strftime("[%H:%M:%S] ", gmtime()) +'[VPRMSeeding] Guard found to split into', len(best_split))
+                #generate new regions
+                nr = [self.grow_region_at(s) for s in best_split]
+                self.regions += nr
+                self.seed_points += best_split
+                r_old = self.regions[best_split_idx]
+                #keys_to_del = []
+                gs_conv = [self.point_to_region_space(s) for s in best_split] if self.need_to_convert_samples else best_split
+                
+                for s_key in self.samples_outside_regions.keys():
+                    vis_regs = self.samples_outside_regions[s_key][1] 
+                    if r_old in vis_regs:
+                        vis_regs.remove(r_old)
+                    s_Q = self.samples_outside_regions[s_key][0]
+                    if self.need_to_convert_samples:
+                        s_conv = self.point_to_region_space(s_Q)
+                    else:
+                        s_conv = s_Q 
+                    for idnr, gs in enumerate(gs_conv):
+                        if self.is_in_line_of_sight(s_conv.reshape(-1,1), gs.reshape(-1,1))[0]:
+                            vis_regs.append(nr[idnr])
+                
+                del self.seed_points[best_split_idx]
+                del self.regions[best_split_idx]
+                self.guard_regions = [self.regions.index(r) for r in self.regions]
+            else:
+                if self.verbose: print(strftime("[%H:%M:%S] ", gmtime()) +'[VPRMSeeding] No guard to split')
+                continue_splitting = False
         #rebuild connectivity graph
         self.connectivity_graph = nx.Graph()
         for idx in range(len(self.guard_regions)):
@@ -644,6 +615,99 @@ class VPRMSeeding:
                 r2 = self.regions[idx2]
                 if r1.IntersectsWith(r2):
                     self.connectivity_graph.add_edge(idx1,idx2)
+        return
+
+    # def find_guard_to_refine(self,):
+    #     to_split = []
+    #     for goi in self.guard_regions:
+    #         g1,g2 = None, None
+                
+    #         if goi >= len(self.samples_to_connect): 
+
+    #             ker = self.compute_kernel_of_guard(goi)
+    #             targ_seed = self.seed_points[goi]
+                
+    #             if len(ker) >10:
+    #                 found = False
+    #                 for idx, k1 in enumerate(ker[:-1]):
+    #                     for k2 in ker[idx:]:
+    #                         #print('a')
+    #                         if not self.is_in_line_of_sight(k1, k2)[0]:
+    #                             g1 = k1
+    #                             g2 = k2
+    #                             found = True
+    #                             break
+    #                     if found:
+    #                         break
+    #             ker = np.array(ker)
+    #         #sample_set = np.array(sample_set)
+    #         #print(len(ker))
+    #         #print(g1,g2)
+    #         if g1 is not None:
+    #             to_split.append([goi, targ_seed, ker, g1, g2])
+    #             if self.verbose: print(strftime("[%H:%M:%S] ", gmtime()) +'[VPRMSeeding] Guard found to split')
+    #             return to_split
+    #     if self.verbose: print(strftime("[%H:%M:%S] ", gmtime()) +'[VPRMSeeding] No guard to split')
+    #     return to_split
+
+    # def split_refineable_guard(self, to_split):
+    #     if self.verbose: print(strftime("[%H:%M:%S] ", gmtime()) +'[VPRMSeeding] N = ', len(to_split), ' guards to split')
+    #     if len(to_split):
+    #         goi, targ_seed, ker, g1, g2 = to_split[0]
+    #         #generate new regions
+    #         r1 = self.grow_region_at(g1)
+    #         r2 = self.grow_region_at(g2)
+    #         self.regions += [r1, r2]
+    #         #vs.guard_regions += [vs.regions.index(r) for r in [r1,r2]]
+    #         self.seed_points += [g1, g2]
+    #         r_old = self.regions[goi]
+    #         keys_to_del = []
+    #         g1_conv = self.point_to_region_space(g1) if self.need_to_convert_samples else g1
+    #         g2_conv = self.point_to_region_space(g2) if self.need_to_convert_samples else g2
+
+    #         for s_key in self.samples_outside_regions.keys():
+    #             vis_regs = self.samples_outside_regions[s_key][1] 
+    #             if  r_old in vis_regs:
+    #                 vis_regs.remove(r_old)
+    #             s_Q = self.samples_outside_regions[s_key][0]
+    #             if self.need_to_convert_samples:
+    #                 s_conv = self.point_to_region_space(s_Q)
+    #             else:
+    #                 s_conv = s_Q 
+    #             if self.is_in_line_of_sight(s_conv.reshape(-1,1), g1_conv.reshape(-1,1))[0]:
+    #                 vis_regs.append(r1)
+    #             if self.is_in_line_of_sight(s_conv.reshape(-1,1), g2_conv.reshape(-1,1))[0]:
+    #                 vis_regs.append(r2)
+    #         for k in keys_to_del:
+    #             del self.samples_outside_regions[k]
+            
+    #         del self.seed_points[goi]
+    #         del self.regions[goi]
+    #     self.guard_regions = [self.regions.index(r) for r in self.regions]
+    
+    # def refine_guards(self,):
+    #     keep_splitting = True
+    #     while keep_splitting:
+    #         to_split = self.find_guard_to_refine()
+    #         if len(to_split):
+    #             #goi, targ_seed, ker, g1, g2 = to_split[0]
+    #             self.split_refineable_guard(to_split)
+    #             self.guard_phase()
+    #             keep_splitting = True
+    #         else:
+    #             keep_splitting = False
+
+    #     #rebuild connectivity graph
+    #     self.connectivity_graph = nx.Graph()
+    #     for idx in range(len(self.guard_regions)):
+    #         self.connectivity_graph.add_node(idx)
+
+    #     for idx1 in range(len(self.guard_regions)):
+    #         for idx2 in range(idx1 +1, len(self.guard_regions)):
+    #             r1 = self.regions[idx1]
+    #             r2 = self.regions[idx2]
+    #             if r1.IntersectsWith(r2):
+    #                 self.connectivity_graph.add_edge(idx1,idx2)
 
     def compute_kernel_of_guard(self, guard):
         ker = []
