@@ -13,8 +13,15 @@ from pydrake.all import MeshcatVisualizer, StartMeshcat, DiagramBuilder, \
     AddMultibodyPlantSceneGraph, TriangleSurfaceMesh, Rgba, SurfaceTriangle, Sphere
 from scipy.linalg import null_space
 
+
 class IrisPlantVisualizer:
-    def __init__(self, plant, builder, scene_graph, cspace_free_polytope, **kwargs):
+    def __init__(
+            self,
+            plant,
+            builder,
+            scene_graph,
+            cspace_free_polytope,
+            **kwargs):
         if plant.num_positions() > 3:
             raise ValueError(
                 "Can't visualize the TC-Space of plants with more than 3-DOF")
@@ -84,7 +91,8 @@ class IrisPlantVisualizer:
 
         # The plane numbers which we wish to visualize.
         self._plane_indices_of_interest = []
-        self.plane_indices = np.arange(0, len(cspace_free_polytope.separating_planes()))
+        self.plane_indices = np.arange(
+            0, len(cspace_free_polytope.separating_planes()))
 
     def clear_plane_indices_of_interest(self):
         self._plane_indices_of_interest = []
@@ -98,25 +106,23 @@ class IrisPlantVisualizer:
         cur_q = self.plant.GetPositions(self.plant_context)
         self.show_res_q(cur_q)
 
-
     def remove_plane_indices_of_interest(self, *elts):
-        self._plane_indices_of_interest[:] = (e for e in self._plane_indices_of_interest if e not in elts)
+        self._plane_indices_of_interest[:] = (
+            e for e in self._plane_indices_of_interest if e not in elts)
         cur_q = self.plant.GetPositions(self.plant_context)
         self.show_res_q(cur_q)
 
     #     visualizer.update_certificates(s)
-
 
     def show_res_q(self, q):
         self.plant.SetPositions(self.plant_context, q)
         in_collision = self.check_collision_q_by_ik(q)
         s = self.forward_kin.ComputeSValue(np.array(q), self.q_star)
 
-
         color = Rgba(1, 0.72, 0, 1) if in_collision else Rgba(0.24, 1, 0, 1)
         self.task_space_diagram.ForcedPublish(self.task_space_diagram_context)
 
-        self.plot_cspace_points(s, name = '/s', color = color, radius = 0.05)
+        self.plot_cspace_points(s, name='/s', color=color, radius=0.01)
 
         self.update_certificates(s)
 
@@ -200,14 +206,12 @@ class IrisPlantVisualizer:
 
     def update_region_visualization_by_group_name(self, name, **kwargs):
         region_and_certificates_list = self.region_certificate_groups[name]
-        color_dict = kwargs.get("color_dict", {})
-        for i, (r,_) in enumerate(region_and_certificates_list):
-            color = color_dict.get(i, None)
+        for i, (r, _, color) in enumerate(region_and_certificates_list):
             viz_utils.plot_polytope(r, self.meshcat_cspace, f"/{name}/{i}",
                                     resolution=kwargs.get("resolution", 30),
                                     color=color,
                                     wireframe=kwargs.get("wireframe", True),
-                                    opacity=kwargs.get("opacity", 0.7),
+                                    random_color_opacity=kwargs.get("random_color_opacity", 0.7),
                                     fill=kwargs.get("fill", True),
                                     line_width=kwargs.get("line_width", 10))
 
@@ -215,17 +219,20 @@ class IrisPlantVisualizer:
         for name in self.region_certificate_groups.keys():
             self.update_region_visualization_by_group_name(name, **kwargs)
 
-
-    def add_group_of_regions_to_visualization(self, region_list, group_name, **kwargs):
+    def add_group_of_regions_to_visualization(
+            self, region_color_tuples, group_name, **kwargs):
         # **kwargs are the ones for viz_utils.plot_polytopes
-        self.region_certificate_groups[group_name] = [(r, None) for r in region_list]
+        self.region_certificate_groups[group_name] = [
+            (region, None, color) for (
+                region, color) in region_color_tuples]
         self.update_region_visualization_by_group_name(group_name, **kwargs)
 
-    def add_group_of_regions_and_certs_to_visualization(self, region_and_certs_list,
-                                                        group_name, **kwargs):
+    def add_group_of_regions_and_certs_to_visualization(
+            self, region_cert_color_tuples, group_name, **kwargs):
         # **kwargs are the ones for viz_utils.plot_polytopes
-        # each element of region_and_certs_list is an (HPolyhedron, SearchResult)
-        self.region_certificate_groups[group_name] = region_and_certs_list
+        # each element of region_and_certs_list is an (HPolyhedron,
+        # SearchResult)
+        self.region_certificate_groups[group_name] = region_cert_color_tuples
         self.update_region_visualization_by_group_name(group_name, **kwargs)
 
     def plot_cspace_points(self, points, name, **kwargs):
@@ -233,7 +240,8 @@ class IrisPlantVisualizer:
             viz_utils.plot_point(points, self.meshcat_cspace, name, **kwargs)
         else:
             for i, s in enumerate(points):
-                viz_utils.plot_point(s, self.meshcat_cspace, name+f"/{i}", **kwargs)
+                viz_utils.plot_point(
+                    s, self.meshcat_cspace, name + f"/{i}", **kwargs)
 
     def highlight_geometry_id(self, geom_id, color, name=None):
         if name is None:
@@ -247,26 +255,35 @@ class IrisPlantVisualizer:
         frame_id = self.model_inspector.GetFrameId(geom_id)
         X_FG = self.model_inspector.GetPoseInFrame(geom_id)
         X_WF = self.query.GetPoseInWorld(frame_id)
-        return X_WF@X_FG
+        return X_WF @ X_FG
 
-    def plot_plane_by_index_at_s(self, s, plane_index, search_result, color, name_prefix=""):
+    def plot_plane_by_index_at_s(
+            self,
+            s,
+            plane_index,
+            search_result,
+            color,
+            name_prefix=""):
         name = name_prefix + f"/plane_{plane_index}"
         sep_plane = self.cspace_free_polytope.separating_planes()[plane_index]
 
         geom1, geom2 = sep_plane.positive_side_geometry.id(),\
-                       sep_plane.negative_side_geometry.id()
+            sep_plane.negative_side_geometry.id()
 
         # highlight the geometry
         self.highlight_geometry_id(geom1, color, name + f"/{geom1}")
         self.highlight_geometry_id(geom2, color, name + f"/{geom2}")
 
-        env = {var_s: val_s for var_s, val_s in zip(self.cspace_free_polytope.rational_forward_kin().s(), s)}
+        env = {var_s: val_s for var_s, val_s in zip(
+            self.cspace_free_polytope.rational_forward_kin().s(), s)}
 
-        a = np.array([a_poly.Evaluate(env) for a_poly in search_result.a[plane_index]])
+        a = np.array([a_poly.Evaluate(env)
+                     for a_poly in search_result.a[plane_index]])
         b = search_result.b[plane_index].Evaluate(env)
 
         expressed_body = self.plant.get_body(sep_plane.expressed_body)
-        X_WE = self.plant.EvalBodyPoseInWorld(self.plant_context, expressed_body)
+        X_WE = self.plant.EvalBodyPoseInWorld(
+            self.plant_context, expressed_body)
         X_EW = X_WE.inverse()
         X_WG1 = self.get_geom_id_pose_in_world(geom1)
         X_WG2 = self.get_geom_id_pose_in_world(geom2)
@@ -283,21 +300,22 @@ class IrisPlantVisualizer:
 
         self.meshcat_task_space.SetObject(name + "/plane",
                                           Box(5, 5, 0.02),
-                                          Rgba(color.r(), color.g(), color.b(), 0.2))
-        self.meshcat_task_space.SetTransform(name +"/plane", X_WE @ X_E_plane)
+                                          Rgba(color.r(), color.g(), color.b(), 0.5))
+        self.meshcat_task_space.SetTransform(name + "/plane", X_WE @ X_E_plane)
 
     def update_certificates(self, s):
         for group_name, region_and_cert_list in self.region_certificate_groups.items():
-            for i, (region, search_result) in enumerate(region_and_cert_list):
+            for i, (region, search_result, color) in enumerate(
+                    region_and_cert_list):
+                plane_color = Rgba(color.r(), color.g(), color.b(), 1)
                 name_prefix = f"/{group_name}/region_{i}"
                 if region.PointInSet(s) and search_result is not None:
                     for plane_index in self.plane_indices:
                         if plane_index in self._plane_indices_of_interest:
-                            color = Rgba(*np.random.rand(3), 1)
-                            self.plot_plane_by_index_at_s(s, plane_index,
-                                                          search_result, color,
-                                                          name_prefix=name_prefix)
+                            self.plot_plane_by_index_at_s(
+                                s, plane_index, search_result, plane_color, name_prefix=name_prefix)
                         else:
-                            self.meshcat_task_space.Delete(name_prefix+f"/plane_{plane_index}")
+                            self.meshcat_task_space.Delete(
+                                name_prefix + f"/plane_{plane_index}")
                 else:
                     self.meshcat_task_space.Delete(name_prefix)
