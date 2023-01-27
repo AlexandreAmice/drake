@@ -102,7 +102,9 @@ class TestGeometeryOptimizationDev(unittest.TestCase):
         solver_options = SolverOptions()
         solver_options.SetOption(CommonSolverOption.kPrintToConsole, 1)
 
-        polytope_options = mut.FindPolytopeGivenLagrangianOptions()
+        dut = mut.CspaceFreePolytope
+
+        polytope_options = dut.FindPolytopeGivenLagrangianOptions()
         self.assertIsNone(polytope_options.backoff_scale)
         self.assertEqual(
             polytope_options.ellipsoid_margin_epsilon, 1e-5)
@@ -115,7 +117,7 @@ class TestGeometeryOptimizationDev(unittest.TestCase):
             polytope_options.search_s_bounds_lagrangians)
         self.assertEqual(
             polytope_options.ellipsoid_margin_cost,
-            mut.EllipsoidMarginCost.kGeometricMean)
+            dut.EllipsoidMarginCost.kGeometricMean)
 
         polytope_options.backoff_scale = 1e-3
         polytope_options.ellipsoid_margin_epsilon = 1e-6
@@ -123,7 +125,7 @@ class TestGeometeryOptimizationDev(unittest.TestCase):
         polytope_options.solver_options = solver_options
         polytope_options.s_inner_pts = np.zeros((2, 1))
         polytope_options.search_s_bounds_lagrangians = False
-        polytope_options.ellipsoid_margin_cost = mut.EllipsoidMarginCost.kSum
+        polytope_options.ellipsoid_margin_cost = dut.EllipsoidMarginCost.kSum
         self.assertEqual(
             polytope_options.backoff_scale, 1e-3)
         self.assertEqual(
@@ -141,10 +143,10 @@ class TestGeometeryOptimizationDev(unittest.TestCase):
             polytope_options.search_s_bounds_lagrangians)
         self.assertEqual(
             polytope_options.ellipsoid_margin_cost,
-            mut.EllipsoidMarginCost.kSum)
+            dut.EllipsoidMarginCost.kSum)
 
         lagrangian_options = \
-            mut.FindSeparationCertificateGivenPolytopeOptions()
+            dut.FindSeparationCertificateGivenPolytopeOptions()
         self.assertEqual(
             lagrangian_options.num_threads, -1)
         self.assertFalse(
@@ -182,7 +184,7 @@ class TestGeometeryOptimizationDev(unittest.TestCase):
         self.assertTrue(
             lagrangian_options.ignore_redundant_C)
 
-        bilinear_alternation_options = mut.BilinearAlternationOptions()
+        bilinear_alternation_options = dut.BilinearAlternationOptions()
         self.assertEqual(bilinear_alternation_options.max_iter, 10)
         self.assertAlmostEqual(bilinear_alternation_options.convergence_tol,
                                1e-3, 1e-10)
@@ -209,7 +211,7 @@ class TestGeometeryOptimizationDev(unittest.TestCase):
         self.assertTrue(bilinear_alternation_options.
                         find_lagrangian_options.verbose)
 
-        binary_search_options = mut.BinarySearchOptions()
+        binary_search_options = dut.BinarySearchOptions()
         self.assertAlmostEqual(binary_search_options.scale_max, 1, 1e-10)
         self.assertAlmostEqual(binary_search_options.scale_min, 0.01, 1e-10)
         self.assertEqual(binary_search_options.max_iter, 10)
@@ -231,7 +233,7 @@ class TestGeometeryOptimizationDev(unittest.TestCase):
         self.assertTrue(
             binary_search_options.find_lagrangian_options.verbose)
 
-        options = mut.Options()
+        options = dut.Options()
         self.assertFalse(options.with_cross_y)
         options.with_cross_y = True
         self.assertTrue(options.with_cross_y)
@@ -274,8 +276,8 @@ class TestGeometeryOptimizationDev(unittest.TestCase):
         lim = 3
         d_init = lim * np.ones((C_init.shape[0], 1))
 
-        bilinear_alternation_options = mut.BilinearAlternationOptions()
-        binary_search_options = mut.BinarySearchOptions()
+        bilinear_alternation_options = mut.CspaceFreePolytope.BilinearAlternationOptions()
+        binary_search_options = mut.CspaceFreePolytope.BinarySearchOptions()
         binary_search_options.scale_min = 1e-4
         bilinear_alternation_options.find_lagrangian_options.verbose = False
         binary_search_options.find_lagrangian_options.verbose = False
@@ -292,9 +294,13 @@ class TestGeometeryOptimizationDev(unittest.TestCase):
         self.assertEqual(len(result.a), 1)
         self.assertEqual(len(result.b), 1)
         self.assertIsInstance(result.a[0][0], Polynomial)
+        np.testing.assert_array_almost_equal(
+            result.C, result.certified_polytope.A()[:-2*self.plant.num_positions(), :])
+        np.testing.assert_array_almost_equal(
+            result.d, result.certified_polytope.b()[:-2*self.plant.num_positions()])
+
         C_init = result.C
         d_init = result.d / 2
-
         success, certificate = \
             self.cspace_free_polytope.FindSeparationCertificateGivenPolytope(
                 C=C_init,
