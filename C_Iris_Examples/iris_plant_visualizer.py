@@ -80,7 +80,7 @@ class IrisPlantVisualizer:
         self.ik = InverseKinematics(plant, self.plant_context)
         min_dist = 1e-5
         self.collision_constraint = self.ik.AddMinimumDistanceConstraint(
-            min_dist, 0.01)
+            min_dist, 1e-5)
 
         # The plane numbers which we wish to visualize.
         self._plane_indices_of_interest = []

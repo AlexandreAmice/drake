@@ -2,22 +2,6 @@
 <sdf version="1.7">
   <model name="iiwa7_twoDOF">
     <link name="iiwa_twoDOF_link_-1">
-    <collision name="iiwa_twoDOF_link_-1_collision">
-        <pose>0.0 0 -0.1 0 0 0</pose>
-        <geometry>
-          <box>
-            <size>0.216874 0.207874 0.1575</size>
-          </box>
-        </geometry>
-    </collision>
-    <collision name="iiwa_twoDOF_link_-1_visual">
-        <pose>0.0 0 -0.1 0 0 0</pose>
-        <geometry>
-          <box>
-            <size>0.216874 0.207874 0.1575</size>
-          </box>
-        </geometry>
-    </collision>
     </link>
     <link name="iiwa_twoDOF_link_0">
       <inertial>
@@ -264,7 +248,7 @@
           </mesh>
         </geometry>
         <material>
-          <diffuse>0.4 0.4 0.4 1.0</diffuse>
+          <diffuse>1.0 0.423529411765 0.0392156862745 1.0</diffuse>
         </material>
       </visual>
       <collision name="iiwa_twoDOF_link_4_collision">
@@ -320,7 +304,7 @@
           </mesh>
         </geometry>
         <material>
-          <diffuse>0.4 0.4 0.4 1.0</diffuse>
+          <diffuse>1.0 0.423529411765 0.0392156862745 1.0</diffuse>
         </material>
       </visual>
       <collision name="iiwa_twoDOF_link_5_collision">
@@ -377,7 +361,7 @@
           </mesh>
         </geometry>
         <material>
-          <diffuse>0.4 0.4 0.4 1.0</diffuse>
+          <diffuse>1.0 0.423529411765 0.0392156862745 1.0</diffuse>
         </material>
       </visual>
       <collision name="iiwa_twoDOF_link_6_collision">
@@ -432,7 +416,7 @@
           </mesh>
         </geometry>
         <material>
-          <diffuse>0.4 0.4 0.4 1.0</diffuse>
+          <diffuse>1.0 0.423529411765 0.0392156862745 1.0</diffuse>
         </material>
       </visual>
       <collision name="iiwa_twoDOF_link_7_collision">
