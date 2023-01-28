@@ -209,6 +209,7 @@ class CspaceFreePolytope {
     /// plane and Lagrangian multipliers as certificate.
     std::unique_ptr<solvers::MathematicalProgram> prog;
     SeparationCertificate certificate;
+    const solvers::MathematicalProgram& get_prog() const { return *prog; }
   };
 
   struct FindSeparationCertificateGivenPolytopeOptions {
@@ -235,6 +236,17 @@ class CspaceFreePolytope {
     // multiplier for this row.
     bool ignore_redundant_C{false};
   };
+
+  /**
+   Constructs the programs which searches for the plane separating a pair of
+   geometries, for all configuration in the set {s | C * s <= d, s_lower <= s
+   <= s_upper}.
+   */
+  [[nodiscard]] std::vector<SeparationCertificateProgram>
+  ConstructPlaneSearchProgramsForPairs(
+      const Eigen::Ref<const Eigen::MatrixXd>& C,
+      const Eigen::Ref<const Eigen::VectorXd>& d,
+      const FindSeparationCertificateGivenPolytopeOptions& options) const;
 
   /** Finds the certificates that the C-space polytope {s | C*s<=d, s_lower <= s
    * <= s_upper} is collision free.

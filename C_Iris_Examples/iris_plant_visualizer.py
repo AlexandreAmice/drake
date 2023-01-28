@@ -77,7 +77,7 @@ class IrisPlantVisualizer:
         self.s_upper_limits = self.forward_kin.ComputeSValue(
             self.q_upper_limits, self.q_star)
 
-        # A dictionary mapping str -> (HPolyhedron, SearchResult) where
+        # A dictionary mapping str -> (HPolyhedron, SearchResult, Color) where
         # SearchResult can be None. This is used for visualizing cspace regions
         # and their certificates in task space.
         self.region_certificate_groups = {}
@@ -122,7 +122,7 @@ class IrisPlantVisualizer:
         color = Rgba(1, 0.72, 0, 1) if in_collision else Rgba(0.24, 1, 0, 1)
         self.task_space_diagram.ForcedPublish(self.task_space_diagram_context)
 
-        self.plot_cspace_points(s, name='/s', color=color, radius=0.01)
+        self.plot_cspace_points(s, name='/s', color=color, radius=0.03)
 
         self.update_certificates(s)
 
@@ -307,7 +307,7 @@ class IrisPlantVisualizer:
         for group_name, region_and_cert_list in self.region_certificate_groups.items():
             for i, (region, search_result, color) in enumerate(
                     region_and_cert_list):
-                plane_color = Rgba(color.r(), color.g(), color.b(), 1)
+                plane_color = Rgba(color.r(), color.g(), color.b(), 1) if color is not None else None
                 name_prefix = f"/{group_name}/region_{i}"
                 if region.PointInSet(s) and search_result is not None:
                     for plane_index in self.plane_indices:

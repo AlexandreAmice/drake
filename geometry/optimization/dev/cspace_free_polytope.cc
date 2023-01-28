@@ -1011,6 +1011,37 @@ CspaceFreePolytope::FindSeparationCertificateGivenPolytope(
   return ret;
 }
 
+std::vector<CspaceFreePolytope::SeparationCertificateProgram>
+CspaceFreePolytope::ConstructPlaneSearchProgramsForPairs(
+    const Eigen::Ref<const Eigen::MatrixXd>& C,
+    const Eigen::Ref<const Eigen::VectorXd>& d,
+    const FindSeparationCertificateGivenPolytopeOptions& options) const {
+  const VectorX<symbolic::Polynomial> d_minus_Cs = this->CalcDminusCs(C, d);
+  std::unordered_set<int> C_redundant_indices;
+  std::unordered_set<int> s_lower_redundant_indices;
+  std::unordered_set<int> s_upper_redundant_indices;
+  this->FindRedundantInequalities(
+      C, d, this->s_lower_, this->s_upper_, 0., &C_redundant_indices,
+      &s_lower_redundant_indices, &s_upper_redundant_indices);
+  if (!options.ignore_redundant_C) {
+    C_redundant_indices.clear();
+  }
+  auto make_small_sos = [this, &d_minus_Cs, &C_redundant_indices,
+                          &s_lower_redundant_indices,
+                          &s_upper_redundant_indices](const int plane_index) {
+    return this->ConstructPlaneSearchProgram(
+        this->plane_geometries_[plane_index], d_minus_Cs, C_redundant_indices,
+        s_lower_redundant_indices, s_upper_redundant_indices);
+  };
+
+  std::vector<CspaceFreePolytope::SeparationCertificateProgram> progs;
+  progs.reserve(plane_geometries_.size());
+  for(int plane_index = 0; plane_index < static_cast<int>(plane_geometries_.size()); ++plane_index) {
+    progs.emplace_back(make_small_sos(plane_index));
+  }
+  return progs;
+}
+
 bool CspaceFreePolytope::FindSeparationCertificateGivenPolytope(
     const Eigen::Ref<const Eigen::MatrixXd>& C,
     const Eigen::Ref<const Eigen::VectorXd>& d,

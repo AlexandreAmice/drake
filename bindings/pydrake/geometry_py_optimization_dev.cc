@@ -168,7 +168,9 @@ void DefineGeometryOptimizationDev(py::module m) {
             cls_doc.SearchWithBilinearAlternation.doc)
         .def("BinarySearch", &Class::BinarySearch,
             py::arg("ignored_collision_pairs"), py::arg("C"), py::arg("d"),
-            py::arg("s_center"), py::arg("options"), cls_doc.BinarySearch.doc);
+            py::arg("s_center"), py::arg("options"), cls_doc.BinarySearch.doc)
+        .def("ConstructPlaneSearchProgramsForPairs", &Class::ConstructPlaneSearchProgramsForPairs,
+             py::arg("C"), py::arg("d"), py::arg("options"));
 
     py::class_<Class::SeparationCertificateResult>(cspace_free_polytope_cls,
         "SeparationCertificateResult", cls_doc.SeparationCertificateResult.doc)
