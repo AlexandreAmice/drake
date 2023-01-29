@@ -29,15 +29,15 @@ namespace drake {
 namespace symbolic {
 
 namespace {
-// Note that `.Expand()` is needed in the following kinds of cases:
-//     e1 := (a + b)²
-//     e2 := - (a² + 2ab + b²)
-// Without expanding the terms, they would not report as EqualTo.
-bool AreEqualAfterExpanding(const Expression& e1, const Expression& e2) {
-  const Expression& e1_expanded = e1.is_expanded() ? e1 : e1.Expand();
-  const Expression& e2_expanded = e2.is_expanded() ? e2 : e2.Expand();
-  return e1_expanded.EqualTo(e2_expanded);
-}
+//// Note that `.Expand()` is needed in the following kinds of cases:
+////     e1 := (a + b)²
+////     e2 := - (a² + 2ab + b²)
+//// Without expanding the terms, they would not report as EqualTo.
+// bool AreEqualAfterExpanding(const Expression& e1, const Expression& e2) {
+//  const Expression& e1_expanded = e1.is_expanded() ? e1 : e1.Expand();
+//  const Expression& e2_expanded = e2.is_expanded() ? e2 : e2.Expand();
+//  return e1_expanded.EqualTo(e2_expanded);
+//}
 
 // Helper function to add coeff * m to a map (Monomial → Expression).
 // Used to implement DecomposePolynomialVisitor::VisitAddition and
@@ -51,11 +51,11 @@ void DoAddProduct(const Expression& coeff, const Monomial& m,
   if (it != map->end()) {
     // m ∈ dom(map)
     Expression& existing_coeff = it->second;
-    if (AreEqualAfterExpanding(-coeff, existing_coeff)) {
-      map->erase(it);
-    } else {
-      existing_coeff += coeff;
-    }
+    // if (AreEqualAfterExpanding(-coeff, existing_coeff)) {
+    //  map->erase(it);
+    //} else {
+    existing_coeff += coeff;
+    //}
   } else {
     // m ∉ dom(map)
     map->emplace_hint(it, m, coeff);

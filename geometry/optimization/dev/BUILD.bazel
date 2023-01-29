@@ -2,14 +2,22 @@
 
 load(
     "@drake//tools/skylark:drake_cc.bzl",
+    "drake_cc_binary",
     "drake_cc_googletest",
     "drake_cc_library",
     "drake_cc_package_library",
 )
+
 load(
     "@drake//tools/skylark:test_tags.bzl",
     "mosek_test_tags",
 )
+
+load(
+    "@drake//tools/skylark:drake_py.bzl",
+    "drake_py_binary",
+)
+
 load("//tools/lint:lint.bzl", "add_lint_tests")
 
 drake_cc_package_library(
@@ -20,6 +28,18 @@ drake_cc_package_library(
         ":cspace_free_polytope",
         ":separating_plane",
     ],
+)
+
+filegroup(
+    name = "models",
+    srcs = glob(
+        [
+            "models/**",
+        ],
+        exclude = [
+            "**/*.sha512",
+        ],
+    ),
 )
 
 drake_cc_library(
@@ -124,6 +144,37 @@ drake_cc_googletest(
         "//common/test_utilities:symbolic_test_util",
         "//solvers:mosek_solver",
         "//solvers:sos_basis_generator",
+    ],
+)
+
+drake_cc_binary(
+    name = "ur3e_demo",
+    srcs = ["test/ur3e_demo.cc"],
+    data = [
+        ":models",
+        "//manipulation/models/ur3e:models",
+        "//manipulation/models/wsg_50_description:models",
+    ],
+    deps = [
+        ":cspace_free_polytope",
+        "//common:find_resource",
+        "//geometry:meshcat_visualizer",
+        "//multibody/inverse_kinematics",
+        "//multibody/parsing:parser",
+        "//multibody/plant",
+    ],
+)
+
+drake_py_binary(
+    name = "ur3e_demo_py",
+    srcs = ["test/ur3e_demo.py"],
+    data = [
+        ":models",
+        "//manipulation/models/ur3e:models",
+        "//manipulation/models/wsg_50_description:models",
+    ],
+    deps = [
+        "//bindings/pydrake",
     ],
 )
 
