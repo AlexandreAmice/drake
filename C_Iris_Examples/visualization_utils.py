@@ -195,3 +195,10 @@ def n_colors(n=33, rgbs_ret = False):
     csss = (rgb_to_css(rgb) for rgb in rgbs)
     to_ret = list(itertools.islice(csss, n)) if rgbs_ret else list(itertools.islice(csss, n))
     return to_ret
+
+def draw_traj(meshcat_instance, traj, maxit, name = "/trajectory",
+              color = Rgba(0,0,0,1), line_width = 3):
+    pts = np.squeeze(np.array([traj.value(it * traj.end_time() / maxit) for it in range(maxit)]))
+    pts_3d = np.hstack([pts, 0 * np.ones((pts.shape[0], 3 - pts.shape[1]))]).T
+    meshcat_instance.SetLine(name, pts_3d, line_width, color)
+

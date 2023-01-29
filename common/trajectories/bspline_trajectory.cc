@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <functional>
 #include <utility>
+#include <iostream>
 
 #include <fmt/format.h>
 
@@ -240,6 +241,8 @@ boolean<T> BsplineTrajectory<T>::operator==(
 
 template <typename T>
 void BsplineTrajectory<T>::CheckInvariants() const {
+  std::cout << static_cast<int>(control_points_.size()) << std::endl;
+  std::cout << basis_.num_basis_functions() << std::endl;
   DRAKE_THROW_UNLESS(static_cast<int>(control_points_.size()) ==
                      basis_.num_basis_functions());
 }

@@ -1,0 +1,67 @@
+# -*- python -*-
+# This file contains rules for Bazel; see drake/doc/bazel.rst.
+
+load(
+    "@drake//tools/skylark:drake_cc.bzl",
+    "drake_cc_binary",
+    "drake_cc_googletest",
+    "drake_cc_library",
+    "drake_cc_package_library",
+)
+load("//tools/jupyter:jupyter_py.bzl", "drake_jupyter_py_binary")
+load(
+    "//tools/skylark:drake_py.bzl",
+    "drake_py_library",
+    "drake_py_unittest",
+)
+
+##########################################################
+# LIBRARIES
+##########################################################
+drake_py_library(
+    name = "module_py",
+    srcs = [
+        "__init__.py",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+drake_py_library(
+    name = "base",
+    srcs = [
+        "base.py",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+drake_py_library(
+    name = "bezier",
+    srcs = [
+        "linear.py",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+drake_py_library(
+    name = "linear",
+    srcs = [
+        "linear.py",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+drake_py_library(
+    name = "preprocessing",
+    srcs = [
+        "preprocessing.py",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+drake_py_library(
+    name = "rounding",
+    srcs = [
+        "rounding.py",
+    ],
+    visibility = ["//visibility:public"],
+)

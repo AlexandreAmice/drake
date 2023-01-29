@@ -12,6 +12,7 @@ import pydrake.symbolic as sym
 from pydrake.all import MeshcatVisualizer, StartMeshcat, DiagramBuilder, \
     AddMultibodyPlantSceneGraph, TriangleSurfaceMesh, Rgba, SurfaceTriangle, Sphere
 from scipy.linalg import null_space
+import time
 
 
 class IrisPlantVisualizer:
@@ -35,19 +36,23 @@ class IrisPlantVisualizer:
         builder_cspace = DiagramBuilder()
         plant_cspace, scene_graph_cspace = AddMultibodyPlantSceneGraph(
             builder_cspace, time_step=0.0)
+        plant_cspace.Finalize()
+
         self.visualizer_cspace = MeshcatVisualizer.AddToBuilder(
             builder_cspace, scene_graph_cspace, self.meshcat_cspace)
+
 
         self.plant = plant
         self.builder = builder
         self.scene_graph = scene_graph
-
-        self.cspace_free_polytope = cspace_free_polytope
-
         self.viz_role = kwargs.get('viz_role', Role.kIllustration)
 
         self.task_space_diagram = self.builder.Build()
         self.task_space_diagram_context = self.task_space_diagram.CreateDefaultContext()
+
+        self.cspace_diagram = builder_cspace.Build()
+        self.cspace_diagram_context = self.cspace_diagram.CreateDefaultContext()
+
         self.plant_context = plant.GetMyMutableContextFromRoot(
             self.task_space_diagram_context)
         self.task_space_diagram.ForcedPublish(self.task_space_diagram_context)
@@ -55,6 +60,8 @@ class IrisPlantVisualizer:
             self.task_space_diagram,
             self.task_space_diagram_context)
         self.simulator.Initialize()
+
+        self.cspace_free_polytope = cspace_free_polytope
 
         # SceneGraph inspectors for highlighting geometry pairs.
         self.model_inspector = self.scene_graph.model_inspector()
@@ -122,7 +129,7 @@ class IrisPlantVisualizer:
         color = Rgba(1, 0.72, 0, 1) if in_collision else Rgba(0.24, 1, 0, 1)
         self.task_space_diagram.ForcedPublish(self.task_space_diagram_context)
 
-        self.plot_cspace_points(s, name='/s', color=color, radius=0.03)
+        self.plot_cspace_points(s, name='/s', color=color, radius=0.05)
 
         self.update_certificates(s)
 
@@ -319,3 +326,42 @@ class IrisPlantVisualizer:
                                 name_prefix + f"/plane_{plane_index}")
                 else:
                     self.meshcat_task_space.Delete(name_prefix)
+
+    def animate_traj_s(self, traj, steps, runtime, idx_list = None, sleep_time = 0.1):
+        # loop
+        idx = 0
+        going_fwd = True
+        time_points = np.linspace(0, traj.end_time(), steps)
+        frame_count = 0
+        for _ in range(runtime):
+            # print(idx)
+            t0 = time.time()
+            s = traj.value(time_points[idx])
+            self.show_res_s(s)
+            self.task_space_diagram_context.SetTime(frame_count * 0.01)
+            self.task_space_diagram.ForcedPublish(self.task_space_diagram_context)
+            self.cspace_diagram_context.SetTime(frame_count * 0.01)
+            self.cspace_diagram.ForcedPublish(self.cspace_diagram_context)
+            frame_count += 1
+            if going_fwd:
+                if idx + 1 < steps:
+                    idx += 1
+                else:
+                    going_fwd = False
+                    idx -= 1
+            else:
+                if idx - 1 >= 0:
+                    idx -= 1
+                else:
+                    going_fwd = True
+                    idx += 1
+            t1 = time.time()
+            pause = sleep_time - (t1 - t0)
+            if pause > 0:
+                time.sleep(pause)
+
+    def save_meshcats(self, filename_prefix):
+        with open(filename_prefix + "_cspace.html", "w") as f:
+            f.write(self.meshcat_cspace.StaticHtml())
+        with open(filename_prefix + "_task_space.html", "w") as f:
+            f.write(self.meshcat_task_space.StaticHtml())

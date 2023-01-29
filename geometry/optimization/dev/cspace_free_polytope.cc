@@ -23,6 +23,9 @@
 #include "drake/solvers/mathematical_program_result.h"
 #include "drake/solvers/solve.h"
 
+#include <iostream>
+#include <chrono>
+
 namespace drake {
 namespace geometry {
 namespace optimization {
@@ -893,12 +896,14 @@ CspaceFreePolytope::FindSeparationCertificateGivenPolytope(
   std::vector<std::optional<SeparationCertificateResult>> ret(
       active_plane_indices.size(), std::nullopt);
 
+  std::vector<double> solve_times(active_plane_indices.size(), 0);
+
   // This lambda function formulates and solves a small SOS program for each
   // pair of geometries.
   auto solve_small_sos = [this, &d_minus_Cs, &C_redundant_indices,
                           &s_lower_redundant_indices,
                           &s_upper_redundant_indices, &active_plane_indices,
-                          &options, &is_success, &ret](int plane_count) {
+                          &options, &is_success, &ret, &solve_times](int plane_count) {
     const int plane_index = active_plane_indices[plane_count];
     auto certificate_program = this->ConstructPlaneSearchProgram(
         this->plane_geometries_[plane_index], d_minus_Cs, C_redundant_indices,
@@ -913,6 +918,11 @@ CspaceFreePolytope::FindSeparationCertificateGivenPolytope(
           separating_planes_[plane_index].b,
           separating_planes_[plane_index].decision_variables, result));
       is_success[plane_count].emplace(true);
+      solve_times[plane_count] = result.get_solver_details<solvers::MosekSolver>().optimizer_time;
+//
+//      solvers::MosekSolverDetails details = result.get_solver_details<solvers::MosekSolver>();
+//      std::cout << fmt::format("Plane {} Lagrangian Step time: {}", plane_index, details.optimizer_time) << std::endl;
+
     } else {
       ret[plane_count].reset();
       is_success[plane_count].emplace(false);
@@ -984,6 +994,8 @@ CspaceFreePolytope::FindSeparationCertificateGivenPolytope(
     if (options.verbose) {
       drake::log()->info("Found Lagrangian multipliers and separating planes");
     }
+//    drake::log()->info(fmt::format("Time to solve Lagrangians = {}",
+//                                     std::reduce(solve_times.begin(), solve_times.end())));
   } else {
     if (options.verbose) {
       std::string bad_pairs;
@@ -1442,6 +1454,10 @@ CspaceFreePolytope::FindPolytopeGivenLagrangian(
         ret.b.emplace(plane_index, result.GetSolution(plane.b));
         ret.ellipsoid_margins = result.GetSolution(ellipsoid_margins);
       }
+//      solvers::MosekSolverDetails details = result.get_solver_details<solvers::MosekSolver>();
+//      std::cout << fmt::format("Polytope Step time: {}", plane_index, details.optimizer_time) << std::endl;
+//      drake::log() -> info(fmt::format("Polytope Step time: {}",
+//                            details.optimizer_time));
     }
 
     if (certificates_result != nullptr) {
@@ -1565,9 +1581,11 @@ CspaceFreePolytope::SearchWithBilinearAlternation(
   double prev_cost = ellipsoid_Q.determinant();
   drake::log()->info("det(Q) at the beginning is {}", prev_cost);
   while (iter < options.max_iter) {
+    auto start = std::chrono::system_clock::now();
     const std::vector<std::optional<SeparationCertificateResult>>
         certificates_result = this->FindSeparationCertificateGivenPolytope(
             ignored_collision_pairs, C, d, options.find_lagrangian_options);
+    auto end = std::chrono::system_clock::now();
     if (std::any_of(
             certificates_result.begin(), certificates_result.end(),
             [](const std::optional<SeparationCertificateResult>& certificate) {
@@ -1585,14 +1603,23 @@ CspaceFreePolytope::SearchWithBilinearAlternation(
       ret.back().num_iter = iter;
       ret.back().certified_polytope = GetPolyhedronWithJointLimits(C, d);
       ret.back().SetSeparatingPlanes(certificates_result);
+//      drake::log()->info(fmt::format(
+//        "Total Lagrangian step time {} s",
+//        static_cast<float>(
+//            std::chrono::duration_cast<std::chrono::milliseconds>(end -
+//                                                                  start)
+//                .count()) /
+//            1000));
     }
     // Now fix the Lagrangian and search for C-space polytope and separating
     // planes.
+    start = std::chrono::system_clock::now();
     const auto polytope_result = this->FindPolytopeGivenLagrangian(
         ignored_collision_pairs, C_var, d_var, d_minus_Cs, certificates_result,
         ellipsoid_Q, ellipsoid.center(), ellipsoid_margins,
         gram_total_size_in_polytope_program, options.find_polytope_options,
         nullptr /* certificates_result */);
+    end = std::chrono::system_clock::now();
     if (polytope_result.has_value()) {
       C = polytope_result->C;
       d = polytope_result->d;
@@ -1609,6 +1636,13 @@ CspaceFreePolytope::SearchWithBilinearAlternation(
       ellipsoid_Q = options.ellipsoid_scaling * (ellipsoid.A().inverse());
       const double cost = ellipsoid_Q.determinant();
       drake::log()->info("Iteration {}: det(Q)={}", iter, cost);
+//      drake::log()->info(fmt::format(
+//        "Total Polytope step time {} s",
+//        static_cast<float>(
+//            std::chrono::duration_cast<std::chrono::milliseconds>(end -
+//                                                                  start)
+//                .count()) /
+//            1000));
       if ((cost - prev_cost)/prev_cost < options.convergence_tol) {
         break;
       } else {

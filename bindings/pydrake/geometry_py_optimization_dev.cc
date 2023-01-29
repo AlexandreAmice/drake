@@ -172,6 +172,11 @@ void DefineGeometryOptimizationDev(py::module m) {
         .def("ConstructPlaneSearchProgramsForPairs", &Class::ConstructPlaneSearchProgramsForPairs,
              py::arg("C"), py::arg("d"), py::arg("options"));
 
+    py::class_<Class::SeparationCertificateProgram>(m, "SeparationCertificateProgram")
+        .def("prog", &Class::SeparationCertificateProgram::get_prog, py_rvp::reference_internal)
+        .def_readonly("certificate", &Class::SeparationCertificateProgram::certificate);
+
+
     py::class_<Class::SeparationCertificateResult>(cspace_free_polytope_cls,
         "SeparationCertificateResult", cls_doc.SeparationCertificateResult.doc)
         .def_readonly(
