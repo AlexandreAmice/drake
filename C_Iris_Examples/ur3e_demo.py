@@ -45,7 +45,7 @@ class UrDiagram:
             builder, 0.0)
         parser = Parser(self.plant)
         if weld_wrist:
-            ur_file_name = "ur3e_cylinder_welf_wrist.urdf"
+            ur_file_name = "ur3e_cylinder_weld_wrist.urdf"
         else:
             if num_ur == 1:
                 ur_file_name = "ur3e_cylinder_revolute_wrist.urdf"
@@ -82,9 +82,17 @@ class UrDiagram:
                     RigidTransform(RollPitchYaw(0, 0, -np.pi / 2),
                                    np.array([0.06, 0, 0])))
 
+        ground_file_path = FindResourceOrThrow(
+            "drake/C_Iris_Examples/assets/ground.urdf")
+        ground_instance = parser.AddModelFromFile(ground_file_path)
+        ground_body = self.plant.GetBodyByName("base")
+        ground_frame = self.plant.GetFrameByName("base")
+        self.plant.WeldFrames(self.plant.world_frame(), ground_frame,
+                              RigidTransform(np.array([0,0,-0.1])))
+
         if add_shelf:
             shelf_file_path = FindResourceOrThrow(
-                "drake/geometry/optimization/dev/models/shelves.sdf")
+                "drake/C_Iris_Examples/models/shelves.sdf")
             shelf_instance = parser.AddModelFromFile(shelf_file_path,
                                                      "shelves")
             shelf_body = self.plant.GetBodyByName("shelves_body",

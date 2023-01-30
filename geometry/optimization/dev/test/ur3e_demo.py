@@ -396,7 +396,7 @@ def search_ur_shelf_cspace_polytope(weld_wrist: bool, with_gripper: bool,
         binary_search_result = cspace_free_polytope.BinarySearch(
             ignored_collision_pairs, C_init, d_init, s_init,
             binary_search_options)
-        binary_search_data = "/home/hongkaidai/Dropbox/c_iris_data/ur/ur_shelf_with_box_binary_search1.npz"
+        binary_search_data = "/home/amice/Dropbox (MIT)/c_iris_data/ur/ur_shelf_with_box_binary_search1.npz"
         np.savez(binary_search_data,
                  C=binary_search_result.C,
                  d=binary_search_result.d,
@@ -579,7 +579,7 @@ def visualize_dual_ur(load_file):
     q_star = np.zeros((12, ))
     ur_diagram.plant.SetPositions(plant_context, q_star)
     ur_diagram.diagram.ForcedPublish(diagram_context)
-    save_posture_file = "/home/hongkaidai/Dropbox/c_iris_data/ur/dual_ur_closest.npz"
+    save_posture_file = "/home/amice/Dropbox (MIT)/c_iris_data/ur/dual_ur_closest.npz"
     if False:
         sample_closest_posture(ur_diagram, rational_forward_kin, q_star,
                                plant_context, C, d, save_posture_file)
@@ -623,9 +623,9 @@ def visualize_dual_ur(load_file):
 
 
 def ur_shelf(search: bool):
-    load_file = "/home/hongkaidai/Dropbox/c_iris_data/ur/ur_shelf_bilinear_alternation6.npz"
+    load_file = "/home/amice/Dropbox (MIT)/c_iris_data/ur/ur_shelf_bilinear_alternation6.npz"
     #load_file = None
-    bilinear_alternation_result_file = "/home/hongkaidai/Dropbox/c_iris_data/ur/ur_shelf_with_box_bilinear_alternation2.npz"
+    bilinear_alternation_result_file = "/home/amice/Dropbox (MIT)/c_iris_data/ur/ur_shelf_with_box_bilinear_alternation2.npz"
     if search:
         search_ur_shelf_cspace_polytope(
             weld_wrist=False,
@@ -637,7 +637,7 @@ def ur_shelf(search: bool):
 
 def dual_ur(search: bool):
     MosekSolver.AcquireLicense()
-    binary_search_result_file = "/home/hongkaidai/Dropbox/c_iris_data/ur/dual_ur_binary_search1.npz"
+    binary_search_result_file = "/home/amice/Dropbox (MIT)/c_iris_data/ur/dual_ur_binary_search1.npz"
     if search:
         search_dual_arm_cspace_polytope(
             weld_wrist=False,
