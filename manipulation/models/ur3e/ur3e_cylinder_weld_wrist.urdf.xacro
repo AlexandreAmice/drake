@@ -15,5 +15,5 @@
   <!-- We limit joint limits to [-pi, pi] rather than the full range [-2pi, 2pi]
        since the larger limits cause problems with planning. -->
   <xacro:ur3e_robot prefix="ur_" joint_limited="true"
-  weld_wrist="true" visual_collision_same="true"/>
+  weld_wrist="true" visual_collision_same="false"/>
 </robot>

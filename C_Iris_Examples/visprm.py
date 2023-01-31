@@ -365,6 +365,7 @@ class VPRMSeeding:
         if regions is None:
             if len(self.guard_regions)==0:
                 self.regions = [self.grow_region_at(r) for r in self.samples_to_connect]
+                self.regions = [r for r in self.regions if r is not None]
                 self.seed_points = [s for s in self.samples_to_connect]
                 for idx in range(len(self.regions)): self.guard_regions.append(idx) 
             else:
@@ -519,25 +520,26 @@ class VPRMSeeding:
                 if self.verbose: print(strftime("[%H:%M:%S] ", gmtime()) +"[VPRMSeeding] New guard placed N = ", str(len(self.guard_regions)), "it = ", it) 
                 try:
                     rnew = self.grow_region_at(p)
-                    self.regions.append(rnew)
-                    self.seed_points.append(p)
-                    self.guard_regions.append(len(self.regions)-1)
-                    it = 0
-                    #update visibility and cull points
-                    keys_to_del = []
-                    for s_key in self.samples_outside_regions.keys():
-                        s_Q = self.samples_outside_regions[s_key][0]
-                        if self.need_to_convert_samples:
-                            s_conv = self.point_to_region_space(s_Q)
-                        else:
-                            s_conv = s_Q
-                        # if rnew.PointInSet(s_conv.reshape(-1,1)):
-                        #     keys_to_del.append(s_key)
-                        if self.is_in_line_of_sight(s_conv.reshape(-1,1), p_region_space.reshape(-1,1))[0]:
-                            self.samples_outside_regions[s_key][1].append(rnew)
-                    # for k in keys_to_del:
-                    #     del self.samples_outside_regions[k]
-                    if self.verbose: print(strftime("[%H:%M:%S] ", gmtime()) +'[VPRMSeeding] Sample set size',len(self.samples_outside_regions.keys()))
+                    if rnew is not None:
+                        self.regions.append(rnew)
+                        self.seed_points.append(p)
+                        self.guard_regions.append(len(self.regions)-1)
+                        it = 0
+                        #update visibility and cull points
+                        keys_to_del = []
+                        for s_key in self.samples_outside_regions.keys():
+                            s_Q = self.samples_outside_regions[s_key][0]
+                            if self.need_to_convert_samples:
+                                s_conv = self.point_to_region_space(s_Q)
+                            else:
+                                s_conv = s_Q
+                            # if rnew.PointInSet(s_conv.reshape(-1,1)):
+                            #     keys_to_del.append(s_key)
+                            if self.is_in_line_of_sight(s_conv.reshape(-1,1), p_region_space.reshape(-1,1))[0]:
+                                self.samples_outside_regions[s_key][1].append(rnew)
+                        # for k in keys_to_del:
+                        #     del self.samples_outside_regions[k]
+                        if self.verbose: print(strftime("[%H:%M:%S] ", gmtime()) +'[VPRMSeeding] Sample set size',len(self.samples_outside_regions.keys()))
                 except:
                     print(strftime("[%H:%M:%S] ", gmtime()) +'[VPRMSeeding] Mosek failed, deleting point')
             it+=1
@@ -587,6 +589,7 @@ class VPRMSeeding:
                 if self.verbose: print(strftime("[%H:%M:%S] ", gmtime()) +'[VPRMSeeding] Guard found to split into', len(best_split))
                 #generate new regions
                 nr = [self.grow_region_at(s) for s in best_split]
+                nr = [r for r in nr if r is not None]
                 self.regions += nr
                 self.seed_points += best_split
                 r_old = self.regions[best_split_idx]
@@ -750,30 +753,33 @@ class VPRMSeeding:
             loc_best_sample = self.samples_outside_regions[best_sample][0]
             try:
                 nr = self.grow_region_at_with_obstacles(loc_best_sample.reshape(-1,1), self.regions)
-                if self.verbose: print(strftime("[%H:%M:%S] ", gmtime()) +'[VPRMSeeding] New region added', loc_best_sample.reshape(-1))
-                self.regions.append(nr)
-                self.seed_points.append(loc_best_sample.copy())
-                idx_new_region = len(self.regions)-1
-                self.connectivity_graph.add_node(idx_new_region)
-                keys_to_del = []
-                for s_key in self.samples_outside_regions.keys():
-                    s = self.samples_outside_regions[s_key][0]
-                    if self.need_to_convert_samples:
-                            s = self.point_to_region_space(s)
-                    if nr.PointInSet(s.reshape(-1,1)):
-                        keys_to_del.append(s_key)
-                    #elif is_LOS(s, loc_max)[0]:
-                    #    vs.samples_outside_regions[s_key][1].append(nr)
-                #numerics
-                if best_sample not in keys_to_del:
-                    keys_to_del.append(best_sample)
-                for k in keys_to_del:
-                    del self.samples_outside_regions[k]
-                if self.verbose: print(strftime("[%H:%M:%S] ", gmtime()) +'[VPRMSeeding] Sample set size',len(self.samples_outside_regions.keys()), 'num keys to del ', len(keys_to_del))
-                #update connectivity graph
-                for idx, r in enumerate(self.regions[:-1]):
-                    if r.IntersectsWith(nr):
-                        self.connectivity_graph.add_edge(idx, idx_new_region)
+                if nr is not None:
+                    if self.verbose: print(strftime("[%H:%M:%S] ", gmtime()) +'[VPRMSeeding] New region added', loc_best_sample.reshape(-1))
+                    self.regions.append(nr)
+                    self.seed_points.append(loc_best_sample.copy())
+                    idx_new_region = len(self.regions)-1
+                    self.connectivity_graph.add_node(idx_new_region)
+                    keys_to_del = []
+                    for s_key in self.samples_outside_regions.keys():
+                        s = self.samples_outside_regions[s_key][0]
+                        if self.need_to_convert_samples:
+                                s = self.point_to_region_space(s)
+                        if nr.PointInSet(s.reshape(-1,1)):
+                            keys_to_del.append(s_key)
+                        #elif is_LOS(s, loc_max)[0]:
+                        #    vs.samples_outside_regions[s_key][1].append(nr)
+                    #numerics
+                    if best_sample not in keys_to_del:
+                        keys_to_del.append(best_sample)
+                    for k in keys_to_del:
+                        del self.samples_outside_regions[k]
+                    if self.verbose: print(strftime("[%H:%M:%S] ", gmtime()) +'[VPRMSeeding] Sample set size',len(self.samples_outside_regions.keys()), 'num keys to del ', len(keys_to_del))
+                    #update connectivity graph
+                    for idx, r in enumerate(self.regions[:-1]):
+                        if r.IntersectsWith(nr):
+                            self.connectivity_graph.add_edge(idx, idx_new_region)
+                else:
+                    del self.samples_outside_regions[best_sample]
             except:
                 print(strftime("[%H:%M:%S] ", gmtime()) +'[VPRMSeeding] Failed, deleting point')
                 del self.samples_outside_regions[best_sample]
@@ -800,15 +806,16 @@ class VPRMSeeding:
                 if self.verbose: print(strftime("[%H:%M:%S] ", gmtime()) +"[VPRMSeeding] New Region placed N = ", str(len(self.regions)), ", it = ", str(it)) 
                 try:
                     rnew = self.grow_region_at_with_obstacles(p.reshape(-1, 1), self.regions)
-                    self.regions.append(rnew)
-                    self.seed_points.append(p)
-                    it = 0
-                    idx_new_region = len(self.regions)-1
-                    self.connectivity_graph.add_node(idx_new_region)
-                    #update connectivity graph
-                    for idx, r in enumerate(self.regions[:-1]):
-                        if r.IntersectsWith(rnew):
-                            self.connectivity_graph.add_edge(idx, idx_new_region)
+                    if rnew is not None:
+                        self.regions.append(rnew)
+                        self.seed_points.append(p)
+                        it = 0
+                        idx_new_region = len(self.regions)-1
+                        self.connectivity_graph.add_node(idx_new_region)
+                        #update connectivity graph
+                        for idx, r in enumerate(self.regions[:-1]):
+                            if r.IntersectsWith(rnew):
+                                self.connectivity_graph.add_edge(idx, idx_new_region)
                 except:
                     print(strftime("[%H:%M:%S] ", gmtime()) +'[VPRMSeeding] Mosek failed, deleting point')
         #get connected components
