@@ -222,6 +222,15 @@ class IrisPlantVisualizer:
                                     fill=kwargs.get("fill", True),
                                     line_width=kwargs.get("line_width", 10))
 
+            name_prefix = f"/{name}/region_{i}"
+            for plane_index in self.plane_indices:
+                name = name_prefix + f"/plane_{plane_index}"
+                self.meshcat_task_space.SetObject(name + "/plane",
+                                                  Box(5, 5, 0.02),
+                                                  Rgba(color.r(), color.g(), color.b(), 0.5))
+                self.meshcat_task_space.SetProperty(name + "/plane", "visible", True)
+
+
     def update_region_visualization(self, **kwargs):
         for name in self.region_certificate_groups.keys():
             self.update_region_visualization_by_group_name(name, **kwargs)
@@ -305,9 +314,10 @@ class IrisPlantVisualizer:
         R = RotationMatrix(R)
         X_E_plane = RigidTransform(R, offset)
 
-        self.meshcat_task_space.SetObject(name + "/plane",
-                                          Box(5, 5, 0.02),
-                                          Rgba(color.r(), color.g(), color.b(), 0.5))
+        # self.meshcat_task_space.SetObject(name + "/plane",
+        #                                   Box(5, 5, 0.02),
+        #                                   Rgba(color.r(), color.g(), color.b(), 0.5))
+        self.meshcat_task_space.SetProperty(name + "/plane", "visible", True)
         self.meshcat_task_space.SetTransform(name + "/plane", X_WE @ X_E_plane)
 
     def update_certificates(self, s):
@@ -317,22 +327,30 @@ class IrisPlantVisualizer:
                 plane_color = Rgba(color.r(), color.g(), color.b(), 1) if color is not None else None
                 name_prefix = f"/{group_name}/region_{i}"
                 if region.PointInSet(s) and search_result is not None:
+                    self.meshcat_task_space.SetProperty(name_prefix,
+                                                        "visible", True)
                     for plane_index in self.plane_indices:
                         if plane_index in self._plane_indices_of_interest:
                             self.plot_plane_by_index_at_s(
                                 s, plane_index, search_result, plane_color, name_prefix=name_prefix)
                         else:
-                            self.meshcat_task_space.Delete(
-                                name_prefix + f"/plane_{plane_index}")
+                            # self.meshcat_task_space.Delete(
+                            #     name_prefix + f"/plane_{plane_index}")
+                            self.meshcat_task_space.SetProperty(name_prefix + f"/plane_{plane_index}",
+                                                                "visible", False)
                 else:
-                    self.meshcat_task_space.Delete(name_prefix)
+                    # self.meshcat_task_space.Delete(name_prefix)
+                    self.meshcat_task_space.SetProperty(name_prefix,
+                                                        "visible", False)
 
-    def animate_traj_s(self, traj, steps, runtime, idx_list = None, sleep_time = 0.1):
+    def animate_traj_s(self, traj, steps, runtime, sleep_time=0.1):
         # loop
         idx = 0
         going_fwd = True
         time_points = np.linspace(0, traj.end_time(), steps)
         frame_count = 0
+        self.task_space_animiation = self.visualizer_task_space.get_mutable_recording()
+        self.cspace_animiation = self.visualizer_cspace.get_mutable_recording()
         for _ in range(runtime):
             # print(idx)
             t0 = time.time()
