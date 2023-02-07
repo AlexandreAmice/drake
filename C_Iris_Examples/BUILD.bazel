@@ -51,9 +51,9 @@ drake_py_library(
 )
 
 drake_py_library(
-    name = "gcs",
+    name = "iris_plant_animation_visualizer",
     srcs = [
-        "iris_plant_visualizer.py",
+        "iris_plant_animation_visualizer.py",
     ],
     visibility = ["//visibility:public"],
     deps = [
@@ -72,6 +72,7 @@ drake_jupyter_py_binary(
         "//C_Iris_Examples:models",
     ],
     deps = [
+        "//C_Iris_Examples:iris_plant_animation_visualizer",
         "//C_Iris_Examples:iris_plant_visualizer",
         "//C_Iris_Examples:visualization_utils",
         "//C_Iris_Examples/gcs:base",
