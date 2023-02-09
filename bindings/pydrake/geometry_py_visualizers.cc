@@ -374,7 +374,9 @@ void DoScalarIndependentDefinitions(py::module m) {
                 const std::string&, const std::vector<double>&)>(
                 &Class::SetProperty),
             py::arg("frame"), py::arg("path"), py::arg("property"),
-            py::arg("value"), cls_doc.SetProperty.doc_vector_double);
+            py::arg("value"), cls_doc.SetProperty.doc_vector_double)
+        .def("get_key_frame", &Class::get_key_frame<bool>,
+             py::arg("frame"), py::arg("path"), py::arg("property"));
     // Note: We don't bind get_key_frame and get_javascript_type (at least
     // not yet); they are meant primarily for testing.
 

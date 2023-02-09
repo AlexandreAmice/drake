@@ -123,7 +123,7 @@ class IrisPlantVisualizer:
             self.plot_cspace_points(s, name=f"/frame_{frame}/" +'/s', color=color, radius=0.05)
 
             self.meshcat.SetProperty(f"/frame_{frame}", 'visible', False)
-        # self.update_certificates(s)
+        self.update_certificates(s, frame = frame)
 
     def show_res_s(self, s, frame = None):
         q = self.forward_kin.ComputeQValue(np.array(s), self.q_star)
@@ -222,6 +222,14 @@ class IrisPlantVisualizer:
                                          **kwargs)
 
 
+    def add_group_of_regions_and_certs_to_visualization(
+            self, region_cert_color_tuples, group_name, **kwargs):
+        # **kwargs are the ones for viz_utils.plot_polytopes
+        # each element of region_and_certs_list is an (HPolyhedron,
+        # SearchResult)
+        self.region_certificate_groups[group_name] = region_cert_color_tuples
+        self.update_region_visualization_by_group_name(group_name, **kwargs)
+
 
     def add_group_of_regions_to_visualization(
             self, region_color_tuples, group_name, **kwargs):
@@ -231,15 +239,9 @@ class IrisPlantVisualizer:
                 region, color) in region_color_tuples]
         self.update_region_visualization_by_group_name(group_name, **kwargs)
 
-    def update_region_visualization_by_group_name(self, name, **kwargs):
+    def update_region_visualization_by_group_name(self, name, frame = None, **kwargs):
         region_and_certificates_list = self.region_certificate_groups[name]
         for i, (r, _, color) in enumerate(region_and_certificates_list):
-            # r_A_3d = np.hstack([r.A(), np.zeros((r.A().shape[0], 3-r.A().shape[1]))])
-            # r_tmp_A_3d = r_A_3d @ self.cspace_frame.inverse().rotation().matrix()
-            # r_tmp_b = r.b() - r_A_3d @ self.cspace_frame.inverse().translation()
-            #
-            # r_tmp = HPolyhedron(r_tmp_A_3d[:, :r.A().shape[1]],
-            #                     r_tmp_b)
             viz_utils.plot_polytope(r, self.meshcat, f"/{name}/{i}",
                                     resolution=kwargs.get("resolution", 30),
                                     color=color,
@@ -250,15 +252,20 @@ class IrisPlantVisualizer:
                                     transformation=self.cspace_frame)
 
             name_prefix = f"/{name}/region_{i}"
-            # for plane_index in self.plane_indices:
-            #     name = name_prefix + f"/plane_{plane_index}"
-            #     self.meshcat.SetObject(name + "/plane",
-            #                                       Box(5, 5, 0.02),
-            #                                       Rgba(color.r(), color.g(), color.b(), 0.5))
-            #     self.meshcat.SetProperty(name + "/plane", "visible", True)
+            for plane_index in self._plane_indices_of_interest:#self.plane_indices:
+                name = name_prefix + f"/plane_{plane_index}"
+                self.meshcat.SetObject(name + "/plane",
+                                                  Box(5, 5, 0.02),
+                                                  Rgba(color.r(), color.g(), color.b(), 0.5))
+                self.meshcat.SetProperty(name + "/plane", "visible", True)
+                if frame is not None:
+                    self.meshcat.SetObject(f"frame_{frame}" + name + "/plane",
+                                           Box(5, 5, 0.02),
+                                           Rgba(color.r(), color.g(), color.b(), 0.5))
+                    self.meshcat.SetProperty(f"frame_{frame}" + name + "/plane", "visible", True)
 
 
-    def animate_traj_s(self, traj, steps, runtime, sleep_time=0.1):
+    def animate_traj_s(self, traj, steps, runtime, sleep_time=0.1, time_step = 0.01):
         # loop
         idx = 0
         going_fwd = True
@@ -271,7 +278,7 @@ class IrisPlantVisualizer:
             t0 = time.time()
             s = traj.value(time_points[idx])
             self.show_res_s(s, frame=frame_count)
-            self.diagram_context.SetTime(frame_count * 0.01)
+            self.diagram_context.SetTime(frame_count * time_step)
             self.diagram.ForcedPublish(self.diagram_context)
             frame_count += 1
             if going_fwd:
@@ -288,6 +295,103 @@ class IrisPlantVisualizer:
                     idx += 1
             t1 = time.time()
             pause = sleep_time - (t1 - t0)
-            if pause > 0:
-                time.sleep(pause)
+            # if pause > 0:
+            #     time.sleep(pause)
         return frame_count
+
+
+    def update_certificates(self, s, frame = None):
+        for group_name, region_and_cert_list in self.region_certificate_groups.items():
+            for i, (region, search_result, color) in enumerate(
+                    region_and_cert_list):
+                plane_color = Rgba(color.r(), color.g(), color.b(), 1) if color is not None else None
+                name_prefix = f"/{group_name}/region_{i}"
+                if region.PointInSet(s) and search_result is not None:
+                    self.meshcat.SetProperty(name_prefix,
+                                                        "visible", True)
+                    if frame is not None:
+                        self.meshcat.SetProperty(f"/frame_{frame}" + name_prefix,
+                                                 "visible", True)
+                    for plane_index in self.plane_indices:
+                        if plane_index in self._plane_indices_of_interest:
+                            self.plot_plane_by_index_at_s(
+                                s, plane_index, search_result, plane_color,
+                                name_prefix=name_prefix, frame = frame)
+                        else:
+                            self.meshcat.SetProperty(name_prefix + f"/plane_{plane_index}",
+                                                                "visible", False)
+                            if frame is not None:
+                                self.update_region_visualization_by_group_name(group_name, frame=frame)
+                                self.meshcat.SetProperty(f"/frame_{frame}" + name_prefix + f"/plane_{plane_index}",
+                                                         "visible", False)
+                else:
+                    self.meshcat.SetProperty(name_prefix,
+                                                        "visible", False)
+                    if frame is not None:
+                        self.meshcat.SetProperty(f"/frame_{frame}" + name_prefix,
+                                                 "visible", False)
+
+    def highlight_geometry_id(self, geom_id, color, name=None):
+        if name is None:
+            name = f"/id_{geom_id}"
+        shape = self.model_inspector.GetShape(geom_id)
+        X_WG = self.get_geom_id_pose_in_world(geom_id)
+        self.meshcat.SetObject(name, shape, color)
+        self.meshcat.SetTransform(name, X_WG)
+
+    def get_geom_id_pose_in_world(self, geom_id):
+        frame_id = self.model_inspector.GetFrameId(geom_id)
+        X_FG = self.model_inspector.GetPoseInFrame(geom_id)
+        X_WF = self.query.GetPoseInWorld(frame_id)
+        return X_WF @ X_FG
+
+    def plot_plane_by_index_at_s(
+            self,
+            s,
+            plane_index,
+            search_result,
+            color,
+            name_prefix="",
+            frame = None):
+        name = name_prefix + f"/plane_{plane_index}"
+        sep_plane = self.cspace_free_polytope.separating_planes()[plane_index]
+
+        geom1, geom2 = sep_plane.positive_side_geometry.id(),\
+            sep_plane.negative_side_geometry.id()
+
+        # highlight the geometry
+        self.highlight_geometry_id(geom1, color, name + f"/{geom1}")
+        self.highlight_geometry_id(geom2, color, name + f"/{geom2}")
+        if frame is not None:
+            self.highlight_geometry_id(geom1, color, name + f"/frame_{frame}/{geom1}")
+            self.highlight_geometry_id(geom2, color, name + f"/frame_{frame}/{geom2}")
+
+        env = {var_s: val_s for var_s, val_s in zip(
+            self.cspace_free_polytope.rational_forward_kin().s(), s)}
+
+        a = np.array([a_poly.Evaluate(env)
+                     for a_poly in search_result.a[plane_index]])
+        b = search_result.b[plane_index].Evaluate(env)
+
+        expressed_body = self.plant.get_body(sep_plane.expressed_body)
+        X_WE = self.plant.EvalBodyPoseInWorld(
+            self.plant_context, expressed_body)
+        X_EW = X_WE.inverse()
+        X_WG1 = self.get_geom_id_pose_in_world(geom1)
+        X_WG2 = self.get_geom_id_pose_in_world(geom2)
+        p1 = (X_EW @ X_WG1).translation()
+        p2 = (X_EW @ X_WG2).translation()
+
+        mu = -b / (a.T @ (p2 - p1))
+        offset = mu * (p2 - p1)
+        axis = (a / np.linalg.norm(a))[:, np.newaxis]
+        P = null_space(axis.T)
+        R = np.hstack([P, axis])
+        R = RotationMatrix(R)
+        X_E_plane = RigidTransform(R, offset)
+
+        self.meshcat.SetProperty(name + "/plane", "visible", True)
+        self.meshcat.SetTransform(name + "/plane", X_WE @ X_E_plane)
+        if frame is not None:
+            self.meshcat.SetProperty(f"frame_{frame}" + name + "/plane", "visible", True)
+            self.meshcat.SetTransform(f"frame_{frame}" + name + "/plane", X_WE @ X_E_plane)
