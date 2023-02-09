@@ -349,8 +349,8 @@ class IrisPlantVisualizer:
         going_fwd = True
         time_points = np.linspace(0, traj.end_time(), steps)
         frame_count = 0
-        self.task_space_animiation = self.visualizer_task_space.get_mutable_recording()
-        self.cspace_animiation = self.visualizer_cspace.get_mutable_recording()
+        # self.task_space_animiation = self.visualizer_task_space.get_mutable_recording()
+        # self.cspace_animiation = self.visualizer_cspace.get_mutable_recording()
         for _ in range(runtime):
             # print(idx)
             t0 = time.time()

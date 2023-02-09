@@ -203,7 +203,7 @@ class IrisPlantVisualizer:
                 1))
         return Z
 
-    def plot_cspace_points(self, points, name, **kwargs):
+    def plot_cspace_points(self, points, name, animation_and_frames = None, **kwargs):
         points_trans = np.array([(self.cspace_frame @ RigidTransform(viz_utils.stretch_array_to_3d(p))).translation() for p in np.atleast_2d(points)])
         if len(points_trans.shape) == 1:
             viz_utils.plot_point(points_trans, self.meshcat, name, **kwargs)
@@ -224,25 +224,26 @@ class IrisPlantVisualizer:
     def update_region_visualization_by_group_name(self, name, **kwargs):
         region_and_certificates_list = self.region_certificate_groups[name]
         for i, (r, _, color) in enumerate(region_and_certificates_list):
-            r_A_3d = np.hstack([r.A(), np.zeros((r.A().shape[0], 3-r.A().shape[1]))])
-            r_tmp_A_3d = r_A_3d @ self.cspace_frame.inverse().rotation().matrix()
-            r_tmp_b = r.b() - r_A_3d @ self.cspace_frame.inverse().translation()
-
-            r_tmp = HPolyhedron(r_tmp_A_3d[:, :r.A().shape[1]],
-                                r_tmp_b)
-            viz_utils.plot_polytope(r_tmp, self.meshcat, f"/{name}/{i}",
+            # r_A_3d = np.hstack([r.A(), np.zeros((r.A().shape[0], 3-r.A().shape[1]))])
+            # r_tmp_A_3d = r_A_3d @ self.cspace_frame.inverse().rotation().matrix()
+            # r_tmp_b = r.b() - r_A_3d @ self.cspace_frame.inverse().translation()
+            #
+            # r_tmp = HPolyhedron(r_tmp_A_3d[:, :r.A().shape[1]],
+            #                     r_tmp_b)
+            viz_utils.plot_polytope(r, self.meshcat, f"/{name}/{i}",
                                     resolution=kwargs.get("resolution", 30),
                                     color=color,
                                     wireframe=kwargs.get("wireframe", True),
                                     random_color_opacity=kwargs.get("random_color_opacity", 0.7),
                                     fill=kwargs.get("fill", True),
-                                    line_width=kwargs.get("line_width", 10))
+                                    line_width=kwargs.get("line_width", 10),
+                                    transformation=self.cspace_frame)
 
             name_prefix = f"/{name}/region_{i}"
-            for plane_index in self.plane_indices:
-                name = name_prefix + f"/plane_{plane_index}"
-                self.meshcat.SetObject(name + "/plane",
-                                                  Box(5, 5, 0.02),
-                                                  Rgba(color.r(), color.g(), color.b(), 0.5))
-                self.meshcat.SetProperty(name + "/plane", "visible", True)
+            # for plane_index in self.plane_indices:
+            #     name = name_prefix + f"/plane_{plane_index}"
+            #     self.meshcat.SetObject(name + "/plane",
+            #                                       Box(5, 5, 0.02),
+            #                                       Rgba(color.r(), color.g(), color.b(), 0.5))
+            #     self.meshcat.SetProperty(name + "/plane", "visible", True)
 

@@ -66,7 +66,8 @@ def plot_polytope(polytope, meshcat_instance, name,
                   wireframe=True,
                   random_color_opacity=0.2,
                   fill=True,
-                  line_width=10):
+                  line_width=10,
+                  transformation=RigidTransform()):
     if color is None:
         color = Rgba(*np.random.rand(3), random_color_opacity)
     if polytope.ambient_dimension == 3:
@@ -83,13 +84,16 @@ def plot_polytope(polytope, meshcat_instance, name,
                      resolution=resolution,
                      wireframe=wireframe)
 
+    meshcat_instance.SetTransform(name, transformation)
+
 
 def plot_hpoly2d(polytope, meshcat_instance, name,
                  color,
                  line_width=8,
                  fill=False,
                  resolution=30,
-                 wireframe=True):
+                 wireframe=True,
+                 transformation=RigidTransform()):
     # plot boundary
     vpoly = VPolytope(polytope)
     verts = vpoly.vertices()
