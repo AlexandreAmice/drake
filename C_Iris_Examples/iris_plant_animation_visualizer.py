@@ -110,7 +110,7 @@ class IrisPlantVisualizer:
         cur_q = self.plant.GetPositions(self.plant_context)
         self.show_res_q(cur_q)
 
-    def show_res_q(self, q):
+    def show_res_q(self, q, frame = None):
         self.plant.SetPositions(self.plant_context, q)
         in_collision = self.check_collision_q_by_ik(q)
         s = self.forward_kin.ComputeSValue(np.array(q), self.q_star)
@@ -119,12 +119,15 @@ class IrisPlantVisualizer:
         self.diagram.ForcedPublish(self.diagram_context)
 
         self.plot_cspace_points(s, name='/s', color=color, radius=0.05)
+        if frame is not None:
+            self.plot_cspace_points(s, name=f"/frame_{frame}/" +'/s', color=color, radius=0.05)
 
+            self.meshcat.SetProperty(f"/frame_{frame}", 'visible', False)
         # self.update_certificates(s)
 
-    def show_res_s(self, s):
+    def show_res_s(self, s, frame = None):
         q = self.forward_kin.ComputeQValue(np.array(s), self.q_star)
-        self.show_res_q(q)
+        self.show_res_q(q, frame)
 
     def check_collision_q_by_ik(self, q, min_dist=1e-5):
         if np.all(q >= self.q_lower_limits) and \
@@ -203,14 +206,21 @@ class IrisPlantVisualizer:
                 1))
         return Z
 
-    def plot_cspace_points(self, points, name, animation_and_frames = None, **kwargs):
+    def plot_cspace_points(self, points, name, frame = None, **kwargs):
         points_trans = np.array([(self.cspace_frame @ RigidTransform(viz_utils.stretch_array_to_3d(p))).translation() for p in np.atleast_2d(points)])
         if len(points_trans.shape) == 1:
             viz_utils.plot_point(points_trans, self.meshcat, name, **kwargs)
+            if frame is not None:
+                viz_utils.plot_point(points_trans, self.meshcat, f"/frame_{frame}/" + name, **kwargs)
         else:
             for i, s in enumerate(points_trans):
                 viz_utils.plot_point(
                     s, self.meshcat, name + f"/{i}", **kwargs)
+                if frame is not None:
+                    viz_utils.plot_point(points_trans, self.meshcat,
+                                         f"/frame_{frame}/" + name + f"/{i}",
+                                         **kwargs)
+
 
 
     def add_group_of_regions_to_visualization(
@@ -247,3 +257,37 @@ class IrisPlantVisualizer:
             #                                       Rgba(color.r(), color.g(), color.b(), 0.5))
             #     self.meshcat.SetProperty(name + "/plane", "visible", True)
 
+
+    def animate_traj_s(self, traj, steps, runtime, sleep_time=0.1):
+        # loop
+        idx = 0
+        going_fwd = True
+        time_points = np.linspace(0, traj.end_time(), steps)
+        frame_count = 0
+        # self.task_space_animiation = self.visualizer_task_space.get_mutable_recording()
+        # self.cspace_animiation = self.visualizer_cspace.get_mutable_recording()
+        for _ in range(runtime):
+            # print(idx)
+            t0 = time.time()
+            s = traj.value(time_points[idx])
+            self.show_res_s(s, frame=frame_count)
+            self.diagram_context.SetTime(frame_count * 0.01)
+            self.diagram.ForcedPublish(self.diagram_context)
+            frame_count += 1
+            if going_fwd:
+                if idx + 1 < steps:
+                    idx += 1
+                else:
+                    going_fwd = False
+                    idx -= 1
+            else:
+                if idx - 1 >= 0:
+                    idx -= 1
+                else:
+                    going_fwd = True
+                    idx += 1
+            t1 = time.time()
+            pause = sleep_time - (t1 - t0)
+            if pause > 0:
+                time.sleep(pause)
+        return frame_count
