@@ -23,6 +23,7 @@ class IrisPlantVisualizer:
             builder,
             scene_graph,
             cspace_free_polytope,
+            cspace_frame,
             **kwargs):
         if plant.num_positions() > 3:
             raise ValueError(
@@ -89,6 +90,8 @@ class IrisPlantVisualizer:
         self.plane_indices = np.arange(
             0, len(cspace_free_polytope.separating_planes()))
 
+        self.cspace_frame = cspace_frame
+
     def clear_plane_indices_of_interest(self):
         self._plane_indices_of_interest = []
         cur_q = self.plant.GetPositions(self.plant_context)
@@ -113,7 +116,7 @@ class IrisPlantVisualizer:
         s = self.forward_kin.ComputeSValue(np.array(q), self.q_star)
 
         color = Rgba(1, 0.72, 0, 1) if in_collision else Rgba(0.24, 1, 0, 1)
-        self.diagram.ForcedPublish(self.diagram)
+        self.diagram.ForcedPublish(self.diagram_context)
 
         self.plot_cspace_points(s, name='/s', color=color, radius=0.05)
 
@@ -136,12 +139,12 @@ class IrisPlantVisualizer:
         q = self.forward_kin.ComputeQValue(s, self.q_star)
         return self.check_collision_q_by_ik(q, min_dist)
 
-    def visualize_collision_constraint(self, cspace_frame, **kwargs):
+    def visualize_collision_constraint(self, **kwargs):
         if self.plant.num_positions() == 3:
             self._visualize_collision_constraint3d(**kwargs)
         else:
             self._visualize_collision_constraint2d(**kwargs)
-        self.meshcat.SetTransform("/collision_constraint", cspace_frame)
+        self.meshcat.SetTransform("/collision_constraint", self.cspace_frame)
 
     def _visualize_collision_constraint3d(
             self,
@@ -201,10 +204,45 @@ class IrisPlantVisualizer:
         return Z
 
     def plot_cspace_points(self, points, name, **kwargs):
-        if len(points.shape) == 1:
-            viz_utils.plot_point(points, self.meshcat, name, **kwargs)
+        points_trans = np.array([(self.cspace_frame @ RigidTransform(viz_utils.stretch_array_to_3d(p))).translation() for p in np.atleast_2d(points)])
+        if len(points_trans.shape) == 1:
+            viz_utils.plot_point(points_trans, self.meshcat, name, **kwargs)
         else:
-            for i, s in enumerate(points):
+            for i, s in enumerate(points_trans):
                 viz_utils.plot_point(
                     s, self.meshcat, name + f"/{i}", **kwargs)
+
+
+    def add_group_of_regions_to_visualization(
+            self, region_color_tuples, group_name, **kwargs):
+        # **kwargs are the ones for viz_utils.plot_polytopes
+        self.region_certificate_groups[group_name] = [
+            (region, None, color) for (
+                region, color) in region_color_tuples]
+        self.update_region_visualization_by_group_name(group_name, **kwargs)
+
+    def update_region_visualization_by_group_name(self, name, **kwargs):
+        region_and_certificates_list = self.region_certificate_groups[name]
+        for i, (r, _, color) in enumerate(region_and_certificates_list):
+            r_A_3d = np.hstack([r.A(), np.zeros((r.A().shape[0], 3-r.A().shape[1]))])
+            r_tmp_A_3d = r_A_3d @ self.cspace_frame.inverse().rotation().matrix()
+            r_tmp_b = r.b() - r_A_3d @ self.cspace_frame.inverse().translation()
+
+            r_tmp = HPolyhedron(r_tmp_A_3d[:, :r.A().shape[1]],
+                                r_tmp_b)
+            viz_utils.plot_polytope(r_tmp, self.meshcat, f"/{name}/{i}",
+                                    resolution=kwargs.get("resolution", 30),
+                                    color=color,
+                                    wireframe=kwargs.get("wireframe", True),
+                                    random_color_opacity=kwargs.get("random_color_opacity", 0.7),
+                                    fill=kwargs.get("fill", True),
+                                    line_width=kwargs.get("line_width", 10))
+
+            name_prefix = f"/{name}/region_{i}"
+            for plane_index in self.plane_indices:
+                name = name_prefix + f"/plane_{plane_index}"
+                self.meshcat.SetObject(name + "/plane",
+                                                  Box(5, 5, 0.02),
+                                                  Rgba(color.r(), color.g(), color.b(), 0.5))
+                self.meshcat.SetProperty(name + "/plane", "visible", True)
 

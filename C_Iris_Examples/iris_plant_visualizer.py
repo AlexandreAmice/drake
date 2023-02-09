@@ -378,6 +378,7 @@ class IrisPlantVisualizer:
             if pause > 0:
                 time.sleep(pause)
 
+
     def save_meshcats(self, filename_prefix):
         with open(filename_prefix + "_cspace.html", "w") as f:
             f.write(self.meshcat_cspace.StaticHtml())
