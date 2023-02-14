@@ -17,9 +17,18 @@ load(
 
 filegroup(
     name = "models",
+    srcs = glob(
+        [
+            "models/**",
+        ],
+        exclude = [
+            "**/*.sha512",
+        ],
+    ),
     data = [
         "assets/2dof_iiwa_translating_base.sdf",
         "assets/box_small.urdf",
+        "assets/ground.urdf",
         "assets/oneDOF_iiwa7_with_box_collision.sdf",
         "assets/twoDOF_iiwa7_with_box_collision.sdf",
         "directives/trans2dof_directives.yaml",
@@ -56,6 +65,19 @@ drake_py_library(
         "iris_plant_animation_visualizer.py",
     ],
     visibility = ["//visibility:public"],
+    deps = [
+        "//bindings/pydrake",
+    ],
+)
+
+drake_py_library(
+    name = "ur3e_demo_py",
+    srcs = ["test/ur3e_demo.py"],
+    data = [
+        ":models",
+        "//manipulation/models/ur3e:models",
+        "//manipulation/models/wsg_50_description:models",
+    ],
     deps = [
         "//bindings/pydrake",
     ],
@@ -102,6 +124,21 @@ drake_jupyter_py_binary(
     add_test_rule = 0,
     data = [
         "//C_Iris_Examples:models",
+    ],
+    deps = [
+        "//C_Iris_Examples:iris_plant_visualizer",
+        "//C_Iris_Examples:visualization_utils",
+        "//bindings/pydrake",
+    ],
+)
+
+drake_jupyter_py_binary(
+    name = "ur3e_example",
+    add_test_rule = 0,
+    data = [
+        ":models",
+        "//manipulation/models/ur3e:models",
+        "//manipulation/models/wsg_50_description:models",
     ],
     deps = [
         "//C_Iris_Examples:iris_plant_visualizer",

@@ -43,6 +43,50 @@ void DoSeparatingPlaneDeclaration(py::module m, T) {
     AddValueInstantiation<Class>(m);
   }
 }
+
+void DefineCalcPlane(py::module m) {
+  constexpr auto& doc = pydrake_doc.drake.geometry.optimization;
+  using namespace drake::geometry::optimization;
+  m.def(
+      "CalcPlane",
+      [](const VectorX<symbolic::Variable>& decision_variables,
+          const VectorX<symbolic::Variable>& s_for_plane,
+          SeparatingPlaneOrder order) {
+        Vector3<symbolic::Polynomial> a;
+        symbolic::Polynomial b;
+        CalcPlane<symbolic::Variable, symbolic::Variable, symbolic::Polynomial>(
+            decision_variables, s_for_plane, order, &a, &b);
+        return std::make_tuple(a, b);
+      },
+      py::arg("decision_variables"), py::arg("s_for_plane"), py::arg("order"),
+      doc.CalcPlane.doc);
+  m.def(
+      "CalcPlane",
+      [](const VectorX<double>& decision_variables,
+          const VectorX<symbolic::Variable>& s_for_plane,
+          SeparatingPlaneOrder order) {
+        Vector3<symbolic::Polynomial> a;
+        symbolic::Polynomial b;
+        CalcPlane<double, symbolic::Variable, symbolic::Polynomial>(
+            decision_variables, s_for_plane, order, &a, &b);
+        return std::make_tuple(a, b);
+      },
+      py::arg("decision_variables"), py::arg("s_for_plane"), py::arg("order"),
+      doc.CalcPlane.doc);
+  m.def(
+      "CalcPlane",
+      [](const VectorX<double>& decision_variables,
+          const VectorX<double>& s_for_plane, SeparatingPlaneOrder order) {
+        Eigen::Vector3d a;
+        double b;
+        CalcPlane<double, double, double>(
+            decision_variables, s_for_plane, order, &a, &b);
+        return std::make_tuple(a, b);
+      },
+      py::arg("decision_variables"), py::arg("s_for_plane"), py::arg("order"),
+      doc.CalcPlane.doc);
+}
+
 void DefineGeometryOptimizationDev(py::module m) {
   // NOLINTNEXTLINE(build/namespaces): Emulate placement in namespace.
   using namespace drake;

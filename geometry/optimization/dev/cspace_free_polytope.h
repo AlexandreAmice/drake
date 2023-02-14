@@ -329,6 +329,9 @@ class CspaceFreePolytope {
     // a[i].dot(x) + b[i]=0 is the separation plane for separating_planes()[i].
     std::unordered_map<int, Vector3<symbolic::Polynomial>> a;
     std::unordered_map<int, symbolic::Polynomial> b;
+    // The plane_decision_var_vals[i] are decision variable values for
+    // separating_planes()[i]
+    std::unordered_map<int, Eigen::VectorXd> plane_decision_var_vals;
     // The number of iterations at termination.
     int num_iter;
 

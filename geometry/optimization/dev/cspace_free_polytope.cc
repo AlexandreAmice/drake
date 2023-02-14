@@ -1505,9 +1505,12 @@ void CspaceFreePolytope::SearchResult::SetSeparatingPlanes(
         certificates_result) {
   a.clear();
   b.clear();
+  plane_decision_var_vals.clear();
   for (const auto& certificate : certificates_result) {
     a.emplace(certificate->plane_index, certificate->a);
     b.emplace(certificate->plane_index, certificate->b);
+    plane_decision_var_vals.emplace(certificate->plane_index,
+                                    certificate->plane_decision_var_vals);
   }
 }
 
@@ -1527,6 +1530,17 @@ void CspaceFreePolytope::SearchResult::UpdateSeparatingPlanes(
         b.emplace_hint(it_b, certificate->plane_index, certificate->b);
       } else {
         it_b->second = certificate->b;
+      }
+
+      auto it_plane_decision_var_vals =
+          plane_decision_var_vals.find(certificate->plane_index);
+      if (it_plane_decision_var_vals == plane_decision_var_vals.end()) {
+        plane_decision_var_vals.emplace_hint(
+            it_plane_decision_var_vals, certificate->plane_index,
+            certificate->plane_decision_var_vals);
+      } else {
+        it_plane_decision_var_vals->second =
+            certificate->plane_decision_var_vals;
       }
     }
   }
