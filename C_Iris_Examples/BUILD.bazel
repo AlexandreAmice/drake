@@ -66,7 +66,23 @@ drake_py_library(
 ##########################################################
 
 drake_jupyter_py_binary(
-    name = "pinball_iiwas_2d",
+    name = "pinball_iiwas_2d_trajectory",
+    add_test_rule = 0,
+    data = [
+        "//C_Iris_Examples:models",
+    ],
+    deps = [
+        "//C_Iris_Examples:iris_plant_animation_visualizer",
+        "//C_Iris_Examples:iris_plant_visualizer",
+        "//C_Iris_Examples:visualization_utils",
+        "//C_Iris_Examples/gcs:base",
+        "//C_Iris_Examples/gcs:bezier",
+        "//bindings/pydrake",
+    ],
+)
+
+drake_jupyter_py_binary(
+    name = "pinball_iiwas_2d_growth",
     add_test_rule = 0,
     data = [
         "//C_Iris_Examples:models",

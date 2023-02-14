@@ -259,10 +259,10 @@ class IrisPlantVisualizer:
                                                   Rgba(color.r(), color.g(), color.b(), 0.5))
                 self.meshcat.SetProperty(name + "/plane", "visible", True)
                 if frame is not None:
-                    self.meshcat.SetObject(f"frame_{frame}" + name + "/plane",
+                    self.meshcat.SetObject(f"/frame_{frame}" + name + "/plane",
                                            Box(5, 5, 0.02),
                                            Rgba(color.r(), color.g(), color.b(), 0.5))
-                    self.meshcat.SetProperty(f"frame_{frame}" + name + "/plane", "visible", True)
+                    self.meshcat.SetProperty(f"/frame_{frame}" + name + "/plane", "visible", True)
 
 
     def animate_traj_s(self, traj, steps, runtime, sleep_time=0.1, time_step = 0.01):
@@ -312,18 +312,10 @@ class IrisPlantVisualizer:
                     if frame is not None:
                         self.meshcat.SetProperty(f"/frame_{frame}" + name_prefix,
                                                  "visible", True)
-                    for plane_index in self.plane_indices:
-                        if plane_index in self._plane_indices_of_interest:
-                            self.plot_plane_by_index_at_s(
-                                s, plane_index, search_result, plane_color,
-                                name_prefix=name_prefix, frame = frame)
-                        else:
-                            self.meshcat.SetProperty(name_prefix + f"/plane_{plane_index}",
-                                                                "visible", False)
-                            if frame is not None:
-                                self.update_region_visualization_by_group_name(group_name, frame=frame)
-                                self.meshcat.SetProperty(f"/frame_{frame}" + name_prefix + f"/plane_{plane_index}",
-                                                         "visible", False)
+                    for plane_index in self._plane_indices_of_interest:
+                        self.plot_plane_by_index_at_s(
+                            s, plane_index, search_result, plane_color,
+                            name_prefix=name_prefix, frame = frame)
                 else:
                     self.meshcat.SetProperty(name_prefix,
                                                         "visible", False)
@@ -360,11 +352,16 @@ class IrisPlantVisualizer:
             sep_plane.negative_side_geometry.id()
 
         # highlight the geometry
-        self.highlight_geometry_id(geom1, color, name + f"/{geom1}")
-        self.highlight_geometry_id(geom2, color, name + f"/{geom2}")
+        # self.highlight_geometry_id(geom1, color, name + f"/{geom1}")
+        # self.highlight_geometry_id(geom2, color, name + f"/{geom2}")
+        # self.meshcat.SetProperty(name + f"/{geom1}", "visibile", False)
+        # self.meshcat.SetProperty(name + f"/{geom2}", "visibile", False)
         if frame is not None:
-            self.highlight_geometry_id(geom1, color, name + f"/frame_{frame}/{geom1}")
-            self.highlight_geometry_id(geom2, color, name + f"/frame_{frame}/{geom2}")
+            self.highlight_geometry_id(geom1, color, f"/frame_{frame}" + name + f"/{geom1}")
+            self.highlight_geometry_id(geom2, color, f"/frame_{frame}" + name + f"/{geom2}")
+
+            # self.meshcat.SetProperty(name + f"/{geom1}", "visibile", False)
+            # self.meshcat.SetProperty(name + f"/{geom2}", "visibile", False)
 
         env = {var_s: val_s for var_s, val_s in zip(
             self.cspace_free_polytope.rational_forward_kin().s(), s)}
@@ -390,8 +387,13 @@ class IrisPlantVisualizer:
         R = RotationMatrix(R)
         X_E_plane = RigidTransform(R, offset)
 
-        self.meshcat.SetProperty(name + "/plane", "visible", True)
+        # self.meshcat.SetProperty(name + "/plane", "visible", frame is not None)
+        self.meshcat.SetProperty(name + "/plane", "visible", False)
         self.meshcat.SetTransform(name + "/plane", X_WE @ X_E_plane)
         if frame is not None:
-            self.meshcat.SetProperty(f"frame_{frame}" + name + "/plane", "visible", True)
-            self.meshcat.SetTransform(f"frame_{frame}" + name + "/plane", X_WE @ X_E_plane)
+            self.meshcat.SetObject(f"/frame_{frame}" + name + "/plane",
+                                   Box(5, 5, 0.02),
+                                   Rgba(color.r(), color.g(), color.b(), 0.5))
+            self.meshcat.SetProperty(f"/frame_{frame}" + name + "/plane", "visible", True)
+            self.meshcat.SetProperty(f"/frame_{frame}" + name + "/plane", "visible", True)
+            self.meshcat.SetTransform(f"/frame_{frame}" + name + "/plane", X_WE @ X_E_plane)
