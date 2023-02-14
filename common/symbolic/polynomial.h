@@ -266,20 +266,20 @@ class Polynomial {
   /// factory methods, so we store intermediate computations in the substitution
   /// map to avoid recomputing very high powers.
   /// @param indeterminate_substitution The substitutions of every indeterminate
-  /// with the new desired expression. This map must contain this ->
-  /// indeterminates.
-  /// @param substitutions A map caching the higher order expansions of the
-  /// substitutions.
-  /// @out substitution will change as the substituted monomials are expanded.
+  /// with the new desired expression. This map must contain each element
+  /// of `indeterminates()`
+  /// @param[in,out] substitutions A map caching the higher order expansions of the
+  /// `indeterminate_substitutions`. Typically, substitutions will be an empty map
+  ///
   ///
   /// Note that this function is NOT responsible for ensuring that @param
-  /// substitution is consistent i.e. this method will not throw an error if
+  /// substitutions is consistent i.e. this method will not throw an error if
   /// substitutions = {x: y, x²: 2y}. To ensure correct results, ensure that the
   /// passed substitution map is consistent.
   [[nodiscard]] Polynomial SubstituteAndExpand(
       const std::unordered_map<Variable, Polynomial>&
           indeterminate_substitution,
-      std::map<Monomial, Polynomial, internal::CompareMonomial>* substitutions)
+      std::map<Monomial, Polynomial, internal::CompareMonomial>* substitutions = nullptr)
       const;
 
   /// Expands each coefficient expression and returns the expanded polynomial.
