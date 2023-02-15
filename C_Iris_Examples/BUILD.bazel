@@ -72,7 +72,7 @@ drake_py_library(
 
 drake_py_library(
     name = "ur3e_demo_py",
-    srcs = ["test/ur3e_demo.py"],
+    srcs = ["ur3e_demo.py"],
     data = [
         ":models",
         "//manipulation/models/ur3e:models",
@@ -133,7 +133,7 @@ drake_jupyter_py_binary(
 )
 
 drake_jupyter_py_binary(
-    name = "ur3e_example",
+    name = "ur3e_amice",
     add_test_rule = 0,
     data = [
         ":models",
@@ -143,6 +143,39 @@ drake_jupyter_py_binary(
     deps = [
         "//C_Iris_Examples:iris_plant_visualizer",
         "//C_Iris_Examples:visualization_utils",
+        "//bindings/pydrake",
+    ],
+)
+
+
+drake_jupyter_py_binary(
+    name = "ur3e_single_hongkai",
+    add_test_rule = 0,
+    data = [
+        ":models",
+        "//manipulation/models/ur3e:models",
+        "//manipulation/models/wsg_50_description:models",
+    ],
+    deps = [
+        "//C_Iris_Examples:iris_plant_visualizer",
+        "//C_Iris_Examples:visualization_utils",
+        "//C_Iris_Examples:ur3e_demo_py",
+        "//bindings/pydrake",
+    ],
+)
+
+drake_jupyter_py_binary(
+    name = "ur3e_dual_hongkai",
+    add_test_rule = 0,
+    data = [
+        ":models",
+        "//manipulation/models/ur3e:models",
+        "//manipulation/models/wsg_50_description:models",
+    ],
+    deps = [
+        "//C_Iris_Examples:iris_plant_visualizer",
+        "//C_Iris_Examples:visualization_utils",
+        "//C_Iris_Examples:ur3e_demo_py",
         "//bindings/pydrake",
     ],
 )

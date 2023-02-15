@@ -134,6 +134,7 @@ void DefineGeometryOptimizationDev(py::module m) {
             doc.SeparatingPlaneOrder.kAffine.doc);
     type_visit([m](auto dummy) { DoSeparatingPlaneDeclaration(m, dummy); },
         type_pack<double, symbolic::Variable>());
+    DefineCalcPlane(m);
   }
   {
     using Class = CspaceFreePolytope;

@@ -200,7 +200,6 @@ def save_result(search_result: CspaceFreePolytope.SearchResult,
     np.savez(file_path,
              C=search_result.C,
              d=search_result.d,
-             plane_decision_var_vals=search_result.plane_decision_var_vals,
              s_init=s_init)
 
 
@@ -331,7 +330,7 @@ def setup_ur_shelf_cspace_polytope(
 
 def setup_dual_arm_cspace_poltope() -> (np.ndarray, np.ndarray):
     S = np.eye(13, 13) - np.ones((13, 13)) / 13.0
-    S_eigvalue, S_eigvector = np.linalg.eig(S)
+    S_eigvalue, S_eigvector = np.linalg.eigh(S)
     C = np.empty((13, 12))
     column_count = 0
     for i in range(13):
@@ -364,7 +363,8 @@ def project_to_polytope(rational_forward_kin: RationalForwardKinematics,
 
 def search_ur_shelf_cspace_polytope(weld_wrist: bool, with_gripper: bool,
                                     load_file: str,
-                                    bilinear_alternation_result_file: str):
+                                    bilinear_alternation_result_file: str,
+                                    binary_search_result_file: str):
     ur_diagram = UrDiagram(num_ur=1,
                            weld_wrist=weld_wrist,
                            add_shelf=True,
@@ -377,7 +377,7 @@ def search_ur_shelf_cspace_polytope(weld_wrist: bool, with_gripper: bool,
                                    plant_context)
     ur_diagram.plant.SetPositions(plant_context, q_init)
     ur_diagram.diagram.ForcedPublish(diagram_context)
-    pdb.set_trace()
+    # pdb.set_trace()
     q_star = np.zeros((6, ))
     cspace_free_polytope_options = CspaceFreePolytope.Options()
     cspace_free_polytope_options.with_cross_y = False
@@ -404,14 +404,14 @@ def search_ur_shelf_cspace_polytope(weld_wrist: bool, with_gripper: bool,
         binary_search_result = cspace_free_polytope.BinarySearch(
             ignored_collision_pairs, C_init, d_init, s_init,
             binary_search_options)
-        binary_search_data = "/home/amice/Dropbox (MIT)/c_iris_data/ur/ur_shelf_with_box_binary_search1.npz"
+        binary_search_data = binary_search_result_file
         np.savez(binary_search_data,
                  C=binary_search_result.C,
                  d=binary_search_result.d,
                  s_init=s_init)
         C_start = binary_search_result.C
         d_start = binary_search_result.d
-        pdb.set_trace()
+        # pdb.set_trace()
     else:
         load_data = np.load(load_file)
         C_start = load_data["C"]
@@ -438,7 +438,7 @@ def search_ur_shelf_cspace_polytope(weld_wrist: bool, with_gripper: bool,
         bilinear_alternation_options)
     save_result(bilinear_alternation_result[-1], s_init,
                 bilinear_alternation_result_file)
-    pdb.set_trace()
+    # pdb.set_trace()
 
     pass
 
@@ -546,10 +546,10 @@ def visualize_ur_shelf(load_file):
         projected_s_samples.append(
             visualize_sample(ur_diagram, plant_context, diagram_context,
                              rational_forward_kin, C, d, s_sample, q_star))
-        pdb.set_trace()
+        # pdb.set_trace()
 
     print("Generate video")
-    pdb.set_trace()
+    # pdb.set_trace()
 
     ur_diagram.visualizer.StartRecording()
     frame_count = 0
@@ -566,7 +566,9 @@ def visualize_ur_shelf(load_file):
             time.sleep(0.01)
     ur_diagram.visualizer.PublishRecording()
     #ur_diagram.visualizer.StopRecording()
-    pdb.set_trace()
+    with open("ur_single.html", "w") as f:
+        f.write(ur_diagram.visualizer.StaticHtml())
+    # pdb.set_trace()
 
 
 def visualize_dual_ur(load_file):
@@ -611,7 +613,7 @@ def visualize_dual_ur(load_file):
                            scene_graph_context)
     ur_diagram.plant.SetPositions(plant_context, saved_posture_data["min_q"])
     ur_diagram.diagram.ForcedPublish(diagram_context)
-    pdb.set_trace()
+    # pdb.set_trace()
 
     # Set the robot color
     for i in range(2):
@@ -626,13 +628,13 @@ def visualize_dual_ur(load_file):
 
     ur_diagram.plant.SetPositions(plant_context, saved_posture_data["max_q"])
     ur_diagram.diagram.ForcedPublish(diagram_context)
-    pdb.set_trace()
+    # pdb.set_trace()
 
 
 
 def ur_shelf(search: bool):
-    load_file = "/home/amice/Dropbox (MIT)/c_iris_data/ur/ur_shelf_bilinear_alternation6.npz"
-    #load_file = None
+    # load_file = "/home/amice/Dropbox (MIT)/c_iris_data/ur/ur_shelf_bilinear_alternation6.npz"
+    load_file = None
     bilinear_alternation_result_file = "/home/amice/Dropbox (MIT)/c_iris_data/ur/ur_shelf_with_box_bilinear_alternation2.npz"
     if search:
         search_ur_shelf_cspace_polytope(
@@ -658,5 +660,5 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--search", action="store_true")
     args = parser.parse_args()
-    #ur_shelf(args.search)
-    dual_ur(args.search)
+    ur_shelf(args.search)
+    # dual_ur(args.search)
