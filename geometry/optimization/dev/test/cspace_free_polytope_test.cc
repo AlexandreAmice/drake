@@ -8,6 +8,7 @@
 #include "drake/common/test_utilities/symbolic_test_util.h"
 #include "drake/geometry/collision_filter_declaration.h"
 #include "drake/geometry/geometry_ids.h"
+#include "drake/geometry/optimization/dev/collision_geometry.h"
 #include "drake/geometry/optimization/dev/test/c_iris_test_utilities.h"
 #include "drake/multibody/rational/rational_forward_kinematics.h"
 #include "drake/multibody/rational/rational_forward_kinematics_internal.h"
@@ -109,24 +110,24 @@ TEST_F(CIrisToyRobotTest, CspaceFreePolytopeGenerateRationals) {
   for (const auto& plane_geometries : tester.plane_geometries()) {
     const auto& plane = tester.cspace_free_polytope()
                             .separating_planes()[plane_geometries.plane_index];
-    if (plane.positive_side_geometry->type() == CIrisGeometryType::kPolytope &&
-        plane.negative_side_geometry->type() == CIrisGeometryType::kPolytope) {
+    if (plane.positive_side_geometry->type() == GeometryType::kPolytope &&
+        plane.negative_side_geometry->type() == GeometryType::kPolytope) {
       EXPECT_EQ(plane_geometries.positive_side_rationals.size(),
                 plane.positive_side_geometry->num_rationals());
       EXPECT_EQ(plane_geometries.negative_side_rationals.size(),
                 plane.negative_side_geometry->num_rationals());
     } else if (plane.positive_side_geometry->type() ==
-                   CIrisGeometryType::kPolytope &&
+                   GeometryType::kPolytope &&
                plane.negative_side_geometry->type() !=
-                   CIrisGeometryType::kPolytope) {
+                   GeometryType::kPolytope) {
       EXPECT_EQ(plane_geometries.positive_side_rationals.size(),
                 plane.positive_side_geometry->num_rationals());
       EXPECT_EQ(plane_geometries.negative_side_rationals.size(),
                 plane.negative_side_geometry->num_rationals() - 1);
     } else if (plane.positive_side_geometry->type() !=
-                   CIrisGeometryType::kPolytope &&
+                   GeometryType::kPolytope &&
                plane.negative_side_geometry->type() ==
-                   CIrisGeometryType::kPolytope) {
+                   GeometryType::kPolytope) {
       EXPECT_EQ(plane_geometries.positive_side_rationals.size(),
                 plane.positive_side_geometry->num_rationals() - 1);
       EXPECT_EQ(plane_geometries.negative_side_rationals.size(),

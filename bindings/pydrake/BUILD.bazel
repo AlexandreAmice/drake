@@ -679,17 +679,17 @@ drake_py_unittest(
 
 install(
     name = "install",
-    install_tests = [
-        ":test/all_install_test.py",
-        ":test/common_install_test.py",
-    ],
-    targets = PY_LIBRARIES + [":all_py"],
-    py_dest = PACKAGE_INFO.py_dest,
     data = [
         ":pydrake_pyi",
         ":pydrake_typed",
     ],
     data_dest = "@PYTHON_SITE_PACKAGES@",
+    install_tests = [
+        ":test/all_install_test.py",
+        ":test/common_install_test.py",
+    ],
+    py_dest = PACKAGE_INFO.py_dest,
+    targets = PY_LIBRARIES + [":all_py"],
     visibility = ["//visibility:public"],
     deps = get_drake_py_installs(PY_LIBRARIES_WITH_INSTALL),
 )

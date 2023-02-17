@@ -48,6 +48,42 @@ xacro_file(
     ],
 )
 
+xacro_file(
+    name = "ur3e_cylinder_revolute_wrist.urdf",
+    src = "ur3e_cylinder_revolute_wrist.urdf.xacro",
+    data = [
+        "ur.transmission.xacro",
+        "ur3e_cylinder.urdf.xacro",
+    ],
+)
+
+xacro_file(
+    name = "ur3e_cylinder_revolute_wrist_collision_visual.urdf",
+    src = "ur3e_cylinder_revolute_wrist_collision_visual.urdf.xacro",
+    data = [
+        "ur.transmission.xacro",
+        "ur3e_cylinder.urdf.xacro",
+    ],
+)
+
+xacro_file(
+    name = "ur3e_cylinder_weld_wrist.urdf",
+    src = "ur3e_cylinder_weld_wrist.urdf.xacro",
+    data = [
+        "ur.transmission.xacro",
+        "ur3e_cylinder.urdf.xacro",
+    ],
+)
+
+xacro_file(
+    name = "ur3e_capsule_collision_weld_wrist.urdf",
+    src = "ur3e_capsule_collision_weld_wrist.urdf.xacro",
+    data = [
+        "ur.transmission.xacro",
+        "ur3e_capsule.urdf.xacro",
+    ],
+)
+
 _UR3E_MESHES = forward_files(
     srcs = ["@models_internal//:" + x for x in ur3e_mesh_files()],
     dest_prefix = "",
@@ -59,6 +95,10 @@ install_data(
     extra_prod_models = _UR3E_MESHES + [
         "ur3e_spheres_collision.urdf",
         "ur3e_cylinders_collision.urdf",
+        "ur3e_capsule_collision_weld_wrist.urdf",
+        "ur3e_cylinder_revolute_wrist.urdf",
+        "ur3e_cylinder_revolute_wrist_collision_visual.urdf",
+        "ur3e_cylinder_weld_wrist.urdf",
     ],
 )
 

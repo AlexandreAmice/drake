@@ -7,24 +7,24 @@
 #include "drake/bindings/pydrake/common/sorted_pair_pybind.h"
 #include "drake/bindings/pydrake/common/value_pybind.h"
 #include "drake/bindings/pydrake/pydrake_pybind.h"
-#include "drake/geometry/optimization/dev/collision_geometry.h"
+#include "drake/geometry/optimization/dev/c_iris_collision_geometry.h"
 #include "drake/geometry/optimization/dev/cspace_free_polytope.h"
-#include "drake/geometry/optimization/dev/separating_plane.h"
+#include "drake/geometry/optimization/dev/c_iris_separating_plane.h"
 
 namespace drake {
 namespace pydrake {
 
-// SeparatingPlane
+// CIrisSeparatingPlane
 template <typename T>
 void DoSeparatingPlaneDeclaration(py::module m, T) {
   constexpr auto& doc = pydrake_doc.drake.geometry.optimization;
   py::tuple param = GetPyParam<T>();
   // NOLINTNEXTLINE(build/namespaces): Emulate placement in namespace.
   {
-    using Class = geometry::optimization::SeparatingPlane<T>;
-    constexpr auto& cls_doc = doc.SeparatingPlane;
+    using Class = geometry::optimization::CIrisSeparatingPlane<T>;
+    constexpr auto& cls_doc = doc.CIrisSeparatingPlane;
     auto cls = DefineTemplateClassWithDefault<Class>(
-        m, "SeparatingPlane", param, cls_doc.doc)
+        m, "CIrisSeparatingPlane", param, cls_doc.doc)
                    .def_readonly("a", &Class::a, py_rvp::copy, cls_doc.a.doc)
                    .def_readonly("b", &Class::b, cls_doc.b.doc)
                    .def_readonly("positive_side_geometry",
@@ -61,26 +61,26 @@ void DefineGeometryOptimizationDev(py::module m) {
         .value("kPositive", PlaneSide::kPositive)
         .value("kNegative", PlaneSide::kNegative);
 
-    py::enum_<GeometryType>(m, "GeometryType", doc.GeometryType.doc)
-        .value("kPolytope", GeometryType::kPolytope,
-            doc.GeometryType.kPolytope.doc)
-        .value("kSphere", GeometryType::kSphere, doc.GeometryType.kSphere.doc)
-        .value("kCylinder", GeometryType::kCylinder,
-            doc.GeometryType.kCylinder.doc)
+    py::enum_<CIrisGeometryType>(m, "CIrisGeometryType", doc.CIrisGeometryType.doc)
+        .value("kPolytope", CIrisGeometryType::kPolytope,
+            doc.CIrisGeometryType.kPolytope.doc)
+        .value("kSphere", CIrisGeometryType::kSphere, doc.CIrisGeometryType.kSphere.doc)
+        .value("kCylinder", CIrisGeometryType::kCylinder,
+            doc.CIrisGeometryType.kCylinder.doc)
         .value(
-            "kCapsule", GeometryType::kCapsule, doc.GeometryType.kCapsule.doc);
+            "kCapsule", CIrisGeometryType::kCapsule, doc.CIrisGeometryType.kCapsule.doc);
 
-    py::class_<CollisionGeometry>(
-        m, "CollisionGeometry", doc.CollisionGeometry.doc)
-        .def("type", &CollisionGeometry::type, doc.CollisionGeometry.type.doc)
-        .def("geometry", &CollisionGeometry::geometry,
-            py_rvp::reference_internal, doc.CollisionGeometry.geometry.doc)
-        .def("body_index", &CollisionGeometry::body_index,
-            doc.CollisionGeometry.body_index.doc)
-        .def("id", &CollisionGeometry::id, doc.CollisionGeometry.id.doc)
-        .def("X_BG", &CollisionGeometry::X_BG, doc.CollisionGeometry.X_BG.doc)
-        .def("num_rationals", &CollisionGeometry::num_rationals,
-            doc.CollisionGeometry.num_rationals.doc);
+    py::class_<CIrisCollisionGeometry>(
+        m, "CIrisCollisionGeometry", doc.CIrisCollisionGeometry.doc)
+        .def("type", &CIrisCollisionGeometry::type, doc.CIrisCollisionGeometry.type.doc)
+        .def("geometry", &CIrisCollisionGeometry::geometry,
+            py_rvp::reference_internal, doc.CIrisCollisionGeometry.geometry.doc)
+        .def("body_index", &CIrisCollisionGeometry::body_index,
+            doc.CIrisCollisionGeometry.body_index.doc)
+        .def("id", &CIrisCollisionGeometry::id, doc.CIrisCollisionGeometry.id.doc)
+        .def("X_BG", &CIrisCollisionGeometry::X_BG, doc.CIrisCollisionGeometry.X_BG.doc)
+        .def("num_rationals", &CIrisCollisionGeometry::num_rationals,
+            doc.CIrisCollisionGeometry.num_rationals.doc);
   }
   {
     // Definitions for separating_plane.h/cc
