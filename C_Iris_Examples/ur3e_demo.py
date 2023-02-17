@@ -11,7 +11,7 @@ from pydrake.geometry import (
     RoleAssign, SceneGraph)
 from pydrake.geometry.optimization import HPolyhedron
 from pydrake.geometry.optimization_dev import (CspaceFreePolytope,
-                                               SeparatingPlane,
+                                               CIrisSeparatingPlane,
                                                SeparatingPlaneOrder)
 from pydrake.common import (
     FindResourceOrThrow, )
@@ -23,8 +23,8 @@ from pydrake.multibody.tree import (ModelInstanceIndex)
 from pydrake.multibody.parsing import Parser
 from pydrake.multibody.inverse_kinematics import InverseKinematics
 from pydrake.math import (RigidTransform, RollPitchYaw)
-from pydrake.solvers.mosek import MosekSolver
-from pydrake.solvers.osqp import OsqpSolver
+from pydrake.solvers import MosekSolver
+from pydrake.solvers import OsqpSolver
 from pydrake.solvers import mathematicalprogram as mp
 
 
@@ -45,7 +45,7 @@ class UrDiagram:
             builder, 0.0)
         parser = Parser(self.plant)
         if weld_wrist:
-            ur_file_name = "ur3e_cylinder_welf_wrist.urdf"
+            ur_file_name = "ur3e_cylinder_weld_wrist.urdf"
         else:
             if num_ur == 1:
                 ur_file_name = "ur3e_cylinder_revolute_wrist.urdf"
@@ -83,8 +83,7 @@ class UrDiagram:
                                    np.array([0.06, 0, 0])))
 
         if add_shelf:
-            shelf_file_path = FindResourceOrThrow(
-                "drake/geometry/optimization/dev/models/shelves.sdf")
+            shelf_file_path = "assets/shelves.sdf"
             shelf_instance = parser.AddModelFromFile(shelf_file_path,
                                                      "shelves")
             shelf_body = self.plant.GetBodyByName("shelves_body",
