@@ -141,7 +141,7 @@ drake_pybind_library(
         ":math_py",
         ":module_py",
         ":tree_py",
-        "//bindings/pydrake:geometry_py",
+        "//bindings/pydrake/geometry",
         "//bindings/pydrake/common:cpp_template_py",
     ],
     py_srcs = [
@@ -189,7 +189,11 @@ drake_pybind_library(
         "//bindings/pydrake/common:default_scalars_pybind",
         "//bindings/pydrake/common:sorted_pair_pybind",
     ],
-    cc_srcs = ["inverse_kinematics_py.cc"],
+    cc_srcs = [
+        "inverse_kinematics_py.cc",
+        "inverse_kinematics_py.h",
+        "inverse_kinematics_py_differential.cc",
+    ],
     package_info = PACKAGE_INFO,
     py_deps = [
         ":module_py",
@@ -296,7 +300,7 @@ drake_jupyter_py_binary(
         ":jupyter_widgets_py",
         ":parsing_py",
         ":plant_py",
-        "//bindings/pydrake:geometry_py",
+        "//bindings/pydrake/geometry",
         "//bindings/pydrake/systems:analysis_py",
         "//bindings/pydrake/systems:framework_py",
         "//bindings/pydrake/systems:rendering_py",
@@ -384,6 +388,18 @@ drake_py_unittest(
     ],
     deps = [
         ":benchmarks_py",
+        ":inverse_kinematics_py",
+        ":parsing_py",
+        "//bindings/pydrake/common/test_utilities",
+    ],
+)
+
+drake_py_unittest(
+    name = "inverse_kinematics_differential_test",
+    data = [
+        "//multibody/benchmarks/acrobot:models",
+    ],
+    deps = [
         ":inverse_kinematics_py",
         ":parsing_py",
         "//bindings/pydrake/common/test_utilities",

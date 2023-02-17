@@ -49,6 +49,7 @@ drake_py_binary(
     srcs = ["vendor_cxx.py"],
     visibility = [
         # These should all be of the form "@foo_internal//:__pkg__".
+        "@fcl_internal//:__pkg__",
         "@gz_math_internal//:__pkg__",
         "@gz_utils_internal//:__pkg__",
         "@msgpack_internal//:__pkg__",
@@ -100,6 +101,7 @@ _DRAKE_EXTERNAL_PACKAGE_INSTALLS = ["@%s//:install" % p for p in [
     "spdlog",
     "statsjs",
     "stduuid_internal",
+    "suitesparse_internal",
     "tinyobjloader",
     "tinyxml2_internal",
     "usockets",
@@ -109,18 +111,12 @@ _DRAKE_EXTERNAL_PACKAGE_INSTALLS = ["@%s//:install" % p for p in [
 ]] + ["//tools/workspace/%s:install" % p for p in [
     "abseil_cpp_internal",
     "conex",
-    "cds",
     "drake_visualizer",
-    "dreal",
     "gflags",
     "optitrack_driver",
-    "picosat",
 ]] + select({
     "//conditions:default": ["@csdp//:install"],
     "//tools:no_csdp": [],
-}) + select({
-    "//conditions:default": ["@ibex//:install"],
-    "//tools:no_dreal": [],
 }) + select({
     "//tools:with_gurobi": ["@gurobi//:install"],
     "//conditions:default": [],
@@ -132,12 +128,12 @@ _DRAKE_EXTERNAL_PACKAGE_INSTALLS = ["@%s//:install" % p for p in [
     "//conditions:default": [],
 }) + select({
     "//conditions:default": [
-        "@osqp//:install",
-        "@qdldl//:install",
+        "@osqp_internal//:install",
+        "@qdldl_internal//:install",
     ],
     "//tools:no_osqp": [],
 }) + select({
-    "//conditions:default": ["@scs//:install"],
+    "//conditions:default": ["@scs_internal//:install"],
     "//tools:no_scs": [],
 })
 

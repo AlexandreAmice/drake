@@ -248,6 +248,7 @@ drake_cc_library(
         ":proximity_engine",
         ":utilities",
         "//geometry/render:render_engine",
+        "//math:gradient",
     ],
 )
 
@@ -466,6 +467,7 @@ drake_cc_library(
         "//perception:point_cloud",
     ],
     deps = [
+        "//common:drake_export",
         "//common:find_resource",
         "//common:scope_exit",
         "//common:unused",

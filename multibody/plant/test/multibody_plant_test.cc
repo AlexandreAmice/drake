@@ -100,27 +100,6 @@ class MultibodyPlantTester {
       const MultibodyPlant<T>& plant, GeometryId id) {
     return plant.FindBodyByGeometryId(id);
   }
-
-  static void CalcNormalAndTangentContactJacobians(
-      const MultibodyPlant<double>& plant, const Context<double>& context,
-      const std::vector<PenetrationAsPointPair<double>>& point_pairs,
-      MatrixX<double>* Jn, MatrixX<double>* Jt,
-      std::vector<RotationMatrix<double>>* R_WC_set) {
-    // We first convert point contact pairs to discrete contact pairs.
-    std::vector<internal::DiscreteContactPair<double>> discrete_pairs;
-    for (const PenetrationAsPointPair<double>& pair : point_pairs) {
-      const Vector3d p_WC = 0.5 * (pair.p_WCa + pair.p_WCb);
-      // fn0, k and d are irrelevant values for Jacobian computation. Thus we
-      // arbitrarily set them to zero.
-      const double fn0 = 0.0;
-      const double k = 0.0;
-      const double d = 0.0;
-      discrete_pairs.push_back(
-          {pair.id_A, pair.id_B, p_WC, pair.nhat_BA_W, fn0, k, d});
-    }
-    plant.CalcNormalAndTangentContactJacobians(
-        context, discrete_pairs, Jn, Jt, R_WC_set);
-  }
 };
 
 namespace {
@@ -1395,27 +1374,35 @@ GTEST_TEST(MultibodyPlantTest, AutoBodySceneGraphRegistration) {
 // collision because the `expected_pairs` only accounts for collision
 // geometries.
 GTEST_TEST(MultibodyPlantTest, FilterAdjacentBodies) {
-  SphereChainScenario scenario(3);
-  scenario.Finalize();
-  std::vector<geometry::PenetrationAsPointPair<double>> contacts =
-      scenario.ComputePointPairPenetration();
+  for (bool do_filters : {false, true}) {
+    SphereChainScenario scenario(3);
+    scenario.mutable_plant()->set_adjacent_bodies_collision_filters(do_filters);
+    scenario.Finalize();
+    std::vector<geometry::PenetrationAsPointPair<double>> contacts =
+        scenario.ComputePointPairPenetration();
 
-  // The expected collisions.
-  const std::set<std::pair<GeometryId, GeometryId>>& expected_pairs =
-      scenario.unfiltered_collisions();
-  ASSERT_EQ(contacts.size(), expected_pairs.size());
-
-  auto expect_pair_in_set = [&expected_pairs](GeometryId id1, GeometryId id2) {
-    auto pair1 = std::make_pair(id1, id2);
-    auto pair2 = std::make_pair(id2, id1);
-    if (expected_pairs.count(pair1) == 0 && expected_pairs.count(pair2) == 0) {
-      GTEST_FAIL() << "The pair " << id1 << ", " << id2
-                   << " is not in the expected set";
+    // The expected collisions.
+    const std::set<std::pair<GeometryId, GeometryId>>& expected_pairs =
+        scenario.unfiltered_collisions();
+    if (do_filters) {
+      ASSERT_EQ(contacts.size(), expected_pairs.size());
+      auto expect_pair_in_set = [&expected_pairs](
+          GeometryId id1, GeometryId id2) {
+        auto pair1 = std::make_pair(id1, id2);
+        auto pair2 = std::make_pair(id2, id1);
+        if (expected_pairs.count(pair1) == 0 &&
+            expected_pairs.count(pair2) == 0) {
+          GTEST_FAIL() << "The pair " << id1 << ", " << id2
+                       << " is not in the expected set";
+        }
+      };
+      for (int i = 0; i < static_cast<int>(contacts.size()); ++i) {
+        const auto& point_pair = contacts[i];
+        expect_pair_in_set(point_pair.id_A, point_pair.id_B);
+      }
+    } else {
+      ASSERT_GT(contacts.size(), expected_pairs.size());
     }
-  };
-  for (int i = 0; i < static_cast<int>(contacts.size()); ++i) {
-    const auto& point_pair = contacts[i];
-    expect_pair_in_set(point_pair.id_A, point_pair.id_B);
   }
 }
 
@@ -2600,54 +2587,6 @@ class MultibodyPlantContactJacobianTests : public ::testing::Test {
   const double large_box_size_{5.0};
   const double penetration_{0.01};
 };
-
-TEST_F(MultibodyPlantContactJacobianTests, NormalAndTangentJacobian) {
-  const double kTolerance = 5 * std::numeric_limits<double>::epsilon();
-
-  // Store the orientation of the contact frames so that we can use them later
-  // to compute the same Jacobian using autodifferentiation.
-  std::vector<RotationMatrix<double>> R_WC_set;
-
-  // Compute separation velocities Jacobian.
-  MatrixX<double> N, D;
-  MultibodyPlantTester::CalcNormalAndTangentContactJacobians(
-          plant_, *context_, penetrations_, &N, &D, &R_WC_set);
-
-  // Assert Jt has the right sizes.
-  const int nv = plant_.num_velocities();
-  const int nc = penetrations_.size();
-
-  ASSERT_EQ(N.rows(), nc);
-  ASSERT_EQ(N.cols(), nv);
-
-  ASSERT_EQ(D.rows(), 2 * nc);
-  ASSERT_EQ(D.cols(), nv);
-
-  // Scalar convert the plant and its context_.
-  unique_ptr<MultibodyPlant<AutoDiffXd>> plant_autodiff;
-  unique_ptr<Context<AutoDiffXd>> context_autodiff;
-  tie(plant_autodiff, context_autodiff) = ConvertPlantAndContextToAutoDiffXd();
-
-  // Automatically differentiate vn (with respect to v) to get the normal
-  // separation velocities Jacobian N.
-  VectorX<AutoDiffXd> vn_autodiff = CalcNormalVelocities(
-      *plant_autodiff, *context_autodiff, penetrations_);
-  const MatrixX<double> vn_derivs = math::ExtractGradient(vn_autodiff);
-
-  // Verify the result.
-  EXPECT_TRUE(CompareMatrices(
-      N, vn_derivs, kTolerance, MatrixCompareType::relative));
-
-  // Automatically differentiate vt (with respect to v) to get the tangent
-  // velocities Jacobian Jt.
-  VectorX<AutoDiffXd> vt_autodiff = CalcTangentVelocities(
-      *plant_autodiff, *context_autodiff, penetrations_, R_WC_set);
-  const MatrixX<double> vt_derivs = math::ExtractGradient(vt_autodiff);
-
-  // Verify the result.
-  EXPECT_TRUE(CompareMatrices(
-      D, vt_derivs, kTolerance, MatrixCompareType::relative));
-}
 
 // Verifies that we can obtain the indexes into the state vector for each joint
 // in the model of a Kuka arm.
@@ -4145,6 +4084,20 @@ GTEST_TEST(MultibodyPlantTest, SetDefaultPositions) {
                               q.head<7>()));
   EXPECT_TRUE(CompareMatrices(plant->GetPositions(*context, iiwa1_instance),
                               q.tail<14>(), kTol));
+}
+
+GTEST_TEST(MultibodyPlantTest, GetMutableSceneGraphPreFinalize) {
+  MultibodyPlant<double> plant(0.0);
+  DRAKE_EXPECT_THROWS_MESSAGE(plant.GetMutableSceneGraphPreFinalize(),
+                              ".*geometry_source_is_registered.*");
+
+  SceneGraph<double> scene_graph;
+  plant.RegisterAsSourceForSceneGraph(&scene_graph);
+  EXPECT_EQ(plant.GetMutableSceneGraphPreFinalize(), &scene_graph);
+
+  plant.Finalize();
+  DRAKE_EXPECT_THROWS_MESSAGE(plant.GetMutableSceneGraphPreFinalize(),
+                              ".*!is_finalized.*");
 }
 
 }  // namespace

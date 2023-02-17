@@ -23,9 +23,6 @@ from drake import (
 from pydrake.common import (
     FindResourceOrThrow,
 )
-from pydrake.common.test_utilities.deprecation import (
-    catch_drake_warnings,
-)
 from pydrake.geometry import (
     DrakeVisualizer,
     DrakeVisualizerParams,
@@ -51,11 +48,11 @@ from pydrake.systems.framework import (
 
 class TestMeldis(unittest.TestCase):
 
-    def _make_diagram(self, *, sdf_filename, visualizer_params, lcm):
+    def _make_diagram(self, *, resource, visualizer_params, lcm):
         builder = DiagramBuilder()
         plant, scene_graph = AddMultibodyPlantSceneGraph(builder, 0.0)
         parser = Parser(plant=plant)
-        parser.AddModels(FindResourceOrThrow(sdf_filename))
+        parser.AddModels(FindResourceOrThrow(resource))
         plant.Finalize()
         DrakeVisualizer.AddToBuilder(builder=builder, scene_graph=scene_graph,
                                      params=visualizer_params, lcm=lcm)
@@ -76,7 +73,7 @@ class TestMeldis(unittest.TestCase):
 
         # Enqueue the load + draw messages.
         diagram = self._make_diagram(
-            sdf_filename="drake/multibody/benchmarks/acrobot/acrobot.sdf",
+            resource="drake/multibody/benchmarks/acrobot/acrobot.sdf",
             visualizer_params=DrakeVisualizerParams(),
             lcm=lcm)
         context = diagram.CreateDefaultContext()
@@ -92,6 +89,24 @@ class TestMeldis(unittest.TestCase):
         dut._invoke_subscriptions()
         self.assertEqual(meshcat.HasPath("/DRAKE_VIEWER"), True)
         self.assertEqual(meshcat.HasPath(link_path), True)
+
+    def test_viewer_applet_robot_meshes(self):
+        """Checks _ViewerApplet support for meshes.
+        """
+        # Create the device under test.
+        dut = mut.Meldis()
+        lcm = dut._lcm
+
+        # Process the load + draw messages.
+        diagram = self._make_diagram(
+            resource="drake/manipulation/models/iiwa_description/urdf/"
+                     "iiwa14_no_collision.urdf",
+            visualizer_params=DrakeVisualizerParams(),
+            lcm=lcm)
+        diagram.ForcedPublish(diagram.CreateDefaultContext())
+        lcm.HandleSubscriptions(timeout_millis=0)
+        dut._invoke_subscriptions()
+        self.assertEqual(dut.meshcat.HasPath("/DRAKE_VIEWER"), True)
 
     def test_viewer_applet_reload_optimization(self):
         """Checks that loading the identical scene twice is efficient.
@@ -116,7 +131,7 @@ class TestMeldis(unittest.TestCase):
 
             # Create the plant + visualizer.
             diagram = self._make_diagram(
-                sdf_filename="drake/multibody/benchmarks/acrobot/acrobot.sdf",
+                resource="drake/multibody/benchmarks/acrobot/acrobot.sdf",
                 visualizer_params=DrakeVisualizerParams(),
                 lcm=temp_lcm)
 
@@ -156,8 +171,8 @@ class TestMeldis(unittest.TestCase):
         dut = mut.Meldis()
         lcm = dut._lcm
         diagram = self._make_diagram(
-            sdf_filename="drake/examples/hydroelastic/"
-                         "spatula_slip_control/models/spatula.sdf",
+            resource="drake/examples/hydroelastic/"
+                     "spatula_slip_control/models/spatula.sdf",
             visualizer_params=DrakeVisualizerParams(
                 show_hydroelastic=True,
                 role=Role.kProximity),
@@ -310,8 +325,3 @@ class TestMeldis(unittest.TestCase):
 
         # After the handlers are called, we have the expected meshcat path.
         self.assertEqual(dut.meshcat.HasPath(meshcat_path), True)
-
-    def test_deprecation(self):
-        import pydrake.visualization.meldis as old
-        with catch_drake_warnings(expected_count=1):
-            old.Meldis(meshcat_port=None)
