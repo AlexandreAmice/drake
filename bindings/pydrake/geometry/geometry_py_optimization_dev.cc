@@ -255,7 +255,8 @@ void DefineGeometryOptimizationDev(py::module m) {
         .def_readonly("d", &Class::SearchResult::d)
         .def_readonly("a", &Class::SearchResult::a, py_rvp::copy)
         .def_readonly("b", &Class::SearchResult::b)
-        .def_readonly("num_iter", &Class::SearchResult::num_iter);
+        .def_readonly("num_iter", &Class::SearchResult::num_iter)
+        .def_readonly("certified_polytope", &Class::SearchResult::certified_polytope);
 
     py::class_<Class::BilinearAlternationOptions>(cspace_free_polytope_cls,
         "BilinearAlternationOptions", cls_doc.BilinearAlternationOptions.doc)

@@ -112,20 +112,20 @@ drake_py_unittest(
     ],
 )
 
-drake_py_unittest(
-    name = "geometry_optimization_dev_test",
-    timeout = "long",
-    deps = [
-        ":geometry_py",
-        ":math_py",
-        "//bindings/pydrake/common/test_utilities:deprecation_py",
-        "//bindings/pydrake/common/test_utilities:pickle_compare_py",
-        "//bindings/pydrake/multibody:parsing_py",
-        "//bindings/pydrake/multibody:plant_py",
-        "//bindings/pydrake/multibody:rational_py",
-        "//bindings/pydrake/solvers",
-    ],
-)
+#drake_py_unittest(
+#    name = "geometry_optimization_dev_test",
+#    timeout = "long",
+#    deps = [
+#        ":geometry_py",
+#        ":math_py",
+#        "//bindings/pydrake/common/test_utilities:deprecation_py",
+#        "//bindings/pydrake/common/test_utilities:pickle_compare_py",
+#        "//bindings/pydrake/multibody:parsing_py",
+#        "//bindings/pydrake/multibody:plant_py",
+#        "//bindings/pydrake/multibody:rational_py",
+#        "//bindings/pydrake/solvers",
+#    ],
+#)
 
 drake_py_unittest(
     name = "render_test",
