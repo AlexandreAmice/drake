@@ -64,7 +64,7 @@ drake_py_library(
 ##########################################################
 
 drake_jupyter_py_binary(
-    name = "pinball_iiwas_2d",
+    name = "2d_example_visualize_planes",
     add_test_rule = 0,
     data = [
         "//C_Iris_Examples:models",
@@ -75,6 +75,36 @@ drake_jupyter_py_binary(
         "//bindings/pydrake",
     ],
 )
+
+drake_jupyter_py_binary(
+    name = "2d_example_bilinear_alternation",
+    add_test_rule = 0,
+    data = [
+        "//C_Iris_Examples:models",
+    ],
+    deps = [
+        "//C_Iris_Examples:iris_plant_visualizer",
+        "//C_Iris_Examples:visualization_utils",
+        "//bindings/pydrake",
+    ],
+)
+
+drake_jupyter_py_binary(
+    name = "dual_ur",
+    add_test_rule = 0,
+    data = [
+        "//C_Iris_Examples:models",
+        "//manipulation/models/ur3e:models",
+        "//manipulation/models/wsg_50_description:models",
+    ],
+    deps = [
+        "//C_Iris_Examples:iris_plant_visualizer",
+        "//C_Iris_Examples:visualization_utils",
+        "//bindings/pydrake",
+    ],
+)
+
+
 
 drake_jupyter_py_binary(
     name = "pendulum_on_rail2d",

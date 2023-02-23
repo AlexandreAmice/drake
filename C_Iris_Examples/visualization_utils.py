@@ -7,6 +7,12 @@ from pydrake.all import (MathematicalProgram, le, SnoptSolver,
 import mcubes
 from scipy.spatial import ConvexHull
 from scipy.linalg import block_diag
+from fractions import Fraction
+import itertools
+import random
+import colorsys
+from pydrake.all import PiecewisePolynomial
+
 
 
 def plot_surface(meshcat_instance,
@@ -49,7 +55,7 @@ def plot_surface(meshcat_instance,
 
 
 def plot_point(point, meshcat_instance, name,
-               color=Rgba(0.06, 0.0, 0, 1), radius=0.05):
+               color=Rgba(0.06, 0.0, 0, 1), radius=0.01):
     meshcat_instance.SetObject(name,
                                Sphere(radius),
                                color)
@@ -60,21 +66,20 @@ def plot_point(point, meshcat_instance, name,
 def plot_polytope(polytope, meshcat_instance, name,
                   resolution=50, color=None,
                   wireframe=True,
-                  opacity=0.7,
+                  random_color_opacity=0.2,
                   fill=True,
                   line_width=10):
     if color is None:
-        color = np.random.rand(3)
-    color_RGBA = Rgba(*color, opacity)
+        color = Rgba(*np.random.rand(3), random_color_opacity)
     if polytope.ambient_dimension == 3:
         verts, triangles = get_plot_poly_mesh(polytope,
                                               resolution=resolution)
         meshcat_instance.SetObject(name, TriangleSurfaceMesh(triangles, verts),
-                                   color_RGBA, wireframe=wireframe)
+                                   color, wireframe=wireframe)
 
     else:
         plot_hpoly2d(polytope, meshcat_instance, name,
-                     color_RGBA,
+                     color,
                      line_width=line_width,
                      fill=fill,
                      resolution=resolution,
@@ -82,7 +87,7 @@ def plot_polytope(polytope, meshcat_instance, name,
 
 
 def plot_hpoly2d(polytope, meshcat_instance, name,
-                 color_RGBA,
+                 color,
                  line_width=8,
                  fill=False,
                  resolution=30,
@@ -94,7 +99,7 @@ def plot_hpoly2d(polytope, meshcat_instance, name,
     inds = np.append(hull.vertices, hull.vertices[0])
     hull_drake = verts.T[inds, :].T
     hull_drake3d = np.vstack([hull_drake, np.zeros(hull_drake.shape[1])])
-    color_RGB = Rgba(color_RGBA.r(), color_RGBA.g(), color_RGBA.b(), 1)
+    color_RGB = Rgba(color.r(), color.g(), color.b(), 1)
     meshcat_instance.SetLine(name, hull_drake3d,
                              line_width=line_width, rgba=color_RGB)
     if fill:
@@ -106,14 +111,13 @@ def plot_hpoly2d(polytope, meshcat_instance, name,
                                               resolution=resolution)
         meshcat_instance.SetObject(name + "/fill",
                                    TriangleSurfaceMesh(triangles, verts),
-                                   color_RGBA, wireframe=wireframe)
+                                   color, wireframe=wireframe)
 
 
 def get_plot_poly_mesh(polytope, resolution):
     def inpolycheck(q0, q1, q2, A, b):
         q = np.array([q0, q1, q2])
         res = np.min(1.0 * (A @ q - b <= 0))
-        # print(res)
         return res
 
     aabb_max, aabb_min = get_AABB_limits(polytope)
@@ -162,26 +166,48 @@ def stretch_array_to_3d(arr, val=0.):
     return arr
 
 
-def normalize(v):
-    norm = np.linalg.norm(v)
-    if norm == 0:
-        return v
-    return v / norm
+def infinite_hues():
+    yield Fraction(0)
+    for k in itertools.count():
+        i = 2**k # zenos_dichotomy
+        for j in range(1,i,2):
+            yield Fraction(j,i)
 
 
-def get_rotation_matrix(axis, theta):
-    R = np.cos(theta) * np.eye(3) + \
-        np.sin(theta) * crossmat(axis) + \
-        (1 - np.cos(theta)) * (axis.reshape(-1, 1) @ axis.reshape(-1, 1).T)
-    return R
+def hue_to_hsvs(h: Fraction):
+    # tweak values to adjust scheme
+    for s in [Fraction(6,10)]:
+        for v in [Fraction(6,10), Fraction(9,10)]:
+            yield (h, s, v)
 
 
-def crossmat(vec):
-    R = np.zeros((3, 3))
-    R[0, 1] = -vec[2]
-    R[0, 2] = vec[1]
-    R[1, 0] = vec[2]
-    R[1, 2] = -vec[0]
-    R[2, 0] = -vec[1]
-    R[2, 1] = vec[0]
-    return R
+def rgb_to_css(rgb) -> str:
+    uint8tuple = map(lambda y: int(y*255), rgb)
+    return tuple(uint8tuple)
+
+
+def css_to_html(css):
+    return f"<text style=background-color:{css}>&nbsp;&nbsp;&nbsp;&nbsp;</text>"
+
+
+def n_colors(n=33, rgbs_ret = False):
+    hues = infinite_hues()
+    hsvs = itertools.chain.from_iterable(hue_to_hsvs(hue) for hue in hues)
+    rgbs = (colorsys.hsv_to_rgb(*hsv) for hsv in hsvs)
+    csss = (rgb_to_css(rgb) for rgb in rgbs)
+    to_ret = list(itertools.islice(csss, n)) if rgbs_ret else list(itertools.islice(csss, n))
+    return to_ret
+
+def draw_traj(meshcat_instance, traj, maxit, name = "/trajectory",
+              color = Rgba(0,0,0,1), line_width = 3):
+    pts = np.squeeze(np.array([traj.value(it * traj.end_time() / maxit) for it in range(maxit)]))
+    pts_3d = np.hstack([pts, 0 * np.ones((pts.shape[0], 3 - pts.shape[1]))]).T
+    meshcat_instance.SetLine(name, pts_3d, line_width, color)
+
+def generate_walk_around_polytope(h_polytope, num_verts):
+    v_polytope = VPolytope(h_polytope)
+    verts_to_visit_index = np.random.randint(0, v_polytope.vertices().shape[1], num_verts)
+    verts_to_visit = v_polytope.vertices()[:, verts_to_visit_index]
+    t_knots = np.linspace(0, 1,  verts_to_visit.shape[1])
+    lin_traj = PiecewisePolynomial.FirstOrderHold(t_knots, verts_to_visit)
+    return lin_traj
