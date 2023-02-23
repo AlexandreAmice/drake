@@ -245,7 +245,8 @@ def named_closest_distance(ur_diagram: UrDiagram, plant_context: Context,
 def sample_closest_posture(ur_diagram: UrDiagram, rational_forward_kin, q_star,
                            plant_context, C: np.ndarray, d: np.ndarray,
                            save_file):
-    s_samples = np.random.rand(10000, 12)
+    np.random.seed(0)
+    s_samples = 10*(np.random.rand(10000, 12)-0.5)
     min_distance = np.inf
     min_q = np.zeros((12, ))
     min_pair = tuple()
