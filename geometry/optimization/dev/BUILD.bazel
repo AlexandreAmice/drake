@@ -155,17 +155,4 @@ drake_cc_binary(
     ],
 )
 
-#drake_py_binary(
-#    name = "ur3e_demo_py",
-#    srcs = ["test/ur3e_demo.py"],
-#    data = [
-#        ":models",
-#        "//manipulation/models/ur3e:models",
-#        "//manipulation/models/wsg_50_description:models",
-#    ],
-#    deps = [
-#        "//bindings/pydrake",
-#    ],
-#)
-
 add_lint_tests()

@@ -104,13 +104,13 @@ drake_jupyter_py_binary(
     ],
 )
 
-
-
 drake_jupyter_py_binary(
-    name = "pendulum_on_rail2d",
+    name = "single_ur",
     add_test_rule = 0,
     data = [
         "//C_Iris_Examples:models",
+        "//manipulation/models/ur3e:models",
+        "//manipulation/models/wsg_50_description:models",
     ],
     deps = [
         "//C_Iris_Examples:iris_plant_visualizer",
@@ -120,12 +120,10 @@ drake_jupyter_py_binary(
 )
 
 drake_jupyter_py_binary(
-    name = "ur3e_example",
+    name = "pendulum_on_rail2d",
     add_test_rule = 0,
     data = [
-        ":models",
-        "//manipulation/models/ur3e:models",
-        "//manipulation/models/wsg_50_description:models",
+        "//C_Iris_Examples:models",
     ],
     deps = [
         "//C_Iris_Examples:iris_plant_visualizer",

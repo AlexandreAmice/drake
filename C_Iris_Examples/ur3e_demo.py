@@ -8,7 +8,7 @@ from pydrake.geometry import (
     AddContactMaterial, Box, CollisionFilterDeclaration, Cylinder, GeometrySet,
     IllustrationProperties, MakePhongIllustrationProperties, Meshcat,
     MeshcatVisualizer, MeshcatVisualizerParams, ProximityProperties, Role,
-    RoleAssign, SceneGraph)
+    RoleAssign, SceneGraph, SceneGraphInspector)
 from pydrake.geometry.optimization import HPolyhedron
 from pydrake.geometry.optimization_dev import (CspaceFreePolytope,
                                                CIrisSeparatingPlane,
@@ -26,6 +26,7 @@ from pydrake.math import (RigidTransform, RollPitchYaw)
 from pydrake.solvers import MosekSolver
 from pydrake.solvers import OsqpSolver
 from pydrake.solvers import mathematicalprogram as mp
+from pydrake.all import StartMeshcat
 
 
 class UrDiagram:
@@ -39,7 +40,7 @@ class UrDiagram:
 
     def __init__(self, num_ur: int, weld_wrist: bool, add_shelf: bool,
                  add_gripper: bool):
-        self.meshcat = Meshcat()
+        self.meshcat = StartMeshcat()
         builder = DiagramBuilder()
         self.plant, self.scene_graph = AddMultibodyPlantSceneGraph(
             builder, 0.0)
@@ -216,6 +217,30 @@ def closest_distance(ur_diagram: UrDiagram, plant_context: Context,
 
     return closest_pair, min_distance
 
+def named_closest_distance(ur_diagram: UrDiagram, plant_context: Context,
+                     q_val: np.ndarray, inspector: SceneGraphInspector):
+    ur_diagram.plant.SetPositions(plant_context, q_val)
+    query_port = ur_diagram.plant.get_geometry_query_input_port()
+    query_object = query_port.Eval(plant_context)
+
+    signed_distance_pairs = query_object.ComputeSignedDistancePairwiseClosestPoints(
+    )
+    min_distance = np.inf
+
+    closest_pair = tuple()
+
+    for signed_distance_pair in signed_distance_pairs:
+        nameA = inspector.GetName(signed_distance_pair.id_A)
+        numA = nameA[nameA.index("::")-1]
+        nameB = inspector.GetName(signed_distance_pair.id_B)
+        numB = nameB[nameB.index("::")-1]
+        if numA != numB and signed_distance_pair.distance < min_distance:
+            closest_pair = (signed_distance_pair.id_A,
+                            signed_distance_pair.id_B)
+            min_distance = signed_distance_pair.distance
+
+    return closest_pair, min_distance
+
 
 def sample_closest_posture(ur_diagram: UrDiagram, rational_forward_kin, q_star,
                            plant_context, C: np.ndarray, d: np.ndarray,
@@ -257,7 +282,9 @@ def sample_closest_posture(ur_diagram: UrDiagram, rational_forward_kin, q_star,
              min_pair=(inspector.GetName(min_pair[0]),
                        inspector.GetName(min_pair[1])),
              max_distance=max_distance,
-             max_q=max_q)
+             max_q=max_q,
+             max_pair=(inspector.GetName(max_pair[0]),
+                       inspector.GetName(max_pair[1])))
     return min_distance, min_q, min_pair
 
 
