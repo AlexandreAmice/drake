@@ -18,7 +18,8 @@ void DefineSolversBranchAndBound(py::module m) {
   {
     using Class = MixedIntegerBranchAndBound;
     constexpr auto& cls_doc = doc.MixedIntegerBranchAndBound;
-    py::class_<Class>(m, "MixedIntegerBranchAndBound", cls_doc.doc)
+    py::class_<Class> bnb_class(m, "MixedIntegerBranchAndBound", cls_doc.doc);
+    bnb_class
         .def(py::init<const MathematicalProgram&, const SolverId&>(),
             py::arg("prog"), py::arg("solver_id"), cls_doc.ctor.doc)
         .def("Solve", &Class::Solve, cls_doc.Solve.doc)
@@ -53,7 +54,27 @@ void DefineSolversBranchAndBound(py::module m) {
               return self.GetSolution(mip_vars, nth_best_solution);
             },
             py::arg("mip_vars"), py::arg("nth_best_solution") = 0,
-            cls_doc.GetSolution.doc_2args_constEigenMatrixBase_int);
+            cls_doc.GetSolution.doc_2args_constEigenMatrixBase_int)
+        .def("SetUserDefinedNodeSelectionFunction",
+            &Class::SetUserDefinedNodeSelectionFunction,
+            py::arg("fun"),
+            cls_doc.SetUserDefinedNodeSelectionFunction.doc)
+        .def("SetNodeSelectionMethod", &Class::SetNodeSelectionMethod,
+            cls_doc.SetNodeSelectionMethod.doc)
+        .def("root", &Class::root);
+    py::enum_<Class::NodeSelectionMethod>(
+        bnb_class, "NodeSelectionMethod", cls_doc.NodeSelectionMethod.doc)
+        .value("kUserDefined", Class::NodeSelectionMethod::kUserDefined)
+        .value("kDepthFirst", Class::NodeSelectionMethod::kDepthFirst)
+        .value("kMinLowerBound", Class::NodeSelectionMethod::kMinLowerBound);
+  }
+  {
+    using Class = MixedIntegerBranchAndBoundNode;
+    constexpr auto& cls_doc = doc.MixedIntegerBranchAndBoundNode;
+    py::class_<Class> bnb_node_class(m, "MixedIntegerBranchAndBoundNode", cls_doc.doc);
+    bnb_node_class
+        .def("left_child", &Class::left_child, py_rvp::reference, cls_doc.left_child.doc)
+        .def("right_child", &Class::right_child, py_rvp::reference, cls_doc.right_child.doc);
   }
 }
 

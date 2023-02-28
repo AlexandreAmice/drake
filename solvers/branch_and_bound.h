@@ -560,7 +560,7 @@ class MixedIntegerBranchAndBound {
    */
   void set_relative_gap_tol(double tol) { relative_gap_tol_ = tol; }
 
-  /** Geeter for the relative gap tolerance. */
+  /** Getter for the relative gap tolerance. */
   [[nodiscard]] double relative_gap_tol() const { return relative_gap_tol_; }
 
  private:
