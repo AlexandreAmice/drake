@@ -1,10 +1,25 @@
 #include "drake/geometry/optimization/dev/cspace_free_path.h"
 
+#include <future>
+#include <thread>
 #include <vector>
 
 namespace drake {
 namespace geometry {
 namespace optimization {
+namespace {
+// Checks if a future has completed execution.
+// This function is taken from monte_carlo.cc. It will be used in the "thread
+// pool" implementation (which doesn't use the openMP).
+template <typename T>
+bool IsFutureReady(const std::future<T>& future) {
+  // future.wait_for() is the only method to check the status of a future
+  // without waiting for it to complete.
+  const std::future_status status =
+      future.wait_for(std::chrono::milliseconds(1));
+  return (status == std::future_status::ready);
+}
+}  // namespace
 
 std::unordered_map<symbolic::Variable, symbolic::Polynomial>
 initialize_path_map(CspaceFreePath* cspace_free_path,
@@ -28,6 +43,8 @@ initialize_path_map(CspaceFreePath* cspace_free_path,
   }
   return ret;
 }
+
+
 
 PlaneSeparatesGeometriesOnPath::PlaneSeparatesGeometriesOnPath(
     const PlaneSeparatesGeometries& plane_geometries,
@@ -106,6 +123,140 @@ void CspaceFreePath::GeneratePathRationals() {
   }
 }
 
+[[nodiscard]] std::vector<std::optional<bool>>
+CspaceFreePath::FindSeparationCertificateGivenPath(
+    const MatrixX<Polynomiald>& piecewise_path,
+    const IgnoredCollisionPairs& ignored_collision_pairs,
+    const CspaceFreePath::FindSeparationCertificateGivenPathOptions& options,
+    std::unordered_map<SortedPair<geometry::GeometryId>,
+                       std::vector<std::optional<SeparationCertificateResult>>>*
+        certificates) const {
+  std::vector<std::optional<bool>> ret{piecewise_path.cols(), std::nullopt};
+
+  // preallocate each vector of certificates
+  for (auto& [pair, certs] : *certificates) {
+    unused(pair);
+    certs.clear();
+    certs.resize(piecewise_path.cols(), std::nullopt);
+  }
+
+  // Stores the indices in path_separating_planes_ that don't appear in
+  // ignored_collision_pairs.
+  std::vector<int> active_plane_indices;
+  active_plane_indices.reserve(separating_planes().size());
+  for (int i = 0; i < static_cast<int>(separating_planes().size()); ++i) {
+    if (ignored_collision_pairs.count(SortedPair<geometry::GeometryId>(
+            separating_planes()[i].positive_side_geometry->id(),
+            separating_planes()[i].negative_side_geometry->id())) == 0) {
+      active_plane_indices.push_back(i);
+    }
+  }
+
+  const int num_threads_certify =
+      options.num_threads > 0
+          ? options.num_threads
+          : static_cast<int>(std::thread::hardware_concurrency());
+
+  const int num_threads_segments =
+      options.num_threads > 0
+          ? std::min(options.num_threads,
+                     static_cast<int>(piecewise_path.cols()))
+          : std::min(static_cast<int>(std::thread::hardware_concurrency()),
+                     static_cast<int>(piecewise_path.cols()));
+
+  // Certify that the plane pair at the plane_count index is safe for the
+  // segment given by segment_idx.
+  auto certify_plane_pair_over_segment =
+      [this, &active_plane_indices, &piecewise_path, &options, &certificates](
+          int plane_count, int segment_idx,
+          std::vector<std::optional<bool>>* is_success) {
+        const int plane_index = active_plane_indices[plane_count];
+        const SortedPair<geometry::GeometryId> pair(
+            separating_planes()[plane_index].positive_side_geometry->id(),
+            separating_planes()[plane_index].negative_side_geometry->id());
+        auto certificate_program = MakeIsGeometrySeparableOnPathProgram(
+            pair, piecewise_path.col(segment_idx));
+        certificates->at(pair).at(segment_idx) =
+            SolvePathSeparationCertificateProgram(certificate_program, options);
+        is_success->at(plane_count) =
+            certificates->at(pair).at(segment_idx).has_value();
+      };
+
+  auto certify_segment = [this, &active_plane_indices, &piecewise_path,
+                          &options, &num_threads_certify,
+                          &certify_plane_pair_over_segment](int segment_idx) {
+    std::vector<std::optional<bool>> is_success(active_plane_indices.size(),
+                                                std::nullopt);
+    // We implement the "thread pool" idea here, by following
+    // MonteCarloSimulationParallel class. This implementation doesn't use
+    // the openMP library.
+    std::list<std::future<int>> active_operations;
+    // Keep track of how many SOS have been dispatched already.
+    int sos_dispatched = 0;
+    // If any SOS is infeasible, then we don't dispatch any more SOS and
+    // report failure.
+    bool stop_dispatching = false;
+    while ((active_operations.size() > 0 ||
+            (sos_dispatched < static_cast<int>(active_plane_indices.size()) &&
+             !stop_dispatching))) {
+      // Check for completed operations.
+      for (auto operation = active_operations.begin();
+           operation != active_operations.end();) {
+        if (IsFutureReady(*operation)) {
+          // This call to future.get() is necessary to propagate any
+          // exception thrown during SOS setup/solve.
+          const int plane_count = operation->get();
+          if (options.verbose) {
+            drake::log()->info(
+                "SOS {}/{} completed, for Segment {}/{} is_success {}",
+                plane_count, active_plane_indices.size(), segment_idx,
+                piecewise_path.cols(), is_success[plane_count].value());
+          }
+          if (!(is_success[plane_count].value()) &&
+              options.terminate_segment_certification_at_failure) {
+            stop_dispatching = true;
+          }
+          // Erase returned iterator to the next node in the list.
+          operation = active_operations.erase(operation);
+        } else {
+          // Advance to next node in the list.
+          ++operation;
+        }
+      }
+
+      // Dispatch new SOS.
+      while (static_cast<int>(active_operations.size()) < num_threads_certify &&
+             sos_dispatched < static_cast<int>(active_plane_indices.size()) &&
+             !stop_dispatching) {
+        active_operations.emplace_back(std::async(
+            std::launch::async, std::move(certify_plane_pair_over_segment),
+            sos_dispatched, segment_idx, &is_success));
+        if (options.verbose) {
+          drake::log()->info("SOS {}/{} dispatched, for Segment {}/{}",
+                             sos_dispatched, active_plane_indices.size(),
+                             segment_idx, piecewise_path.cols());
+        }
+        ++sos_dispatched;
+      }
+      // Wait a bit before checking for completion.
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    // Check whether all the SOS terminated successfully
+    return std::all_of(is_success.begin(), is_success.end(),
+                       [](std::optional<bool> flag) {
+                         return flag.has_value() && flag.value();
+                       });
+  };
+
+  // TODO(Alexandre.Amice) parallelize this call too.
+  unused(num_threads_segments);
+  for (int c = 0; c < static_cast<int>(piecewise_path.cols()); ++c) {
+    ret.at(c) = certify_segment(c);
+  }
+  return ret;
+}
+
 [[nodiscard]] CspaceFreePath::PathSeparationCertificateProgram
 CspaceFreePath::MakeIsGeometrySeparableOnPathProgram(
     const SortedPair<geometry::GeometryId>& geometry_pair,
@@ -114,7 +265,8 @@ CspaceFreePath::MakeIsGeometrySeparableOnPathProgram(
   int plane_index{GetSeparatingPlaneIndex(geometry_pair)};
   if (plane_index < 0) {
     throw std::runtime_error(fmt::format(
-        "GetIsGeometrySeparableProgram(): geometry pair ({}, {}) does not need "
+        "GetIsGeometrySeparableProgram(): geometry pair ({}, {}) does not "
+        "need "
         "a separation certificate",
         get_scene_graph().model_inspector().GetName(geometry_pair.first()),
         get_scene_graph().model_inspector().GetName(geometry_pair.second())));
@@ -185,12 +337,12 @@ CspaceFreePath::ConstructPlaneSearchProgramOnPath(
 std::optional<CspaceFreePath::SeparationCertificateResult>
 CspaceFreePath::SolvePathSeparationCertificateProgram(
     const CspaceFreePath::PathSeparationCertificateProgram& certificate_program,
-    const FindSeparationCertificateGivenPolytopeOptions& options) const {
+    const FindSeparationCertificateGivenPathOptions& options) const {
   std::optional<CspaceFreePath::SeparationCertificateResult> ret =
       SolveSeparationCertificateProgram(certificate_program, options);
   if (ret.has_value()) {
-    // SeparationCertificateResult computes the planes as if it is in s. We now
-    // replace the s variables with the path that was certified.
+    // SeparationCertificateResult computes the planes as if it is in s. We
+    // now replace the s variables with the path that was certified.
     for (int i = 0; i < 3; ++i) {
       ret.value().a(i) =
           ret.value().a(i).SubstituteAndExpand(certificate_program.path);
