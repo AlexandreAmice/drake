@@ -1,11 +1,11 @@
 #include "drake/geometry/optimization/dev/cspace_free_path.h"
 
 #include <future>
+#include <iostream>
 #include <mutex>
 #include <queue>
 #include <thread>
 #include <vector>
-
 namespace drake {
 namespace geometry {
 namespace optimization {
@@ -155,13 +155,15 @@ CspaceFreePath::FindSeparationCertificateGivenPath(
   const int num_threads =
       options.num_threads > 0
           ? options.num_threads
-          : static_cast<int>(std::thread::hardware_concurrency());
+          : std::min(static_cast<int>(std::thread::hardware_concurrency()),
+                     static_cast<int>(active_plane_indices.size()));
 
   // The iᵗʰ entry of this vector is true if the iᵗʰ piece is safe, nullopt if
   // not done certifying, and false otherwise.
-  std::vector<std::optional<bool>> piece_is_safe{num_pieces, std::nullopt};
+  std::vector<std::optional<bool>> piece_is_safe(
+      static_cast<unsigned int>(num_pieces), std::nullopt);
   std::vector<std::mutex> piece_is_safe_mutex{
-      static_cast<unsigned long>(num_pieces)};
+      static_cast<unsigned int>(num_pieces)};
 
   // Certify that the plane pair at the plane_count index is safe for the
   // segment given by segment_idx.
@@ -172,9 +174,11 @@ CspaceFreePath::FindSeparationCertificateGivenPath(
                                              int plane_count, int segment_idx) {
     // Only perform the certification if the current piece might still be safe
     // and we are not terminating early.
-    if (piece_is_safe.at(segment_idx).value_or(true) &&
+    if (piece_is_safe.at(segment_idx).value_or(true) ||
         !(options.terminate_segment_certification_at_failure)) {
       const int plane_index = active_plane_indices[plane_count];
+      const Eigen::VectorX<Polynomiald> path = piecewise_path.col(segment_idx);
+
       const SortedPair<geometry::GeometryId> pair(
           separating_planes()[plane_index].positive_side_geometry->id(),
           separating_planes()[plane_index].negative_side_geometry->id());
@@ -239,13 +243,18 @@ CspaceFreePath::FindSeparationCertificateGivenPath(
       terminate =
           certify_args_queue.empty() || terminate_early_due_to_unsafe_segment;
     }
+    return;
   };
-
   // Solve all the programs
   std::vector<std::thread> thread_pool;
   thread_pool.reserve(num_threads);
   for (int i = 0; i < num_threads; ++i) {
-    thread_pool.push_back(std::thread(certify_worker));
+    // Launch all the threads
+    thread_pool.emplace_back(certify_worker);
+  }
+  for (int i = 0; i < num_threads; ++i) {
+    // Wait for all the threads to join.
+    thread_pool.at(i).join();
   }
 
   // Now go through and verify which paths were certified as safe

@@ -14,8 +14,7 @@ namespace geometry {
 namespace optimization {
 
 VectorX<Polynomiald> MakeBezierCurvePolynomialPath(
-    const Eigen::Vector3d& s0, const Eigen::Vector3d& s_end,
-    int curve_order,
+    const Eigen::Vector3d& s0, const Eigen::Vector3d& s_end, int curve_order,
     std::optional<HPolyhedron> poly_to_check_containment = std::nullopt) {
   if (poly_to_check_containment.has_value()) {
     EXPECT_TRUE(poly_to_check_containment.value().PointInSet(s0));
@@ -187,7 +186,7 @@ TEST_F(CIrisToyRobotTest, MakeAndSolveIsGeometrySeparableOnPathProgram) {
   const SortedPair<geometry::GeometryId> geometry_pair{body0_box_,
                                                        body2_sphere_};
 
-  CspaceFreePolytope::FindSeparationCertificateGivenPolytopeOptions
+  CspaceFreePath::FindSeparationCertificateGivenPathOptions
       find_certificate_options;
   find_certificate_options.verbose = false;
   solvers::MosekSolver solver;
@@ -202,9 +201,6 @@ TEST_F(CIrisToyRobotTest, MakeAndSolveIsGeometrySeparableOnPathProgram) {
 
   const Eigen::Vector3d s0_unsafe{-1.74, -0.22, 0.24};
   const Eigen::Vector3d s_end_unsafe{0.84, 2.31, 1.47};
-
-  //  const Eigen::Vector3d s0_unsafe{0.65*M_PI, 1.63, 2.9};
-  //  const Eigen::Vector3d s_end_unsafe{-1.63, 0.612, -0.65};
 
   for (const int maximum_path_degree : {1, 4}) {
     CspaceFreePathTester tester(plant_, scene_graph_,
@@ -255,6 +251,87 @@ TEST_F(CIrisToyRobotTest, MakeAndSolveIsGeometrySeparableOnPathProgram) {
       }
     }
   }
+}
+
+TEST_F(CIrisToyRobotTest, FindSeparationCertificateGivenPathSuccess) {
+  const Eigen::Vector3d q_star(0, 0, 0);
+  Eigen::Matrix<double, 9, 3> C_good;
+  // clang-format off
+  C_good << 1, 1, 0,
+       -1, -1, 0,
+       -1, 0, 1,
+       1, 0, -1,
+       0, 1, 1,
+       0, -1, -1,
+       1, 0, 1,
+       1, 1, -1,
+       1, -1, 1;
+  // clang-format on
+  Eigen::Matrix<double, 9, 1> d_good;
+  d_good << 0.1, 0.1, 0.1, 0.02, 0.02, 0.2, 0.1, 0.1, 0.2;
+  // This polyhedron is fully collision free and can be certified as such using
+  // CspaceFreePolytope.
+  const HPolyhedron c_free_polyhedron{C_good, d_good};
+  const SortedPair<geometry::GeometryId> geometry_pair{body0_box_,
+                                                       body2_sphere_};
+
+  CspaceFreePath::FindSeparationCertificateGivenPathOptions
+      find_certificate_options;
+  find_certificate_options.verbose = false;
+  find_certificate_options.num_threads = -1;
+  solvers::MosekSolver solver;
+  find_certificate_options.solver_id = solver.id();
+
+  const int num_samples{100};
+  Eigen::VectorXd mu_samples{100};
+  mu_samples = Eigen::VectorXd::LinSpaced(num_samples, 0, 1);
+
+  const Eigen::Vector3d s0_safe{0.06, -0.02, 0.04};
+  const Eigen::Vector3d s_end_safe{-0.17, 0.08, -0.19};
+
+  //  const Eigen::Vector3d s0_unsafe{-1.74, -0.22, 0.24};
+  //  const Eigen::Vector3d s_end_unsafe{0.84, 2.31, 1.47};
+  const int num_trials = 1000;
+  for (const int maximum_path_degree : {1, 4}) {
+    CspaceFreePathTester tester(plant_, scene_graph_,
+                                SeparatingPlaneOrder::kAffine, q_star,
+                                maximum_path_degree);
+
+    // Check that we can certify paths up to the maximum degree.
+    for (int bezier_curve_order = 1; bezier_curve_order <= maximum_path_degree;
+         ++bezier_curve_order) {
+      // Construct a polynonomial of degree bezier_curve_order <=
+      // maximum_path_degree. By constructing this with the control points
+      // inside c_free_polyhedron, we guarantee that the trajectory inside
+      // will be colllision free.
+      MatrixX<Polynomiald> bezier_poly_path_safe{s0_safe.rows(), num_trials};
+      for (int i = 0; i < num_trials; ++i) {
+        bezier_poly_path_safe.col(i) = MakeBezierCurvePolynomialPath(
+            s0_safe, s_end_safe, bezier_curve_order, c_free_polyhedron);
+      }
+      std::unordered_map<SortedPair<geometry::GeometryId>,
+                         std::vector<std::optional<
+                             CspaceFreePath::SeparationCertificateResult>>>
+          certificates;
+      auto start = std::chrono::high_resolution_clock::now();
+      std::vector<std::optional<bool>> piece_is_safe =
+          tester.cspace_free_path().FindSeparationCertificateGivenPath(
+              bezier_poly_path_safe, {}, find_certificate_options,
+              &certificates);
+      auto end = std::chrono::high_resolution_clock::now();
+      auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+
+      // To get the value of duration use the count()
+      // member function on the duration object
+      std::cout << "Time taken by function: " << duration.count() << std::endl;
+
+      EXPECT_TRUE(std::all_of(piece_is_safe.begin(), piece_is_safe.end(),
+                              [](std::optional<bool> flag) {
+                                return flag.has_value() && flag.value();
+                              }));
+    }
+  }
+  EXPECT_TRUE(false);
 }
 
 }  // namespace optimization

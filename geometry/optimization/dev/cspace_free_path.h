@@ -54,8 +54,6 @@ struct PlaneSeparatesGeometriesOnPath {
   int plane_index;
 };
 
-
-
 /**
  This class certifies whether polynomial trajectories of maximum degree d in the
  tangential-configuration space are collision free. By tangential-configuration
@@ -107,15 +105,16 @@ class CspaceFreePath : public CspaceFreePolytope {
   };
 
   struct FindSeparationCertificateGivenPathOptions
- : public CspaceFreePolytope::FindSeparationCertificateGivenPolytopeOptions {
-  // If a certification program fails in one thread fails, then don't launch any
-  // more threads and declare the segment unsafe.
-  bool terminate_segment_certification_at_failure{true};
+      : public CspaceFreePolytope::
+            FindSeparationCertificateGivenPolytopeOptions {
+    // If a certification program fails in one thread fails, then don't launch
+    // any more threads and declare the segment unsafe.
+    bool terminate_segment_certification_at_failure{true};
 
-  // If a segment of a path in one thread fails, then don't launch any more
-  // threads and declare the whole path unsafe.
-  bool terminate_path_certification_at_failure{false};
-};
+    // If a segment of a path in one thread fails, then don't launch any more
+    // threads and declare the whole path unsafe.
+    bool terminate_path_certification_at_failure{false};
+  };
 
   [[nodiscard]] const symbolic::Variable& mu() const { return mu_; }
 
@@ -147,8 +146,10 @@ class CspaceFreePath : public CspaceFreePolytope {
       const MatrixX<Polynomiald>& piecewise_path,
       const IgnoredCollisionPairs& ignored_collision_pairs,
       const FindSeparationCertificateGivenPathOptions& options,
-      std::unordered_map<SortedPair<geometry::GeometryId>,
-                        std::vector<std::optional<SeparationCertificateResult>>>* certificates) const;
+      std::unordered_map<
+          SortedPair<geometry::GeometryId>,
+          std::vector<std::optional<SeparationCertificateResult>>>*
+          certificates) const;
 
   /**
    Constructs the PathSeparationCertificateProgram which searches for a
