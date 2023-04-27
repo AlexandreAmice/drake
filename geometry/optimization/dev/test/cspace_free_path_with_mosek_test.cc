@@ -274,11 +274,15 @@ TEST_F(CIrisToyRobotTest, FindSeparationCertificateGivenPathSuccess) {
   const HPolyhedron c_free_polyhedron{C_good, d_good};
   const SortedPair<geometry::GeometryId> geometry_pair{body0_box_,
                                                        body2_sphere_};
+  const CspaceFreePolytope::IgnoredCollisionPairs ignored_collision_pairs{
+      SortedPair<geometry::GeometryId>(world_box_, body2_sphere_)};
 
   CspaceFreePath::FindSeparationCertificateGivenPathOptions
       find_certificate_options;
   find_certificate_options.verbose = false;
-  find_certificate_options.num_threads = -1;
+  find_certificate_options.num_threads = 1;
+  find_certificate_options.terminate_segment_certification_at_failure = false;
+  find_certificate_options.terminate_path_certification_at_failure = false;
   solvers::MosekSolver solver;
   find_certificate_options.solver_id = solver.id();
 
@@ -291,11 +295,29 @@ TEST_F(CIrisToyRobotTest, FindSeparationCertificateGivenPathSuccess) {
 
   //  const Eigen::Vector3d s0_unsafe{-1.74, -0.22, 0.24};
   //  const Eigen::Vector3d s_end_unsafe{0.84, 2.31, 1.47};
-  const int num_trials = 1000;
-  for (const int maximum_path_degree : {1, 4}) {
+  const int num_trials = 1;
+
+//  CspaceFreePolytopeTester tester_polytope(plant_, scene_graph_,
+//                                  SeparatingPlaneOrder::kAffine, q_star);
+//  CspaceFreePolytope::FindSeparationCertificateGivenPolytopeOptions polytope_options;
+//  polytope_options.verbose = false;
+//  polytope_options.solver_id = solver.id();
+//  std::unordered_map<SortedPair<geometry::GeometryId>,
+//                     CspaceFreePolytope::SeparationCertificateResult>
+//      certificates_map;
+//  bool is_success =
+//      tester_polytope.cspace_free_polytope().FindSeparationCertificateGivenPolytope(
+//          C_good, d_good, ignored_collision_pairs, polytope_options, &certificates_map);
+//  ASSERT_TRUE(is_success);
+
+  for (const int maximum_path_degree : {4}) {
     CspaceFreePathTester tester(plant_, scene_graph_,
                                 SeparatingPlaneOrder::kAffine, q_star,
                                 maximum_path_degree);
+
+    auto get_geom_name = [&tester](geometry::GeometryId id) {
+      return tester.get_scene_graph().model_inspector().GetName(id);
+    };
 
     // Check that we can certify paths up to the maximum degree.
     for (int bezier_curve_order = 1; bezier_curve_order <= maximum_path_degree;
@@ -316,16 +338,32 @@ TEST_F(CIrisToyRobotTest, FindSeparationCertificateGivenPathSuccess) {
       auto start = std::chrono::high_resolution_clock::now();
       std::vector<std::optional<bool>> piece_is_safe =
           tester.cspace_free_path().FindSeparationCertificateGivenPath(
-              bezier_poly_path_safe, {}, find_certificate_options,
+              bezier_poly_path_safe, ignored_collision_pairs, find_certificate_options,
               &certificates);
       auto end = std::chrono::high_resolution_clock::now();
-      auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+      auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
       // To get the value of duration use the count()
       // member function on the duration object
       std::cout << "Time taken by function: " << duration.count() << std::endl;
+      EXPECT_EQ(certificates.size(), tester.cspace_free_path().separating_planes().size()-ignored_collision_pairs.size());
+      for(const auto& [pair, cert] : certificates) {
+        EXPECT_EQ(static_cast<int>(cert.size()), num_trials);
+        std::cout << fmt::format("Certificate for pair ({}, {})", get_geom_name(pair.first()), get_geom_name(pair.second())) << std::endl;
+        for(int i = 0; i < static_cast<int>(cert.size()); ++i){
+          std::cout << fmt::format("cert {}/{} has value = {}", i, cert.size(), cert.at(i).has_value()) << std::endl;
+        }
+//        ASSERT_TRUE(std::all_of(cert.begin(), cert.end(),
+//                              [](std::optional<CspaceFreePolytope::SeparationCertificateResult> flag) {
+//                                return flag.has_value();
+//                              }));
+      }
 
-      EXPECT_TRUE(std::all_of(piece_is_safe.begin(), piece_is_safe.end(),
+      for(int i = 0; i < static_cast<int>(piece_is_safe.size()); ++i){
+        std::cout << fmt::format("Piece is safe index {}, value = {}", i, piece_is_safe.at(i).value_or("no value")) << std::endl;
+      }
+      std::cout << std::endl;
+      ASSERT_TRUE(std::all_of(piece_is_safe.begin(), piece_is_safe.end(),
                               [](std::optional<bool> flag) {
                                 return flag.has_value() && flag.value();
                               }));

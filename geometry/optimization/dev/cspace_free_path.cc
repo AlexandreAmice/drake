@@ -133,22 +133,23 @@ CspaceFreePath::FindSeparationCertificateGivenPath(
         certificates) const {
   const int num_pieces{static_cast<int>(piecewise_path.cols())};
 
-  // preallocate each vector of certificates
-  for (auto& [pair, certs] : *certificates) {
-    unused(pair);
-    certs.clear();
-    certs.resize(num_pieces, std::nullopt);
-  }
+  certificates->clear();
+  certificates->reserve(separating_planes().size());
 
   // Stores the indices in path_separating_planes_ that don't appear in
   // ignored_collision_pairs.
   std::vector<int> active_plane_indices;
   active_plane_indices.reserve(separating_planes().size());
   for (int i = 0; i < static_cast<int>(separating_planes().size()); ++i) {
-    if (ignored_collision_pairs.count(SortedPair<geometry::GeometryId>(
-            separating_planes()[i].positive_side_geometry->id(),
-            separating_planes()[i].negative_side_geometry->id())) == 0) {
+    const SortedPair<geometry::GeometryId> pair(
+        separating_planes()[i].positive_side_geometry->id(),
+        separating_planes()[i].negative_side_geometry->id());
+    if (ignored_collision_pairs.count(pair) == 0) {
       active_plane_indices.push_back(i);
+      // preallocate each vector of certificates
+      certificates->emplace(
+          pair, std::vector<std::optional<SeparationCertificateResult>>(
+                    num_pieces, std::nullopt));
     }
   }
 
@@ -178,14 +179,15 @@ CspaceFreePath::FindSeparationCertificateGivenPath(
         !(options.terminate_segment_certification_at_failure)) {
       const int plane_index = active_plane_indices[plane_count];
       const Eigen::VectorX<Polynomiald> path = piecewise_path.col(segment_idx);
-
       const SortedPair<geometry::GeometryId> pair(
           separating_planes()[plane_index].positive_side_geometry->id(),
           separating_planes()[plane_index].negative_side_geometry->id());
       auto certificate_program = MakeIsGeometrySeparableOnPathProgram(
           pair, piecewise_path.col(segment_idx));
-      certificates->at(pair).at(segment_idx) =
+
+      auto result =
           SolvePathSeparationCertificateProgram(certificate_program, options);
+      certificates->at(pair).at(segment_idx) = result;
       if (!(certificates->at(pair).at(segment_idx).has_value())) {
         piece_is_safe_mutex.at(segment_idx).lock();
         piece_is_safe.at(segment_idx) = false;
@@ -238,13 +240,18 @@ CspaceFreePath::FindSeparationCertificateGivenPath(
                         return flag.value_or(true);
                       });
       bool terminate_early_due_to_unsafe_segment =
-          !(options.terminate_path_certification_at_failure) || unsafe_segment;
+          options.terminate_path_certification_at_failure && unsafe_segment;
 
       terminate =
           certify_args_queue.empty() || terminate_early_due_to_unsafe_segment;
     }
     return;
   };
+
+  if (options.solver_id == solvers::MosekSolver::id()) {
+    // Acquire the license for the duration of the solve.
+    const auto mosek_license = drake::solvers::MosekSolver::AcquireLicense();
+  }
   // Solve all the programs
   std::vector<std::thread> thread_pool;
   thread_pool.reserve(num_threads);
@@ -256,6 +263,9 @@ CspaceFreePath::FindSeparationCertificateGivenPath(
     // Wait for all the threads to join.
     thread_pool.at(i).join();
   }
+  std::cout << fmt::format("Certify args queue is empty = {}",
+                           certify_args_queue.empty())
+            << std::endl;
 
   // Now go through and verify which paths were certified as safe
   for (int i = 0; i < num_pieces; ++i) {
@@ -308,9 +318,9 @@ CspaceFreePath::MakeIsGeometrySeparableOnPathProgram(
     cspace_var_to_sym_path.emplace(rational_forward_kin().s()(i),
                                    symbolic::Polynomial{sym_path_map});
   }
-
-  return ConstructPlaneSearchProgramOnPath(
+  auto prog = ConstructPlaneSearchProgramOnPath(
       plane_geometries_on_path_.at(plane_index), cspace_var_to_sym_path);
+  return prog;
 }
 
 [[nodiscard]] CspaceFreePath::PathSeparationCertificateProgram
