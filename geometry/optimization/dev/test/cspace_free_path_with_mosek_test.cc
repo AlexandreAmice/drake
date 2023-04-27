@@ -297,18 +297,18 @@ TEST_F(CIrisToyRobotTest, FindSeparationCertificateGivenPathSuccess) {
   //  const Eigen::Vector3d s_end_unsafe{0.84, 2.31, 1.47};
   const int num_trials = 1;
 
-//  CspaceFreePolytopeTester tester_polytope(plant_, scene_graph_,
-//                                  SeparatingPlaneOrder::kAffine, q_star);
-//  CspaceFreePolytope::FindSeparationCertificateGivenPolytopeOptions polytope_options;
-//  polytope_options.verbose = false;
-//  polytope_options.solver_id = solver.id();
-//  std::unordered_map<SortedPair<geometry::GeometryId>,
-//                     CspaceFreePolytope::SeparationCertificateResult>
-//      certificates_map;
-//  bool is_success =
-//      tester_polytope.cspace_free_polytope().FindSeparationCertificateGivenPolytope(
-//          C_good, d_good, ignored_collision_pairs, polytope_options, &certificates_map);
-//  ASSERT_TRUE(is_success);
+  CspaceFreePolytopeTester tester_polytope(plant_, scene_graph_,
+                                  SeparatingPlaneOrder::kAffine, q_star);
+  CspaceFreePolytope::FindSeparationCertificateGivenPolytopeOptions polytope_options;
+  polytope_options.verbose = false;
+  polytope_options.solver_id = solver.id();
+  std::unordered_map<SortedPair<geometry::GeometryId>,
+                     CspaceFreePolytope::SeparationCertificateResult>
+      certificates_map;
+  bool is_success =
+      tester_polytope.cspace_free_polytope().FindSeparationCertificateGivenPolytope(
+          C_good, d_good, ignored_collision_pairs, polytope_options, &certificates_map);
+  ASSERT_TRUE(is_success);
 
   for (const int maximum_path_degree : {4}) {
     CspaceFreePathTester tester(plant_, scene_graph_,
