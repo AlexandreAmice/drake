@@ -26,16 +26,20 @@ VectorX<Polynomiald> MakeBezierCurvePolynomialPath(
   control_points.col(curve_order) = s_end;
 
   const Eigen::Vector3d orth_offset{-0.01, 0.005, 0.005};
+  RandomGenerator generator(0);
   for (int i = 1; i < curve_order - 1; ++i) {
     // another control point slightly off the straight line path between s0
     // and s_end.
-    Eigen::Vector3d si = i * (s0 + s_end) / curve_order + orth_offset;
     if (poly_to_check_containment.has_value()) {
-      EXPECT_TRUE(poly_to_check_containment.value().PointInSet(si));
+      control_points.col(i) = poly_to_check_containment.value().UniformSample(
+          &generator, control_points.col(i - 1));
+    } else {
+      control_points.col(i) = i * (s0 + s_end) / curve_order + orth_offset;
     }
-    control_points.col(i) = si;
   }
-
+  if (poly_to_check_containment.has_value()) {
+    EXPECT_TRUE(poly_to_check_containment.value().PointInSet(control_points));
+  }
   const trajectories::BezierCurve<double> path{0, 1, control_points};
   const MatrixX<symbolic::Expression> bezier_path_expr =
       path.GetExpression(symbolic::Variable("t"));
@@ -43,13 +47,11 @@ VectorX<Polynomiald> MakeBezierCurvePolynomialPath(
   VectorX<Polynomiald> bezier_poly_path{bezier_path_expr.rows()};
   for (int r = 0; r < bezier_path_expr.rows(); ++r) {
     symbolic::Polynomial sym_poly{bezier_path_expr(r)};
-    std::cout << sym_poly << std::endl;
     Eigen::VectorXd coefficients{sym_poly.TotalDegree() + 1};
     for (const auto& [monom, coeff] : sym_poly.monomial_to_coefficient_map()) {
       coefficients(monom.total_degree()) = coeff.Evaluate();
     }
     bezier_poly_path(r) = Polynomiald(coefficients);
-    std::cout << bezier_poly_path(r) << std::endl;
   }
   return bezier_poly_path;
 }
@@ -282,28 +284,33 @@ TEST_F(CIrisToyRobotTest, FindSeparationCertificateGivenPathSuccess) {
   solvers::MosekSolver solver;
   find_certificate_options.solver_id = solver.id();
 
-  const int num_samples{100};
-  Eigen::VectorXd mu_samples{100};
-  mu_samples = Eigen::VectorXd::LinSpaced(num_samples, 0, 1);
+  const int num_samples{1000};
+  Eigen::VectorXd mu_samples = Eigen::VectorXd::LinSpaced(num_samples, 0, 1);
 
-  const Eigen::Vector3d s0_safe{0.06, -0.02, 0.04};
-  const Eigen::Vector3d s_end_safe{-0.17, 0.08, -0.19};
+  RandomGenerator generator(0);
+  //  const Eigen::Vector3d s0_safe{0.06, -0.02, 0.04};
+  //  const Eigen::Vector3d s_end_safe{-0.17, 0.08, -0.19};
+  const Eigen::Vector3d s0_safe = c_free_polyhedron.UniformSample(&generator);
+  const Eigen::Vector3d s_end_safe =
+      c_free_polyhedron.UniformSample(&generator);
 
   //  const Eigen::Vector3d s0_unsafe{-1.74, -0.22, 0.24};
   //  const Eigen::Vector3d s_end_unsafe{0.84, 2.31, 1.47};
   const int num_trials = 1;
 
-  CspaceFreePolytopeTester tester_polytope(plant_, scene_graph_,
-                                  SeparatingPlaneOrder::kAffine, q_star);
-  CspaceFreePolytope::FindSeparationCertificateGivenPolytopeOptions polytope_options;
+  CspaceFreePolytopeTester tester_polytope(
+      plant_, scene_graph_, SeparatingPlaneOrder::kAffine, q_star);
+  CspaceFreePolytope::FindSeparationCertificateGivenPolytopeOptions
+      polytope_options;
   polytope_options.verbose = false;
   polytope_options.solver_id = solver.id();
   std::unordered_map<SortedPair<geometry::GeometryId>,
                      CspaceFreePolytope::SeparationCertificateResult>
       certificates_map;
-  bool is_success =
-      tester_polytope.cspace_free_polytope().FindSeparationCertificateGivenPolytope(
-          C_good, d_good, ignored_collision_pairs, polytope_options, &certificates_map);
+  bool is_success = tester_polytope.cspace_free_polytope()
+                        .FindSeparationCertificateGivenPolytope(
+                            C_good, d_good, ignored_collision_pairs,
+                            polytope_options, &certificates_map);
   ASSERT_TRUE(is_success);
 
   for (const int maximum_path_degree : {1}) {
@@ -327,17 +334,17 @@ TEST_F(CIrisToyRobotTest, FindSeparationCertificateGivenPathSuccess) {
         bezier_poly_path_safe.col(i) = MakeBezierCurvePolynomialPath(
             s0_safe, s_end_safe, bezier_curve_order, c_free_polyhedron);
       }
-      for(int i = 0; i < mu_samples.rows(); ++i){
+      for (int i = 0; i < mu_samples.rows(); ++i) {
         Eigen::VectorXd point{bezier_poly_path_safe.rows()};
-        for(int j = 0; j < bezier_poly_path_safe.rows(); j++) {
-          point(j) = bezier_poly_path_safe(j,0).EvaluateUnivariate(mu_samples(i));
+        for (int j = 0; j < bezier_poly_path_safe.rows(); j++) {
+          point(j) =
+              bezier_poly_path_safe(j, 0).EvaluateUnivariate(mu_samples(i));
+        }
+        if (!(c_free_polyhedron.PointInSet(point))) {
+          std::cout << (C_good * point - d_good).maxCoeff() << std::endl;
         }
         EXPECT_TRUE(c_free_polyhedron.PointInSet(point));
       }
-      CheckForCollisionAlongPath(tester, *diagram_, mu_samples,
-                                   bezier_poly_path_safe, q_star);
-
-      ASSERT_TRUE(false);
 
       std::unordered_map<SortedPair<geometry::GeometryId>,
                          std::vector<std::optional<
@@ -346,29 +353,46 @@ TEST_F(CIrisToyRobotTest, FindSeparationCertificateGivenPathSuccess) {
       auto start = std::chrono::high_resolution_clock::now();
       std::vector<std::optional<bool>> piece_is_safe =
           tester.cspace_free_path().FindSeparationCertificateGivenPath(
-              bezier_poly_path_safe, ignored_collision_pairs, find_certificate_options,
-              &certificates);
+              bezier_poly_path_safe, ignored_collision_pairs,
+              find_certificate_options, &certificates);
       auto end = std::chrono::high_resolution_clock::now();
-      auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+      auto duration =
+          std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
       // To get the value of duration use the count()
       // member function on the duration object
       std::cout << "Time taken by function: " << duration.count() << std::endl;
-      EXPECT_EQ(certificates.size(), tester.cspace_free_path().separating_planes().size()-ignored_collision_pairs.size());
-      for(const auto& [pair, cert] : certificates) {
+      EXPECT_EQ(certificates.size(),
+                tester.cspace_free_path().separating_planes().size() -
+                    ignored_collision_pairs.size());
+      for (const auto& [pair, cert] : certificates) {
         EXPECT_EQ(static_cast<int>(cert.size()), num_trials);
-        std::cout << fmt::format("Certificate for pair ({}, {})", get_geom_name(pair.first()), get_geom_name(pair.second())) << std::endl;
-        for(int i = 0; i < static_cast<int>(cert.size()); ++i){
-          std::cout << fmt::format("cert {}/{} has value = {}", i, cert.size(), cert.at(i).has_value()) << std::endl;
+        std::cout << fmt::format("Certificate for pair ({}, {})",
+                                 get_geom_name(pair.first()),
+                                 get_geom_name(pair.second()))
+                  << std::endl;
+        for (int i = 0; i < static_cast<int>(cert.size()); ++i) {
+          if(! cert.at(i).has_value()) {
+            std::cout << fmt::format("cert {}/{} has value = {}", i, cert.size(),
+                                     cert.at(i).has_value())
+                      << std::endl;
+            CheckForCollisionAlongPath(tester, *diagram_, mu_samples,
+                                   bezier_poly_path_safe, q_star);
+          }
+          std::cout << std::endl;
         }
-//        ASSERT_TRUE(std::all_of(cert.begin(), cert.end(),
-//                              [](std::optional<CspaceFreePolytope::SeparationCertificateResult> flag) {
-//                                return flag.has_value();
-//                              }));
+//        EXPECT_TRUE(std::all_of(
+//            cert.begin(), cert.end(),
+//            [](std::optional<CspaceFreePolytope::SeparationCertificateResult>
+//                   flag) {
+//              return flag.has_value();
+//            }));
       }
 
-      for(int i = 0; i < static_cast<int>(piece_is_safe.size()); ++i){
-        std::cout << fmt::format("Piece is safe index {}, value = {}", i, piece_is_safe.at(i).value_or("no value")) << std::endl;
+      for (int i = 0; i < static_cast<int>(piece_is_safe.size()); ++i) {
+        std::cout << fmt::format("Piece is safe index {}, value = {}", i,
+                                 piece_is_safe.at(i).value_or("no value"))
+                  << std::endl;
       }
       std::cout << std::endl;
       ASSERT_TRUE(std::all_of(piece_is_safe.begin(), piece_is_safe.end(),
