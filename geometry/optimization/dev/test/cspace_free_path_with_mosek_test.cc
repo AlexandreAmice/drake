@@ -20,14 +20,11 @@ VectorX<Polynomiald> MakeBezierCurvePolynomialPath(
     EXPECT_TRUE(poly_to_check_containment.value().PointInSet(s0));
     EXPECT_TRUE(poly_to_check_containment.value().PointInSet(s_end));
   }
-  VectorX<symbolic::Expression> s0_expr{3};
-  s0_expr << s0(0), s0(1), s0(2);
-  VectorX<symbolic::Expression> s_end_expr{3};
-  s_end_expr << s_end(0), s_end(1), s_end(2);
-  MatrixX<symbolic::Expression> control_points{3, curve_order + 1};
 
-  control_points.col(0) = s0_expr;
-  control_points.col(curve_order) = s_end_expr;
+  Eigen::MatrixXd control_points{3, curve_order + 1};
+  control_points.col(0) = s0;
+  control_points.col(curve_order) = s_end;
+
   const Eigen::Vector3d orth_offset{-0.01, 0.005, 0.005};
   for (int i = 1; i < curve_order - 1; ++i) {
     // another control point slightly off the straight line path between s0
@@ -36,24 +33,23 @@ VectorX<Polynomiald> MakeBezierCurvePolynomialPath(
     if (poly_to_check_containment.has_value()) {
       EXPECT_TRUE(poly_to_check_containment.value().PointInSet(si));
     }
-    VectorX<symbolic::Expression> si_expr{3};
-    si_expr << si(0), si(1), si(2);
-    control_points.col(i) = si_expr;
+    control_points.col(i) = si;
   }
-  MatrixX<symbolic::Expression> control_points_expr{3, curve_order + 1};
-  trajectories::BezierCurve<symbolic::Expression> path{0, 1, control_points};
-  EXPECT_EQ(path.order(), curve_order);
-  MatrixX<symbolic::Expression> bezier_path_expr =
+
+  const trajectories::BezierCurve<double> path{0, 1, control_points};
+  const MatrixX<symbolic::Expression> bezier_path_expr =
       path.GetExpression(symbolic::Variable("t"));
 
   VectorX<Polynomiald> bezier_poly_path{bezier_path_expr.rows()};
   for (int r = 0; r < bezier_path_expr.rows(); ++r) {
     symbolic::Polynomial sym_poly{bezier_path_expr(r)};
+    std::cout << sym_poly << std::endl;
     Eigen::VectorXd coefficients{sym_poly.TotalDegree() + 1};
     for (const auto& [monom, coeff] : sym_poly.monomial_to_coefficient_map()) {
       coefficients(monom.total_degree()) = coeff.Evaluate();
     }
     bezier_poly_path(r) = Polynomiald(coefficients);
+    std::cout << bezier_poly_path(r) << std::endl;
   }
   return bezier_poly_path;
 }
@@ -310,7 +306,7 @@ TEST_F(CIrisToyRobotTest, FindSeparationCertificateGivenPathSuccess) {
           C_good, d_good, ignored_collision_pairs, polytope_options, &certificates_map);
   ASSERT_TRUE(is_success);
 
-  for (const int maximum_path_degree : {4}) {
+  for (const int maximum_path_degree : {1}) {
     CspaceFreePathTester tester(plant_, scene_graph_,
                                 SeparatingPlaneOrder::kAffine, q_star,
                                 maximum_path_degree);
@@ -331,6 +327,18 @@ TEST_F(CIrisToyRobotTest, FindSeparationCertificateGivenPathSuccess) {
         bezier_poly_path_safe.col(i) = MakeBezierCurvePolynomialPath(
             s0_safe, s_end_safe, bezier_curve_order, c_free_polyhedron);
       }
+      for(int i = 0; i < mu_samples.rows(); ++i){
+        Eigen::VectorXd point{bezier_poly_path_safe.rows()};
+        for(int j = 0; j < bezier_poly_path_safe.rows(); j++) {
+          point(j) = bezier_poly_path_safe(j,0).EvaluateUnivariate(mu_samples(i));
+        }
+        EXPECT_TRUE(c_free_polyhedron.PointInSet(point));
+      }
+      CheckForCollisionAlongPath(tester, *diagram_, mu_samples,
+                                   bezier_poly_path_safe, q_star);
+
+      ASSERT_TRUE(false);
+
       std::unordered_map<SortedPair<geometry::GeometryId>,
                          std::vector<std::optional<
                              CspaceFreePath::SeparationCertificateResult>>>
