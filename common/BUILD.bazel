@@ -39,6 +39,7 @@ drake_cc_package_library(
         ":hash",
         ":identifier",
         ":is_approx_equal_abstol",
+        ":is_approx_equal_reltol",
         ":is_cloneable",
         ":is_less_than_comparable",
         ":name_value",
@@ -343,6 +344,14 @@ drake_cc_library(
 drake_cc_library(
     name = "is_approx_equal_abstol",
     hdrs = ["is_approx_equal_abstol.h"],
+    deps = [
+        ":essential",
+    ],
+)
+
+drake_cc_library(
+    name = "is_approx_equal_reltol",
+    hdrs = ["is_approx_equal_reltol.h"],
     deps = [
         ":essential",
     ],
