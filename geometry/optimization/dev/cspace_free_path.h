@@ -12,9 +12,9 @@
 
 #include "drake/common/eigen_types.h"
 #include "drake/common/polynomial.h"
-#include "drake/geometry/optimization/c_iris_separating_plane.h"
-#include "drake/geometry/optimization/cspace_free_polytope.h"
+#include "drake/geometry/optimization/dev/cspace_free_path_separating_plane.h"
 #include "drake/geometry/optimization/dev/polynomial_positive_on_path.h"
+#include "drake/geometry/optimization/c_iris_collision_geometry.h"
 
 namespace drake {
 namespace geometry {
@@ -59,7 +59,7 @@ struct PlaneSeparatesGeometriesOnPath {
  tangential-configuration space are collision free. By tangential-configuration
  space, we mean the revolute joint angle θ is replaced by t = tan(θ/2).
  */
-class CspaceFreePath : public CspaceFreePolytope {
+class CspaceFreePath {
  public:
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(CspaceFreePath);
   /**
@@ -75,10 +75,9 @@ class CspaceFreePath : public CspaceFreePolytope {
    */
   CspaceFreePath(const multibody::MultibodyPlant<double>* plant,
                  const geometry::SceneGraph<double>* scene_graph,
-                 SeparatingPlaneOrder plane_order,
                  const Eigen::Ref<const Eigen::VectorXd>& q_star,
-                 unsigned int maximum_path_degree,
-                 const Options& options = Options{});
+                 int maximum_path_degree,
+                 int plane_order);
 
   ~CspaceFreePath() {}
 
@@ -143,9 +142,19 @@ class CspaceFreePath : public CspaceFreePolytope {
   void GeneratePathRationals();
 
  private:
-  // Forward declaration the tester class. This tester class will expose the
-  // private members of CspaceFreePath for unit test.
-  friend class CspaceFreePathTester;
+
+
+  multibody::RationalForwardKinematics rational_forward_kin_;
+  const geometry::SceneGraph<double>& scene_graph_;
+
+  Eigen::VectorXd q_star_;
+
+  std::map<multibody::BodyIndex,
+           std::vector<std::unique_ptr<CIrisCollisionGeometry>>>
+      link_geometries_;
+
+  // The degree of the separating planes.
+  const int plane_order_;
 
   // The path parametrization variable going between 0 and 1.
   const symbolic::Variable mu_;
@@ -160,26 +169,43 @@ class CspaceFreePath : public CspaceFreePolytope {
   // We have the invariant plane_geometries_on_path_[i].plane_index == i.
   std::vector<PlaneSeparatesGeometriesOnPath> plane_geometries_on_path_;
 
-  /**
-   Constructs the PathSeparationCertificateProgram which searches for a
-   separation certificate for a pair of geometries along the path.
-   @param[in] plane_geometries_on_path Contain the parametric conditions that
-   need to be non-negative on the path.
-   @param[in] path maps each tangential-configuration space variable to a
-   univariate polynomial of degree less than max_degree_. The path must be given
-   i.e. no polynomials in the path may contain decision variables.
-   */
-  [[nodiscard]] PathSeparationCertificateProgram
-  ConstructPlaneSearchProgramOnPath(
-      const PlaneSeparatesGeometriesOnPath& plane_geometries_on_path,
-      const std::unordered_map<symbolic::Variable, symbolic::Polynomial>& path)
-      const;
+  std::vector<CSpacePathSeparatingPlane<symbolic::Variable>> separating_planes_;
+  std::unordered_map<SortedPair<geometry::GeometryId>, int>
+      map_geometries_to_separating_planes_;
+
+  // Sometimes we need to impose that a certain matrix of polynomials are always
+  // psd (for example with sphere or capsule collision geometries). We will use
+  // this slack variable to help us impose the matrix-sos constraint.
+  Vector3<symbolic::Variable> y_slack_;
+
+
+//
+//
+//  /**
+//   Constructs the PathSeparationCertificateProgram which searches for a
+//   separation certificate for a pair of geometries along the path.
+//   @param[in] plane_geometries_on_path Contain the parametric conditions that
+//   need to be non-negative on the path.
+//   @param[in] path maps each tangential-configuration space variable to a
+//   univariate polynomial of degree less than max_degree_. The path must be given
+//   i.e. no polynomials in the path may contain decision variables.
+//   */
+//  [[nodiscard]] PathSeparationCertificateProgram
+//  ConstructPlaneSearchProgramOnPath(
+//      const PlaneSeparatesGeometriesOnPath& plane_geometries_on_path,
+//      const std::unordered_map<symbolic::Variable, symbolic::Polynomial>& path)
+//      const;
 
   // Friend declaration for use in constructor to avoid large initialization
   // lambda.
   friend std::unordered_map<symbolic::Variable, symbolic::Polynomial>
   initialize_path_map(CspaceFreePath* cspace_free_path,
-                      unsigned int maximum_path_degree);
+                      int maximum_path_degree,
+                      const std::vector<symbolic::Variable>& s_variables);
+
+  // Forward declaration the tester class. This tester class will expose the
+  // private members of CspaceFreePath for unit test.
+  friend class CspaceFreePathTester;
 };
 
 }  // namespace optimization
