@@ -41,6 +41,16 @@ drake_cc_library(
 )
 
 drake_cc_library(
+    name = "cspace_free_path_separating_plane",
+    srcs = ["cspace_free_path_separating_plane.cc"],
+    hdrs = ["cspace_free_path_separating_plane.h"],
+    deps = [
+        "//geometry/optimization:cspace_separating_plane",
+        "//common/symbolic:monomial_util"
+    ],
+)
+
+drake_cc_library(
     name = "c_iris_path_test_utilities",
     testonly = 1,
     hdrs = ["test/c_iris_path_test_utilities.h"],
