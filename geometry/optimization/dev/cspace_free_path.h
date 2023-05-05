@@ -64,6 +64,10 @@ struct PlaneSeparatesGeometriesOnPath {
 class CspaceFreePath {
  public:
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(CspaceFreePath);
+
+  using IgnoredCollisionPairs =
+      std::unordered_set<SortedPair<geometry::GeometryId>>;
+
   /**
    @param plant The plant for which we compute the TC-space free trajectory. It
    must outlive this CspaceFreePath object.
@@ -112,6 +116,48 @@ class CspaceFreePath {
     //    SeparationCertificate certificate;
     const std::unordered_map<symbolic::Variable, symbolic::Polynomial> path;
   };
+
+  struct FindSeparationCertificateGivenPathOptions
+      : FindSeparationCertificateOptions {
+    // If a certification program fails in one thread fails, then don't launch
+    // any more threads and declare the segment unsafe.
+    bool terminate_segment_certification_at_failure{true};
+
+    // If a segment of a path in one thread fails, then don't launch any more
+    // threads and declare the whole path unsafe.
+    bool terminate_path_certification_at_failure{false};
+  };
+
+  /**
+   Finds the certificates that a piecewise polynomial path is collision free.
+
+   @param[in] piecewise_path The segments of the piecewise polynomial path are
+   given by the columns of this matrix. Each column is the same size as the
+   plant's generalized positions with each entry a univariate polynomial. The
+   path is the value of these polynomials as the variable varies between [0,1].
+   @param ignored_collision_pairs We will ignore the pair of geometries in
+   `ignored_collision_pairs`.
+
+   @param[out] certificates Contains the certificate we successfully found for
+   each pair of geometries. Notice that depending on `options`, the program
+   could search for the certificate for each geometry pair in parallel, and
+   will terminate the search once it fails to find the certificate for any
+   pair.
+
+   @retval[out] A vector with the same number of columns as piecewise_path. Each
+   entry will be true if the segment is certified as collision free, false
+   otherwise, and nullopt if the options terminate the path certification at
+   failure early.
+   */
+  [[nodiscard]] std::vector<std::optional<bool>>
+  FindSeparationCertificateGivenPath(
+      const MatrixX<Polynomiald>& piecewise_path,
+      const IgnoredCollisionPairs& ignored_collision_pairs,
+      const FindSeparationCertificateGivenPathOptions& options,
+      std::unordered_map<
+          SortedPair<geometry::GeometryId>,
+          std::vector<std::optional<SeparationCertificateResult>>>*
+          certificates) const;
 
   [[nodiscard]] const symbolic::Variable& mu() const { return mu_; }
 
