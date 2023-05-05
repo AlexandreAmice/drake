@@ -34,7 +34,7 @@ struct CSpacePathSeparatingPlane : public CSpaceSeparatingPlane<T> {
 /**
  Computes the parameters a, b in the plane { x | aᵀx+b=0 }.
  a and b are both univariate polynomials. The coefficients of these
- polynomials are in `decision_variables`.
+ polynomials are in `decision_variables` in graded lexicographic order.
  The possible combination of D, S, V are
  1. D=symbolic::Variable, S=symbolic::Variable, V=symbolic::Polynomial.
  2. D=double,             S=symbolic::Variable, V=symbolic::Polynomial
@@ -75,16 +75,16 @@ void CalcPathPlane(const VectorX<D>& decision_variables, const S& mu_for_plane,
                 std::is_same_v<V, double>) {
     for(int j = 0; j < num_coeffs_per_poly; ++j) {
       for(int i = 0; i < 3; ++i){
-        (*a_val)(i) += a_coeff(i,j)*pow(mu_for_plane, j);
+        (*a_val)(i) += a_coeff(i,j)*pow(mu_for_plane, plane_degree-j);
       }
-      (*b_val) += b_coeff(j)*pow(mu_for_plane, j);
+      (*b_val) += b_coeff(j)*pow(mu_for_plane, plane_degree-j);
     }
     return;
   }
   if constexpr (std::is_same_v<S, symbolic::Variable> &&
                 std::is_same_v<V, symbolic::Polynomial>) {
     const Eigen::Matrix<symbolic::Monomial, Eigen::Dynamic, 1> basis =
-        symbolic::MonomialBasis(mu_for_plane, plane_degree);
+        symbolic::MonomialBasis(symbolic::Variables{mu_for_plane}, plane_degree);
     for (int i = 0; i < 3; ++i) {
       symbolic::Polynomial::MapType monomial_to_coeff_map;
       for (int j = 0; j < basis.rows(); ++j) {

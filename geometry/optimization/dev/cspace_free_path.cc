@@ -10,10 +10,12 @@
 namespace drake {
 namespace geometry {
 namespace optimization {
+namespace {}  // namespace
 
 std::unordered_map<symbolic::Variable, symbolic::Polynomial>
-initialize_path_map(CspaceFreePath* cspace_free_path, int maximum_path_degree,
-                    const std::vector<symbolic::Variable>& s_variables) {
+initialize_path_map(
+    CspaceFreePath* cspace_free_path, int maximum_path_degree,
+    const Eigen::Ref<const VectorX<symbolic::Variable>>& s_variables) {
   std::unordered_map<symbolic::Variable, symbolic::Polynomial> ret;
   Eigen::Matrix<symbolic::Monomial, Eigen::Dynamic, 1> basis =
       symbolic::MonomialBasis(symbolic::Variables{cspace_free_path->mu_},
@@ -111,155 +113,160 @@ CspaceFreePath::CspaceFreePath(const multibody::MultibodyPlant<double>* plant,
       CalcPathPlane<symbolic::Variable, symbolic::Variable,
                     symbolic::Polynomial>(plane_decision_vars, mu_, plane_order,
                                           &a, &b);
-    }
-    // Compute the expressed body for this plane
-    const multibody::BodyIndex expressed_body =
-        multibody::internal::FindBodyInTheMiddleOfChain(
-            rational_forward_kin_.plant(), link_pair.first(),
-            link_pair.second());
-    separating_planes_.emplace_back(a, b, geometry_pair.first,
-                                    geometry_pair.second, expressed_body,
-                                    plane_order_, plane_decision_vars);
 
-    map_geometries_to_separating_planes_.emplace(
-        SortedPair<geometry::GeometryId>(geometry_pair.first->id(),
-                                         geometry_pair.second->id()),
-        static_cast<int>(separating_planes_.size()) - 1);
+      // Compute the expressed body for this plane
+      const multibody::BodyIndex expressed_body =
+          multibody::internal::FindBodyInTheMiddleOfChain(
+              rational_forward_kin_.plant(), link_pair.first(),
+              link_pair.second());
+      separating_planes_.emplace_back(a, b, geometry_pair.first,
+                                      geometry_pair.second, expressed_body,
+                                      plane_order_, plane_decision_vars);
+
+      map_geometries_to_separating_planes_.emplace(
+          SortedPair<geometry::GeometryId>(geometry_pair.first->id(),
+                                           geometry_pair.second->id()),
+          static_cast<int>(separating_planes_.size()) - 1);
+    }
   }
 
   for (int i = 0; i < 3; ++i) {
     y_slack_(i) = symbolic::Variable("y" + std::to_string(i));
   }
 
+  std::vector<std::unique_ptr<CSpaceSeparatingPlane<symbolic::Variable>>>
+      separating_planes_ptrs;
+  separating_planes_ptrs.reserve(separating_planes_.size());
+  for (const auto& plane : separating_planes_) {
+    separating_planes_ptrs.push_back(
+        std::make_unique<CSpacePathSeparatingPlane<symbolic::Variable>>(plane));
+  }
+  // Generate the rationals for the separating planes. At this point, the plane
+  // components are a function of mu, but the plane_geometries will still be in
+  // terms of the s variable.
   std::vector<PlaneSeparatesGeometries> plane_geometries;
-  internal::GenerateRationals(separating_planes_, y_slack_, q_star_,
+  internal::GenerateRationals(separating_planes_ptrs, y_slack_, q_star_,
                               rational_forward_kin_, &plane_geometries);
+  GeneratePathRationals(plane_geometries);
+}
+
+void CspaceFreePath::GeneratePathRationals(
+    const std::vector<PlaneSeparatesGeometries>& plane_geometries) {
+  // plane_geometries_ currently has rationals in terms of the configuration
+  // space variable. We create PlaneSeparatesGeometriesOnPath objects which are
+  // in terms of the path variable and can be used to construct the
+  // certification program once a path is chosen.
+  symbolic::Polynomial::SubstituteAndExpandCacheData cached_substitutions;
+
+  // Add the auxilliary variables for matrix SOS constraints to the substitution
+  // map.
+  std::unordered_map<symbolic::Variable, symbolic::Polynomial>
+      path_with_y_subs = path_;
+  path_with_y_subs.emplace(mu_, symbolic::Polynomial(mu_));
+  symbolic::Variables indeterminates{mu_};
+  for (int i = 0; i < y_slack_.size(); ++i) {
+    path_with_y_subs.emplace(y_slack_(i), symbolic::Polynomial(y_slack_(i)));
+    indeterminates.insert(y_slack_(i));
+  }
+  for (const auto& plane_geometry : plane_geometries) {
+    plane_geometries_on_path_.emplace_back(plane_geometry, mu_,
+                                           path_with_y_subs, indeterminates,
+                                           &cached_substitutions);
+  }
+}
+
+[[nodiscard]] CspaceFreePath::SeparationCertificateProgram
+CspaceFreePath::MakeIsGeometrySeparableOnPathProgram(
+    const SortedPair<geometry::GeometryId>& geometry_pair,
+    const VectorX<Polynomiald>& path) const {
+  // Fail fast as building the program can be expensive.
+  int plane_index{GetSeparatingPlaneIndex(geometry_pair)};
+  if (plane_index < 0) {
+    throw std::runtime_error(fmt::format(
+        "GetIsGeometrySeparableProgram(): geometry pair ({}, {}) does not need "
+        "a separation certificate",
+        scene_graph_.model_inspector().GetName(geometry_pair.first()),
+        scene_graph_.model_inspector().GetName(geometry_pair.second())));
+  }
+
+  DRAKE_DEMAND(rational_forward_kin_.s().rows() == path.rows());
+  // Now we convert the vector of common::Polynomial to a map from the
+  // configuration space variable s to symbolic::Polynomial in mu.
+  std::unordered_map<symbolic::Variable, symbolic::Polynomial>
+      cspace_var_to_sym_path;
+  for (int i = 0; i < path.rows(); ++i) {
+    DRAKE_DEMAND(path(i).is_univariate());
+    DRAKE_DEMAND(path(i).GetDegree() <= static_cast<int>(max_degree_));
+    symbolic::Polynomial::MapType sym_path_map;
+    for (const auto& monom : path(i).GetMonomials()) {
+      sym_path_map.insert(
+          {symbolic::Monomial(mu_, monom.GetDegree()), monom.coefficient});
+    }
+    cspace_var_to_sym_path.emplace(rational_forward_kin_.s()(i),
+                                   symbolic::Polynomial{sym_path_map});
+  }
+
+  return ConstructPlaneSearchProgramOnPath(
+      plane_geometries_on_path_.at(plane_index), cspace_var_to_sym_path);
+}
+
+[[nodiscard]] CspaceFreePath::SeparationCertificateProgram
+CspaceFreePath::ConstructPlaneSearchProgramOnPath(
+    const PlaneSeparatesGeometriesOnPath& plane_geometries_on_path,
+    const std::unordered_map<symbolic::Variable, symbolic::Polynomial>& path)
+    const {
+  SeparationCertificateProgram ret{path, plane_geometries_on_path.plane_index};
+  ret.prog->AddIndeterminate(mu_);
+  ret.prog->AddIndeterminates(this->y_slack());
+
+  // construct the parameter to value map
+  symbolic::Environment param_eval_map;
+  for (const auto& [config_space_var, eval_path] : path) {
+    const symbolic::Polynomial symbolic_path{path_.at(config_space_var)};
+    for (const auto& [mu_monom, mu_var_coeff] :
+         symbolic_path.monomial_to_coefficient_map()) {
+      // Find the monomial with the matching degree. If it doesn't exist
+      // evaluate it to 0.
+      const auto evaled_monom_iter =
+          eval_path.monomial_to_coefficient_map().find(mu_monom);
+      const double mu_var_coeff_eval{
+          evaled_monom_iter == eval_path.monomial_to_coefficient_map().end()
+              ? 0
+              : evaled_monom_iter->second.Evaluate()};
+      param_eval_map.insert(*mu_var_coeff.GetVariables().begin(),
+                            mu_var_coeff_eval);
+    }
+  }
+
+  // Now add the separation conditions to the program
+  for (const auto& condition :
+       plane_geometries_on_path.positive_side_conditions) {
+    condition.AddPositivityConstraintToProgram(param_eval_map, ret.prog.get());
+  }
+  for (const auto& condition :
+       plane_geometries_on_path.negative_side_conditions) {
+    condition.AddPositivityConstraintToProgram(param_eval_map, ret.prog.get());
+  }
+  return ret;
 }
 //
-// void CspaceFreePath::GeneratePathRationals() {
-//  // plane_geometries_ currently has rationals in terms of the configuration
-//  // space variable. We create PlaneSeparatesGeometriesOnPath objects which
-//  are
-//  // in terms of the path variable and can be used to construct the
-//  // certification program once a path is chosen.
-//  symbolic::Polynomial::SubstituteAndExpandCacheData cached_substitutions;
-//
-//  // Add the auxilliary variables for matrix SOS constraints to the
-//  substitution
-//  // map.
-//  std::unordered_map<symbolic::Variable, symbolic::Polynomial>
-//      path_with_y_subs = path_;
-//  symbolic::Variables indeterminates{mu_};
-//  for (int i = 0; i < y_slack().size(); ++i) {
-//    path_with_y_subs.emplace(y_slack()(i),
-//    symbolic::Polynomial(y_slack()(i))); indeterminates.insert(y_slack()(i));
-//  }
-//
-//  for (const auto& plane_geometry : this->get_mutable_plane_geometries()) {
-//    plane_geometries_on_path_.emplace_back(plane_geometry, mu_,
-//                                           path_with_y_subs, indeterminates,
-//                                           &cached_substitutions);
-//  }
-//}
-//
-//[[nodiscard]] CspaceFreePath::PathSeparationCertificateProgram
-// CspaceFreePath::MakeIsGeometrySeparableOnPathProgram(
-//    const SortedPair<geometry::GeometryId>& geometry_pair,
-//    const VectorX<Polynomiald>& path) const {
-//  // Fail fast as building the program can be expensive.
-//  int plane_index{GetSeparatingPlaneIndex(geometry_pair)};
-//  if (plane_index < 0) {
-//    throw std::runtime_error(fmt::format(
-//        "GetIsGeometrySeparableProgram(): geometry pair ({}, {}) does not need
-//        " "a separation certificate",
-//        get_scene_graph().model_inspector().GetName(geometry_pair.first()),
-//        get_scene_graph().model_inspector().GetName(geometry_pair.second())));
-//  }
-//
-//  DRAKE_DEMAND(rational_forward_kin().s().rows() == path.rows());
-//  // Now we convert the vector of common::Polynomial to a map from the
-//  // configuration space variable s to symbolic::Polynomial in mu.
-//  std::unordered_map<symbolic::Variable, symbolic::Polynomial>
-//      cspace_var_to_sym_path;
-//  for (int i = 0; i < path.rows(); ++i) {
-//    DRAKE_DEMAND(path(i).is_univariate());
-//    DRAKE_DEMAND(path(i).GetDegree() <= static_cast<int>(max_degree_));
-//    symbolic::Polynomial::MapType sym_path_map;
-//    for (const auto& monom : path(i).GetMonomials()) {
-//      sym_path_map.insert(
-//          {symbolic::Monomial(mu_, monom.GetDegree()), monom.coefficient});
-//    }
-//    cspace_var_to_sym_path.emplace(rational_forward_kin().s()(i),
-//                                   symbolic::Polynomial{sym_path_map});
-//  }
-//
-//  return ConstructPlaneSearchProgramOnPath(
-//      plane_geometries_on_path_.at(plane_index), cspace_var_to_sym_path);
-//}
-//
-//[[nodiscard]] CspaceFreePath::PathSeparationCertificateProgram
-// CspaceFreePath::ConstructPlaneSearchProgramOnPath(
-//    const PlaneSeparatesGeometriesOnPath& plane_geometries_on_path,
-//    const std::unordered_map<symbolic::Variable, symbolic::Polynomial>& path)
-//    const {
-//  PathSeparationCertificateProgram ret{path};
-//  ret.plane_index = plane_geometries_on_path.plane_index;
-//  ret.prog->AddIndeterminate(mu_);
-//  ret.prog->AddIndeterminates(this->y_slack());
-//
-//  // construct the parameter to value map
-//  symbolic::Environment param_eval_map;
-//  for (const auto& [config_space_var, eval_path] : path) {
-//    const symbolic::Polynomial symbolic_path{path_.at(config_space_var)};
-//    for (const auto& [mu_monom, mu_var_coeff] :
-//         symbolic_path.monomial_to_coefficient_map()) {
-//      // Find the monomial with the matching degree. If it doesn't exist
-//      // evaluate it to 0.
-//      const auto evaled_monom_iter =
-//          eval_path.monomial_to_coefficient_map().find(mu_monom);
-//      const double mu_var_coeff_eval{
-//          evaled_monom_iter == eval_path.monomial_to_coefficient_map().end()
-//              ? 0
-//              : evaled_monom_iter->second.Evaluate()};
-//      param_eval_map.insert(*mu_var_coeff.GetVariables().begin(),
-//                            mu_var_coeff_eval);
-//    }
-//  }
-//
-//  // Now add the separation conditions to the program
-//  for (const auto& condition :
-//       plane_geometries_on_path.positive_side_conditions) {
-//    condition.AddPositivityConstraintToProgram(param_eval_map,
-//    ret.prog.get());
-//  }
-//  for (const auto& condition :
-//       plane_geometries_on_path.negative_side_conditions) {
-//    condition.AddPositivityConstraintToProgram(param_eval_map,
-//    ret.prog.get());
-//  }
-//  return ret;
-//}
-//
-// std::optional<CspaceFreePath::SeparationCertificateResult>
-// CspaceFreePath::SolvePathSeparationCertificateProgram(
-//    const CspaceFreePath::PathSeparationCertificateProgram&
-//    certificate_program, const FindSeparationCertificateGivenPolytopeOptions&
-//    options) const {
-//  std::optional<CspaceFreePath::SeparationCertificateResult> ret =
-//      SolveSeparationCertificateProgram(certificate_program, options);
-//  if (ret.has_value()) {
-//    // SeparationCertificateResult computes the planes as if it is in s. We
-//    now
-//    // replace the s variables with the path that was certified.
-//    for (int i = 0; i < 3; ++i) {
-//      ret.value().a(i) =
-//          ret.value().a(i).SubstituteAndExpand(certificate_program.path);
-//    }
-//    ret.value().b =
-//    ret.value().b.SubstituteAndExpand(certificate_program.path);
-//  }
-//  return ret;
-//}
+CspaceFreePath::SeparationCertificateResult
+CspaceFreePath::SolveSeparationCertificateProgram(
+    const CspaceFreePath::SeparationCertificateProgram& certificate_program,
+    const FindSeparationCertificateOptions& options) const {
+  CspaceFreePath::SeparationCertificateResult result{
+      internal::SolveSeparationCertificateProgramBase(
+          certificate_program, options,
+          separating_planes_[certificate_program.plane_index])};
+  return result;
+}
+
+int CspaceFreePath::GetSeparatingPlaneIndex(
+    const SortedPair<geometry::GeometryId>& pair) const {
+  return (map_geometries_to_separating_planes_.count(pair) == 0)
+             ? -1
+             : map_geometries_to_separating_planes_.at(pair);
+}
 
 }  // namespace optimization
 }  // namespace geometry

@@ -12,9 +12,10 @@
 
 #include "drake/common/eigen_types.h"
 #include "drake/common/polynomial.h"
+#include "drake/geometry/optimization/c_iris_collision_geometry.h"
+#include "drake/geometry/optimization/cspace_free_structs.h"
 #include "drake/geometry/optimization/dev/cspace_free_path_separating_plane.h"
 #include "drake/geometry/optimization/dev/polynomial_positive_on_path.h"
-#include "drake/geometry/optimization/c_iris_collision_geometry.h"
 
 namespace drake {
 namespace geometry {
@@ -76,10 +77,34 @@ class CspaceFreePath {
   CspaceFreePath(const multibody::MultibodyPlant<double>* plant,
                  const geometry::SceneGraph<double>* scene_graph,
                  const Eigen::Ref<const Eigen::VectorXd>& q_star,
-                 int maximum_path_degree,
-                 int plane_order);
+                 int maximum_path_degree, int plane_order);
 
   ~CspaceFreePath() {}
+
+  /**
+   TODO(Alexnadre.Amice) fill comment
+   */
+  struct SeparationCertificateResult : SeparationCertificateResultBase {};
+
+  //  /**
+  //   TODO(Alexnadre.Amice) fill comment
+  //   */
+  //  struct SeparationCertificate {
+  //    SeparationCertificate() {}
+  //
+  //    [[nodiscard]] SeparationCertificateResult GetSolution(
+  //        int plane_index, const Vector3<symbolic::Polynomial>& a,
+  //        const symbolic::Polynomial& b,
+  //        const VectorX<symbolic::Variable>& plane_decision_vars,
+  //        const solvers::MathematicalProgramResult& result) const;
+  //
+  ////    // positive_side_rational_lagrangians[i] is the Lagrangian multipliers
+  ///for /    // PlaneSeparatesGeometries::positive_side_rationals[i]. /
+  ///std::vector<SeparatingPlaneLagrangians> positive_side_rational_lagrangians;
+  ////    // negative_side_rational_lagrangians[i] is the Lagrangian multipliers
+  ///for /    // PlaneSeparatesGeometries::negative_side_rationals[i]. /
+  ///std::vector<SeparatingPlaneLagrangians> negative_side_rational_lagrangians;
+  //  };
 
   /**
    A SeparationCertificateProgram which allows stores the path that this
@@ -89,60 +114,67 @@ class CspaceFreePath {
    taken by that configuration space variable. The path must be given
    i.e. no polynomials in the path may contain decision variables.
    */
-  struct PathSeparationCertificateProgram
-      : public CspaceFreePolytope::SeparationCertificateProgram {
-    PathSeparationCertificateProgram(
+  struct SeparationCertificateProgram : SeparationCertificateProgramBase {
+    SeparationCertificateProgram(
         const std::unordered_map<symbolic::Variable, symbolic::Polynomial>&
-            m_path)
-        : CspaceFreePolytope::SeparationCertificateProgram(), path{m_path} {
+            m_path,
+        int m_plane_index)
+        : SeparationCertificateProgramBase(),
+          //          certificate{},
+          path{m_path} {
+      plane_index = m_plane_index;
       for (const auto& item : path) {
         DRAKE_DEMAND(item.second.decision_variables().empty());
       }
     }
-
+    //    SeparationCertificate certificate;
     const std::unordered_map<symbolic::Variable, symbolic::Polynomial> path;
   };
 
   [[nodiscard]] const symbolic::Variable& mu() const { return mu_; }
 
+  [[nodiscard]] const Vector3<symbolic::Variable>& y_slack() const {
+    return y_slack_;
+  }
+
   [[nodiscard]] int max_degree() const { return max_degree_; }
 
   /**
-   Constructs the PathSeparationCertificateProgram which searches for a
+   Constructs the SeparationCertificateProgram which searches for a
    separation certificate for a pair of geometries along a path in
    tangent-configuration space.
-   @param[in] plane_geometries_on_path The geometry pair that we wish to certify
-   is collision free along the path.
-   @param[in] path A vector the same size as the plant's generalized positions
-   with each entry a univariate polynomial. The path is the value of these
-   polynomials as the variable varies between [0,1].
+   @param[in] plane_geometries_on_path The geometry pair that we wish to
+   certify is collision free along the path.
+   @param[in] path A vector the same size as the plant's generalized
+   positions with each entry a univariate polynomial. The path is the value
+   of these polynomials as the variable varies between [0,1].
    */
-  [[nodiscard]] PathSeparationCertificateProgram
+  [[nodiscard]] SeparationCertificateProgram
   MakeIsGeometrySeparableOnPathProgram(
       const SortedPair<geometry::GeometryId>& geometry_pair,
       const VectorX<Polynomiald>& path) const;
 
   /**
-   Solves a PathSeparationCertificateProgram with the given options
-   @return result If we find the separation certificate, then `result` contains
-   the separation plane and the Lagrangian polynomials; otherwise result is
-   empty.
+   Solves a SeparationCertificateProgram with the given options
+   @return result If we find the separation certificate, then `result`
+   contains the separation plane and the Lagrangian polynomials; otherwise
+   result is empty.
    */
-  [[nodiscard]] std::optional<SeparationCertificateResult>
-  SolvePathSeparationCertificateProgram(
-      const PathSeparationCertificateProgram& certificate_program,
-      const FindSeparationCertificateGivenPolytopeOptions& options) const;
+  [[nodiscard]] SeparationCertificateResult SolveSeparationCertificateProgram(
+      const SeparationCertificateProgram& certificate_program,
+      const FindSeparationCertificateOptions& options) const;
 
- protected:
+ private:
   /**
    Generate all the conditions (certain rationals being non-negative, and
    certain vectors with length <= 1) such that the robot configuration is
    collision free as a function of the path variable.
-   */
-  void GeneratePathRationals();
+  */
+  void GeneratePathRationals(
+      const std::vector<PlaneSeparatesGeometries>& plane_geometries);
 
- private:
-
+  int GetSeparatingPlaneIndex(
+      const SortedPair<geometry::GeometryId>& pair) const;
 
   multibody::RationalForwardKinematics rational_forward_kin_;
   const geometry::SceneGraph<double>& scene_graph_;
@@ -178,30 +210,26 @@ class CspaceFreePath {
   // this slack variable to help us impose the matrix-sos constraint.
   Vector3<symbolic::Variable> y_slack_;
 
-
-//
-//
-//  /**
-//   Constructs the PathSeparationCertificateProgram which searches for a
-//   separation certificate for a pair of geometries along the path.
-//   @param[in] plane_geometries_on_path Contain the parametric conditions that
-//   need to be non-negative on the path.
-//   @param[in] path maps each tangential-configuration space variable to a
-//   univariate polynomial of degree less than max_degree_. The path must be given
-//   i.e. no polynomials in the path may contain decision variables.
-//   */
-//  [[nodiscard]] PathSeparationCertificateProgram
-//  ConstructPlaneSearchProgramOnPath(
-//      const PlaneSeparatesGeometriesOnPath& plane_geometries_on_path,
-//      const std::unordered_map<symbolic::Variable, symbolic::Polynomial>& path)
-//      const;
+  /**
+   Constructs the SeparationCertificateProgram which searches for a
+   separation certificate for a pair of geometries along the path.
+   @param[in] plane_geometries_on_path Contain the parametric conditions
+   that need to be non-negative on the path.
+   @param[in] path maps each tangential-configuration space variable to a
+   univariate polynomial of degree less than max_degree_. The path must be
+   given i.e. no polynomials in the path may contain decision variables.
+   */
+  [[nodiscard]] SeparationCertificateProgram ConstructPlaneSearchProgramOnPath(
+      const PlaneSeparatesGeometriesOnPath& plane_geometries_on_path,
+      const std::unordered_map<symbolic::Variable, symbolic::Polynomial>& path)
+      const;
 
   // Friend declaration for use in constructor to avoid large initialization
   // lambda.
   friend std::unordered_map<symbolic::Variable, symbolic::Polynomial>
-  initialize_path_map(CspaceFreePath* cspace_free_path,
-                      int maximum_path_degree,
-                      const std::vector<symbolic::Variable>& s_variables);
+  initialize_path_map(
+      CspaceFreePath* cspace_free_path, int maximum_path_degree,
+      const Eigen::Ref<const VectorX<symbolic::Variable>>& s_variables);
 
   // Forward declaration the tester class. This tester class will expose the
   // private members of CspaceFreePath for unit test.
