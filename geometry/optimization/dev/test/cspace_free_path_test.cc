@@ -126,7 +126,155 @@ struct PathEvaluator {
   symbolic::Environment path_coefficient_evaluator_;
 };
 
-// TEST_F(CIrisToyRobotTest, CspaceFreePathGeneratePathRationalsTest) {
+TEST_F(CIrisToyRobotTest, CspaceFreePathGeneratePathRationalsTest) {
+  const Eigen::Vector3d q_star(0, 0, 0);
+  const int maximum_path_degree{2};
+  const int plane_order{3};
+  CspaceFreePathTester tester(plant_, scene_graph_, q_star, maximum_path_degree,
+                              plane_order);
+  PathEvaluator evaluator{tester};
+  const Eigen::Vector4d mu_test_values{0, 0.25, 0.77, 1};
+
+  const CspaceFreePath& dut = tester.cspace_free_path();
+  EXPECT_EQ(tester.get_path_plane_geometries().size(),
+            dut.separating_planes().size());
+
+  const symbolic::Variables mu_indets{tester.get_mu()};
+  const symbolic::Variables y_slack{tester.cspace_free_path().y_slack()};
+
+  std::vector<std::unique_ptr<CSpaceSeparatingPlane<symbolic::Variable>>>
+      separating_planes_ptrs;
+  separating_planes_ptrs.reserve(dut.separating_planes().size());
+  for (const auto& plane : dut.separating_planes()) {
+    separating_planes_ptrs.push_back(
+        std::make_unique<CSpacePathSeparatingPlane<symbolic::Variable>>(plane));
+  }
+
+  // We should have the same number of path_plane_geometries as
+  // internal::GenerateRationals generates.
+  std::vector<PlaneSeparatesGeometries> plane_geometries_in_s;
+  internal::GenerateRationals(separating_planes_ptrs, dut.y_slack(), q_star,
+                              *(tester.get_rational_forward_kin()),
+                              &plane_geometries_in_s);
+
+  EXPECT_EQ(plane_geometries_in_s.size(),
+            tester.get_path_plane_geometries().size());
+
+  for (const auto& plane_geometry : tester.get_path_plane_geometries()) {
+    const auto& plane = dut.separating_planes()[plane_geometry.plane_index];
+    if (plane.positive_side_geometry->type() == CIrisGeometryType::kPolytope &&
+        plane.negative_side_geometry->type() == CIrisGeometryType::kPolytope) {
+      EXPECT_EQ(plane_geometry.positive_side_conditions.size(),
+                plane.positive_side_geometry->num_rationals());
+      EXPECT_EQ(plane_geometry.negative_side_conditions.size(),
+                plane.negative_side_geometry->num_rationals());
+    } else if (plane.positive_side_geometry->type() ==
+                   CIrisGeometryType::kPolytope &&
+               plane.negative_side_geometry->type() !=
+                   CIrisGeometryType::kPolytope) {
+      EXPECT_EQ(plane_geometry.positive_side_conditions.size(),
+                plane.positive_side_geometry->num_rationals());
+      EXPECT_EQ(plane_geometry.negative_side_conditions.size(),
+                plane.negative_side_geometry->num_rationals() - 1);
+    } else if (plane.positive_side_geometry->type() !=
+                   CIrisGeometryType::kPolytope &&
+               plane.negative_side_geometry->type() ==
+                   CIrisGeometryType::kPolytope) {
+      EXPECT_EQ(plane_geometry.positive_side_conditions.size(),
+                plane.positive_side_geometry->num_rationals() - 1);
+      EXPECT_EQ(plane_geometry.negative_side_conditions.size(),
+                plane.negative_side_geometry->num_rationals());
+    } else {
+      EXPECT_EQ(plane_geometry.positive_side_conditions.size(),
+                plane.positive_side_geometry->num_rationals());
+      EXPECT_EQ(plane_geometry.negative_side_conditions.size(),
+                plane.negative_side_geometry->num_rationals() - 1);
+    }
+
+    const auto& plane_geometry_s =
+        plane_geometries_in_s.at(plane_geometry.plane_index);
+
+    const auto& positive_side =
+        std::tie(plane_geometry.positive_side_conditions,
+                 plane_geometry_s.positive_side_rationals);
+    const auto& negative_side =
+        std::tie(plane_geometry.negative_side_conditions,
+                 plane_geometry_s.negative_side_rationals);
+
+    for (const auto& [path_conditions, polytope_rationals] :
+         {positive_side, negative_side}) {
+      EXPECT_EQ(path_conditions.size(), polytope_rationals.size());
+      int i = 0;
+      // Path rationals is a list while polytope_rationals is a vector so we
+      // iterate through the list and increment a counter for the random
+      // access to the vector.
+      for (const auto& path_rational : path_conditions) {
+        const symbolic::Polynomial& path_condition{path_rational.get_poly()};
+        const symbolic::Polynomial& polytope_condition{
+            polytope_rationals.at(i).numerator()};
+        ++i;
+
+        // Gets the y_slacks needed to implement this matrix SOS condition.
+        const symbolic::Variables path_y_slack =
+            intersect(y_slack, path_condition.indeterminates());
+        const symbolic::Variables polytope_y_slack =
+            intersect(y_slack, polytope_condition.indeterminates());
+        // The same y_slacks should be used to implement both the polytope and
+        // path condition.
+        EXPECT_EQ(path_y_slack, polytope_y_slack);
+
+        symbolic::Variables mu_and_y_indets{tester.get_mu()};
+        mu_and_y_indets.insert(path_y_slack.begin(), path_y_slack.end());
+
+        // The numerator is a function of the new path variable and of the
+        // matrix SOS variables.
+        EXPECT_EQ(path_condition.indeterminates(), mu_and_y_indets);
+
+        // The condition should be a quadratic in the y_slack.
+        for (const auto& y : path_y_slack) {
+          EXPECT_EQ(path_condition.Degree(y), 2);
+        }
+
+        auto compute_total_s_degree =
+            [&tester](const symbolic::Polynomial& poly) {
+              int degree{0};
+              for (const auto& [m, c] : poly.monomial_to_coefficient_map()) {
+                int cur_s_degree{0};
+                for (int k = 0;
+                     k < tester.get_rational_forward_kin()->s().size(); ++k) {
+                  cur_s_degree +=
+                      m.degree(tester.get_rational_forward_kin()->s()(k));
+                }
+                degree = std::max(degree, cur_s_degree);
+              }
+              return degree;
+            };
+        // The degree in terms of the path variable should be the total degree
+        // of the original rational with respect to the variables s_set_ plus
+        // the path degree times the plane_order
+        EXPECT_EQ(
+            static_cast<unsigned int>(path_condition.Degree(tester.get_mu())),
+            maximum_path_degree * compute_total_s_degree(polytope_condition) +
+                plane_order);
+
+        // Now check that the path_conditions are actually properly
+        // substituted.
+        for (int j = 0; j < mu_test_values.rows(); ++j) {
+          const symbolic::Polynomial path_condition_eval{
+              path_condition.EvaluatePartial(
+                  evaluator.MakeCspaceFreePolytopeAndPathEvaluator(
+                      mu_test_values(j)))};
+          const symbolic::Polynomial polytope_condition_eval{
+              path_condition.EvaluatePartial(
+                  evaluator.MakeCspaceFreePolytopeAndPathEvaluator(
+                      mu_test_values(j)))};
+          EXPECT_TRUE(path_condition_eval.CoefficientsAlmostEqual(
+              polytope_condition_eval, 1e-10));
+        }
+      }
+    }
+  }
+}
 //  const Eigen::Vector3d q_star(0, 0, 0);
 //  for (unsigned int maximum_path_degree = 1; maximum_path_degree < 3;
 //       ++maximum_path_degree) {
@@ -194,12 +342,13 @@ struct PathEvaluator {
 ////                for (const auto& [m, c] :
 /// poly.monomial_to_coefficient_map()) { /                  int
 /// cur_s_degree{0}; /                  VectorX<symbolic::Variable> s_vars{ /
-///tester.get_rational_forward_kin()->s()}; /                  for (int k = 0; k
+/// tester.get_rational_forward_kin()->s()}; /                  for (int k = 0;
+/// k
 ///< s_vars.size(); ++k) { /                    cur_s_degree +=
-///m.degree(s_vars(k)); /                  } /                  degree =
-///std::max(degree, cur_s_degree); /                } /                return
-///degree; /              }; /          // The degree in terms of the path
-///variable should be the total degree /          // of the original rational
+/// m.degree(s_vars(k)); /                  } /                  degree =
+/// std::max(degree, cur_s_degree); /                } /                return
+/// degree; /              }; /          // The degree in terms of the path
+/// variable should be the total degree /          // of the original rational
 /// with respect to the variables s_set_ times /          // the path degree. /
 /// EXPECT_EQ( / static_cast<unsigned
 /// int>(path_condition.Degree(tester.get_mu())), / maximum_path_degree *
