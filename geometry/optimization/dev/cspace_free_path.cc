@@ -1,5 +1,10 @@
 #include "drake/geometry/optimization/dev/cspace_free_path.h"
 
+#include <future>
+#include <iostream>
+#include <mutex>
+#include <queue>
+#include <thread>
 #include <vector>
 
 #include "drake/common/symbolic/monomial_util.h"
@@ -170,6 +175,171 @@ void CspaceFreePath::GeneratePathRationals(
                                            path_with_y_subs, indeterminates,
                                            &cached_substitutions);
   }
+}
+
+
+[[nodiscard]] std::vector<std::optional<bool>>
+CspaceFreePath::FindSeparationCertificateGivenPath(
+    const MatrixX<Polynomiald>& piecewise_path,
+    const IgnoredCollisionPairs& ignored_collision_pairs,
+    const CspaceFreePath::FindSeparationCertificateGivenPathOptions& options,
+    std::unordered_map<SortedPair<geometry::GeometryId>,
+                       std::vector<std::optional<SeparationCertificateResult>>>*
+        certificates) const {
+  const int num_pieces{static_cast<int>(piecewise_path.cols())};
+
+  certificates->clear();
+  certificates->reserve(separating_planes().size());
+
+  // Stores the indices in path_separating_planes_ that don't appear in
+  // ignored_collision_pairs.
+  std::vector<int> active_plane_indices;
+  active_plane_indices.reserve(separating_planes().size());
+  for (int i = 0; i < static_cast<int>(separating_planes().size()); ++i) {
+    const SortedPair<geometry::GeometryId> pair(
+        separating_planes()[i].positive_side_geometry->id(),
+        separating_planes()[i].negative_side_geometry->id());
+    if (ignored_collision_pairs.count(pair) == 0) {
+      active_plane_indices.push_back(i);
+      // preallocate each vector of certificates
+      certificates->emplace(
+          pair, std::vector<std::optional<SeparationCertificateResult>>(
+                    num_pieces, std::nullopt));
+    }
+  }
+
+  const int num_threads =
+      options.num_threads > 0
+          ? options.num_threads
+          : std::min(static_cast<int>(std::thread::hardware_concurrency()),
+                     static_cast<int>(active_plane_indices.size()));
+
+  // The iᵗʰ entry of this vector is true if the iᵗʰ piece is safe, nullopt if
+  // not done certifying, and false otherwise.
+  std::vector<std::optional<bool>> piece_is_safe(
+      static_cast<unsigned int>(num_pieces), std::nullopt);
+  std::vector<std::mutex> piece_is_safe_mutex{
+      static_cast<unsigned int>(num_pieces)};
+
+  // Certify that the plane pair at the plane_count index is safe for the
+  // segment given by segment_idx.
+  auto certify_plane_pair_over_segment = [this, &active_plane_indices,
+                                          &piecewise_path, &options,
+                                          &certificates, &piece_is_safe,
+                                          &piece_is_safe_mutex](
+                                             int plane_count, int segment_idx) {
+    // Only perform the certification if the current piece might still be safe
+    // and we are not terminating early.
+    if (piece_is_safe.at(segment_idx).value_or(true) ||
+        !(options.terminate_segment_certification_at_failure)) {
+      const int plane_index = active_plane_indices[plane_count];
+      const Eigen::VectorX<Polynomiald> path = piecewise_path.col(segment_idx);
+      const SortedPair<geometry::GeometryId> pair(
+          separating_planes()[plane_index].positive_side_geometry->id(),
+          separating_planes()[plane_index].negative_side_geometry->id());
+      auto certificate_program = MakeIsGeometrySeparableOnPathProgram(
+          pair, piecewise_path.col(segment_idx));
+
+      auto result =
+          SolveSeparationCertificateProgram(certificate_program, options);
+      certificates->at(pair).at(segment_idx) = result;
+      if (result.result.is_success()) {
+        piece_is_safe_mutex.at(segment_idx).lock();
+        piece_is_safe.at(segment_idx) = false;
+        piece_is_safe_mutex.at(segment_idx).unlock();
+      }
+      if (options.verbose) {
+        drake::log()->info(
+            "SOS {}/{} completed, for Segment {}/{} is_success {}", plane_count,
+            active_plane_indices.size(), segment_idx, piecewise_path.cols(),
+            certificates->at(pair).at(segment_idx).has_value());
+      }
+    }
+  };
+
+  // The arguments needed to certify a piece for a pair of collision bodies.
+  std::queue<std::pair<int, int>> certify_args_queue;
+  std::mutex certify_args_mutex;
+  for (int segment_idx = 0; segment_idx < num_pieces; segment_idx++) {
+    for (int plane_count = 0;
+         plane_count < static_cast<int>(active_plane_indices.size());
+         ++plane_count) {
+      certify_args_queue.push(std::make_pair(plane_count, segment_idx));
+    }
+  }
+
+  // A function which pulls off arguments pairs and certifies that a pair of
+  // collision bodies is safe over a segment.
+  auto certify_worker = [&certify_plane_pair_over_segment, &piece_is_safe,
+                         &options, &certify_args_queue, &certify_args_mutex,
+                         &num_pieces, active_plane_indices]() {
+    // Terminate early if the options say to do so and we find an unsafe
+    // segment.
+    bool terminate = false;
+    while (!terminate) {
+      // acquire and remove the front element.
+      certify_args_mutex.lock();
+      std::pair<int, int> args{certify_args_queue.front()};
+      certify_args_queue.pop();
+      certify_args_mutex.unlock();
+      certify_plane_pair_over_segment(args.first, args.second);
+      if (options.verbose) {
+        drake::log()->info("SOS {}/{} dispatched, for Segment {}/{}",
+                           args.first, active_plane_indices.size(), args.second,
+                           num_pieces);
+      }
+
+      bool unsafe_segment =
+          std::all_of(piece_is_safe.begin(), piece_is_safe.end(),
+                      [](std::optional<bool> flag) {
+                        return flag.value_or(true);
+                      });
+      bool terminate_early_due_to_unsafe_segment =
+          options.terminate_path_certification_at_failure && unsafe_segment;
+
+      terminate =
+          certify_args_queue.empty() || terminate_early_due_to_unsafe_segment;
+    }
+    return;
+  };
+
+  if (options.solver_id == solvers::MosekSolver::id()) {
+    // Acquire the license for the duration of the solve.
+    const auto mosek_license = drake::solvers::MosekSolver::AcquireLicense();
+  }
+  // Solve all the programs
+  std::vector<std::thread> thread_pool;
+  thread_pool.reserve(num_threads);
+  for (int i = 0; i < num_threads; ++i) {
+    // Launch all the threads
+    thread_pool.emplace_back(certify_worker);
+  }
+  for (int i = 0; i < num_threads; ++i) {
+    // Wait for all the threads to join.
+    thread_pool.at(i).join();
+  }
+  std::cout << fmt::format("Certify args queue is empty = {}",
+                           certify_args_queue.empty())
+            << std::endl;
+
+  // Now go through and verify which paths were certified as safe
+  for (int i = 0; i < num_pieces; ++i) {
+    // piece_is_safe.at(i) can only have a value at this point if that piece is
+    // unsafe. If it does not have a value, we check whether all the pairs were
+    // certified as collision free by checking whether all the collision pairs
+    // have a certificate at that piece. If they don't we terminated early and
+    // never checked.
+    if (!piece_is_safe.at(i).has_value()) {
+      piece_is_safe.at(i) =
+          std::all_of(certificates->begin(), certificates->end(),
+                      [&i](auto pair_to_certificate_elt) {
+                        // check that this pair has a certificate value at the
+                        // iᵗʰ position
+                        return pair_to_certificate_elt.second.at(i).has_value();
+                      });
+    }
+  }
+  return piece_is_safe;
 }
 
 [[nodiscard]] CspaceFreePath::SeparationCertificateProgram
