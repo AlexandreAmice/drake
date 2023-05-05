@@ -30,10 +30,6 @@ class CspaceFreePathTester {
     return cspace_free_path_->mu();
   }
 
-  [[nodiscard]] int get_max_degree() const {
-    return cspace_free_path_->max_degree();
-  }
-
   [[nodiscard]] const std::unordered_map<symbolic::Variable,
                                          symbolic::Polynomial>&
   get_path() const {

@@ -139,6 +139,23 @@ class CspaceFreePath {
 
   [[nodiscard]] int max_degree() const { return max_degree_; }
 
+  [[nodiscard]] int plane_order() const { return plane_order_; }
+
+  /**
+   separating_planes()[map_geometries_to_separating_planes.at(geometry1_id,
+   geometry2_id)] is the separating plane that separates geometry1 and
+   geometry 2.
+   */
+  [[nodiscard]] const std::unordered_map<SortedPair<geometry::GeometryId>, int>&
+  map_geometries_to_separating_planes() const {
+    return map_geometries_to_separating_planes_;
+  }
+
+  [[nodiscard]] const std::vector<CSpacePathSeparatingPlane<symbolic::Variable>>&
+  separating_planes() const {
+    return separating_planes_;
+  }
+
   /**
    Constructs the SeparationCertificateProgram which searches for a
    separation certificate for a pair of geometries along a path in
