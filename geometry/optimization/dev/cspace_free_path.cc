@@ -10,7 +10,6 @@
 namespace drake {
 namespace geometry {
 namespace optimization {
-namespace {}  // namespace
 
 std::unordered_map<symbolic::Variable, symbolic::Polynomial>
 initialize_path_map(
