@@ -228,7 +228,7 @@ CspaceFreePath::FindSeparationCertificateGivenPath(
                                           &certificates, &piece_is_safe,
                                           &piece_is_safe_mutex](
                                              int plane_count, int segment_idx) {
-    // Only perform the certification if the current piece might still be safe
+    // Only perform the certification if the current piece might still be safe,
     // and we are not terminating early.
     if (piece_is_safe.at(segment_idx).value_or(true) ||
         !(options.terminate_segment_certification_at_failure)) {
@@ -243,11 +243,9 @@ CspaceFreePath::FindSeparationCertificateGivenPath(
       auto result =
           SolveSeparationCertificateProgram(certificate_program, options);
       certificates->at(pair).at(segment_idx) = result;
-      if (result.result.is_success()) {
-        piece_is_safe_mutex.at(segment_idx).lock();
-        piece_is_safe.at(segment_idx) = false;
-        piece_is_safe_mutex.at(segment_idx).unlock();
-      }
+      piece_is_safe_mutex.at(segment_idx).lock();
+      piece_is_safe.at(segment_idx) = result.result.is_success();
+      piece_is_safe_mutex.at(segment_idx).unlock();
       if (options.verbose) {
         drake::log()->info(
             "SOS {}/{} completed, for Segment {}/{} is_success {}", plane_count,
