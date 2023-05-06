@@ -38,6 +38,7 @@ LIBDRAKE_COMPONENTS = [
     "//examples/van_der_pol:van_der_pol",  # unpackaged
     "//geometry",
     "//geometry/optimization",
+    "//geometry/optimization/dev",
     "//geometry/proximity",
     "//geometry/query_results",
     "//geometry/render/shaders",

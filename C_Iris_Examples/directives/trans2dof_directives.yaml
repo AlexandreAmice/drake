@@ -1,0 +1,35 @@
+# Model directive for planar iiwa with simple collision and welded gripper
+
+directives:
+
+# Add iiwa
+- add_model:
+    name: iiwa
+    file: package://drake/C_Iris_Examples/assets/2dof_iiwa_translating_base.sdf
+
+- add_frame:
+    name: iiwa_origin
+    X_PF:
+      base_frame: world
+      translation: [0.0, 0.0, 0.0]
+      rotation: !Rpy { deg: [0.0, 0.0, 90.0 ]}
+
+- add_weld:
+    parent: iiwa_origin
+    child: iiwa::iiwa_twoDOF_link_-1
+
+# Add Box
+- add_model:
+    name: box
+    file: package://drake/C_Iris_Examples/assets/box_small.urdf
+
+- add_frame:
+    name: box_origin
+    X_PF:
+      base_frame: world
+      translation: [0.0, 0.0, 0.0]
+
+- add_weld:
+    parent: box_origin
+    child: box::base
+
