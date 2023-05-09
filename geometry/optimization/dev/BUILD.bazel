@@ -45,8 +45,8 @@ drake_cc_library(
     srcs = ["cspace_free_path_separating_plane.cc"],
     hdrs = ["cspace_free_path_separating_plane.h"],
     deps = [
+        "//common/symbolic:monomial_util",
         "//geometry/optimization:cspace_separating_plane",
-        "//common/symbolic:monomial_util"
     ],
 )
 

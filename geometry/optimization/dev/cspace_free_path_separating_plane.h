@@ -5,8 +5,8 @@
  */
 #pragma once
 
-#include "drake/geometry/optimization/cspace_separating_plane.h"
 #include "drake/common/symbolic/monomial_util.h"
+#include "drake/geometry/optimization/cspace_separating_plane.h"
 
 namespace drake {
 namespace geometry {
@@ -69,22 +69,21 @@ void CalcPathPlane(const VectorX<D>& decision_variables, const S& mu_for_plane,
   var_count += num_coeffs_per_poly;
   DRAKE_DEMAND(var_count == decision_variables.size());
 
-
-
   if constexpr (std::is_same_v<D, double> && std::is_same_v<S, double> &&
                 std::is_same_v<V, double>) {
-    for(int j = 0; j < num_coeffs_per_poly; ++j) {
-      for(int i = 0; i < 3; ++i){
-        (*a_val)(i) += a_coeff(i,j)*pow(mu_for_plane, plane_degree-j);
+    for (int j = 0; j < num_coeffs_per_poly; ++j) {
+      for (int i = 0; i < 3; ++i) {
+        (*a_val)(i) += a_coeff(i, j) * pow(mu_for_plane, plane_degree - j);
       }
-      (*b_val) += b_coeff(j)*pow(mu_for_plane, plane_degree-j);
+      (*b_val) += b_coeff(j) * pow(mu_for_plane, plane_degree - j);
     }
     return;
   }
   if constexpr (std::is_same_v<S, symbolic::Variable> &&
                 std::is_same_v<V, symbolic::Polynomial>) {
     const Eigen::Matrix<symbolic::Monomial, Eigen::Dynamic, 1> basis =
-        symbolic::MonomialBasis(symbolic::Variables{mu_for_plane}, plane_degree);
+        symbolic::MonomialBasis(symbolic::Variables{mu_for_plane},
+                                plane_degree);
     for (int i = 0; i < 3; ++i) {
       symbolic::Polynomial::MapType monomial_to_coeff_map;
       for (int j = 0; j < basis.rows(); ++j) {

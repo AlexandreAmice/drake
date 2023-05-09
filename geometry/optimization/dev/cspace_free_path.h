@@ -2,6 +2,7 @@
 
 #include <list>
 #include <map>
+#include <memory>
 #include <optional>
 #include <unordered_map>
 #include <unordered_set>
@@ -87,7 +88,7 @@ class CspaceFreePath {
   struct SeparationCertificateResult : SeparationCertificateResultBase {};
 
   //  /**
-  //   TODO(Alexnadre.Amice) fill comment
+  //   TODO(Alexandre.Amice) fill comment
   //   */
   //  struct SeparationCertificate {
   //    SeparationCertificate() {}
@@ -99,11 +100,13 @@ class CspaceFreePath {
   //        const solvers::MathematicalProgramResult& result) const;
   //
   ////    // positive_side_rational_lagrangians[i] is the Lagrangian multipliers
-  ///for /    // PlaneSeparatesGeometries::positive_side_rationals[i]. /
-  ///std::vector<SeparatingPlaneLagrangians> positive_side_rational_lagrangians;
-  ////    // negative_side_rational_lagrangians[i] is the Lagrangian multipliers
-  ///for /    // PlaneSeparatesGeometries::negative_side_rationals[i]. /
-  ///std::vector<SeparatingPlaneLagrangians> negative_side_rational_lagrangians;
+  /// for /    // PlaneSeparatesGeometries::positive_side_rationals[i]. /
+  /// std::vector<SeparatingPlaneLagrangians>
+  /// positive_side_rational_lagrangians; /    //
+  /// negative_side_rational_lagrangians[i] is the Lagrangian multipliers for /
+  /// // PlaneSeparatesGeometries::negative_side_rationals[i]. /
+  /// std::vector<SeparatingPlaneLagrangians>
+  /// negative_side_rational_lagrangians;
   //  };
 
   /**
@@ -151,7 +154,8 @@ class CspaceFreePath {
     return map_geometries_to_separating_planes_;
   }
 
-  [[nodiscard]] const std::vector<CSpacePathSeparatingPlane<symbolic::Variable>>&
+  [[nodiscard]] const std::vector<
+      CSpacePathSeparatingPlane<symbolic::Variable>>&
   separating_planes() const {
     return separating_planes_;
   }
