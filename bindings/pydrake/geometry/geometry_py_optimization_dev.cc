@@ -362,7 +362,7 @@ void DefineGeometryOptimizationDev(py::module m) {
         .def(py::init<const symbolic::Polynomial&, const symbolic::Variable&,
                  const symbolic::Variables&>(),
             py::arg("poly"), py::arg("interval_variable"),
-            py::arg("parameters"), cls_doc.ctor)
+            py::arg("parameters"), cls_doc.ctor.doc)
         //  TODO(Alexandre.Amice) bind AddPositivityConstraintToProgram.
         //           .def("AddPositivityConstraintToProgram",
         //                &Class::AddPositivityConstraintToProgram,
@@ -381,6 +381,64 @@ void DefineGeometryOptimizationDev(py::module m) {
     using Class = CspaceFreePath;
     const auto& cls_doc = doc.CspaceFreePath;
     py::class_<Class> cspace_free_path_cls(m, "CspaceFreePath", cls_doc.doc);
+
+    cspace_free_path_cls
+        .def(py::init<const multibody::MultibodyPlant<double>*,
+                 const geometry::SceneGraph<double>*,
+                 const Eigen::Ref<const Eigen::VectorXd>&, int, int>(),
+            py::arg("plant"), py::arg("scene_graph"), py::arg("q_star"),
+            py::arg("maximum_plane_degree"), py::arg("plane_order"),
+            // Keep alive, reference: `self` keeps `scene_graph` alive.
+            py::keep_alive<1, 3>(), cls_doc.ctor.doc)
+        .def("mu", &Class::mu)
+        .def("y_slack", &Class::y_slack)
+        .def("max_degree", &Class::max_degree)
+        .def("plane_order", &Class::plane_order)
+        .def("map_geometries_to_separating_planes",
+            [](const CspaceFreePath* self) {
+              // Template deduction for drake::SortedPair<GeometryId> does not
+              // work. Here we manually make a map of tuples instead.
+              py::dict ret;
+              for (auto [k, v] : self->map_geometries_to_separating_planes()) {
+                ret[py::make_tuple(k.first(), k.second())] = v;
+              }
+              return ret;
+            })
+        .def("separating_planes", &Class::separating_planes)
+        .def(
+            "FindSeparationCertificateGivenPath",
+            [](const CspaceFreePath* self,
+                const MatrixX<Polynomiald>& piecewise_path,
+                const CspaceFreePath::IgnoredCollisionPairs&
+                    ignored_collision_pairs,
+                const CspaceFreePath::FindSeparationCertificateGivenPathOptions&
+                    options) {
+              std::unordered_map<SortedPair<geometry::GeometryId>,
+                  std::vector<std::optional<
+                      CspaceFreePath::SeparationCertificateResult>>>
+                  certificates;
+              std::vector<std::optional<bool>> success = self->FindSeparationCertificateGivenPath(piecewise_path,
+                  ignored_collision_pairs, options, &certificates);
+              std::vector<std::tuple<geometry::GeometryId, geometry::GeometryId,
+                  CspaceFreePath::SeparationCertificateResult>>
+                  certificates_ret;
+              certificates_ret.reserve(certificates.size());
+              for (const auto& [key, value] : certificates) {
+                certificates_ret.emplace_back(key.first(), key.second(), value);
+              }
+              return std::pair(success, certificates_ret);
+            },
+            py::arg("piecewise_path"), py::arg("ignroed_collision_pairs"),
+            py::arg("options"), cls_doc.FindSeparationCertificateGivenPath.doc)
+        //        .def("MakeIsGeometrySeparableOnPathProgram",
+        //            &Class::MakeIsGeometrySeparableOnPathProgram,
+        //            py::arg("geometry_pair"), py::arg("path"),
+        //            cls_doc.MakeIsGeometrySeparableOnPathProgram.doc)
+        //        .def("SolveSeparationCertificateProgram",
+        //            &Class::SolveSeparationCertificateProgram,
+        //            py::arg("certificate_program"), py::arg("options"),
+        //            cls_doc.SolveSeparationCertificateProgram.doc)
+        ;
   }
 }
 }  // namespace pydrake
