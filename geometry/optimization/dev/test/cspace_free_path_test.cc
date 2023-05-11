@@ -1,7 +1,10 @@
 #include "drake/geometry/optimization/dev/cspace_free_path.h"
 
+#include <iostream>
+
 #include <gtest/gtest.h>
 
+#include "drake/common/test_utilities/symbolic_test_util.h"
 #include "drake/geometry/optimization/cspace_free_internal.h"
 #include "drake/geometry/optimization/dev/test/c_iris_path_test_utilities.h"
 #include "drake/geometry/optimization/test/c_iris_test_utilities.h"
@@ -91,6 +94,33 @@ TEST_F(CIrisToyRobotTest, CspaceFreePathConstructor) {
   }
 }
 
+namespace {
+// checks whether two polynomials with potential different variable ids are the
+// same by checking whether setting all their variables to the same value makes
+// the two polynomials evaluate to the same value.
+bool PolyEqualBySameRandomEval(symbolic::Polynomial p1, symbolic::Polynomial p2,
+                               double value, double tol) {
+  symbolic::Environment env1;
+  symbolic::Environment env2;
+  auto build_env = [](const symbolic::Polynomial& p, symbolic::Environment env) {
+    for(const auto &)
+  };
+
+  std::list<symbolic::Expression> p2_remaining_coeffs;
+  for (const auto& [m2, c2] : p2.monomial_to_coefficient_map()) {
+    unused(m2);
+    p2_remaining_coeffs.emplace_back(c2);
+  }
+  for (const auto& [m1, c1] : p1.monomial_to_coefficient_map()) {
+    unused(m1);
+    auto equal_to_c1 =
+        [&c1](symbolic::Expression e) {
+          return c1.EqualTo(e);
+        } auto it = std::find(p2_remaining_coeffs.begin(),
+                              p2_remaining_coeffs.end(), equal_to_c1);
+  }
+}
+}  // namespace
 // This struct is used to check whether the rationals in cspace_free_path and
 // cspace_free_polytope are properly related.
 struct PathEvaluator {
@@ -162,6 +192,7 @@ TEST_F(CIrisToyRobotTest, CspaceFreePathGeneratePathRationalsTest) {
 
   for (const auto& plane_geometry : tester.get_path_plane_geometries()) {
     const auto& plane = dut.separating_planes()[plane_geometry.plane_index];
+
     if (plane.positive_side_geometry->type() == CIrisGeometryType::kPolytope &&
         plane.negative_side_geometry->type() == CIrisGeometryType::kPolytope) {
       EXPECT_EQ(plane_geometry.positive_side_conditions.size(),
@@ -264,12 +295,27 @@ TEST_F(CIrisToyRobotTest, CspaceFreePathGeneratePathRationalsTest) {
               path_condition.EvaluatePartial(
                   evaluator.MakeCspaceFreePolytopeAndPathEvaluator(
                       mu_test_values(j)))};
+          // TODO FIX HERE.
           const symbolic::Polynomial polytope_condition_eval{
-              path_condition.EvaluatePartial(
+              polytope_condition.EvaluatePartial(
                   evaluator.MakeCspaceFreePolytopeAndPathEvaluator(
                       mu_test_values(j)))};
-          EXPECT_TRUE(path_condition_eval.CoefficientsAlmostEqual(
-              polytope_condition_eval, 1e-10));
+          std::cout << path_condition
+                           .EvaluatePartial(
+                               evaluator.MakeCspaceFreePolytopeAndPathEvaluator(
+                                   mu_test_values(j)))
+                           .Expand()
+                    << std::endl;
+          std::cout << polytope_condition
+                           .EvaluatePartial(
+                               evaluator.MakeCspaceFreePolytopeAndPathEvaluator(
+                                   mu_test_values(j)))
+                           .Expand()
+                    << std::endl;
+          std::cout << std::endl;
+          EXPECT_PRED2(symbolic::test::PolyEqual, path_condition_eval.Expand(),
+                       polytope_condition_eval.Expand());
+          ASSERT_TRUE(false);
         }
       }
     }
