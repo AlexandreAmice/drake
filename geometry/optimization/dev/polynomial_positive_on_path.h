@@ -29,27 +29,27 @@ class ParametrizedPolynomialPositiveOnUnitInterval {
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(ParametrizedPolynomialPositiveOnUnitInterval)
 
   ParametrizedPolynomialPositiveOnUnitInterval(
-      const symbolic::Polynomial& poly,
-      const symbolic::Variable& interval_variable,
-      const symbolic::Variables& parameters);
+      const symbolic::Polynomial &poly,
+      const symbolic::Variable &interval_variable,
+      const symbolic::Variables &parameters);
 
   // Add the constraint that this parametrized polynomial is positive on the
   // unit interval. The Environment env must contain an evaluation for all the
   // parameters in parameters_. The MathematicalProgram prog must already
   // contain the indeterminates of psatz_variables_and_psd_constraints_.
   void AddPositivityConstraintToProgram(
-      const symbolic::Environment& env,
-      solvers::MathematicalProgram* prog) const;
+      const symbolic::Environment &env,
+      solvers::MathematicalProgram *prog) const;
 
-  const symbolic::Variable& get_mu() const { return mu_; }
-  const symbolic::Polynomial& get_p() const { return p_; }
-  const symbolic::Polynomial& get_poly() const { return poly_; }
-  const symbolic::Polynomial& get_lambda() const { return lambda_; }
-  const symbolic::Polynomial& get_nu() const { return nu_; }
-  const symbolic::Variables& get_parameters() const { return parameters_; }
+  const symbolic::Variable &get_mu() const { return mu_; }
+  const symbolic::Polynomial &get_p() const { return p_; }
+  const symbolic::Polynomial &get_poly() const { return poly_; }
+  const symbolic::Polynomial &get_lambda() const { return lambda_; }
+  const symbolic::Polynomial &get_nu() const { return nu_; }
+  const symbolic::Variables &get_parameters() const { return parameters_; }
 
-  const solvers::MathematicalProgram& get_psatz_variables_and_psd_constraints()
-      const {
+  const solvers::MathematicalProgram &get_psatz_variables_and_psd_constraints()
+  const {
     return psatz_variables_and_psd_constraints_;
   }
 
