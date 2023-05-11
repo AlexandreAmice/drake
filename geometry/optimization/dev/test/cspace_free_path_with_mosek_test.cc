@@ -201,7 +201,7 @@ TEST_F(CIrisToyRobotTest, MakeAndSolveIsGeometrySeparableOnPathProgram) {
   const Eigen::Vector3d s0_unsafe{-1.74, -0.22, 0.24};
   const Eigen::Vector3d s_end_unsafe{0.84, 2.31, 1.47};
 
-  const int plane_order= 1;
+  const int plane_order = 1;
   //  const Eigen::Vector3d s0_unsafe{0.65*M_PI, 1.63, 2.9};
   //  const Eigen::Vector3d s_end_unsafe{-1.63, 0.612, -0.65};
 

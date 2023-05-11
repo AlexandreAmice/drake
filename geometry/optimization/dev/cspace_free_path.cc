@@ -102,7 +102,7 @@ CspaceFreePath::CspaceFreePath(const multibody::MultibodyPlant<double>* plant,
   separating_planes_.reserve(num_collision_pairs);
   for (const auto& [link_pair, geometry_pairs] : collision_pairs) {
     for (const auto& geometry_pair : geometry_pairs) {
-      // Generate the separatin plane for this collision pair.
+      // Generate the separating plane for this collision pair.
       Vector3<symbolic::Polynomial> a;
       symbolic::Polynomial b;
       VectorX<symbolic::Variable> plane_decision_vars{4 * num_coeffs_per_poly};
@@ -249,7 +249,7 @@ CspaceFreePath::ConstructPlaneSearchProgramOnPath(
   }
   return ret;
 }
-//
+
 CspaceFreePath::SeparationCertificateResult
 CspaceFreePath::SolveSeparationCertificateProgram(
     const CspaceFreePath::SeparationCertificateProgram& certificate_program,
