@@ -207,6 +207,7 @@ CspaceFreePath::FindSeparationCertificateGivenPath(
   // ignored_collision_pairs.
   std::vector<int> active_plane_indices;
   active_plane_indices.reserve(separating_planes().size());
+
   for (int i = 0; i < static_cast<int>(separating_planes().size()); ++i) {
     const SortedPair<geometry::GeometryId> pair(
         separating_planes()[i].positive_side_geometry->id(),
@@ -331,11 +332,14 @@ CspaceFreePath::FindSeparationCertificateGivenPath(
     // Acquire the license for the duration of the solve.
     const auto mosek_license = drake::solvers::MosekSolver::AcquireLicense();
   }
+
+
   // Solve all the programs
   std::vector<std::thread> thread_pool;
   thread_pool.reserve(num_threads);
   for (int i = 0; i < num_threads; ++i) {
     // Launch all the threads
+    std::cout << "launching threads" << std::endl;
     thread_pool.emplace_back(certify_worker);
   }
   for (int i = 0; i < num_threads; ++i) {
@@ -452,7 +456,7 @@ CspaceFreePath::ConstructPlaneSearchProgramOnPath(
 CspaceFreePath::SeparationCertificateResult
 CspaceFreePath::SolveSeparationCertificateProgram(
     const CspaceFreePath::SeparationCertificateProgram& certificate_program,
-    const FindSeparationCertificateOptions& options) const {
+    const FindSeparationCertificateGivenPathOptions& options) const {
   CspaceFreePath::SeparationCertificateResult result;
   internal::SolveSeparationCertificateProgramBase(
       certificate_program, options,
