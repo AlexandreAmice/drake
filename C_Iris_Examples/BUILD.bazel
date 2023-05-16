@@ -15,6 +15,11 @@ load(
     "drake_py_unittest",
 )
 
+load(
+    "@drake//tools/skylark:drake_py.bzl",
+    "drake_py_binary",
+)
+
 filegroup(
     name = "models",
     srcs = glob(
@@ -77,6 +82,21 @@ drake_py_library(
 
 drake_jupyter_py_binary(
     name = "example",
+    add_test_rule = 0,
+    data = [
+        "//C_Iris_Examples:models",
+    ],
+    deps = [
+        "//C_Iris_Examples:iris_plant_visualizer",
+        "//C_Iris_Examples:prm",
+        "//C_Iris_Examples:visualization_utils",
+        "//bindings/pydrake",
+    ],
+)
+
+drake_py_binary(
+    name = "example_py",
+    srcs = ["example_py.py"],
     add_test_rule = 0,
     data = [
         "//C_Iris_Examples:models",
