@@ -208,7 +208,7 @@ class CspaceFreePath {
    */
   [[nodiscard]] SeparationCertificateResult SolveSeparationCertificateProgram(
       const SeparationCertificateProgram& certificate_program,
-      const FindSeparationCertificateOptions& options) const;
+      const FindSeparationCertificateGivenPathOptions& options) const;
 
  private:
   /**

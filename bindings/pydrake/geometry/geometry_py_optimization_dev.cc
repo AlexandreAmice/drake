@@ -1,4 +1,8 @@
+#include <chrono>
+#include <iostream>
+
 #include "pybind11/eigen.h"
+#include "pybind11/numpy.h"
 #include "pybind11/pybind11.h"
 #include "pybind11/stl.h"
 
@@ -7,6 +11,7 @@
 #include "drake/bindings/pydrake/common/sorted_pair_pybind.h"
 #include "drake/bindings/pydrake/common/value_pybind.h"
 #include "drake/bindings/pydrake/documentation_pybind.h"
+#include "drake/bindings/pydrake/polynomial_types_pybind.h"
 #include "drake/bindings/pydrake/pydrake_pybind.h"
 #include "drake/geometry/optimization/c_iris_collision_geometry.h"
 #include "drake/geometry/optimization/c_iris_separating_plane.h"
@@ -153,7 +158,7 @@ void DefineGeometryOptimizationDev(py::module m) {
         m, "SeparationCertificateProgramBase", result_doc.doc)
                         //            .def_readwrite("prog",
                         //            &SeparationCertificateProgramBase::prog)
-                        .def_readwrite("plane_index",
+                        .def_readonly("plane_index",
                             &SeparationCertificateProgramBase::plane_index);
     auto result_cls =
         py::class_<SeparationCertificateResultBase>(
@@ -387,7 +392,7 @@ void DefineGeometryOptimizationDev(py::module m) {
                  const geometry::SceneGraph<double>*,
                  const Eigen::Ref<const Eigen::VectorXd>&, int, int>(),
             py::arg("plant"), py::arg("scene_graph"), py::arg("q_star"),
-            py::arg("maximum_plane_degree"), py::arg("plane_order"),
+            py::arg("maximum_path_degree"), py::arg("plane_order"),
             // Keep alive, reference: `self` keeps `scene_graph` alive.
             py::keep_alive<1, 3>(), cls_doc.ctor.doc)
         .def("mu", &Class::mu)
@@ -417,16 +422,33 @@ void DefineGeometryOptimizationDev(py::module m) {
                   std::vector<std::optional<
                       CspaceFreePath::SeparationCertificateResult>>>
                   certificates;
-              std::vector<std::optional<bool>> success = self->FindSeparationCertificateGivenPath(piecewise_path,
-                  ignored_collision_pairs, options, &certificates);
-              std::vector<std::tuple<geometry::GeometryId, geometry::GeometryId,
-                  CspaceFreePath::SeparationCertificateResult>>
-                  certificates_ret;
-              certificates_ret.reserve(certificates.size());
-              for (const auto& [key, value] : certificates) {
-                certificates_ret.emplace_back(key.first(), key.second(), value);
-              }
-              return std::pair(success, certificates_ret);
+              unused(self);
+              unused(piecewise_path);
+              unused(ignored_collision_pairs);
+              unused(options);
+              std::cout << "Starting certificate search" << std::endl;
+              auto start = std::chrono::high_resolution_clock::now();
+              std::vector<std::optional<bool>> success =
+                  self->FindSeparationCertificateGivenPath(piecewise_path,
+                      ignored_collision_pairs, options, &certificates);
+              auto end = std::chrono::high_resolution_clock::now();
+              auto duration =
+                  std::chrono::duration_cast<std::chrono::milliseconds>(
+                      end - start);
+              std::cout << "Certification took: " << duration.count()
+                        << std::endl;
+              //              std::vector<std::tuple<geometry::GeometryId,
+              //              geometry::GeometryId,
+              //                  std::vector<std::optional<
+              //                      CspaceFreePath::SeparationCertificateResult>>>>
+              //                  certificates_ret;
+              //              certificates_ret.reserve(certificates.size());
+              //              for (const auto& [key, value] : certificates) {
+              //                certificates_ret.emplace_back(key.first(),
+              //                key.second(), value);
+              //              }
+              //              return std::pair(success, certificates_ret);
+              return true;
             },
             py::arg("piecewise_path"), py::arg("ignroed_collision_pairs"),
             py::arg("options"), cls_doc.FindSeparationCertificateGivenPath.doc)
@@ -434,11 +456,61 @@ void DefineGeometryOptimizationDev(py::module m) {
         //            &Class::MakeIsGeometrySeparableOnPathProgram,
         //            py::arg("geometry_pair"), py::arg("path"),
         //            cls_doc.MakeIsGeometrySeparableOnPathProgram.doc)
-        //        .def("SolveSeparationCertificateProgram",
-        //            &Class::SolveSeparationCertificateProgram,
-        //            py::arg("certificate_program"), py::arg("options"),
-        //            cls_doc.SolveSeparationCertificateProgram.doc)
-        ;
+        .def(
+            "MakeIsGeometrySeparableOnPathProgram",
+            [](const CspaceFreePath* self,
+                const std::tuple<geometry::GeometryId, geometry::GeometryId>&
+                    geometry_pair,
+                const VectorX<Polynomiald>& path) {
+              const SortedPair<geometry::GeometryId> geom_pair{
+                  std::get<0>(geometry_pair), std::get<1>(geometry_pair)};
+              return self->MakeIsGeometrySeparableOnPathProgram(
+                  geom_pair, path);
+            },
+            py::arg("geometry_pair"), py::arg("path"),
+            cls_doc.MakeIsGeometrySeparableOnPathProgram.doc)
+        .def("SolveSeparationCertificateProgram",
+            &Class::SolveSeparationCertificateProgram,
+            py::arg("certificate_program"), py::arg("options"),
+            cls_doc.SolveSeparationCertificateProgram.doc);
+
+    py::class_<Class::FindSeparationCertificateGivenPathOptions>(
+        cspace_free_path_cls, "FindSeparationCertificateGivenPathOptions",
+        cls_doc.FindSeparationCertificateGivenPathOptions.doc)
+        .def(py::init<>())
+        .def_readwrite("num_threads",
+            &Class::FindSeparationCertificateGivenPathOptions::num_threads)
+        .def_readwrite("verbose",
+            &Class::FindSeparationCertificateGivenPathOptions::verbose)
+        .def_readwrite("solver_id",
+            &Class::FindSeparationCertificateGivenPathOptions::solver_id)
+        .def_readwrite("solver_options",
+            &Class::FindSeparationCertificateGivenPathOptions::solver_options)
+        .def_readwrite("terminate_segment_certification_at_failure",
+            &Class::FindSeparationCertificateGivenPathOptions::
+                terminate_segment_certification_at_failure)
+        .def_readwrite("terminate_path_certification_at_failure",
+            &Class::FindSeparationCertificateGivenPathOptions::
+                terminate_path_certification_at_failure);
+
+    py::class_<Class::SeparationCertificateProgram>(cspace_free_path_cls,
+        "SeparationCertificateProgram",
+        cls_doc.SeparationCertificateProgram.doc)
+        .def(py::init<const std::unordered_map<symbolic::Variable,
+                          symbolic::Polynomial>&,
+                 int>(),
+            py::arg("path"), py::arg("plane_index"))
+        .def_readonly(
+            "plane_index", &Class::SeparationCertificateProgram::plane_index);
+
+    py::class_<Class::SeparationCertificateResult>(cspace_free_path_cls,
+        "SeparationCertificateResult", cls_doc.SeparationCertificateResult.doc)
+        .def(py::init<>())
+        .def_readonly("a", &SeparationCertificateResultBase::a)
+        .def_readonly("b", &SeparationCertificateResultBase::b)
+        .def_readonly("plane_decision_var_vals",
+            &SeparationCertificateResultBase::plane_decision_var_vals)
+        .def_readonly("result", &SeparationCertificateResultBase::result);
   }
 }
 }  // namespace pydrake
