@@ -14,27 +14,52 @@
 namespace drake {
 namespace geometry {
 namespace optimization {
+namespace {
+[[nodiscard]] Eigen::VectorXd ProjectToPolytope(const Eigen::VectorXd& sample,
+                                                const HPolyhedron& polyhedron) {
+  DRAKE_DEMAND(sample.rows() == polyhedron.ambient_dimension());
+  if (polyhedron.PointInSet(sample)) {
+    return sample;
+  } else {
+    solvers::MathematicalProgram prog;
+    auto s = prog.NewContinuousVariables(sample.rows());
+    prog.AddLinearConstraint(
+        polyhedron.A(),
+        Eigen::VectorXd::Constant(polyhedron.b().rows(),
+                                  -std::numeric_limits<double>::infinity()),
+        polyhedron.b(), s);
+    prog.AddQuadraticErrorCost(Eigen::MatrixXd::Identity(s.rows(), s.rows()),
+                               sample, s);
+    const auto result = solvers::Solve(prog);
+    DRAKE_DEMAND(result.is_success());
+    return result.GetSolution(s);
+  }
+}
 
 VectorX<Polynomiald> MakeBezierCurvePolynomialPath(
-    const Eigen::Vector3d& s0, const Eigen::Vector3d& s_end, int curve_order,
+    const Eigen::VectorXd& s0, const Eigen::VectorXd& s_end, int curve_order,
     std::optional<HPolyhedron> poly_to_check_containment = std::nullopt) {
   if (poly_to_check_containment.has_value()) {
     EXPECT_TRUE(poly_to_check_containment.value().PointInSet(s0));
     EXPECT_TRUE(poly_to_check_containment.value().PointInSet(s_end));
   }
 
-  Eigen::MatrixXd control_points{3, curve_order + 1};
+  Eigen::MatrixXd control_points{s0.rows(), curve_order + 1};
   control_points.col(0) = s0;
   control_points.col(curve_order) = s_end;
 
   const int div = 1000;
-  const Eigen::Vector3d orth_offset{-0.01 / div, 0.005 / div, 0.005 / div};
+  Eigen::VectorXd orth_offset{s0.rows()};
+  for (int i = 0; i < s0.rows(); ++i) {
+    orth_offset << std::pow(-1, i % 2) / div;
+  }
   for (int i = 1; i < curve_order - 1; ++i) {
     // another control point slightly off the straight line path between s0
     // and s_end.
-    Eigen::Vector3d si = i * (s0 + s_end) / curve_order + orth_offset;
+    Eigen::VectorXd si = i * (s0 + s_end) / curve_order + orth_offset;
+
     if (poly_to_check_containment.has_value()) {
-      EXPECT_TRUE(poly_to_check_containment.value().PointInSet(si));
+      si = ProjectToPolytope(si, poly_to_check_containment.value());
     }
     control_points.col(i) = si;
   }
@@ -130,6 +155,7 @@ void CheckSeparationBySamples(
       }
     }
   }
+  std::cout << std::endl;
 }
 
 void CheckForCollisionAlongPath(
@@ -168,7 +194,7 @@ void CheckForCollisionAlongPath(
   }
   EXPECT_TRUE(collision_found);
 }
-
+}  // namespace
 TEST_F(CIrisToyRobotTest, MakeAndSolveIsGeometrySeparableOnPathProgram) {
   const Eigen::Vector3d q_star(0, 0, 0);
   Eigen::Matrix<double, 9, 3> C_good;
@@ -261,49 +287,197 @@ TEST_F(CIrisToyRobotTest, MakeAndSolveIsGeometrySeparableOnPathProgram) {
   }
 }
 
-TEST_F(CIrisToyRobotTest, FindSeparationCertificateGivenPathSuccess) {
-  const Eigen::Vector3d q_star(0, 0, 0);
-  Eigen::Matrix<double, 9, 3> C_good;
+// TEST_F(CIrisToyRobotTest, FindSeparationCertificateGivenPathSuccess) {
+//  const Eigen::Vector3d q_star(0, 0, 0);
+//  Eigen::Matrix<double, 9, 3> C_good;
+//  // clang-format off
+//  C_good << 1, 1, 0,
+//       -1, -1, 0,
+//       -1, 0, 1,
+//       1, 0, -1,
+//       0, 1, 1,
+//       0, -1, -1,
+//       1, 0, 1,
+//       1, 1, -1,
+//       1, -1, 1;
+//  // clang-format on
+//  Eigen::Matrix<double, 9, 1> d_good;
+//  d_good << 0.1, 0.1, 0.1, 0.02, 0.02, 0.2, 0.1, 0.1, 0.2;
+//  // This polyhedron is fully collision free and can be certified as such
+//  using
+//  // CspaceFreePolytope.
+//  const HPolyhedron c_free_polyhedron{C_good, d_good};
+//  const SortedPair<geometry::GeometryId> geometry_pair{body0_box_,
+//                                                       body2_sphere_};
+//  const CspaceFreePolytope::IgnoredCollisionPairs ignored_collision_pairs{
+//      SortedPair<geometry::GeometryId>(world_box_, body2_sphere_)};
+//
+//  CspaceFreePath::FindSeparationCertificateGivenPathOptions
+//      find_certificate_options;
+//  find_certificate_options.verbose = false;
+//  find_certificate_options.num_threads = 1;
+//  find_certificate_options.terminate_segment_certification_at_failure = false;
+//  find_certificate_options.terminate_path_certification_at_failure = false;
+//  solvers::MosekSolver solver;
+//  find_certificate_options.solver_id = solver.id();
+//
+//  const int num_samples{100};
+//  Eigen::VectorXd mu_samples{100};
+//  mu_samples = Eigen::VectorXd::LinSpaced(num_samples, 0, 1);
+//
+//  const Eigen::Vector3d s0_safe{0.01, -0.02, 0.04};
+//  const Eigen::Vector3d s_end_safe{-0.17, 0.08, -0.19};
+//
+//  const int num_trials = 15;
+//
+//  const int plane_order = 8;
+//  for (const int maximum_path_degree : {1}) {
+//    CspaceFreePathTester tester(plant_, scene_graph_, q_star,
+//                                maximum_path_degree, plane_order);
+//
+//    // Check that we can certify paths up to the maximum degree.
+//    for (int bezier_curve_order = 1; bezier_curve_order <=
+//    maximum_path_degree;
+//         ++bezier_curve_order) {
+//      // Construct a polynonomial of degree bezier_curve_order <=
+//      // maximum_path_degree. By constructing this with the control points
+//      // inside c_free_polyhedron, we guarantee that the trajectory inside
+//      // will be colllision free.
+//      MatrixX<Polynomiald> bezier_poly_path_safe{s0_safe.rows(), num_trials};
+//      for (int i = 0; i < num_trials; ++i) {
+//        bezier_poly_path_safe.col(i) = MakeBezierCurvePolynomialPath(
+//            s0_safe, s_end_safe, bezier_curve_order, c_free_polyhedron);
+//      }
+//      for (int i = 0; i < mu_samples.rows(); ++i) {
+//        Eigen::VectorXd point{bezier_poly_path_safe.rows()};
+//        for (int j = 0; j < bezier_poly_path_safe.rows(); j++) {
+//          point(j) =
+//              bezier_poly_path_safe(j, 0).EvaluateUnivariate(mu_samples(i));
+//        }
+//        EXPECT_TRUE(c_free_polyhedron.PointInSet(point));
+//      }
+//      std::unordered_map<SortedPair<geometry::GeometryId>,
+//                         std::vector<std::optional<
+//                             CspaceFreePath::SeparationCertificateResult>>>
+//          certificates;
+//      auto start = std::chrono::high_resolution_clock::now();
+//      std::vector<std::optional<bool>> piece_is_safe =
+//          tester.cspace_free_path().FindSeparationCertificateGivenPath(
+//              bezier_poly_path_safe, ignored_collision_pairs,
+//              find_certificate_options, &certificates);
+//      auto end = std::chrono::high_resolution_clock::now();
+//      auto duration =
+//          std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+//
+//      for (const auto& [pair, certs] : certificates) {
+//        unused(pair);
+//        std::cout
+//            << std::all_of(
+//                   certs.begin(), certs.end(),
+//                   [](std::optional<CspaceFreePath::SeparationCertificateResult>
+//                          cert) {
+//                     return cert.has_value();
+//                   })
+//            << std::endl;
+//      }
+//
+//      // To get the value of duration use the count()
+//      // member function on the duration object
+//      std::cout << "Time taken by function: " << duration.count() <<
+//      std::endl; EXPECT_EQ(certificates.size(),
+//                tester.cspace_free_path().separating_planes().size() -
+//                    ignored_collision_pairs.size());
+//      for (const auto& [pair, cert] : certificates) {
+//        EXPECT_EQ(static_cast<int>(cert.size()), num_trials);
+//        //        EXPECT_TRUE(std::all_of(cert.begin(), cert.end(),
+//        // [](std::optional<CspaceFreePolytope::SeparationCertificateResult>
+//        //                              flag) {
+//        //                                return flag.has_value();
+//        //                              }));
+//      }
+//
+//      for (int i = 0; i < static_cast<int>(piece_is_safe.size()); ++i) {
+//        //        if (!(piece_is_safe.at(i).has_value() &&
+//        //        piece_is_safe.at(i).value())) {
+//        bool piece_has_value = piece_is_safe.at(i).has_value();
+//        std::cout << fmt::format("Piece is safe index {}, has value = {}", i,
+//                                 piece_has_value)
+//                  << std::endl;
+//        if(piece_has_value) {
+//          std::cout << fmt::format("Piece is safe index {}, value = {}", i,
+//                                 piece_is_safe.at(i).value())
+//                  << std::endl;
+//        }
+//        std::cout << std::endl;
+//
+//        //        }
+//        //        std::cout << fmt::format("Piece is safe index {}, value =
+//        {}",
+//        //        i,
+//        //                                 piece_is_safe.at(i).value_or("no
+//        //                                 value"))
+//        //                  << std::endl;
+//      }
+//      std::cout << std::endl;
+//      EXPECT_TRUE(std::all_of(piece_is_safe.begin(), piece_is_safe.end(),
+//                              [](std::optional<bool> flag) {
+//                                return flag.has_value() && flag.value();
+//                              }));
+//    }
+//  }
+//  EXPECT_TRUE(false);
+//}
+
+TEST_F(CIrisRobotPolytopicGeometryTest,
+       FindSeparationCertificateGivenPathSuccessPolytopic) {
+  const Eigen::Vector4d q_star(0, 0, 0, 0);
+  Eigen::Matrix<double, 12, 4> C_good;
   // clang-format off
-  C_good << 1, 1, 0,
-       -1, -1, 0,
-       -1, 0, 1,
-       1, 0, -1,
-       0, 1, 1,
-       0, -1, -1,
-       1, 0, 1,
-       1, 1, -1,
-       1, -1, 1;
+  C_good << 1, 1, 0, 0,
+       -1, -1, 0, 1,
+       -1, 0, 1, -1,
+       1, 0, -1, 0,
+       0, 1, 1, 0,
+       0, -1, -1, 1,
+       1, 0, 1, 0,
+       1, 1, -1, 1,
+       1, -1, 1, -1,
+       0, 1, 1, 1,
+       1, 1, 1, -1,
+       1, 0, 0, 1;
   // clang-format on
-  Eigen::Matrix<double, 9, 1> d_good;
-  d_good << 0.1, 0.1, 0.1, 0.02, 0.02, 0.2, 0.1, 0.1, 0.2;
+  Eigen::Matrix<double, 12, 1> d_good;
+  d_good << 0.1, 0.1, 0.1, 0.02, 0.02, 0.2, 0.1, 0.1, 0.2, 0.1, 0.1, 0.02;
+  for (int i = 0; i < C_good.rows(); ++i) {
+    const double C_row_norm = C_good.row(i).norm();
+    C_good.row(i) = C_good.row(i) / C_row_norm;
+    d_good(i) = d_good(i) / C_row_norm;
+  }
+
   // This polyhedron is fully collision free and can be certified as such using
   // CspaceFreePolytope.
   const HPolyhedron c_free_polyhedron{C_good, d_good};
-  const SortedPair<geometry::GeometryId> geometry_pair{body0_box_,
-                                                       body2_sphere_};
-  const CspaceFreePolytope::IgnoredCollisionPairs ignored_collision_pairs{
-      SortedPair<geometry::GeometryId>(world_box_, body2_sphere_)};
+  CspaceFreePolytope::IgnoredCollisionPairs ignored_collision_pairs{};
 
   CspaceFreePath::FindSeparationCertificateGivenPathOptions
       find_certificate_options;
   find_certificate_options.verbose = false;
-  find_certificate_options.num_threads = -1;
+  find_certificate_options.num_threads = 1;
   find_certificate_options.terminate_segment_certification_at_failure = false;
   find_certificate_options.terminate_path_certification_at_failure = false;
   solvers::MosekSolver solver;
   find_certificate_options.solver_id = solver.id();
 
   const int num_samples{100};
-  Eigen::VectorXd mu_samples{100};
+  Eigen::VectorXd mu_samples{num_samples};
   mu_samples = Eigen::VectorXd::LinSpaced(num_samples, 0, 1);
 
-  const Eigen::Vector3d s0_safe{0.01, -0.02, 0.04};
-  const Eigen::Vector3d s_end_safe{-0.17, 0.08, -0.19};
+  const Eigen::Vector4d s0_safe = {-0.016, -0.039, 0.0059, 0.018};
+  const Eigen::Vector4d s_end_safe{-0.012, -0.044, 0.012, -0.015};
 
-  const int num_trials = 100;
+  const int num_trials = 15;
 
-  const int plane_order = 5;
+  const int plane_order = 8;
   for (const int maximum_path_degree : {1}) {
     CspaceFreePathTester tester(plant_, scene_graph_, q_star,
                                 maximum_path_degree, plane_order);
@@ -349,33 +523,20 @@ TEST_F(CIrisToyRobotTest, FindSeparationCertificateGivenPathSuccess) {
                     ignored_collision_pairs.size());
       for (const auto& [pair, cert] : certificates) {
         EXPECT_EQ(static_cast<int>(cert.size()), num_trials);
-//        EXPECT_TRUE(std::all_of(cert.begin(), cert.end(),
-//                              [](std::optional<CspaceFreePolytope::SeparationCertificateResult>
-//                              flag) {
-//                                return flag.has_value();
-//                              }));
+        const bool certs_have_value  = std::all_of(
+                   cert.begin(), cert.end(),
+                   [](const std::optional<CspaceFreePath::SeparationCertificateResult>&
+                          flag) {
+                     return flag.has_value();
+                   });
+        EXPECT_TRUE(certs_have_value);
       }
-
-      for (int i = 0; i < static_cast<int>(piece_is_safe.size()); ++i) {
-//        if (!(piece_is_safe.at(i).has_value() && piece_is_safe.at(i).value())) {
-          std::cout << fmt::format("Piece is safe index {}, value = {}", i,
-                                   piece_is_safe.at(i).value_or("no value"))
-                    << std::endl;
-//        }
-        //        std::cout << fmt::format("Piece is safe index {}, value = {}",
-        //        i,
-        //                                 piece_is_safe.at(i).value_or("no
-        //                                 value"))
-        //                  << std::endl;
-      }
-      std::cout << std::endl;
       EXPECT_TRUE(std::all_of(piece_is_safe.begin(), piece_is_safe.end(),
                               [](std::optional<bool> flag) {
                                 return flag.has_value() && flag.value();
                               }));
     }
   }
-  EXPECT_TRUE(false);
 }
 
 }  // namespace optimization

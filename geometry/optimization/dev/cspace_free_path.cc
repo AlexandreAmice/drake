@@ -180,7 +180,6 @@ void CspaceFreePath::GeneratePathRationals(
   }
 }
 
-
 [[nodiscard]] std::vector<std::optional<bool>>
 CspaceFreePath::FindSeparationCertificateGivenPath(
     const MatrixX<Polynomiald>& piecewise_path,
@@ -233,7 +232,9 @@ CspaceFreePath::FindSeparationCertificateGivenPath(
                                              int plane_count, int segment_idx) {
     // Only perform the certification if the current piece might still be safe,
     // and we are not terminating early.
-    if (piece_is_safe.at(segment_idx).value_or(true) ||
+    const bool cur_piece_maybe_safe =
+        piece_is_safe.at(segment_idx).value_or(true);
+    if (cur_piece_maybe_safe ||
         !(options.terminate_segment_certification_at_failure)) {
       const int plane_index = active_plane_indices[plane_count];
       const Eigen::VectorX<Polynomiald> path = piecewise_path.col(segment_idx);
@@ -247,8 +248,21 @@ CspaceFreePath::FindSeparationCertificateGivenPath(
           SolveSeparationCertificateProgram(certificate_program, options);
       certificates->at(pair).at(segment_idx) = result;
       piece_is_safe_mutex.at(segment_idx).lock();
-      piece_is_safe.at(segment_idx) = result.result.is_success();
+      if (!result.result.is_success()) {
+        std::cout << fmt::format("({},{})", plane_count, segment_idx) << std::endl;
+        std::cout << fmt::format(
+        "Failed to separate ({}, {}) at segment idx {}",
+        scene_graph_.model_inspector().GetName(pair.first()),
+        scene_graph_.model_inspector().GetName(pair.second()),
+        segment_idx)
+        << std::endl;
+        std::cout <<fmt::format("result.result.is_success() = {}\n",
+                                             result.result.is_success())<< std::endl;
+      }
+      piece_is_safe.at(segment_idx) =
+          piece_is_safe.at(segment_idx).value_or(true) && result.result.is_success();
       piece_is_safe_mutex.at(segment_idx).unlock();
+
       if (options.verbose) {
         drake::log()->info(
             "SOS {}/{} completed, for Segment {}/{} is_success {}", plane_count,
@@ -273,7 +287,7 @@ CspaceFreePath::FindSeparationCertificateGivenPath(
   // collision bodies is safe over a segment.
   auto certify_worker = [&certify_plane_pair_over_segment, &piece_is_safe,
                          &options, &certify_args_queue, &certify_args_mutex,
-                         &num_pieces, active_plane_indices]() {
+                         &num_pieces, &active_plane_indices]() {
     // Terminate early if the options say to do so and we find an unsafe
     // segment.
     bool terminate = false;
@@ -319,26 +333,31 @@ CspaceFreePath::FindSeparationCertificateGivenPath(
     // Wait for all the threads to join.
     thread_pool.at(i).join();
   }
-  std::cout << fmt::format("Certify args queue is empty = {}",
-                           certify_args_queue.empty())
-            << std::endl;
 
   // Now go through and verify which paths were certified as safe
   for (int i = 0; i < num_pieces; ++i) {
+    bool piece_has_value = piece_is_safe.at(i).has_value();
+    std::cout << fmt::format("Piece is safe index {}, has value = {}", i,
+                             piece_has_value)
+              << std::endl;
+    if(piece_is_safe.at(i).has_value()) {
+      std::cout << fmt::format("Piece is safe index {}, value = {}\n", i,
+                             piece_is_safe.at(i).value()) << std::endl;
+    }
     // piece_is_safe.at(i) can only have a value at this point if that piece is
     // unsafe. If it does not have a value, we check whether all the pairs were
     // certified as collision free by checking whether all the collision pairs
     // have a certificate at that piece. If they don't we terminated early and
     // never checked.
-    if (!piece_is_safe.at(i).has_value()) {
-      piece_is_safe.at(i) =
-          std::all_of(certificates->begin(), certificates->end(),
-                      [&i](auto pair_to_certificate_elt) {
-                        // check that this pair has a certificate value at the
-                        // iᵗʰ position
-                        return pair_to_certificate_elt.second.at(i).has_value();
-                      });
-    }
+//   if (!piece_is_safe.at(i).has_value()) {
+//      piece_is_safe.at(i) =
+//          std::all_of(certificates->begin(), certificates->end(),
+//                      [&i](auto pair_to_certificate_elt) {
+//                        // check that this pair has a certificate value at the
+//                        // iᵗʰ position
+//                        return pair_to_certificate_elt.second.at(i).has_value();
+//                      });
+//    }
   }
   return piece_is_safe;
 }
