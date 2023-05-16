@@ -437,25 +437,18 @@ void DefineGeometryOptimizationDev(py::module m) {
                       end - start);
               std::cout << "Certification took: " << duration.count()
                         << std::endl;
-              //              std::vector<std::tuple<geometry::GeometryId,
-              //              geometry::GeometryId,
-              //                  std::vector<std::optional<
-              //                      CspaceFreePath::SeparationCertificateResult>>>>
-              //                  certificates_ret;
-              //              certificates_ret.reserve(certificates.size());
-              //              for (const auto& [key, value] : certificates) {
-              //                certificates_ret.emplace_back(key.first(),
-              //                key.second(), value);
-              //              }
-              //              return std::pair(success, certificates_ret);
-              return true;
+              std::vector<std::tuple<geometry::GeometryId, geometry::GeometryId,
+                  std::vector<std::optional<
+                      CspaceFreePath::SeparationCertificateResult>>>>
+                  certificates_ret;
+              certificates_ret.reserve(certificates.size());
+              for (const auto& [key, value] : certificates) {
+                certificates_ret.emplace_back(key.first(), key.second(), value);
+              }
+              return std::pair(success, certificates_ret);
             },
             py::arg("piecewise_path"), py::arg("ignroed_collision_pairs"),
             py::arg("options"), cls_doc.FindSeparationCertificateGivenPath.doc)
-        //        .def("MakeIsGeometrySeparableOnPathProgram",
-        //            &Class::MakeIsGeometrySeparableOnPathProgram,
-        //            py::arg("geometry_pair"), py::arg("path"),
-        //            cls_doc.MakeIsGeometrySeparableOnPathProgram.doc)
         .def(
             "MakeIsGeometrySeparableOnPathProgram",
             [](const CspaceFreePath* self,
