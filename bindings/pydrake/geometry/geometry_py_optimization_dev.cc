@@ -220,19 +220,13 @@ void DefineGeometryOptimizationDev(py::module m) {
                   certificates;
               bool success = self->FindSeparationCertificateGivenPolytope(
                   C, d, ignored_collision_pairs, options, &certificates);
-              // the type std::unordered_map<SortedPair<geometry::GeometryId>,
-              // CspaceFreePolytope::SeparationCertificateResult> does not map
-              // to a Python type. Instead, we return a list of tuples
-              // containing the geometry ids and the certificate for that pair.
-              std::vector<std::tuple<geometry::GeometryId, geometry::GeometryId,
-                  CspaceFreePolytope::SeparationCertificateResult>>
-                  certificates_ret;
-              certificates_ret.reserve(certificates.size());
-              for (const auto& [key, value] : certificates) {
-                certificates_ret.emplace_back(key.first(), key.second(), value);
+              // Template deduction for drake::SortedPair<GeometryId> does not
+              // work. Here we manually make a map of tuples instead.
+              py::dict ret;
+              for (const auto& [k, v] : certificates) {
+                ret[py::make_tuple(k.first(), k.second())] = v;
               }
-              return std::pair(success, certificates_ret);
-              //                return std::pair(success, certificates);
+              return std::pair(success, ret);
             },
             py::arg("C"), py::arg("d"), py::arg("ignored_collision_pairs"),
             py::arg("options"))
@@ -422,35 +416,26 @@ void DefineGeometryOptimizationDev(py::module m) {
                   std::vector<std::optional<
                       CspaceFreePath::SeparationCertificateResult>>>
                   certificates;
-              unused(self);
-              unused(piecewise_path);
-              unused(ignored_collision_pairs);
-              unused(options);
-              std::cout << "Starting certificate search" << std::endl;
-              auto start = std::chrono::high_resolution_clock::now();
+//              std::cout << "Starting certificate search" << std::endl;
+//              auto start = std::chrono::high_resolution_clock::now();
               std::vector<std::optional<bool>> success =
                   self->FindSeparationCertificateGivenPath(piecewise_path,
                       ignored_collision_pairs, options, &certificates);
-              auto end = std::chrono::high_resolution_clock::now();
-              auto duration =
-                  std::chrono::duration_cast<std::chrono::milliseconds>(
-                      end - start);
-              std::cout << "Certification took: " << duration.count()
-                        << std::endl;
-              //              std::vector<std::tuple<geometry::GeometryId,
-              //              geometry::GeometryId,
-              //                  std::vector<std::optional<
-              //                      CspaceFreePath::SeparationCertificateResult>>>>
-              //                  certificates_ret;
-              //              certificates_ret.reserve(certificates.size());
-              //              for (const auto& [key, value] : certificates) {
-              //                certificates_ret.emplace_back(key.first(),
-              //                key.second(), value);
-              //              }
-              //              return std::pair(success, certificates_ret);
-              return true;
+//              auto end = std::chrono::high_resolution_clock::now();
+//              auto duration =
+//                  std::chrono::duration_cast<std::chrono::milliseconds>(
+//                      end - start);
+//              std::cout << "Certification took: " << duration.count()
+//                        << std::endl;
+              // Template deduction for drake::SortedPair<GeometryId> does not
+              // work. Here we manually make a map of tuples instead.
+              py::dict ret;
+              for (const auto& [k, v] : certificates) {
+                ret[py::make_tuple(k.first(), k.second())] = v;
+              }
+              return std::pair(success, ret);
             },
-            py::arg("piecewise_path"), py::arg("ignroed_collision_pairs"),
+            py::arg("piecewise_path"), py::arg("ignored_collision_pairs"),
             py::arg("options"), cls_doc.FindSeparationCertificateGivenPath.doc)
         //        .def("MakeIsGeometrySeparableOnPathProgram",
         //            &Class::MakeIsGeometrySeparableOnPathProgram,
