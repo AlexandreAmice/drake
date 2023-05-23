@@ -154,12 +154,13 @@ void DefineGeometryOptimizationDev(py::module m) {
   {
     // Definitions for cpsace_free_structs.h/cc
     constexpr auto& result_doc = doc.SeparationCertificateResultBase;
-    auto prog_cls = py::class_<SeparationCertificateProgramBase>(
-        m, "SeparationCertificateProgramBase", result_doc.doc)
-                        //            .def_readwrite("prog",
-                        //            &SeparationCertificateProgramBase::prog)
-                        .def_readonly("plane_index",
-                            &SeparationCertificateProgramBase::plane_index);
+    auto prog_cls =
+        py::class_<SeparationCertificateProgramBase>(
+            m, "SeparationCertificateProgramBase", result_doc.doc)
+            //                        .def_readonly("prog",
+            //                                    &SeparationCertificateProgramBase::prog)
+            .def_readonly(
+                "plane_index", &SeparationCertificateProgramBase::plane_index);
     auto result_cls =
         py::class_<SeparationCertificateResultBase>(
             m, "SeparationCertificateResultBase", result_doc.doc)
@@ -433,7 +434,7 @@ void DefineGeometryOptimizationDev(py::module m) {
               // work. Here we manually make a map of tuples instead.
               std::vector<py::dict> ret(certificates.size());
               for (int i = 0; i < static_cast<int>(certificates.size()); ++i) {
-                for (const auto& [k, v]: certificates[i]) {
+                for (const auto& [k, v] : certificates[i]) {
                   ret.at(i)[py::make_tuple(k.first(), k.second())] = v;
                 }
               }
@@ -490,7 +491,13 @@ void DefineGeometryOptimizationDev(py::module m) {
                  int>(),
             py::arg("path"), py::arg("plane_index"))
         .def_readonly(
-            "plane_index", &Class::SeparationCertificateProgram::plane_index);
+            "plane_index", &Class::SeparationCertificateProgram::plane_index)
+        .def(
+            "prog",
+            [](const Class::SeparationCertificateProgram* self) {
+              return self->prog.get();
+            },
+            py_rvp::reference_internal);
 
     py::class_<Class::SeparationCertificateResult>(cspace_free_path_cls,
         "SeparationCertificateResult", cls_doc.SeparationCertificateResult.doc)

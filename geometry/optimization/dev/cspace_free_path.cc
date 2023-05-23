@@ -255,7 +255,7 @@ CspaceFreePath::FindSeparationCertificateGivenPath(
           SolveSeparationCertificateProgram(certificate_program, options);
       certificates->at(segment_idx).at(pair) = result;
       piece_is_safe_mutex.at(segment_idx).lock();
-      if (!result.result.is_success()) {
+      if (!result.result.is_success() && options.verbose) {
         std::cout << fmt::format("({},{})", plane_count, segment_idx)
                   << std::endl;
         std::cout << fmt::format(
@@ -339,7 +339,6 @@ CspaceFreePath::FindSeparationCertificateGivenPath(
   thread_pool.reserve(num_threads);
   for (int i = 0; i < num_threads; ++i) {
     // Launch all the threads
-    std::cout << "launching threads" << std::endl;
     thread_pool.emplace_back(certify_worker);
   }
   for (int i = 0; i < num_threads; ++i) {
@@ -348,33 +347,33 @@ CspaceFreePath::FindSeparationCertificateGivenPath(
   }
 
   // Now go through and verify which paths were certified as safe
-  for (int i = 0; i < num_pieces; ++i) {
-    bool piece_has_value = piece_is_safe.at(i).has_value();
-    std::cout << fmt::format("Piece is safe index {}, has value = {}", i,
-                             piece_has_value)
-              << std::endl;
-    if (piece_is_safe.at(i).has_value()) {
-      std::cout << fmt::format("Piece is safe index {}, value = {}\n", i,
-                               piece_is_safe.at(i).value())
-                << std::endl;
-    }
-    // piece_is_safe.at(i) can only have a value at this point if that piece is
-    // unsafe. If it does not have a value, we check whether all the pairs were
-    // certified as collision free by checking whether all the collision pairs
-    // have a certificate at that piece. If they don't we terminated early and
-    // never checked.
-    //   if (!piece_is_safe.at(i).has_value()) {
-    //      piece_is_safe.at(i) =
-    //          std::all_of(certificates->begin(), certificates->end(),
-    //                      [&i](auto pair_to_certificate_elt) {
-    //                        // check that this pair has a certificate value at
-    //                        the
-    //                        // iᵗʰ position
-    //                        return
-    //                        pair_to_certificate_elt.second.at(i).has_value();
-    //                      });
-    //    }
-  }
+//  for (int i = 0; i < num_pieces; ++i) {
+//    bool piece_has_value = piece_is_safe.at(i).has_value();
+////    std::cout << fmt::format("Piece is safe index {}, has value = {}", i,
+////                             piece_has_value)
+////              << std::endl;
+////    if (piece_is_safe.at(i).has_value()) {
+////      std::cout << fmt::format("Piece is safe index {}, value = {}\n", i,
+////                               piece_is_safe.at(i).value())
+////                << std::endl;
+////    }
+//    // piece_is_safe.at(i) can only have a value at this point if that piece is
+//    // unsafe. If it does not have a value, we check whether all the pairs were
+//    // certified as collision free by checking whether all the collision pairs
+//    // have a certificate at that piece. If they don't we terminated early and
+//    // never checked.
+//    //   if (!piece_is_safe.at(i).has_value()) {
+//    //      piece_is_safe.at(i) =
+//    //          std::all_of(certificates->begin(), certificates->end(),
+//    //                      [&i](auto pair_to_certificate_elt) {
+//    //                        // check that this pair has a certificate value at
+//    //                        the
+//    //                        // iᵗʰ position
+//    //                        return
+//    //                        pair_to_certificate_elt.second.at(i).has_value();
+//    //                      });
+//    //    }
+//  }
   return piece_is_safe;
 }
 
