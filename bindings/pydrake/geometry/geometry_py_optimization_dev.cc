@@ -412,26 +412,30 @@ void DefineGeometryOptimizationDev(py::module m) {
                     ignored_collision_pairs,
                 const CspaceFreePath::FindSeparationCertificateGivenPathOptions&
                     options) {
-              std::unordered_map<SortedPair<geometry::GeometryId>,
-                  std::vector<std::optional<
-                      CspaceFreePath::SeparationCertificateResult>>>
+              std::vector<std::unordered_map<SortedPair<geometry::GeometryId>,
+                  std::optional<CspaceFreePath::SeparationCertificateResult>>>
                   certificates;
-//              std::cout << "Starting certificate search" << std::endl;
-//              auto start = std::chrono::high_resolution_clock::now();
+              //              std::cout << "Starting certificate search" <<
+              //              std::endl; auto start =
+              //              std::chrono::high_resolution_clock::now();
               std::vector<std::optional<bool>> success =
                   self->FindSeparationCertificateGivenPath(piecewise_path,
                       ignored_collision_pairs, options, &certificates);
-//              auto end = std::chrono::high_resolution_clock::now();
-//              auto duration =
-//                  std::chrono::duration_cast<std::chrono::milliseconds>(
-//                      end - start);
-//              std::cout << "Certification took: " << duration.count()
-//                        << std::endl;
+              //              auto end =
+              //              std::chrono::high_resolution_clock::now(); auto
+              //              duration =
+              //                  std::chrono::duration_cast<std::chrono::milliseconds>(
+              //                      end - start);
+              //              std::cout << "Certification took: " <<
+              //              duration.count()
+              //                        << std::endl;
               // Template deduction for drake::SortedPair<GeometryId> does not
               // work. Here we manually make a map of tuples instead.
-              py::dict ret;
-              for (const auto& [k, v] : certificates) {
-                ret[py::make_tuple(k.first(), k.second())] = v;
+              std::vector<py::dict> ret(certificates.size());
+              for (int i = 0; i < static_cast<int>(certificates.size()); ++i) {
+                for (const auto& [k, v]: certificates[i]) {
+                  ret.at(i)[py::make_tuple(k.first(), k.second())] = v;
+                }
               }
               return std::pair(success, ret);
             },
