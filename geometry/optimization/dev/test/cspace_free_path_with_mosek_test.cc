@@ -516,7 +516,8 @@ TEST_F(CIrisRobotPolytopicGeometryTest,
           std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
       std::cout << "Time taken by function: " << duration.count() << std::endl;
 
-      EXPECT_EQ(static_cast<int>(piece_is_safe.size()), static_cast<int>(bezier_poly_path_safe.cols()));
+      EXPECT_EQ(static_cast<int>(piece_is_safe.size()),
+                static_cast<int>(bezier_poly_path_safe.cols()));
 
       // Check that all the pieces are safe
       EXPECT_TRUE(std::all_of(piece_is_safe.begin(), piece_is_safe.end(),
@@ -525,9 +526,6 @@ TEST_F(CIrisRobotPolytopicGeometryTest,
                               }));
 
       // Check that all the certificates are populated
-      EXPECT_EQ(certificates.size(),
-                tester.cspace_free_path().separating_planes().size() -
-                    ignored_collision_pairs.size());
       EXPECT_EQ(certificates.size(), bezier_poly_path_safe.cols());
       for (int i = 0; i < static_cast<int>(certificates.size()); ++i) {
         std::unordered_map<
@@ -540,9 +538,9 @@ TEST_F(CIrisRobotPolytopicGeometryTest,
         EXPECT_TRUE(std::all_of(
             pair_to_certs_map.begin(), pair_to_certs_map.end(),
             [](std::pair<
-                   SortedPair<geometry::GeometryId>,
-                   std::optional<CspaceFreePath::SeparationCertificateResult>>
-               flag) {
+                SortedPair<geometry::GeometryId>,
+                std::optional<CspaceFreePath::SeparationCertificateResult>>
+                   flag) {
               return flag.second.has_value();
             }));
       }
