@@ -502,9 +502,9 @@ TEST_F(CIrisRobotPolytopicGeometryTest,
         }
         EXPECT_TRUE(c_free_polyhedron.PointInSet(point));
       }
-      std::unordered_map<SortedPair<geometry::GeometryId>,
-                         std::vector<std::optional<
-                             CspaceFreePath::SeparationCertificateResult>>>
+      std::vector<std::unordered_map<
+          SortedPair<geometry::GeometryId>,
+          std::optional<CspaceFreePath::SeparationCertificateResult>>>
           certificates;
       auto start = std::chrono::high_resolution_clock::now();
       std::vector<std::optional<bool>> piece_is_safe =
@@ -514,27 +514,38 @@ TEST_F(CIrisRobotPolytopicGeometryTest,
       auto end = std::chrono::high_resolution_clock::now();
       auto duration =
           std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-
-      // To get the value of duration use the count()
-      // member function on the duration object
       std::cout << "Time taken by function: " << duration.count() << std::endl;
-      EXPECT_EQ(certificates.size(),
-                tester.cspace_free_path().separating_planes().size() -
-                    ignored_collision_pairs.size());
-      for (const auto& [pair, cert] : certificates) {
-        EXPECT_EQ(static_cast<int>(cert.size()), num_trials);
-        const bool certs_have_value  = std::all_of(
-                   cert.begin(), cert.end(),
-                   [](const std::optional<CspaceFreePath::SeparationCertificateResult>&
-                          flag) {
-                     return flag.has_value();
-                   });
-        EXPECT_TRUE(certs_have_value);
-      }
+
+      EXPECT_EQ(static_cast<int>(piece_is_safe.size()), static_cast<int>(bezier_poly_path_safe.cols()));
+
+      // Check that all the pieces are safe
       EXPECT_TRUE(std::all_of(piece_is_safe.begin(), piece_is_safe.end(),
                               [](std::optional<bool> flag) {
                                 return flag.has_value() && flag.value();
                               }));
+
+      // Check that all the certificates are populated
+      EXPECT_EQ(certificates.size(),
+                tester.cspace_free_path().separating_planes().size() -
+                    ignored_collision_pairs.size());
+      EXPECT_EQ(certificates.size(), bezier_poly_path_safe.cols());
+      for (int i = 0; i < static_cast<int>(certificates.size()); ++i) {
+        std::unordered_map<
+            SortedPair<geometry::GeometryId>,
+            std::optional<CspaceFreePath::SeparationCertificateResult>>
+            pair_to_certs_map = certificates[i];
+        EXPECT_EQ(static_cast<int>(pair_to_certs_map.size()),
+                  tester.cspace_free_path().separating_planes().size() -
+                      ignored_collision_pairs.size());
+        EXPECT_TRUE(std::all_of(
+            pair_to_certs_map.begin(), pair_to_certs_map.end(),
+            [](std::pair<
+                   SortedPair<geometry::GeometryId>,
+                   std::optional<CspaceFreePath::SeparationCertificateResult>>
+               flag) {
+              return flag.second.has_value();
+            }));
+      }
     }
   }
 }
