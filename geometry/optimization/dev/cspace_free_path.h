@@ -153,9 +153,9 @@ class CspaceFreePath {
       const MatrixX<Polynomiald>& piecewise_path,
       const IgnoredCollisionPairs& ignored_collision_pairs,
       const FindSeparationCertificateGivenPathOptions& options,
-      std::unordered_map<
+      std::vector<std::unordered_map<
           SortedPair<geometry::GeometryId>,
-          std::vector<std::optional<SeparationCertificateResult>>>*
+          std::optional<SeparationCertificateResult>>>*
           certificates) const;
 
   [[nodiscard]] const symbolic::Variable& mu() const { return mu_; }

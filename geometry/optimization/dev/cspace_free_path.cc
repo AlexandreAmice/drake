@@ -1,5 +1,6 @@
 #include "drake/geometry/optimization/dev/cspace_free_path.h"
 
+#include <algorithm>
 #include <future>
 #include <iostream>
 #include <mutex>
@@ -182,13 +183,25 @@ CspaceFreePath::FindSeparationCertificateGivenPath(
     const MatrixX<Polynomiald>& piecewise_path,
     const IgnoredCollisionPairs& ignored_collision_pairs,
     const CspaceFreePath::FindSeparationCertificateGivenPathOptions& options,
-    std::unordered_map<SortedPair<geometry::GeometryId>,
-                       std::vector<std::optional<SeparationCertificateResult>>>*
+    std::vector<std::unordered_map<SortedPair<geometry::GeometryId>,
+                                   std::optional<SeparationCertificateResult>>>*
         certificates) const {
   const int num_pieces{static_cast<int>(piecewise_path.cols())};
 
   certificates->clear();
-  certificates->reserve(separating_planes().size());
+  certificates->reserve(num_pieces);
+  // preallocate the certificate vector
+  for (int i = 0; i < num_pieces; ++i) {
+    certificates->emplace_back(
+        std::unordered_map<SortedPair<geometry::GeometryId>,
+                           std::optional<SeparationCertificateResult>>());
+    certificates->back().reserve(map_geometries_to_separating_planes_.size());
+    for (const auto& [pair, _] : map_geometries_to_separating_planes_) {
+      if (ignored_collision_pairs.count(pair) == 0) {
+        certificates->at(i).insert({pair, std::nullopt});
+      }
+    }
+  }
 
   // Stores the indices in path_separating_planes_ that don't appear in
   // ignored_collision_pairs.
@@ -200,10 +213,6 @@ CspaceFreePath::FindSeparationCertificateGivenPath(
         separating_planes()[i].negative_side_geometry->id());
     if (ignored_collision_pairs.count(pair) == 0) {
       active_plane_indices.push_back(i);
-      // preallocate each vector of certificates
-      certificates->emplace(
-          pair, std::vector<std::optional<SeparationCertificateResult>>(
-                    num_pieces, std::nullopt));
     }
   }
 
@@ -243,28 +252,31 @@ CspaceFreePath::FindSeparationCertificateGivenPath(
 
       auto result =
           SolveSeparationCertificateProgram(certificate_program, options);
-      certificates->at(pair).at(segment_idx) = result;
+      certificates->at(segment_idx).at(pair) = result;
       piece_is_safe_mutex.at(segment_idx).lock();
       if (!result.result.is_success()) {
-        std::cout << fmt::format("({},{})", plane_count, segment_idx) << std::endl;
+        std::cout << fmt::format("({},{})", plane_count, segment_idx)
+                  << std::endl;
         std::cout << fmt::format(
-        "Failed to separate ({}, {}) at segment idx {}",
-        scene_graph_.model_inspector().GetName(pair.first()),
-        scene_graph_.model_inspector().GetName(pair.second()),
-        segment_idx)
-        << std::endl;
-        std::cout <<fmt::format("result.result.is_success() = {}\n",
-                                             result.result.is_success())<< std::endl;
+                         "Failed to separate ({}, {}) at segment idx {}",
+                         scene_graph_.model_inspector().GetName(pair.first()),
+                         scene_graph_.model_inspector().GetName(pair.second()),
+                         segment_idx)
+                  << std::endl;
+        std::cout << fmt::format("result.result.is_success() = {}\n",
+                                 result.result.is_success())
+                  << std::endl;
       }
       piece_is_safe.at(segment_idx) =
-          piece_is_safe.at(segment_idx).value_or(true) && result.result.is_success();
+          piece_is_safe.at(segment_idx).value_or(true) &&
+          result.result.is_success();
       piece_is_safe_mutex.at(segment_idx).unlock();
 
       if (options.verbose) {
         drake::log()->info(
             "SOS {}/{} completed, for Segment {}/{} is_success {}", plane_count,
             active_plane_indices.size(), segment_idx, piecewise_path.cols(),
-            certificates->at(pair).at(segment_idx).has_value());
+            certificates->at(segment_idx).at(pair).has_value());
       }
     }
   };
@@ -337,24 +349,27 @@ CspaceFreePath::FindSeparationCertificateGivenPath(
     std::cout << fmt::format("Piece is safe index {}, has value = {}", i,
                              piece_has_value)
               << std::endl;
-    if(piece_is_safe.at(i).has_value()) {
+    if (piece_is_safe.at(i).has_value()) {
       std::cout << fmt::format("Piece is safe index {}, value = {}\n", i,
-                             piece_is_safe.at(i).value()) << std::endl;
+                               piece_is_safe.at(i).value())
+                << std::endl;
     }
     // piece_is_safe.at(i) can only have a value at this point if that piece is
     // unsafe. If it does not have a value, we check whether all the pairs were
     // certified as collision free by checking whether all the collision pairs
     // have a certificate at that piece. If they don't we terminated early and
     // never checked.
-//   if (!piece_is_safe.at(i).has_value()) {
-//      piece_is_safe.at(i) =
-//          std::all_of(certificates->begin(), certificates->end(),
-//                      [&i](auto pair_to_certificate_elt) {
-//                        // check that this pair has a certificate value at the
-//                        // iᵗʰ position
-//                        return pair_to_certificate_elt.second.at(i).has_value();
-//                      });
-//    }
+    //   if (!piece_is_safe.at(i).has_value()) {
+    //      piece_is_safe.at(i) =
+    //          std::all_of(certificates->begin(), certificates->end(),
+    //                      [&i](auto pair_to_certificate_elt) {
+    //                        // check that this pair has a certificate value at
+    //                        the
+    //                        // iᵗʰ position
+    //                        return
+    //                        pair_to_certificate_elt.second.at(i).has_value();
+    //                      });
+    //    }
   }
   return piece_is_safe;
 }
