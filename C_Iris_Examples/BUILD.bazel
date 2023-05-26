@@ -179,18 +179,6 @@ drake_jupyter_py_binary(
     ],
 )
 
-drake_jupyter_py_binary(
-    name = "2d_example_bilinear_alternation",
-    add_test_rule = 0,
-    data = [
-        "//C_Iris_Examples:models",
-    ],
-    deps = [
-        "//C_Iris_Examples:iris_plant_visualizer",
-        "//C_Iris_Examples:visualization_utils",
-        "//bindings/pydrake",
-    ],
-)
 
 drake_jupyter_py_binary(
     name = "dual_ur",

@@ -217,7 +217,7 @@ TEST_F(CIrisToyRobotTest, MakeAndSolveIsGeometrySeparableOnPathProgram) {
   const SortedPair<geometry::GeometryId> geometry_pair{body0_box_,
                                                        body2_sphere_};
 
-  CspaceFreePolytope::FindSeparationCertificateGivenPolytopeOptions
+  CspaceFreePath::FindSeparationCertificateGivenPathOptions
       find_certificate_options;
   find_certificate_options.verbose = false;
   solvers::MosekSolver solver;
