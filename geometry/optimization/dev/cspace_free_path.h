@@ -153,9 +153,9 @@ class CspaceFreePath {
       const MatrixX<Polynomiald>& piecewise_path,
       const IgnoredCollisionPairs& ignored_collision_pairs,
       const FindSeparationCertificateGivenPathOptions& options,
-      std::vector<std::unordered_map<
-          SortedPair<geometry::GeometryId>,
-          std::optional<SeparationCertificateResult>>>*
+      std::vector<
+          std::unordered_map<SortedPair<geometry::GeometryId>,
+                             std::optional<SeparationCertificateResult>>>*
           certificates) const;
 
   [[nodiscard]] const symbolic::Variable& mu() const { return mu_; }
@@ -184,7 +184,8 @@ class CspaceFreePath {
     return separating_planes_;
   }
 
-  [[nodiscard]] const std::vector<PlaneSeparatesGeometriesOnPath>* plane_geometries_on_path() const {
+  [[nodiscard]] const std::vector<PlaneSeparatesGeometriesOnPath>*
+  plane_geometries_on_path() const {
     return &plane_geometries_on_path_;
   }
 
