@@ -153,14 +153,16 @@ void DefineGeometryOptimizationDev(py::module m) {
   }
   {
     // Definitions for cpsace_free_structs.h/cc
-    constexpr auto& result_doc = doc.SeparationCertificateResultBase;
+    constexpr auto& prog_doc = doc.SeparationCertificateProgramBase;
     auto prog_cls =
         py::class_<SeparationCertificateProgramBase>(
-            m, "SeparationCertificateProgramBase", result_doc.doc)
+            m, "SeparationCertificateProgramBase", prog_doc.doc)
             //                        .def_readonly("prog",
             //                                    &SeparationCertificateProgramBase::prog)
             .def_readonly(
                 "plane_index", &SeparationCertificateProgramBase::plane_index);
+
+    constexpr auto& result_doc = doc.SeparationCertificateResultBase;
     auto result_cls =
         py::class_<SeparationCertificateResultBase>(
             m, "SeparationCertificateResultBase", result_doc.doc)
@@ -169,6 +171,15 @@ void DefineGeometryOptimizationDev(py::module m) {
             .def_readonly("plane_decision_var_vals",
                 &SeparationCertificateResultBase::plane_decision_var_vals)
             .def_readonly("result", &SeparationCertificateResultBase::result);
+
+    constexpr auto& separates_doc = doc.PlaneSeparatesGeometries;
+    auto separates_cls =
+        py::class_<PlaneSeparatesGeometries>(
+            m, "PlaneSeparatesGeometries", separates_doc.doc)
+            .def_readonly("positive_side_rationals", &PlaneSeparatesGeometries::positive_side_rationals)
+            .def_readonly("negative_side_rationals", &PlaneSeparatesGeometries::negative_side_rationals)
+            .def_readonly("plane_index",
+                &PlaneSeparatesGeometries::plane_index);
   }
   {
     using Class = CspaceFreePolytope;
@@ -364,10 +375,9 @@ void DefineGeometryOptimizationDev(py::module m) {
             py::arg("poly"), py::arg("interval_variable"),
             py::arg("parameters"), cls_doc.ctor.doc)
         //  TODO(Alexandre.Amice) bind AddPositivityConstraintToProgram.
-        //           .def("AddPositivityConstraintToProgram",
-        //                &Class::AddPositivityConstraintToProgram,
-        //                py::arg("env"), py::arg("prog"),
-        //                cls_doc.AddPositivityConstraintToProgram);
+//        .def("AddPositivityConstraintToProgram",
+//            &Class::AddPositivityConstraintToProgram, py::arg("env"),
+//            py::arg("prog"), cls_doc.AddPositivityConstraintToProgram)
         .def("get_mu", &Class::get_mu)
         .def("get_p", &Class::get_mu)
         .def("get_poly", &Class::get_mu)
@@ -378,6 +388,18 @@ void DefineGeometryOptimizationDev(py::module m) {
             &Class::get_psatz_variables_and_psd_constraints);
   }
   {
+    constexpr auto& separates_doc = doc.PlaneSeparatesGeometriesOnPath;
+    auto separates_cls =
+    py::class_<PlaneSeparatesGeometriesOnPath>(m,
+        "PlaneSeparatesGeometriesOnPath",
+        separates_doc.doc)
+        .def_readonly("positive_side_conditions",
+            &PlaneSeparatesGeometriesOnPath::positive_side_conditions)
+        .def_readonly("negative_side_conditions",
+            &PlaneSeparatesGeometriesOnPath::negative_side_conditions)
+        .def_readonly(
+            "plane_index", &PlaneSeparatesGeometriesOnPath::plane_index);
+
     using Class = CspaceFreePath;
     const auto& cls_doc = doc.CspaceFreePath;
     py::class_<Class> cspace_free_path_cls(m, "CspaceFreePath", cls_doc.doc);
@@ -405,6 +427,7 @@ void DefineGeometryOptimizationDev(py::module m) {
               return ret;
             })
         .def("separating_planes", &Class::separating_planes)
+        .def("plane_geometries_on_path", &Class::plane_geometries_on_path, py_rvp::reference_internal)
         .def(
             "FindSeparationCertificateGivenPath",
             [](const CspaceFreePath* self,
@@ -442,10 +465,6 @@ void DefineGeometryOptimizationDev(py::module m) {
             },
             py::arg("piecewise_path"), py::arg("ignored_collision_pairs"),
             py::arg("options"), cls_doc.FindSeparationCertificateGivenPath.doc)
-        //        .def("MakeIsGeometrySeparableOnPathProgram",
-        //            &Class::MakeIsGeometrySeparableOnPathProgram,
-        //            py::arg("geometry_pair"), py::arg("path"),
-        //            cls_doc.MakeIsGeometrySeparableOnPathProgram.doc)
         .def(
             "MakeIsGeometrySeparableOnPathProgram",
             [](const CspaceFreePath* self,

@@ -184,6 +184,10 @@ class CspaceFreePath {
     return separating_planes_;
   }
 
+  [[nodiscard]] const std::vector<PlaneSeparatesGeometriesOnPath>* plane_geometries_on_path() const {
+    return &plane_geometries_on_path_;
+  }
+
   /**
    Constructs the SeparationCertificateProgram which searches for a
    separation certificate for a pair of geometries along a path in
