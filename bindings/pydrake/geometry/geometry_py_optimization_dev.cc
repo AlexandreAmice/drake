@@ -427,7 +427,7 @@ void DefineGeometryOptimizationDev(py::module m) {
               return ret;
             })
         .def("separating_planes", &Class::separating_planes)
-        .def("plane_geometries_on_path", &Class::plane_geometries_on_path, py_rvp::reference_internal)
+//        .def("plane_geometries_on_path", &Class::plane_geometries_on_path, py_rvp::reference_internal)
         .def(
             "FindSeparationCertificateGivenPath",
             [](const CspaceFreePath* self,
