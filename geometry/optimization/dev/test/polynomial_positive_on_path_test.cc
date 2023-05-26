@@ -52,7 +52,7 @@ void validate_parametrized_polynomial_prog(
   }
 
   const MathematicalProgram& psatz_variables_and_constraints{
-      poly_prog.get_psatz_variables_and_psd_constraints()};
+      *poly_prog.get_psatz_variables_and_psd_constraints()};
 
   for (const auto& var : poly.indeterminates()) {
     unused(var);
@@ -116,13 +116,15 @@ class AddPositivityConstraintToProgramTest : public ::testing::Test {
     const int expected_num_decision_variables =
         test_prog->decision_variables().size() +
         poly_prog->get_psatz_variables_and_psd_constraints()
-            .decision_variables()
+            .get()
+            ->decision_variables()
             .size();
     const int expected_num_constraints =
         test_prog->GetAllConstraints().size() +  // number of constraints
                                                  // already in the program.
         poly_prog->get_psatz_variables_and_psd_constraints()
-            .GetAllConstraints()
+            .get()
+            ->GetAllConstraints()
             .size() +  // number of multiplier positivity constraints.
         poly_prog->get_p()
             .monomial_to_coefficient_map()
@@ -142,7 +144,8 @@ class AddPositivityConstraintToProgramTest : public ::testing::Test {
     // variables.
     EXPECT_EQ(test_prog->positive_semidefinite_constraints().size(),
               poly_prog->get_psatz_variables_and_psd_constraints()
-                  .positive_semidefinite_constraints()
+                  .get()
+                  ->positive_semidefinite_constraints()
                   .size());
     auto result = solvers::Solve(*test_prog);
     EXPECT_TRUE(result.is_success());

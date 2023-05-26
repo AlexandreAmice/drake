@@ -2,6 +2,7 @@
 
 #include <optional>
 
+#include "drake/common/copyable_unique_ptr.h"
 #include "drake/solvers/mathematical_program.h"
 
 namespace drake {
@@ -26,30 +27,28 @@ namespace optimization {
  */
 class ParametrizedPolynomialPositiveOnUnitInterval {
  public:
-  DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(ParametrizedPolynomialPositiveOnUnitInterval)
-
   ParametrizedPolynomialPositiveOnUnitInterval(
-      const symbolic::Polynomial &poly,
-      const symbolic::Variable &interval_variable,
-      const symbolic::Variables &parameters);
+      const symbolic::Polynomial& poly,
+      const symbolic::Variable& interval_variable,
+      const symbolic::Variables& parameters);
 
   // Add the constraint that this parametrized polynomial is positive on the
   // unit interval. The Environment env must contain an evaluation for all the
   // parameters in parameters_. The MathematicalProgram prog must already
   // contain the indeterminates of psatz_variables_and_psd_constraints_.
   void AddPositivityConstraintToProgram(
-      const symbolic::Environment &env,
-      solvers::MathematicalProgram *prog) const;
+      const symbolic::Environment& env,
+      solvers::MathematicalProgram* prog) const;
 
-  const symbolic::Variable &get_mu() const { return mu_; }
-  const symbolic::Polynomial &get_p() const { return p_; }
-  const symbolic::Polynomial &get_poly() const { return poly_; }
-  const symbolic::Polynomial &get_lambda() const { return lambda_; }
-  const symbolic::Polynomial &get_nu() const { return nu_; }
-  const symbolic::Variables &get_parameters() const { return parameters_; }
+  const symbolic::Variable& get_mu() const { return mu_; }
+  const symbolic::Polynomial& get_p() const { return p_; }
+  const symbolic::Polynomial& get_poly() const { return poly_; }
+  const symbolic::Polynomial& get_lambda() const { return lambda_; }
+  const symbolic::Polynomial& get_nu() const { return nu_; }
+  const symbolic::Variables& get_parameters() const { return parameters_; }
 
-  const solvers::MathematicalProgram &get_psatz_variables_and_psd_constraints()
-  const {
+  const copyable_unique_ptr<solvers::MathematicalProgram>&
+  get_psatz_variables_and_psd_constraints() const {
     return psatz_variables_and_psd_constraints_;
   }
 
@@ -57,7 +56,7 @@ class ParametrizedPolynomialPositiveOnUnitInterval {
   // TODO(Alexandre.Amice) make all members const.
   // The variable parametrizing the path. We will enforce that a certain
   // polynomial is positive for μ ∈ [0,1].
-  const symbolic::Variable mu_;
+  symbolic::Variable mu_;
 
   // The polynomial that this structure will certify is positive.
   symbolic::Polynomial poly_;
@@ -80,7 +79,7 @@ class ParametrizedPolynomialPositiveOnUnitInterval {
 
   // The subset of the decision variables in p_ which must be evaluated before
   // we enforce poly_'s positivity in a Mathematical Program.
-  const symbolic::Variables parameters_;
+  symbolic::Variables parameters_;
 
   // The λ(μ,y) in the documentation of p_
   symbolic::Polynomial lambda_{0};
@@ -90,7 +89,8 @@ class ParametrizedPolynomialPositiveOnUnitInterval {
   // A program which stores the psd variables and constraints associated to λ
   // and ν. See the description of p_. The use of this member is idiosyncratic,
   // so it is not recommended to provide an accessor to it.
-  solvers::MathematicalProgram psatz_variables_and_psd_constraints_;
+  copyable_unique_ptr<solvers::MathematicalProgram>
+      psatz_variables_and_psd_constraints_;
 };
 
 }  // namespace optimization

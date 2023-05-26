@@ -18,12 +18,13 @@ ParametrizedPolynomialPositiveOnUnitInterval::
       poly_(poly),
       p_(poly),
       parameters_(parameters),
-      psatz_variables_and_psd_constraints_() {
-  psatz_variables_and_psd_constraints_.AddIndeterminates(poly.indeterminates());
+      psatz_variables_and_psd_constraints_(new solvers::MathematicalProgram()) {
+  psatz_variables_and_psd_constraints_.get_mutable()->AddIndeterminates(
+      poly.indeterminates());
   for (const auto& var : poly.decision_variables()) {
     // Add the decision variables of poly which are not parameters.
     if (!parameters_.include(var)) {
-      psatz_variables_and_psd_constraints_.AddDecisionVariables(
+      psatz_variables_and_psd_constraints_.get_mutable()->AddDecisionVariables(
           solvers::VectorDecisionVariable<1>(var));
     }
   }
@@ -33,9 +34,11 @@ ParametrizedPolynomialPositiveOnUnitInterval::
     // If poly is of degree 0, then it is a scalar, and we just need to
     // constraint that p_ >= 0.
     const solvers::VectorXDecisionVariable lambda{
-        psatz_variables_and_psd_constraints_.NewContinuousVariables(1, "Sl")};
-    psatz_variables_and_psd_constraints_.AddBoundingBoxConstraint(
-        0, std::numeric_limits<double>::infinity(), lambda);
+        psatz_variables_and_psd_constraints_.get_mutable()
+            ->NewContinuousVariables(1, "Sl")};
+    psatz_variables_and_psd_constraints_.get_mutable()
+        ->AddBoundingBoxConstraint(0, std::numeric_limits<double>::infinity(),
+                                   lambda);
     lambda_ = symbolic::Polynomial{lambda(0), symbolic::Variables()};
     p_ -= lambda(0);
   } else {
@@ -63,23 +66,25 @@ ParametrizedPolynomialPositiveOnUnitInterval::
     // as well as the polynomial p_. Recall that p_ has already been initialized
     // to poly(μ,y).
     auto [lambda, Q_lambda] =
-        psatz_variables_and_psd_constraints_.NewSosPolynomial(
+        psatz_variables_and_psd_constraints_.get_mutable()->NewSosPolynomial(
             multiplier_basis_d, type, "Sl");
     lambda_ = std::move(lambda);
     if (deg == 0) {
       // interval variable doesn't exist in the program, so we can ignore it.
       p_ -= lambda_;
     } else if (deg % 2 == 0) {
-      auto [nu, Q_nu] = psatz_variables_and_psd_constraints_.NewSosPolynomial(
-          multiplier_basis_d.tail(multiplier_basis_d.size() -
-                                  1),  // exclude μᵈ monomial
-          type, "Sv");
+      auto [nu, Q_nu] =
+          psatz_variables_and_psd_constraints_.get_mutable()->NewSosPolynomial(
+              multiplier_basis_d.tail(multiplier_basis_d.size() -
+                                      1),  // exclude μᵈ monomial
+              type, "Sv");
       nu_ = std::move(nu);
       p_ -= lambda_ + nu_ * symbolic::Polynomial(mu_, {mu_}) *
                           (symbolic::Polynomial(1 - mu_, {mu_}));
     } else {
-      auto [nu, Q_nu] = psatz_variables_and_psd_constraints_.NewSosPolynomial(
-          multiplier_basis_d, type, "Sv");
+      auto [nu, Q_nu] =
+          psatz_variables_and_psd_constraints_.get_mutable()->NewSosPolynomial(
+              multiplier_basis_d, type, "Sv");
       nu_ = std::move(nu);
       p_ -= lambda_ * symbolic::Polynomial(mu_, {mu_}) +
             nu_ * (symbolic::Polynomial(1 - mu_, {mu_}));
@@ -95,18 +100,19 @@ void ParametrizedPolynomialPositiveOnUnitInterval::
     DRAKE_DEMAND(env.find(parameter) != env.cend());
   }
   for (int i = 0;
-       i < psatz_variables_and_psd_constraints_.indeterminates().size(); ++i) {
+       i < psatz_variables_and_psd_constraints_.get()->indeterminates().size();
+       ++i) {
     // Check that prog contains the indeterminates of this program.
-    DRAKE_DEMAND(
-        prog->indeterminates_index().count(
-            psatz_variables_and_psd_constraints_.indeterminates()(i).get_id()) >
-        0);
+    DRAKE_DEMAND(prog->indeterminates_index().count(
+                     psatz_variables_and_psd_constraints_.get()
+                         ->indeterminates()(i)
+                         .get_id()) > 0);
   }
 
   prog->AddDecisionVariables(
-      psatz_variables_and_psd_constraints_.decision_variables());
+      psatz_variables_and_psd_constraints_.get()->decision_variables());
   for (const auto& binding :
-       psatz_variables_and_psd_constraints_.GetAllConstraints()) {
+       psatz_variables_and_psd_constraints_.get()->GetAllConstraints()) {
     prog->AddConstraint(binding);
   }
   // Add the p_ == 0 constraint after evaluation. Do this manually to avoid a

@@ -16,6 +16,8 @@ drake_cc_package_library(
     visibility = ["//visibility:public"],
     deps = [
         ":cspace_free_path",
+        ":cspace_free_path_separating_plane",
+        ":polynomial_positive_on_path",
     ],
 )
 
@@ -44,6 +46,7 @@ drake_cc_library(
     srcs = ["polynomial_positive_on_path.cc"],
     hdrs = ["polynomial_positive_on_path.h"],
     deps = [
+        "//common:copyable_unique_ptr",
         "//common/symbolic:monomial_util",
         "//solvers:mathematical_program",
     ],
