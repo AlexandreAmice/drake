@@ -379,9 +379,9 @@ void DefineGeometryOptimizationDev(py::module m) {
 //            &Class::AddPositivityConstraintToProgram, py::arg("env"),
 //            py::arg("prog"), cls_doc.AddPositivityConstraintToProgram)
         .def("get_mu", &Class::get_mu)
-        .def("get_p", &Class::get_mu)
-        .def("get_poly", &Class::get_mu)
-        .def("get_lambda", &Class::get_mu)
+        .def("get_p", &Class::get_p)
+        .def("get_poly", &Class::get_poly)
+        .def("get_lambda", &Class::get_lambda)
         .def("get_nu", &Class::get_nu)
         .def("get_parameters", &Class::get_parameters)
         .def("get_psatz_variables_and_psd_constraints",
@@ -427,7 +427,7 @@ void DefineGeometryOptimizationDev(py::module m) {
               return ret;
             })
         .def("separating_planes", &Class::separating_planes)
-//        .def("plane_geometries_on_path", &Class::plane_geometries_on_path, py_rvp::reference_internal)
+        .def("plane_geometries_on_path", &Class::plane_geometries_on_path, py_rvp::reference_internal)
         .def(
             "FindSeparationCertificateGivenPath",
             [](const CspaceFreePath* self,

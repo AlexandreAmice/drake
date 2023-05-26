@@ -16,22 +16,22 @@
 
       <link name="fixed">
         <collision name="right">
-          <origin rpy="0 0 0" xyz="2.33 0 0"/>
+          <origin rpy="0 0 0" xyz="2.0 0 0"/>
           <geometry><box size="1 1 10"/></geometry>
         </collision>
         <visual>
-          <origin xyz="2.33 0 .0" rpy="0 0 0"/>
+          <origin xyz="2.0 0 .0" rpy="0 0 0"/>
           <geometry>
             <box size="1 1 10"/>
           </geometry>
           <material name="Gray"/>
         </visual>
         <collision name="left">
-          <origin rpy="0 0 0" xyz="-2.33 0 0"/>
+          <origin rpy="0 0 0" xyz="-2.0 0 0"/>
           <geometry><box size="1 1 10"/></geometry>
         </collision>
         <visual>
-          <origin xyz="-2.33 0 .0" rpy="0 0 0"/>
+          <origin xyz="-2.0 0 .0" rpy="0 0 0"/>
           <geometry>
             <box size="1 1 10"/>
           </geometry>
@@ -59,22 +59,22 @@
         <child link="link1"/>
       </joint>
       <link name="link2">
-        <collision name="box">
-          <origin rpy="0 0 0" xyz="0 0 -1.0"/>
-          <geometry><box size="0.424 0.424 0.424"/></geometry>
-        </collision>
-        <visual>
-           <origin rpy="0 0 0" xyz="0 0 -1.0"/>
-          <geometry><box size="0.424 0.424 0.424"/></geometry>
-          <material name="Red"/>
-        </visual>
         <!-- pole (no collision geometry-->
         <visual>
-          <origin xyz="0 0 -1.0" rpy="0 0 0"/>
+          <origin xyz="0 0 0.0" rpy="0 0 0"/>
           <geometry>
             <box size="0.1 0.1 1"/>
           </geometry>
           <material name="Blue"/>
+        </visual>
+        <collision name="box">
+          <origin rpy="0 0 0" xyz="0 0 -0.5"/>
+          <geometry><box size="0.5 0.5 0.5"/></geometry>
+        </collision>
+        <visual>
+           <origin rpy="0 0 0" xyz="0 0 -0.5"/>
+          <geometry><box size="0.5 0.5 0.5"/></geometry>
+          <material name="Red"/>
         </visual>
       </link>
       <joint name="joint2" type="revolute">
