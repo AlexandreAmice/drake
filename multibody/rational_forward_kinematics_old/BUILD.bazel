@@ -1,0 +1,238 @@
+# -*- python -*-
+
+load(
+    "@drake//tools/skylark:drake_cc.bzl",
+    "drake_cc_binary",
+    "drake_cc_googletest",
+    "drake_cc_library",
+    "drake_cc_package_library",
+)
+load("//tools/lint:lint.bzl", "add_lint_tests")
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "models",
+    srcs = glob(
+        [
+            "models/**",
+        ],
+        exclude = [
+            "**/*.sha512",
+        ],
+    ),
+)
+
+drake_cc_package_library(
+    name = "rational_forward_kinematics_old",
+    visibility = ["//visibility:public"],
+    deps = [
+        ":collision_geometry",
+        ":cspace_free_line",
+        ":cspace_free_region",
+        ":generate_monomial_basis_util",
+        ":plane_side",
+        ":rational_forward_kinematics_core",
+        ":redundant_inequality_pruning",
+    ],
+)
+
+drake_cc_library(
+    name = "rational_forward_kinematics_core",
+    srcs = [
+        "rational_forward_kinematics.cc",
+        "rational_forward_kinematics_internal.cc",
+    ],
+    hdrs = [
+        "rational_forward_kinematics.h",
+        "rational_forward_kinematics_internal.h",
+    ],
+    deps = [
+        "//common/symbolic:expression",
+        "//common/symbolic:polynomial",
+        "//common/symbolic:rational_function",
+        "//common/symbolic:trigonometric_polynomial",
+        "//multibody/plant",
+    ],
+)
+
+drake_cc_library(
+    name = "generate_monomial_basis_util",
+    srcs = ["generate_monomial_basis_util.cc"],
+    hdrs = ["generate_monomial_basis_util.h"],
+    deps = [
+        "//common/symbolic:expression",
+        "//common/symbolic:polynomial",
+        "//common/symbolic:rational_function",
+        "//common/symbolic:trigonometric_polynomial",
+    ],
+)
+
+drake_cc_library(
+    name = "redundant_inequality_pruning",
+    srcs = ["redundant_inequality_pruning.cc"],
+    hdrs = ["redundant_inequality_pruning.h"],
+    deps = [
+        "//common/symbolic:expression",
+        "//common/symbolic:polynomial",
+        "//common/symbolic:rational_function",
+        "//common/symbolic:trigonometric_polynomial",
+        "//solvers:mathematical_program",
+        "//solvers:solve",
+    ],
+)
+
+drake_cc_library(
+    name = "plane_side",
+    srcs = ["plane_side.cc"],
+    hdrs = ["plane_side.h"],
+    deps = [],
+)
+
+drake_cc_library(
+    name = "collision_geometry",
+    srcs = ["collision_geometry.cc"],
+    hdrs = ["collision_geometry.h"],
+    deps = [
+        ":plane_side",
+        "//geometry:geometry_ids",
+        "//geometry:read_obj",
+        "//geometry/optimization:convex_set",
+        "//multibody/tree:multibody_tree_indexes",
+        "@qhull_internal//:qhull",
+    ],
+)
+
+drake_cc_library(
+    name = "cspace_free_region",
+    srcs = [
+        "cspace_free_region.cc",
+    ],
+    hdrs = [
+        "cspace_free_region.h",
+    ],
+    deps = [
+        ":collision_geometry",
+        ":generate_monomial_basis_util",
+        ":plane_side",
+        ":rational_forward_kinematics_core",
+        ":redundant_inequality_pruning",
+        "//geometry/optimization:convex_set",
+        "//solvers:mathematical_program",
+        "//solvers:mathematical_program_result",
+        "//solvers:mosek_solver",
+        "@qhull_internal//:qhull",
+    ],
+)
+
+drake_cc_library(
+    name = "cspace_free_line",
+    srcs = [
+        "cspace_free_line.cc",
+    ],
+    hdrs = [
+        "cspace_free_line.h",
+    ],
+    deps = [
+        ":collision_geometry",
+        ":cspace_free_region",
+        ":generate_monomial_basis_util",
+        ":plane_side",
+        ":rational_forward_kinematics_core",
+        ":redundant_inequality_pruning",
+        "//geometry/optimization:convex_set",
+        "//solvers:mathematical_program",
+        "//solvers:mathematical_program_result",
+        "//solvers:mosek_solver",
+    ],
+)
+
+# === test/ ===
+#drake_cc_library(
+#    name = "rational_forward_kinematics_test_utilities",
+#    testonly = 1,
+#    srcs = ["test/rational_forward_kinematics_test_utilities.cc"],
+#    hdrs = ["test/rational_forward_kinematics_test_utilities.h"],
+#    data = [
+#        ":models",
+#        "//examples/kuka_iiwa_arm:models",
+#        "//manipulation/models/iiwa_description:models",
+#    ],
+#    deps = [
+#        ":collision_geometry",
+#        "//common:find_resource",
+#        "//multibody/benchmarks/kuka_iiwa_robot",
+#        "//multibody/parsing:parser",
+#        "//multibody/plant",
+#        "//solvers:solve",
+#        "//systems/analysis:simulator",
+#        "//systems/rendering:multibody_position_to_geometry_pose",
+#        "@gtest//:without_main",
+#    ],
+#)
+#
+#drake_cc_googletest(
+#    name = "cspace_free_region_test",
+#    timeout = "long",
+#    data = [
+#        "//geometry:test_obj_files",
+#    ],
+#    deps = [
+#        ":cspace_free_region",
+#        ":rational_forward_kinematics_test_utilities",
+#        "//common:find_resource",
+#        "//common/test_utilities:eigen_matrix_compare",
+#        "//common/test_utilities:symbolic_test_util",
+#        "//multibody/inverse_kinematics",
+#    ],
+#)
+#
+#drake_cc_googletest(
+#    name = "cspace_free_line_test",
+#    timeout = "long",
+#    deps = [
+#        ":cspace_free_line",
+#        ":rational_forward_kinematics_test_utilities",
+#        "//common/test_utilities:eigen_matrix_compare",
+#        "//common/test_utilities:symbolic_test_util",
+#        "//multibody/inverse_kinematics",
+#        "//multibody/parsing:parser",
+#        "//solvers:get_program_type",
+#        "//systems/framework:diagram_builder",
+#    ],
+#)
+#
+#drake_cc_googletest(
+#    name = "generate_monomial_basis_util_test",
+#    deps = [
+#        ":generate_monomial_basis_util",
+#    ],
+#)
+#
+#drake_cc_googletest(
+#    name = "rational_forward_kinematics_test",
+#    timeout = "moderate",
+#    deps = [
+#        ":rational_forward_kinematics_core",
+#        ":rational_forward_kinematics_test_utilities",
+#        "//common/test_utilities:eigen_matrix_compare",
+#        "//common/test_utilities:symbolic_test_util",
+#    ],
+#)
+#
+#drake_cc_googletest(
+#    name = "rational_forward_kinematics_internal_test",
+#    deps = [
+#        ":rational_forward_kinematics_core",
+#        ":rational_forward_kinematics_test_utilities",
+#    ],
+#)
+#
+#drake_cc_googletest(
+#    name = "redundant_inequality_pruning_test",
+#    deps = [
+#        ":redundant_inequality_pruning",
+#    ],
+#)
+#
+#add_lint_tests()

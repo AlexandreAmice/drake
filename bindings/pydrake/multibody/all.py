@@ -10,6 +10,8 @@ from .parsing import *  # noqa
 from .plant import *  # noqa
 from .rational import *  # noqa
 from .tree import *  # noqa
+from .rational_forward_kinematics import *  # noqa
+
 
 # Submodules.
 from .benchmarks.all import *  # noqa

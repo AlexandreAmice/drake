@@ -26,17 +26,17 @@
           </geometry>
           <material name="Gray"/>
         </visual>
-        <collision name="left">
-          <origin rpy="0 0 0" xyz="-2.0 0 0"/>
-          <geometry><box size="1 1 10"/></geometry>
-        </collision>
-        <visual>
-          <origin xyz="-2.0 0 .0" rpy="0 0 0"/>
-          <geometry>
-            <box size="1 1 10"/>
-          </geometry>
-          <material name="Gray"/>
-        </visual>
+<!--        <collision name="left">-->
+<!--          <origin rpy="0 0 0" xyz="-2.0 0 0"/>-->
+<!--          <geometry><box size="1 1 10"/></geometry>-->
+<!--        </collision>-->
+<!--        <visual>-->
+<!--          <origin xyz="-2.0 0 .0" rpy="0 0 0"/>-->
+<!--          <geometry>-->
+<!--            <box size="1 1 10"/>-->
+<!--          </geometry>-->
+<!--          <material name="Gray"/>-->
+<!--        </visual>-->
       </link>
       <joint name="fixed_link_weld" type="fixed">
         <parent link="world"/>

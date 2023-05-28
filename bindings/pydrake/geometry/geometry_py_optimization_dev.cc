@@ -514,7 +514,7 @@ void DefineGeometryOptimizationDev(py::module m) {
         .def(
             "prog",
             [](const Class::SeparationCertificateProgram* self) {
-              return self->prog.get();
+              return self->prog.get()->Clone();
             },
             py_rvp::reference_internal);
 
