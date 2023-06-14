@@ -263,7 +263,7 @@ class IrisPlantVisualizer:
 
     def plot_regions(self, regions, ellipses = None,
                      region_suffix = '', colors = None,
-                     wireframe = True,
+                     wireframe = False,
                      opacity = 0.7,
                      fill = True,
                      line_width = 10,
