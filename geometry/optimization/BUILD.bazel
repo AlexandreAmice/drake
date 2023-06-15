@@ -17,6 +17,7 @@ drake_cc_package_library(
         ":convex_set",
         ":graph_of_convex_sets",
         ":iris",
+        ":visibility_graph"
     ],
 )
 

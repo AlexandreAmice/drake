@@ -13,7 +13,7 @@
 #include "drake/geometry/optimization/hyperellipsoid.h"
 #include "drake/geometry/optimization/intersection.h"
 #include "drake/geometry/optimization/iris.h"
-//#include "drake/geometry/optimization/visibility_graph.h"
+#include "drake/geometry/optimization/visibility_graph.h"
 #include "drake/geometry/optimization/minkowski_sum.h"
 #include "drake/geometry/optimization/point.h"
 #include "drake/geometry/optimization/vpolytope.h"
@@ -354,7 +354,7 @@ void DefineGeometryOptimization(py::module m) {
           &IrisInConfigurationSpace),
       py::arg("plant"), py::arg("context"), py::arg("options") = IrisOptions(),
       doc.IrisInConfigurationSpace.doc);
-
+      
   m.def(
       "IrisInRationalConfigurationSpace",
       [](const multibody::MultibodyPlant<double>& plant,
@@ -367,6 +367,21 @@ void DefineGeometryOptimization(py::module m) {
       py::arg("plant"), py::arg("context"), py::arg("q_star"),
       py::arg("options") = IrisOptions(),
       doc.IrisInRationalConfigurationSpace.doc);
+
+  m.def(
+      "ComputeVisibilityGraph",
+      []( const Eigen::Ref<const Eigen::VectorXd>& points,
+          const multibody::MultibodyPlant<double>& plant,
+          systems::Context<double>& plant_context,
+          const multibody::RationalForwardKinematics* rat_fk,
+          const Eigen::Ref<const Eigen::VectorXd>& q_star,
+          int num_samples, double tolerance) {
+        return ComputeVisibilityGraph(
+            points, plant, plant_context, rat_fk, q_star, num_samples, tolerance);
+      },
+      py::arg("points"), py::arg("plant"), py::arg("plant_context"), 
+      py::arg("rat_fk"), py::arg("q_star"), py::arg("num_samples"), py::arg("tolerance"),
+      doc.ComputeVisibilityGraph.doc);
 
   // GraphOfConvexSetsOptions
   {
