@@ -3,7 +3,8 @@
 #include "drake/multibody/plant/multibody_plant.h"
 #include "drake/multibody/rational/rational_forward_kinematics.h"
 #include "drake/geometry/optimization/visibility_graph.h"
-
+#include <iostream>
+#include <string>
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
 using namespace drake::multibody;
@@ -19,7 +20,8 @@ Eigen::Matrix<int, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> ComputeVisib
     const Eigen::Ref<const VectorXd>& q_star, int num_samples, double tolerence) {
 
   const int numPoints = points.rows();
-  Eigen::Matrix<int, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> adjacencyMatrix(numPoints, numPoints);
+  Eigen::Matrix<int, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> adjacencyMatrix = Eigen::MatrixXi::Zero(numPoints, numPoints);
+ 
   // adjacencyMatrix.reserve(Eigen::VectorXi::Constant(numPoints, 4)); //
   // Reserve space for 4 non-zero elements per row (assuming most points are
   // visible)
@@ -66,7 +68,12 @@ Eigen::Matrix<int, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> ComputeVisib
       };
 
   for (int i = 0; i < numPoints; ++i) {
+    if (i%50==0){
+        drake::log()->info(fmt::format(
+          "Remaining Nodes to check {}/{}", i, numPoints));
+      }
     for (int j = i + 1; j < numPoints; ++j) {
+      
       if (isVisible(points.row(i), 
                     points.row(j))) {
         adjacencyMatrix(i, j) = 1;
@@ -74,7 +81,6 @@ Eigen::Matrix<int, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> ComputeVisib
       }
     }
   }
-
   // adjacencyMatrix.makeCompressed();
   return adjacencyMatrix;
 }

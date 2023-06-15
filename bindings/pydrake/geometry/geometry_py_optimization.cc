@@ -370,7 +370,7 @@ void DefineGeometryOptimization(py::module m) {
 
   m.def(
       "ComputeVisibilityGraph",
-      []( const Eigen::Ref<const Eigen::VectorXd>& points,
+      []( const Eigen::Ref<const Eigen::MatrixXd>& points,
           const multibody::MultibodyPlant<double>& plant,
           systems::Context<double>& plant_context,
           const multibody::RationalForwardKinematics* rat_fk,
@@ -380,8 +380,7 @@ void DefineGeometryOptimization(py::module m) {
             points, plant, plant_context, rat_fk, q_star, num_samples, tolerance);
       },
       py::arg("points"), py::arg("plant"), py::arg("plant_context"), 
-      py::arg("rat_fk"), py::arg("q_star"), py::arg("num_samples"), py::arg("tolerance"),
-      doc.ComputeVisibilityGraph.doc);
+      py::arg("rat_fk"), py::arg("q_star"), py::arg("num_samples"), py::arg("tolerance"));
 
   // GraphOfConvexSetsOptions
   {
