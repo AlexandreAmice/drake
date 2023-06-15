@@ -5,6 +5,8 @@ from visibility_seeding import VisSeeder
 import pickle
 import time
 from datetime import datetime
+import networkx as nx
+from visibility_utils import generate_distinct_colors
 
 class Logger:
     def __init__(self, experiment_name, seed, N, alpha, eps, estimate_coverage):
@@ -17,9 +19,11 @@ class Logger:
         self.summary_file = self.expdir+"/summary/summary_"+self.name_exp+".txt"
         M = int(np.log(alpha)/np.log(1-eps) + 0.5)
         self.coverage_estimator = estimate_coverage
+            
         if not os.path.exists(self.expdir):
             os.makedirs(self.expdir+"/data")
             os.makedirs(self.expdir+"/summary")
+            os.makedirs(self.expdir+"/images")
             with open(self.summary_file, 'w') as f:
                 f.write("summary "+self.name_exp+"\n")
                 f.write(f"Point Insertion attempts M:{M}\n")
@@ -82,6 +86,29 @@ class Logger:
             for l in summary:
                 f.write(l)
         
+        self.connectivity_graph = nx.Graph()
+        for idx in range(len(vs.regions)):
+            self.connectivity_graph.add_node(idx)
+            
+        for idx1 in range(len(vs.regions)):
+            for idx2 in range(idx1 +1, len(vs.regions)):
+                r1 = vs.regions[idx1]
+                r2 = vs.regions[idx2]
+                if r1.IntersectsWith(r2):
+                    self.connectivity_graph.add_edge(idx1,idx2)
+
+        fig = plt.figure(figsize=(10,10))
+        hues = generate_distinct_colors(len(vs.region_groups))
+        colors = []
+        for g,h in zip(vs.region_groups, hues):
+            colors += [h]*len(g)
+
+        nx.draw_spring(self.connectivity_graph, 
+                       with_labels = True, 
+                       node_color = colors)
+        plt.title(f"iteration {iteration}")
+        plt.savefig(self.expdir+f"/images/img_it{iteration}.png")
+
         # #save picture
         # fig, ax = plt.subplots(figsize = (10,10))
         # self.world.plot_cfree(ax)

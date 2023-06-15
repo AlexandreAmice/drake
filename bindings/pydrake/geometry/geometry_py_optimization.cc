@@ -13,6 +13,7 @@
 #include "drake/geometry/optimization/hyperellipsoid.h"
 #include "drake/geometry/optimization/intersection.h"
 #include "drake/geometry/optimization/iris.h"
+//#include "drake/geometry/optimization/visibility_graph.h"
 #include "drake/geometry/optimization/minkowski_sum.h"
 #include "drake/geometry/optimization/point.h"
 #include "drake/geometry/optimization/vpolytope.h"

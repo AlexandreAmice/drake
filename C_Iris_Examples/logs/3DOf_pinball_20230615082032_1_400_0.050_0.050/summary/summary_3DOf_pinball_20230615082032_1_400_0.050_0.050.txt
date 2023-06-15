@@ -1,0 +1,5 @@
+summary 3DOf_pinball_20230615082032_1_400_0.050_0.050
+Point Insertion attempts M:58
+0.95 probability that unseen region is less than 5.0 '%' of Cfree 
+-------------------------------------------
+-------------------------------------------

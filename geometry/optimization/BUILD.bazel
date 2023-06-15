@@ -89,6 +89,16 @@ drake_cc_library(
 )
 
 drake_cc_library(
+    name = "visibility_graph",
+    srcs = ["visibility_graph.cc"],
+    hdrs = ["visibility_graph.h"],
+    deps = [
+        "//multibody/plant",
+        "//multibody/rational:rational_forward_kinematics",
+    ],
+)
+
+drake_cc_library(
     name = "test_utilities",
     testonly = 1,
     srcs = ["test_utilities.cc"],
