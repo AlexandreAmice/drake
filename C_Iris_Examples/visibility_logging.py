@@ -7,6 +7,7 @@ import time
 from datetime import datetime
 import networkx as nx
 from visibility_utils import generate_distinct_colors
+from pydrake.all import HPolyhedron
 
 class Logger:
     def __init__(self, experiment_name, seed, N, alpha, eps, estimate_coverage):
@@ -17,13 +18,14 @@ class Logger:
         self.name_exp =experiment_name + "_" +timestamp_str+f"_{seed}_{N}_{alpha:.3f}_{eps:.3f}"
         self.expdir = root+"/logs/"+self.name_exp
         self.summary_file = self.expdir+"/summary/summary_"+self.name_exp+".txt"
-        M = int(np.log(alpha)/np.log(1-eps) + 0.5)
+        M = int(np.log(1-(1-alpha)**(1/N))/np.log((1-eps)) + 0.5)
         self.coverage_estimator = estimate_coverage
-            
+        self.nr_regions = 0
         if not os.path.exists(self.expdir):
             os.makedirs(self.expdir+"/data")
             os.makedirs(self.expdir+"/summary")
             os.makedirs(self.expdir+"/images")
+            os.makedirs(self.expdir+"/regions")
             with open(self.summary_file, 'w') as f:
                 f.write("summary "+self.name_exp+"\n")
                 f.write(f"Point Insertion attempts M:{M}\n")
@@ -36,6 +38,14 @@ class Logger:
     
     def time(self,):
         self.timings.append(time.time())
+
+    def log_region(self, r: HPolyhedron):
+        self.nr_regions +=1
+        r_A = r.A() 
+        r_b = r.b()
+        data = {'ra': r_A, 'rb': r_b}
+        with open(self.expdir+f"/regions/region_{self.nr_regions}"+".pkl", 'wb') as f:
+            pickle.dump(data,f)
 
     def log(self, vs: VisSeeder, iteration):
         #self.timings.append(time.time())
@@ -98,9 +108,9 @@ class Logger:
                     self.connectivity_graph.add_edge(idx1,idx2)
 
         fig = plt.figure(figsize=(10,10))
-        hues = generate_distinct_colors(len(vs.region_groups))
+        hues = generate_distinct_colors(len(vs.region_groups)+1)[1:]
         colors = []
-        for g,h in zip(vs.region_groups, hues):
+        for g, h in zip(vs.region_groups, hues):
             colors += [h]*len(g)
 
         nx.draw_spring(self.connectivity_graph, 

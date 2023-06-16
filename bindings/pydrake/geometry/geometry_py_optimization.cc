@@ -321,6 +321,7 @@ void DefineGeometryOptimization(py::module m) {
               "configuration_space_margin={}, "
               "num_collision_infeasible_samples={}, "
               "configuration_obstacles {}, "
+              "initial_ellipsoid {}, "
               "prog_with_additional_constraints {}, "
               "num_additional_constraint_infeasible_samples={}, "
               "random_seed={}"
@@ -331,6 +332,7 @@ void DefineGeometryOptimization(py::module m) {
                   self.configuration_space_margin,
                   self.num_collision_infeasible_samples,
                   self.configuration_obstacles,
+                  self.initial_ellipsoid,
                   self.prog_with_additional_constraints ? "is set"
                                                         : "is not set",
                   self.num_additional_constraint_infeasible_samples,
@@ -371,16 +373,20 @@ void DefineGeometryOptimization(py::module m) {
   m.def(
       "ComputeVisibilityGraph",
       []( const Eigen::Ref<const Eigen::MatrixXd>& points,
+          ConvexSets& c_obstacles,
           const multibody::MultibodyPlant<double>& plant,
           systems::Context<double>& plant_context,
-          const multibody::RationalForwardKinematics* rat_fk,
-          const Eigen::Ref<const Eigen::VectorXd>& q_star,
+          //const multibody::RationalForwardKinematics* rat_fk,
+          //const Eigen::Ref<const Eigen::VectorXd>& q_star,
           int num_samples, double tolerance) {
         return ComputeVisibilityGraph(
-            points, plant, plant_context, rat_fk, q_star, num_samples, tolerance);
+            points, c_obstacles, plant, plant_context, 
+            //rat_fk, q_star, 
+            num_samples, tolerance);
       },
-      py::arg("points"), py::arg("plant"), py::arg("plant_context"), 
-      py::arg("rat_fk"), py::arg("q_star"), py::arg("num_samples"), py::arg("tolerance"));
+      py::arg("points"), py::arg("c_obstacles"), py::arg("plant"), py::arg("plant_context"), 
+      //py::arg("rat_fk"), py::arg("q_star"), 
+      py::arg("num_samples"), py::arg("tolerance"));
 
   // GraphOfConvexSetsOptions
   {

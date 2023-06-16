@@ -8,6 +8,8 @@
 #include "drake/geometry/optimization/hpolyhedron.h"
 #include "drake/multibody/plant/multibody_plant.h"
 
+#include "drake/common/copyable_unique_ptr.h"
+
 namespace drake {
 namespace geometry {
 namespace optimization {
@@ -62,13 +64,15 @@ struct IrisOptions {
   pass in such configuration space obstacles. */
   ConvexSets configuration_obstacles{};
 
+  /**Initial distance metric for directional growth*/
+  std::vector<copyable_unique_ptr<Hyperellipsoid>> initial_ellipsoid{};
   /** By default, IRIS in configuration space certifies regions for collision
   avoidance constraints and joint limits. This option can be used to pass
   additional constraints that should be satisfied by the IRIS region. We accept
   these in the form of a MathematicalProgram:
 
     find q subject to g(q) ≤ 0.
-
+ 
   The decision_variables() for the program are taken to define `q`. IRIS will
   silently ignore any costs in `prog_with_additional_constraints`, and will
   throw std::runtime_error if it contains any unsupported constraints.

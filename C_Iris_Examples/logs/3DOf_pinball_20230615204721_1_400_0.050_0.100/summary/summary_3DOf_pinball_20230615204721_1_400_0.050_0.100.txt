@@ -1,0 +1,15 @@
+summary 3DOf_pinball_20230615204721_1_400_0.050_0.100
+Point Insertion attempts M:85
+0.95 probability that unseen region is less than 10.0 '%' of Cfree 
+-------------------------------------------
+-------------------------------------------
+-------------------------------------------
+ITERATION: 0
+number of regions step 7
+number of regions total 7
+tstep 254.021, t_total 254.021
+tsample 1.540, t_visgraph 196.486
+t_mhs 1.681
+t_regions 54.314
+number of regions total 7
+coverage 0.8993

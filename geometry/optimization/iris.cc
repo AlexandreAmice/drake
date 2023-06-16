@@ -759,7 +759,12 @@ HPolyhedron _DoIris_(const MultibodyPlant<double>& plant,
   DRAKE_DEMAND(P.A().rows() == 2 * nq);
   const double kEpsilonEllipsoid = 1e-2;
   Hyperellipsoid E = Hyperellipsoid::MakeHypersphere(kEpsilonEllipsoid, sample);
-
+  if (options.initial_ellipsoid.size()>0) {
+      drake::log()->info(fmt::format(
+          "Initial Ellipsoid overwritten with q-space ellipse"));
+      DRAKE_DEMAND(options.initial_ellipsoid[0]->ambient_dimension() == nq);
+      E = *options.initial_ellipsoid[0];
+  }
   // Make all of the convex sets and supporting quantities.
   auto query_object =
       plant.get_geometry_query_input_port().Eval<QueryObject<double>>(context);

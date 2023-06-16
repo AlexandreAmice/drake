@@ -94,6 +94,7 @@ drake_cc_library(
     srcs = ["visibility_graph.cc"],
     hdrs = ["visibility_graph.h"],
     deps = [
+        ":convex_set",
         "//multibody/plant",
         "//multibody/rational:rational_forward_kinematics",
     ],
