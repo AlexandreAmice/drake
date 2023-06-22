@@ -87,6 +87,7 @@ drake_jupyter_py_binary(
     ],
     deps = [
         "//C_Iris_Examples:iris_plant_visualizer",
+        "//C_Iris_Examples:prm",
         "//C_Iris_Examples:visualization_utils",
         "//bindings/pydrake",
     ],
@@ -150,19 +151,7 @@ drake_jupyter_py_binary(
     ],
 )
 
-drake_jupyter_py_binary(
-    name = "pinball_iiwas_prm_certify",
-    add_test_rule = 0,
-    data = [
-        "//C_Iris_Examples:models",
-    ],
-    deps = [
-        "//C_Iris_Examples:iris_plant_visualizer",
-        "//C_Iris_Examples:prm",
-        "//C_Iris_Examples:visualization_utils",
-        "//bindings/pydrake",
-    ],
-)
+
 
 ## END NON-CANONICAL EXAMPLES
 
