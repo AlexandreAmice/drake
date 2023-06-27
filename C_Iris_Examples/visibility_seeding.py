@@ -50,7 +50,8 @@ class VisSeeder:
             if b_test_is_full:
                 if self.vb : print(strftime("[%H:%M:%S] ", gmtime()) +'[VisSeeder] Bernoulli test failed')
                 done = True 
-                break
+                if self.logger is not None: self.logger.log_string(strftime("[%H:%M:%S] ", gmtime()) +'[VisSeeder] Bernoulli test failed')
+                return self.regions
             if self.logger is not None: self.logger.time()
 
             #build visibility graph
@@ -66,13 +67,17 @@ class VisSeeder:
             if self.logger is not None: self.logger.time()
 
             #grow the regions with obstacles
-            regions_step = self.iris_w_obstacles(points[mhs_idx, :].squeeze(), self.sregs, self.logger)
+            regions_step, is_full_iris = self.iris_w_obstacles(points[mhs_idx, :].squeeze().reshape(len(mhs_idx),-1), self.sregs, self.logger, self.regions)
             self.regions += regions_step
             self.region_groups.append(regions_step)
             if self.logger is not None: self.logger.time()
             if self.logger is not None: self.logger.log(self, it)
-
+            if is_full_iris:
+                print(strftime("[%H:%M:%S] ", gmtime()) +'[VisSeeder] Coverage met, terminated on Iris step')
+                if self.logger is not None: self.logger.log_string(strftime("[%H:%M:%S] ", gmtime()) +'[VisSeeder] Coverage met, terminated on Iris step')
+                return self.regions
             it+=1
+        if self.logger is not None: self.logger.log_string(strftime("[%H:%M:%S] ", gmtime()) +'[VisSeeder] Maxit reached')
         return self.regions
     
     def save_state(self, path):

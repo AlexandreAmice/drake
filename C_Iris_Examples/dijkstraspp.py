@@ -62,7 +62,9 @@ class DijkstraSPPsolver:
         node_locations = [node.loc for node in nodes_intersections]
         adjacency_list = []
         adjacency_dist = []
-        for n in nodes_intersections:
+        for idn, n in enumerate(nodes_intersections):
+            if (idn%1000) == 0:
+                if self.verbose: print('[DijkstraSPP] Pre-Building d-adjacency matrix ', idn,'/', len(nodes_intersections))
             edges = []
             edge_dist = []
             for n2 in nodes_intersections:

@@ -47,6 +47,10 @@ class Logger:
         with open(self.expdir+f"/regions/region_{self.nr_regions}"+".pkl", 'wb') as f:
             pickle.dump(data,f)
 
+    def log_string(self, string):
+        with open(self.summary_file, 'a') as f:
+            f.write(string +'\n')
+
     def log(self, vs: VisSeeder, iteration):
         #self.timings.append(time.time())
         t_sample = self.timings[-4] - self.timings[-5] 
@@ -73,9 +77,9 @@ class Logger:
         'cov': coverage_experiment,
         'tstep':t_step,
         'tsample':t_sample,
-        'tsample':t_visgraph,
-        'tsample':t_mhs,
-        'tsample':t_regions,
+        'tvisgraph':t_visgraph,
+        'tmhs':t_mhs,
+        'tregions':t_regions,
         'ttotal':t_total,
         }
         with open(self.expdir+f"/data/it_{iteration}"+".pkl", 'wb') as f:
