@@ -52,6 +52,12 @@ HPolyhedron Iris(const ConvexSets& obstacles, const Ref<const VectorXd>& sample,
   DRAKE_DEMAND(domain.IsBounded());
   const double kEpsilonEllipsoid = 1e-2;
   Hyperellipsoid E = Hyperellipsoid::MakeHypersphere(kEpsilonEllipsoid, sample);
+  if (options.initial_ellipsoid.size()>0) {
+      drake::log()->info(fmt::format(
+          "Initial Ellipsoid overwritten"));
+      DRAKE_DEMAND(options.initial_ellipsoid[0]->ambient_dimension() == dim);
+      E = *options.initial_ellipsoid[0];
+  }
   HPolyhedron P = domain;
 
   // On each iteration, we will build the collision-free polytope represented as

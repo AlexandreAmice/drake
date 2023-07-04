@@ -6,6 +6,7 @@
 
 #include "drake/geometry/optimization/convex_set.h"
 #include "drake/geometry/optimization/hpolyhedron.h"
+#include "drake/geometry/optimization/hyperellipsoid.h"
 #include "drake/multibody/plant/multibody_plant.h"
 
 #include "drake/common/copyable_unique_ptr.h"
@@ -65,7 +66,8 @@ struct IrisOptions {
   ConvexSets configuration_obstacles{};
 
   /**Initial distance metric for directional growth*/
-  std::vector<copyable_unique_ptr<Hyperellipsoid>> initial_ellipsoid{};
+  Hyperellipsoids initial_ellipsoid{}; //std::vector<copyable_unique_ptr<Hyperellipsoid>>
+  
   /** By default, IRIS in configuration space certifies regions for collision
   avoidance constraints and joint limits. This option can be used to pass
   additional constraints that should be satisfied by the IRIS region. We accept

@@ -132,6 +132,7 @@ class Hyperellipsoid final : public ConvexSet {
   Eigen::MatrixXd A_{};
   Eigen::VectorXd center_{};
 };
+typedef std::vector<copyable_unique_ptr<Hyperellipsoid>> Hyperellipsoids;
 
 }  // namespace optimization
 }  // namespace geometry
