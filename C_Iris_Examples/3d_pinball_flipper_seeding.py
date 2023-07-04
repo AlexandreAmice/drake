@@ -165,7 +165,7 @@ find_polytope_given_lagrangian_option.ellipsoid_margin_epsilon = 1e-4
 find_polytope_given_lagrangian_option.solver_id = solver_id
 
 # bilinear_alternation_options = CspaceFreePolytope.BilinearAlternationOptions()
-# bilinear_alternation_options.max_iter = 10
+# bilinear_alternatiohttps://arxiv.org/pdf/2207.09238.pdfn_options.max_iter = 10
 # bilinear_alternation_options.convergence_tol = 1e-3
 # bilinear_alternation_options.find_polytope_options = find_polytope_given_lagrangian_option
 # bilinear_alternation_options.find_lagrangian_options = find_separation_certificate_given_polytope_options
@@ -183,10 +183,10 @@ q_diff = q_max-q_min
 
 alpha = 0.05
 eps = 0.1
-epsilon_sample = 0.1
+epsilon_sample = 0.05
 
 
-for seed in [3, 4, 5]:
+for seed in [1, 2]:
     for N in [1, 40, 400]:
 
         np.random.seed(seed)
@@ -204,9 +204,10 @@ for seed in [3, 4, 5]:
                 q_s = q_min + rand*q_diff
                 col = False
                 if not visualizer.col_func_handle(q_s):
-                    for _ in range(10):
+                    for _ in range(50):
                         r  = 2*epsilon*(np.random.rand(3)-0.5)
                         col |= (visualizer.col_func_handle(q_s+r) > 0)
+                        if col: break
                     if not col:
                         return Ratfk.ComputeSValue(q_s, q_star)
                 else:
@@ -225,8 +226,8 @@ for seed in [3, 4, 5]:
             for i in range(n):
                 bt_tries = 0
                 while bt_tries<m:
-                    point = sample_cfree_SPoint(MAXIT=1000, epsilon = epsilon)
-                    if point_near_regions(point, regions, tries = 100, eps = 0.1*epsilon):
+                    point = sample_cfree_SPoint(MAXIT=2000, epsilon = epsilon)
+                    if point_near_regions(point, regions, tries = 100, eps = 0.05*epsilon):
                         bt_tries+=1
                     else:
                         break

@@ -83,6 +83,11 @@ class UrDiagram:
                     RigidTransform(RollPitchYaw(0, 0, -np.pi / 2),
                                    np.array([0.06, 0, 0])))
 
+        proximity_properties = ProximityProperties()
+        AddContactMaterial(dissipation=0.1,
+                            point_stiffness=250.0,
+                            friction=CoulombFriction(0.9, 0.5),
+                            properties=proximity_properties)
         if add_shelf:
             shelf_file_path = "assets/shelves.sdf"
             shelf_instance = parser.AddModelFromFile(shelf_file_path,
@@ -91,16 +96,11 @@ class UrDiagram:
                                                   shelf_instance)
             shelf_frame = self.plant.GetFrameByName("shelves_body",
                                                     shelf_instance)
-            X_WShelf = RigidTransform(np.array([0.6, 0, 0.4]))
+            X_WShelf = RigidTransform(np.array([0.4, 0, 0.4]))
             self.plant.WeldFrames(self.plant.world_frame(), shelf_frame,
                                   X_WShelf)
 
-            proximity_properties = ProximityProperties()
-            AddContactMaterial(dissipation=0.1,
-                               point_stiffness=250.0,
-                               friction=CoulombFriction(0.9, 0.5),
-                               properties=proximity_properties)
-            X_ShelfBox = RigidTransform(np.array([0, 0, -0.07]))
+            X_ShelfBox = RigidTransform(np.array([-0.1, 0, -0.07]))
             box_shape = Box(0.03, 0.03, 0.12)
 
             self.plant.RegisterVisualGeometry(shelf_body, X_ShelfBox,
@@ -110,17 +110,41 @@ class UrDiagram:
                 shelf_body, X_ShelfBox, box_shape, "shelf_box",
                 proximity_properties)
 
+            X_ShelfBox2 = RigidTransform(np.array([0.0, 0, 0.2]))
+
+            self.plant.RegisterVisualGeometry(shelf_body, X_ShelfBox2,
+                                              box_shape, "shelf_box2",
+                                              np.array([0, 0., 1., 1]))
+            shelf_box = self.plant.RegisterCollisionGeometry(
+                shelf_body, X_ShelfBox2, box_shape, "shelf_box2",
+                proximity_properties)
+
+        ground_shape = Box(4.0, 4.0, 0.1)
+
+
+        X_WGround = RigidTransform(np.array([0.0, 0,-0.05]))
+
+        self.plant.RegisterVisualGeometry(self.plant.GetBodyByName("world"), X_WGround,
+                                            ground_shape, "ground",
+                                            np.array([0.3, 0.3, 0.3,1]))
+        ground_box = self.plant.RegisterCollisionGeometry(
+            self.plant.GetBodyByName("world"), X_WGround, ground_shape, "w_ground",
+            proximity_properties)
+            
         self.plant.Finalize()
 
         inspector = self.scene_graph.model_inspector()
-        for ur_instance in self.ur_instances:
-            ur_geometries = GeometrySet()
-            for body_index in self.plant.GetBodyIndices(ur_instance):
-                body_geometries = inspector.GetGeometries(
-                    self.plant.GetBodyFrameIdOrThrow(body_index))
-                ur_geometries.Add(body_geometries)
-            self.scene_graph.collision_filter_manager().Apply(
-                CollisionFilterDeclaration().ExcludeWithin(ur_geometries))
+        # if add_shelf:
+        #     shelf_ground = GeometrySet()
+        #     shelf_ground.Add(shelf_geom)
+        # for ur_instance in self.ur_instances:
+        #     ur_geometries = GeometrySet()
+        #     for body_index in self.plant.GetBodyIndices(ur_instance):
+        #         body_geometries = inspector.GetGeometries(
+        #             self.plant.GetBodyFrameIdOrThrow(body_index))
+        #         ur_geometries.Add(body_geometries)
+        #     self.scene_graph.collision_filter_manager().Apply(
+        #         CollisionFilterDeclaration().ExcludeWithin(ur_geometries))
         if add_gripper:
             for (ur_instance, gripper_instance) in zip(self.ur_instances,
                                                        self.gripper_instances):

@@ -15,10 +15,12 @@ class VisSeeder:
                  build_vgraph = None,
                  iris_w_obstacles = None,
                  verbose = False,
-                 logger = None
+                 logger = None,
+                 terminate_on_iris_step = True
                  ):
         
         self.logger = logger
+        self.terminate_on_iris_step = terminate_on_iris_step
         if self.logger is not None: self.logger.time()
         self.vb = verbose
         self.sample_cfree = sample_cfree
@@ -47,11 +49,11 @@ class VisSeeder:
             #sample N points in cfree
             points, b_test_is_full = self.sample_cfree(self.N, self.M, self.regions)
             self.vgraph_points.append(points)
-            if b_test_is_full:
-                if self.vb : print(strftime("[%H:%M:%S] ", gmtime()) +'[VisSeeder] Bernoulli test failed')
-                done = True 
-                if self.logger is not None: self.logger.log_string(strftime("[%H:%M:%S] ", gmtime()) +'[VisSeeder] Bernoulli test failed')
-                return self.regions
+            # if b_test_is_full:
+            #     if self.vb : print(strftime("[%H:%M:%S] ", gmtime()) +'[VisSeeder] Bernoulli test failed')
+            #     done = True 
+            #     if self.logger is not None: self.logger.log_string(strftime("[%H:%M:%S] ", gmtime()) +'[VisSeeder] Bernoulli test failed')
+            #     return self.regions
             if self.logger is not None: self.logger.time()
 
             #build visibility graph
@@ -72,7 +74,7 @@ class VisSeeder:
             self.region_groups.append(regions_step)
             if self.logger is not None: self.logger.time()
             if self.logger is not None: self.logger.log(self, it)
-            if is_full_iris:
+            if is_full_iris and self.terminate_on_iris_step:
                 print(strftime("[%H:%M:%S] ", gmtime()) +'[VisSeeder] Coverage met, terminated on Iris step')
                 if self.logger is not None: self.logger.log_string(strftime("[%H:%M:%S] ", gmtime()) +'[VisSeeder] Coverage met, terminated on Iris step')
                 return self.regions

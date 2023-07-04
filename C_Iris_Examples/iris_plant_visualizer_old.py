@@ -278,7 +278,7 @@ class IrisPlantVisualizer:
             name = prefix + "/hpoly"
             if region.ambient_dimension() == 3:
                 self.plot_hpoly3d(self.meshcat2, name, region,
-                                  c, wireframe = wireframe, resolution = 30)
+                                  c, wireframe = wireframe, resolution = 40)
             elif region.ambient_dimension() == 2:
                 self.plot_hpoly2d(self.meshcat2, name,
                                   region, *[col/255 for col in colors[i]],
