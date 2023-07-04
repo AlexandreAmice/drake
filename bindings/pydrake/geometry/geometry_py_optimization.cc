@@ -82,7 +82,7 @@ void DefineGeometryOptimization(py::module m) {
           return copyable_unique_ptr<ConvexSet>(s);
         }));
 
-    py::class_<copyable_unique_ptr<Hyperellipsoid>>(m, "CopyableUniquePtrHyperellipsoids")
+    py::class_<copyable_unique_ptr<Hyperellipsoid>>(m, "CopyableUniquePtrHyperellipsoid")
         .def(py::init([](const Hyperellipsoid& e) {
           return copyable_unique_ptr<Hyperellipsoid>(e);
         }));
