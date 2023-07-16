@@ -30,6 +30,7 @@ initialize_path_map(
     symbolic::Polynomial::MapType path_monomial_to_coeff;
     for (int j = 0; j <= maximum_path_degree; ++j) {
       const symbolic::Variable cur_var{fmt::format("s_{}(mu_{})_coeff", i, j)};
+//      const symbolic::Variable cur_var{fmt::format("mu_{}{}", i, j)};
       path_monomial_to_coeff.emplace(basis(j), symbolic::Expression{cur_var});
     }
     ret.insert({s, symbolic::Polynomial(std::move(path_monomial_to_coeff))});
@@ -52,9 +53,12 @@ PlaneSeparatesGeometriesOnPath::PlaneSeparatesGeometriesOnPath(
         for (const auto& var : rational.numerator().indeterminates()) {
           parameters.insert(path_with_y_subs.at(var).decision_variables());
         }
+        std::cout << rational.numerator() << std::endl ;
+        std::cout << std::endl;
         symbolic::Polynomial path_numerator{
             rational.numerator().SubstituteAndExpand(path_with_y_subs,
                                                      cached_substitutions)};
+        std::cout << path_numerator << std::endl;
 
         // The current y_slacks along with mu.
         symbolic::Variables cur_indeterminates{
@@ -108,9 +112,23 @@ CspaceFreePath::CspaceFreePath(const multibody::MultibodyPlant<double>* plant,
       Vector3<symbolic::Polynomial> a;
       symbolic::Polynomial b;
       VectorX<symbolic::Variable> plane_decision_vars{4 * num_coeffs_per_poly};
-      for (int i = 0; i < plane_decision_vars.rows(); ++i) {
-        plane_decision_vars(i) =
-            symbolic::Variable(fmt::format("plane_var{}", i));
+//      for (int i = 0; i < plane_decision_vars.rows(); ++i) {
+//        plane_decision_vars(i) =
+//            symbolic::Variable(fmt::format("plane_var{}", i));
+//      }
+int ctr = 0;
+      for(int i = 0; i < 4; ++i) {
+        for(int j = 0; j < num_coeffs_per_poly; ++j) {
+          if(i < 3) {
+            plane_decision_vars(ctr) =
+            symbolic::Variable(fmt::format("a_{}{}", i+1, j+1));
+          }
+          else {
+            plane_decision_vars(ctr) =
+            symbolic::Variable(fmt::format("b_{}", j+1));
+          }
+          ctr++;
+        }
       }
       CalcPathPlane<symbolic::Variable, symbolic::Variable,
                     symbolic::Polynomial>(plane_decision_vars, mu_, plane_order,
@@ -149,6 +167,7 @@ CspaceFreePath::CspaceFreePath(const multibody::MultibodyPlant<double>* plant,
   std::vector<PlaneSeparatesGeometries> plane_geometries;
   internal::GenerateRationals(separating_planes_ptrs, y_slack_, q_star_,
                               rational_forward_kin_, &plane_geometries);
+  std::cout << "RATIONALS GENERATED" << std::endl;
   GeneratePathRationals(plane_geometries);
 }
 

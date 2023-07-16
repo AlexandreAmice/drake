@@ -416,6 +416,7 @@ void DefineGeometryOptimizationDev(py::module m) {
         .def("y_slack", &Class::y_slack)
         .def("max_degree", &Class::max_degree)
         .def("plane_order", &Class::plane_order)
+        .def("path", &Class::path)
         .def("map_geometries_to_separating_planes",
             [](const CspaceFreePath* self) {
               // Template deduction for drake::SortedPair<GeometryId> does not

@@ -168,6 +168,9 @@ class CspaceFreePath {
 
   [[nodiscard]] int plane_order() const { return plane_order_; }
 
+  [[nodiscard]] const std::unordered_map<symbolic::Variable, symbolic::Polynomial> path() {
+    return path_;
+  }
   /**
    separating_planes()[map_geometries_to_separating_planes.at(geometry1_id,
    geometry2_id)] is the separating plane that separates geometry1 and

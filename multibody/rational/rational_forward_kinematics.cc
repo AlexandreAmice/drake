@@ -76,7 +76,7 @@ RationalForwardKinematics::RationalForwardKinematics(
       s_.push_back(s_angle);
       s_angles_.push_back(s_angle);
       cos_delta_.emplace_back(
-          fmt::format("cos_delta[{}]", cos_delta_.size() - 1));
+          fmt::format("cos_delta[{}]", cos_delta_.size()));
       sin_delta_.emplace_back(
           fmt::format("sin_delta[{}]", cos_delta_.size() - 1));
       sin_cos_.emplace_back(sin_delta_.back(), cos_delta_.back());

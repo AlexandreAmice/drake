@@ -1,6 +1,7 @@
 #include "drake/geometry/optimization/c_iris_collision_geometry.h"
 
 #include <utility>
+#include <iostream>
 
 #include "drake/common/drake_assert.h"
 #include "drake/geometry/geometry_ids.h"
