@@ -53,12 +53,12 @@ PlaneSeparatesGeometriesOnPath::PlaneSeparatesGeometriesOnPath(
         for (const auto& var : rational.numerator().indeterminates()) {
           parameters.insert(path_with_y_subs.at(var).decision_variables());
         }
-        std::cout << rational.numerator() << std::endl ;
-        std::cout << std::endl;
+//        std::cout << rational.numerator() << std::endl ;
+//        std::cout << std::endl;
         symbolic::Polynomial path_numerator{
             rational.numerator().SubstituteAndExpand(path_with_y_subs,
                                                      cached_substitutions)};
-        std::cout << path_numerator << std::endl;
+//        std::cout << path_numerator << std::endl;
 
         // The current y_slacks along with mu.
         symbolic::Variables cur_indeterminates{
