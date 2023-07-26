@@ -1,0 +1,111 @@
+<?xml version="1.0"?>
+
+<robot name="box_scene">
+  <material name="Blue">
+    <color rgba="0.0 0.0 0.8 1.0"/>
+  </material>
+  <material name="Red">
+    <color rgba="0.8 0.0 0.0 1.0"/>
+  </material>
+  <material name="Green">
+    <color rgba="0.0 0.8 0.0 1.0"/>
+  </material>
+  <material name="Gray">
+    <color rgba="0.2 0.2 0.2 1.0"/>
+  </material>
+
+  <material name="li">
+    <color rgba="0.5 0.5 0.5 1.0"/>
+  </material>
+
+  <link name="base"/>
+
+  <link name="box1">
+    <collision>
+       <origin xyz="0 0 .0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.4 0.1 2.1"/>
+      </geometry>
+    </collision>
+    <visual>
+      <origin xyz="0 0 .0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.4 0.1 2.1"/>
+      </geometry>
+      <material name="Gray"/>
+    </visual>
+  </link>
+
+  <link name="box2">
+    <collision>
+       <origin xyz="0 0 .0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.4 0.1 1.5"/>
+      </geometry>
+    </collision>
+    <visual>
+      <origin xyz="0 0 .0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.4 0.1 1.5"/>
+      </geometry>
+      <material name="Gray"/>
+    </visual>
+  </link>
+
+  <link name="box3">
+    <collision>
+       <origin xyz="0 0 .0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.4 0.1 2.1"/>
+      </geometry>
+    </collision>
+    <visual>
+      <origin xyz="0 0 .0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.4 0.1 2.1"/>
+      </geometry>
+      <material name="Gray"/>
+    </visual>
+  </link>
+
+  <link name="box4">
+    <collision>
+       <origin xyz="0 0 .0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.4 0.1 1.5"/>
+      </geometry>
+    </collision>
+    <visual>
+      <origin xyz="0 0 .0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.4 0.1 1.5"/>
+      </geometry>
+      <material name="Gray"/>
+    </visual>
+  </link>
+
+  <joint name="jbox1" type="fixed">
+    <origin rpy="1.5707 0 0" xyz="0 0 -0.05"/>
+    <parent link="base"/>
+    <child link="box1"/>
+  </joint>
+
+  <joint name="jbox2" type="fixed">
+    <origin rpy="0 0 0" xyz="0 1.0 .75"/>
+    <parent link="base"/>
+    <child link="box2"/>
+  </joint>
+
+  <joint name="jbox3" type="fixed">
+    <origin rpy="1.5707 0 0" xyz="0 0 1.55"/>
+    <parent link="base"/>
+    <child link="box3"/>
+  </joint>
+
+  <joint name="jbox4" type="fixed">
+    <origin rpy="0 0 0" xyz="0 -1 .75"/>
+    <parent link="base"/>
+    <child link="box4"/>
+  </joint>
+  
+</robot>
