@@ -66,7 +66,7 @@ struct IrisOptions {
   ConvexSets configuration_obstacles{};
 
   /**Initial distance metric for directional growth*/
-  Hyperellipsoids initial_ellipsoid{}; //std::vector<copyable_unique_ptr<Hyperellipsoid>>
+  std::optional<Hyperellipsoid> initial_ellipsoid{}; //std::vector<copyable_unique_ptr<Hyperellipsoid>>
   
   /** By default, IRIS in configuration space certifies regions for collision
   avoidance constraints and joint limits. This option can be used to pass

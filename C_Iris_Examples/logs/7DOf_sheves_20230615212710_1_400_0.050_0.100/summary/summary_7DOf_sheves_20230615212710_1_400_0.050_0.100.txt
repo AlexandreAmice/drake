@@ -1,5 +1,0 @@
-summary 7DOf_sheves_20230615212710_1_400_0.050_0.100
-Point Insertion attempts M:85
-0.95 probability that unseen region is less than 10.0 '%' of Cfree 
--------------------------------------------
--------------------------------------------

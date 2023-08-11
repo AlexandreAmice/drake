@@ -81,11 +81,6 @@ void DefineGeometryOptimization(py::module m) {
         .def(py::init([](const ConvexSet& s) {
           return copyable_unique_ptr<ConvexSet>(s);
         }));
-
-    py::class_<copyable_unique_ptr<Hyperellipsoid>>(m, "CopyableUniquePtrHyperellipsoid")
-        .def(py::init([](const Hyperellipsoid& e) {
-          return copyable_unique_ptr<Hyperellipsoid>(e);
-        }));
   }
 
   // CartesianProduct
@@ -350,6 +345,7 @@ void DefineGeometryOptimization(py::module m) {
     DefReadWriteKeepAlive(&iris_options, "prog_with_additional_constraints",
         &IrisOptions::prog_with_additional_constraints,
         cls_doc.prog_with_additional_constraints.doc);
+
   }
 
   m.def("Iris", &Iris, py::arg("obstacles"), py::arg("sample"),
