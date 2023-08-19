@@ -51,6 +51,7 @@ class PRM:
 
         # generate edges
         self.adjacency_list, self.dist_adj = self.connect_nodes()
+        self.make_start_end_pairs()
         self.plot()
 
     def sample_node_pos(self, collision_free=True, MAXIT=1e4):
@@ -167,12 +168,20 @@ class PRM:
             sp_list.append(self.nodes[current_idx])
         return sp_list, sp_length
 
-    def plot(self, ):
+    def plot(self):
         if self.plotcallback:
             self.plotcallback(self.nodes, self.adjacency_list)
         else:
             pass
 
+    def make_start_end_pairs(self):
+        endpoint_index_set = set()
+        self.prm_pairs = []
+        for neighbors in self.adjacency_list:
+            for n in neighbors[1:]:
+                endpoint_index_set.add((neighbors[0], n))
+        for i, (idx0, idx1) in enumerate(endpoint_index_set):
+            self.prm_pairs.append((self.nodes[idx0], self.nodes[idx1]))
     def __deepcopy__(self):
         limits = np.array([self.min_pos, self.max_pos])
         tmp = PRM(limits, len(self.nodes_list),
@@ -186,4 +195,5 @@ class PRM:
         tmp.dist_adj = self.dist_adj
         tmp.plotcallback = self.plotcallback
         return tmp
+
 

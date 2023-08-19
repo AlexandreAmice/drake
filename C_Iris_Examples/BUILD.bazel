@@ -226,3 +226,18 @@ drake_py_binary(
         "//bindings/pydrake",
     ],
 )
+
+drake_jupyter_py_binary(
+    name = "ik_teleop",
+    add_test_rule = 0,
+    data = [
+        "//C_Iris_Examples:models",
+        "//manipulation/models/ur3e:models",
+        "//manipulation/models/wsg_50_description:models",
+    ],
+    deps = [
+        "//C_Iris_Examples:iris_plant_visualizer",
+        "//C_Iris_Examples:visualization_utils",
+        "//bindings/pydrake",
+    ],
+)
