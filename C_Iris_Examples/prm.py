@@ -24,7 +24,9 @@ class PRM:
                  max_it = 1e4,
                  initial_points = None,
                  verbose=False,
-                 plotcallback=None
+                 plotcallback=None,
+                 sample_via_gaussian = False,
+                 gaussian_sample_var = 0.1
                  ):
 
         # col_check(pos) == True -> in collision!
@@ -43,7 +45,10 @@ class PRM:
         # generate n samples using rejection sampling
         nodes = [] if initial_points is None else initial_points
         for idx in range(num_points - len(nodes)):
-            nodes.append(self.sample_node_pos(MAXIT=max_it))
+            if sample_via_gaussian:
+                nodes.append(self.sample_via_gaussian(nodes, var = gaussian_sample_var))
+            else:
+                nodes.append(self.sample_node_pos(MAXIT=max_it))
             if self.verbose and idx % 30 == 0:
                 print('[PRM] Samples', idx)
         self.nodes_list = nodes
@@ -54,6 +59,23 @@ class PRM:
         self.adjacency_list, self.dist_adj = self.connect_nodes()
         self.make_start_end_pairs()
         self.plot()
+
+    def sample_via_gaussian(self, cur_nodes, var = 0.1, collision_free = True, MAXIT=1e4):
+        """
+        randomly select a node and sample from a gaussian around that node
+        """
+        ind = np.random.randint(0, len(cur_nodes))
+        mean = cur_nodes[ind]
+        ctr = 0
+        while ctr < MAXIT:
+            pos_samp = mean + var*np.random.randn(len(self.min_pos))
+            good_sample = not self.check_col or not self.in_collision(pos_samp)
+            if good_sample:
+                return pos_samp 
+            ctr += 1
+        return self.sample_node_pos(collision_free=collision_free, MAXIT=MAXIT)
+             
+
 
     def sample_node_pos(self, collision_free=True, MAXIT=1e4):
 
