@@ -621,9 +621,12 @@ std::string_view GetDtypeName() {
   if constexpr (std::is_same_v<T, Variable>) {
     return "Variable";
   }
+  if constexpr (std::is_same_v<T, Polynomial>) {
+    return "Polynomial";
+  }
   if constexpr (std::is_same_v<T, Expression>) {
     return "Expression";
-  }
+  }  
 }
 
 /* Binds a native C++ matmul(A, B) for wide variety of scalar types. This is
@@ -654,7 +657,11 @@ void DefineHeterogeneousMatmul(py::module m) {
           if constexpr (std::is_same_v<T3, AutoDiffXd>) {
             return A.template cast<AutoDiffXd>() *
                    B.template cast<AutoDiffXd>();
-          } else {
+          } 
+          else if constexpr (std::is_same_v<T3, Polynomial>) {
+            return A.template cast<Polynomial>() *
+                   B.template cast<Polynomial>();
+          }else {
             return A * B;
           }
         },
@@ -681,8 +688,8 @@ void DefineHeterogeneousMatmul(py::module m) {
   bind.operator()<Expression, Variable>();
   bind.operator()<Expression, Expression>();
   bind.operator()<Polynomial, Polynomial>();
-  bind.operator()<Polynomial, Expression>();
-  bind.operator()<Expression, Polynomial>();
+//   bind.operator()<Polynomial, Expression>();
+//   bind.operator()<Expression, Polynomial>();
   bind.operator()<Polynomial, Variable>();
   bind.operator()<Variable, Polynomial>();
   bind.operator()<Polynomial, double>();
