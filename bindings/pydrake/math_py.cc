@@ -33,6 +33,7 @@ namespace drake {
 namespace pydrake {
 
 using symbolic::Expression;
+using symbolic::Polynomial;
 using symbolic::Variable;
 
 namespace {
@@ -679,6 +680,13 @@ void DefineHeterogeneousMatmul(py::module m) {
   bind.operator()<Variable, Expression>();
   bind.operator()<Expression, Variable>();
   bind.operator()<Expression, Expression>();
+  bind.operator()<Polynomial, Polynomial>();
+  bind.operator()<Polynomial, Expression>();
+  bind.operator()<Expression, Polynomial>();
+  bind.operator()<Polynomial, Variable>();
+  bind.operator()<Variable, Polynomial>();
+  bind.operator()<Polynomial, double>();
+  bind.operator()<double, Polynomial>();
 }
 
 }  // namespace
