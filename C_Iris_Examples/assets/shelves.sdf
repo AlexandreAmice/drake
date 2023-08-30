@@ -1,117 +1,20 @@
 <?xml version="1.0"?>
 <sdf version="1.7">
   <model name="shelves">
-    <link name="shelves_body">
-      <visual name="right_wall">
-        <pose> 0 0.292 0 0 0 0</pose>
-        <geometry>
-          <box>
-            <size>0.3 0.016 0.783</size>
-          </box>
-        </geometry>
-        <material>
-          <diffuse> 0.5 0.9 0.5 0.5 </diffuse>
-        </material>
-      </visual>
-      <visual name="left_wall">
-        <pose> 0 -0.292 0 0 0 0</pose>
-        <geometry>
-          <box>
-            <size>0.3 0.016 0.783</size>
-          </box>
-        </geometry>
-        <material>
-          <diffuse> 0.5 0.9 0.5 0.5 </diffuse>
-        </material>
-      </visual>
-      <collision name="right_wall">
-        <pose> 0 0.292 0 0 0 0</pose>
-        <geometry>
-          <box>
-            <size>0.3 0.016 0.783</size>
-          </box>
-        </geometry>
-      </collision>
-      <collision name="left_wall">
-        <pose> 0 -0.292 0 0 0 0</pose>
-        <geometry>
-          <box>
-            <size>0.3 0.016 0.783</size>
-          </box>
-        </geometry>
-      </collision>
-    </link>
-    <link name="top_and_bottom">
+    <link name="bottom">
       <visual name="bottom">
-        <pose> 0 0 -0.3995 0 0 0</pose>
+        <pose>0 0 0 0 0 0</pose>
         <geometry>
           <box>
             <size>0.3 0.6 0.016</size>
           </box>
-        </geometry>
+      </geometry>
         <material>
           <diffuse> 0.5 0.9 0.5 1 </diffuse>
-        </material>
-      </visual>
-      <visual name="top">
-        <pose> 0 0 0.3995 0 0 0</pose>
-        <geometry>
-          <box>
-            <size>0.3 0.6 0.016</size>
-          </box>
-        </geometry>
-        <material>
-          <diffuse> 0.5 0.9 0.5 1 </diffuse>
-        </material>
-      </visual>
-      <visual name="shelf_lower">
-        <pose> 0 0 -0.13115 0 0 0</pose>
-        <geometry>
-          <box>
-            <size>0.3 0.6 0.016</size>
-          </box>
-        </geometry>
-        <material>
-          <diffuse> 0.5 0.9 0.5 1 </diffuse>
-        </material>
-      </visual>
-      <visual name="shelf_upper">
-        <pose> 0 0 0.13115 0 0 0</pose>
-        <geometry>
-          <box>
-            <size>0.3 0.6 0.016</size>
-          </box>
-        </geometry>
-        <material>
-          <diffuse> 0.5 0.9 0.5 1 </diffuse>
-        </material>
+       </material>
       </visual>
       <collision name="bottom">
-        <pose> 0 0 -0.3995 0 0 0</pose>
-        <geometry>
-          <box>
-            <size>0.3 0.6 0.016</size>
-          </box>
-        </geometry>
-      </collision>
-      <collision name="top">
-        <pose> 0 0 0.3995 0 0 0</pose>
-        <geometry>
-          <box>
-            <size>0.3 0.6 0.016</size>
-          </box>
-        </geometry>
-      </collision>
-      <collision name="shelf_lower">
-        <pose> 0 0 -0.13115 0 0 0</pose>
-        <geometry>
-          <box>
-            <size>0.3 0.6 0.016</size>
-          </box>
-        </geometry>
-      </collision>
-      <collision name="shelf_upper">
-        <pose> 0 0 0.13115 0 0 0</pose>
+        <pose> 0 0 0 0 0 0</pose>
         <geometry>
           <box>
             <size>0.3 0.6 0.016</size>
@@ -119,10 +22,130 @@
         </geometry>
       </collision>
     </link>
-    <!-- joint between bottom_top and world -->
-    <joint name="top_and_bottom_shelves_body" type="fixed">
-      <child>top_and_bottom</child>
-      <parent>shelves_body</parent>
+    <link name="top">
+      <visual name="top">
+        <pose>0 0 1 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.3 0.6 0.016</size>
+          </box>
+      </geometry>
+        <material>
+          <diffuse> 0.5 0.9 0.5 1 </diffuse>
+       </material>
+      </visual>
+      <collision name="top">
+        <pose> 0 0 1 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.3 0.6 0.016</size>
+          </box>
+        </geometry>
+      </collision>
+    </link>
+    <joint name="top_bottom_joint" type="fixed">
+      <child>top</child>
+      <parent>bottom</parent>
+  </joint>
+    <link name="right">
+      <visual name="right">
+        <pose>0 0.3 0.5 1.57 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.3 1 0.016</size>
+          </box>
+      </geometry>
+        <material>
+          <diffuse> 0.5 0.9 0.5 1 </diffuse>
+       </material>
+      </visual>
+      <collision name="right">
+        <pose>0 0.3 0.5 1.57 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.3 1 0.016</size>
+          </box>
+        </geometry>
+      </collision>
+    </link>
+    <joint name="right_bottom_joint" type="fixed">
+      <child>right</child>
+      <parent>bottom</parent>
     </joint>
+    <link name="left">
+      <visual name="left">
+        <pose>0 -0.3 0.5 1.57 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.3 1 0.016</size>
+          </box>
+      </geometry>
+        <material>
+          <diffuse> 0.5 0.9 0.5 1 </diffuse>
+       </material>
+      </visual>
+      <collision name="left">
+        <pose>0 -0.3 0.5 1.57 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.3 1 0.016</size>
+          </box>
+        </geometry>
+      </collision>
+    </link>
+    <joint name="left_bottom_joint" type="fixed">
+      <child>left</child>
+      <parent>bottom</parent>
+    </joint>
+    <link name="shelf1">
+      <visual name="shelf1">
+        <pose>0 0 0.5 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.3 0.6 0.016</size>
+          </box>
+      </geometry>
+        <material>
+          <diffuse> 0.5 0.9 0.5 1 </diffuse>
+       </material>
+      </visual>
+      <collision name="shelf1">
+        <pose> 0 0 0.45 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.3 0.6 0.016</size>
+          </box>
+        </geometry>
+      </collision>
+    </link>
+    <joint name="shelf1_bottom_joint" type="fixed">
+      <child>shelf1</child>
+      <parent>bottom</parent>
+  </joint>
+    <link name="shelf2">
+      <visual name="shelf2">
+        <pose>0 0 0.78 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.3 0.6 0.016</size>
+          </box>
+      </geometry>
+        <material>
+          <diffuse> 0.5 0.9 0.5 1 </diffuse>
+       </material>
+      </visual>
+      <collision name="shelf2">
+        <pose> 0 0 0.78 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.3 0.6 0.016</size>
+          </box>
+        </geometry>
+      </collision>
+    </link>
+    <joint name="shelf2_bottom_joint" type="fixed">
+      <child>shelf2</child>
+      <parent>bottom</parent>
+  </joint>
   </model>
 </sdf>

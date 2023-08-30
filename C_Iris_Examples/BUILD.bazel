@@ -38,6 +38,8 @@ filegroup(
         "assets/shelves.sdf",
         "assets/single_pendulum_world.urdf",
         "assets/twoDOF_iiwa7_with_box_collision.sdf",
+        "assets/iiwa6/iiwa6_with_box_collision.sdf",
+        "assets/iiwa6/iiwa6_no_collision.sdf",
         "directives/trans2dof_directives.yaml",
     ],
     visibility = ["//visibility:public"],
@@ -96,6 +98,20 @@ drake_jupyter_py_binary(
 
 drake_jupyter_py_binary(
     name = "7dof_iiwas_prm_certify",
+    add_test_rule = 0,
+    data = [
+        "//C_Iris_Examples:models",
+    ],
+    deps = [
+        "//C_Iris_Examples:iris_plant_visualizer",
+        "//C_Iris_Examples:prm",
+        "//C_Iris_Examples:visualization_utils",
+        "//bindings/pydrake",
+    ],
+)
+
+drake_jupyter_py_binary(
+    name = "7dof_iiwas_rrt",
     add_test_rule = 0,
     data = [
         "//C_Iris_Examples:models",
