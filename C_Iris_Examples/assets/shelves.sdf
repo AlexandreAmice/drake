@@ -122,30 +122,30 @@
       <child>shelf1</child>
       <parent>bottom</parent>
   </joint>
-    <link name="shelf2">
-      <visual name="shelf2">
-        <pose>0 0 0.78 0 0 0</pose>
-        <geometry>
-          <box>
-            <size>0.3 0.6 0.016</size>
-          </box>
-      </geometry>
-        <material>
-          <diffuse> 0.5 0.9 0.5 1 </diffuse>
-       </material>
-      </visual>
-      <collision name="shelf2">
-        <pose> 0 0 0.78 0 0 0</pose>
-        <geometry>
-          <box>
-            <size>0.3 0.6 0.016</size>
-          </box>
-        </geometry>
-      </collision>
-    </link>
-    <joint name="shelf2_bottom_joint" type="fixed">
-      <child>shelf2</child>
-      <parent>bottom</parent>
-  </joint>
+<!--    <link name="shelf2">-->
+<!--      <visual name="shelf2">-->
+<!--        <pose>0 0 0.78 0 0 0</pose>-->
+<!--        <geometry>-->
+<!--          <box>-->
+<!--            <size>0.3 0.6 0.016</size>-->
+<!--          </box>-->
+<!--      </geometry>-->
+<!--        <material>-->
+<!--          <diffuse> 0.5 0.9 0.5 1 </diffuse>-->
+<!--       </material>-->
+<!--      </visual>-->
+<!--      <collision name="shelf2">-->
+<!--        <pose> 0 0 0.78 0 0 0</pose>-->
+<!--        <geometry>-->
+<!--          <box>-->
+<!--            <size>0.3 0.6 0.016</size>-->
+<!--          </box>-->
+<!--        </geometry>-->
+<!--      </collision>-->
+<!--    </link>-->
+<!--    <joint name="shelf2_bottom_joint" type="fixed">-->
+<!--      <child>shelf2</child>-->
+<!--      <parent>bottom</parent>-->
+<!--  </joint>-->
   </model>
 </sdf>
