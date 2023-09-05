@@ -3,8 +3,10 @@ from functools import partial
 from pydrake.all import (MathematicalProgram, le, SnoptSolver,
                          SurfaceTriangle, TriangleSurfaceMesh,
                          VPolytope, HPolyhedron, Sphere, RigidTransform,
-                         RotationMatrix, Rgba)
+                         RotationMatrix, Rgba, MultibodyPlant, RationalForwardKinematics,
+                         Meshcat, LeafContext, PointCloud, Diagram, Context)
 import mcubes
+import time
 from scipy.spatial import ConvexHull
 from scipy.linalg import block_diag
 from fractions import Fraction
@@ -13,6 +15,18 @@ import random
 import colorsys
 from pydrake.all import PiecewisePolynomial
 
+from dataclasses import dataclass
+
+
+@dataclass
+class VisualizationBundle:
+    diagram: Diagram
+    diagram_context: Context
+    plant: MultibodyPlant
+    plant_context: LeafContext
+    rational_forward_kinematics: RationalForwardKinematics
+    meshcat_instance: Meshcat
+    q_star: np.ndarray
 
 
 def plot_surface(meshcat_instance,
@@ -24,7 +38,8 @@ def plot_surface(meshcat_instance,
                  wireframe=False,
                  wireframe_line_width=1.0):
     # taken from
-    # https://github.com/RussTedrake/manipulation/blob/346038d7fb3b18d439a88be6ed731c6bf19b43de/manipulation/meshcat_cpp_utils.py#L415
+    # https://github.com/RussTedrake/manipulation/blob/346038d7fb3b18d439a88be6ed731c6bf19b43de/manipulation
+    # /meshcat_cpp_utils.py#L415
     (rows, cols) = Z.shape
     assert (np.array_equal(X.shape, Y.shape))
     assert (np.array_equal(X.shape, Z.shape))
@@ -34,7 +49,8 @@ def plot_surface(meshcat_instance,
     vertices[:, 1] = Y.reshape((-1))
     vertices[:, 2] = Z.reshape((-1))
 
-    # Vectorized faces code from https://stackoverflow.com/questions/44934631/making-grid-triangular-mesh-quickly-with-numpy  # noqa
+    # Vectorized faces code from https://stackoverflow.com/questions/44934631/making-grid-triangular-mesh-quickly
+    # -with-numpy  # noqa
     faces = np.empty((rows - 1, cols - 1, 2, 3), dtype=np.uint32)
     r = np.arange(rows * cols).reshape(rows, cols)
     faces[:, :, 0, 0] = r[:-1, :-1]
@@ -169,20 +185,20 @@ def stretch_array_to_3d(arr, val=0.):
 def infinite_hues():
     yield Fraction(0)
     for k in itertools.count():
-        i = 2**k # zenos_dichotomy
-        for j in range(1,i,2):
-            yield Fraction(j,i)
+        i = 2 ** k  # zenos_dichotomy
+        for j in range(1, i, 2):
+            yield Fraction(j, i)
 
 
 def hue_to_hsvs(h: Fraction):
     # tweak values to adjust scheme
-    for s in [Fraction(6,10)]:
-        for v in [Fraction(6,10), Fraction(9,10)]:
+    for s in [Fraction(6, 10)]:
+        for v in [Fraction(6, 10), Fraction(9, 10)]:
             yield (h, s, v)
 
 
 def rgb_to_css(rgb) -> str:
-    uint8tuple = map(lambda y: int(y*255), rgb)
+    uint8tuple = map(lambda y: int(y * 255), rgb)
     return tuple(uint8tuple)
 
 
@@ -190,7 +206,7 @@ def css_to_html(css):
     return f"<text style=background-color:{css}>&nbsp;&nbsp;&nbsp;&nbsp;</text>"
 
 
-def n_colors(n=33, rgbs_ret = False):
+def n_colors(n=33, rgbs_ret=False):
     hues = infinite_hues()
     hsvs = itertools.chain.from_iterable(hue_to_hsvs(hue) for hue in hues)
     rgbs = (colorsys.hsv_to_rgb(*hsv) for hsv in hsvs)
@@ -198,16 +214,75 @@ def n_colors(n=33, rgbs_ret = False):
     to_ret = list(itertools.islice(csss, n)) if rgbs_ret else list(itertools.islice(csss, n))
     return to_ret
 
-def draw_traj(meshcat_instance, traj, maxit, name = "/trajectory",
-              color = Rgba(0,0,0,1), line_width = 3):
+
+def draw_traj(meshcat_instance, traj, maxit, name="/trajectory",
+              color=Rgba(0, 0, 0, 1), line_width=3):
     pts = np.squeeze(np.array([traj.value(it * traj.end_time() / maxit) for it in range(maxit)]))
     pts_3d = np.hstack([pts, 0 * np.ones((pts.shape[0], 3 - pts.shape[1]))]).T
     meshcat_instance.SetLine(name, pts_3d, line_width, color)
+
 
 def generate_walk_around_polytope(h_polytope, num_verts):
     v_polytope = VPolytope(h_polytope)
     verts_to_visit_index = np.random.randint(0, v_polytope.vertices().shape[1], num_verts)
     verts_to_visit = v_polytope.vertices()[:, verts_to_visit_index]
-    t_knots = np.linspace(0, 1,  verts_to_visit.shape[1])
+    t_knots = np.linspace(0, 1, verts_to_visit.shape[1])
     lin_traj = PiecewisePolynomial.FirstOrderHold(t_knots, verts_to_visit)
     return lin_traj
+
+
+def visualize_task_space_trajectory(vis_bundle, segment_start, segment_end,
+                                    body, path, color=Rgba(0, 1, 0, 0.5),
+                                    path_size=0.01, num_points=100):
+    s_waypoints = np.linspace(segment_start, segment_end, num_points)
+    points = []
+    for s in s_waypoints:
+        q = vis_bundle.rational_forward_kinematics.ComputeQValue(s, vis_bundle.q_star)
+        vis_bundle.plant.SetPositions(vis_bundle.plant_context, q)
+        points.append(vis_bundle.plant.EvalBodyPoseInWorld(vis_bundle.plant_context, body).translation())
+    points = np.array(points)
+    pc = PointCloud(len(points))
+    pc.mutable_xyzs()[:] = points.T
+    vis_bundle.meshcat_instance.SetObject(path, pc, point_size=path_size, rgba=color)
+
+
+def visualize_body_at_s(vis_bundle: VisualizationBundle, body, s, name, point_rad, color):
+    q = vis_bundle.rational_forward_kinematics.ComputeQValue(s, vis_bundle.q_star)
+    vis_bundle.plant.SetPositions(vis_bundle.plant_context, q)
+    task_space_point = vis_bundle.plant.EvalBodyPoseInWorld(vis_bundle.plant_context, body).translation()
+    vis_bundle.meshcat_instance.SetObject(name,
+                                          Sphere(point_rad), color)
+    vis_bundle.meshcat_instance.SetTransform(name, RigidTransform(p=task_space_point))
+
+
+def animate_traj_s(vis_bundle, traj, steps, runtime, idx_list=None, sleep_time=0.1):
+    # loop
+    idx = 0
+    going_fwd = True
+    time_points = np.linspace(0, traj.end_time(), steps)
+    frame_count = 0
+    for _ in range(runtime):
+        # print(idx)
+        t0 = time.time()
+        s = traj.value(time_points[idx])
+        q = vis_bundle.rational_forward_kinematics.ComputeQValue(s, vis_bundle.q_star)
+        vis_bundle.plant.SetPositions(vis_bundle.plant_context, q)
+        vis_bundle.diagram.SetTime(frame_count * 0.01)
+        vis_bundle.diagram.ForcedPublish(vis_bundle.task_space_diagram_context)
+        frame_count += 1
+        if going_fwd:
+            if idx + 1 < steps:
+                idx += 1
+            else:
+                going_fwd = False
+                idx -= 1
+        else:
+            if idx - 1 >= 0:
+                idx -= 1
+            else:
+                going_fwd = True
+                idx += 1
+        t1 = time.time()
+        pause = sleep_time - (t1 - t0)
+        if pause > 0:
+            time.sleep(pause)

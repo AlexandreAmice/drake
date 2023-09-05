@@ -67,6 +67,14 @@ drake_py_library(
 )
 
 drake_py_library(
+    name = "rrt",
+    srcs = [
+        "rrt.py",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+drake_py_library(
     name = "iris_plant_visualizer",
     srcs = [
         "iris_plant_visualizer.py",
