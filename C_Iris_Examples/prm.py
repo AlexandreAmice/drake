@@ -26,7 +26,8 @@ class PRM:
                  verbose=False,
                  plotcallback=None,
                  sample_via_gaussian = False,
-                 gaussian_sample_var = 0.1
+                 gaussian_sample_var = 0.1,
+                 node_sampling_function = None
                  ):
 
         # col_check(pos) == True -> in collision!
@@ -42,18 +43,22 @@ class PRM:
         self.plotcallback = plotcallback
         self.verbose = verbose
 
+        self.node_sampling_function = self.sample_node_pos if node_sampling_function is None else node_sampling_function
+
+
         # generate n samples using rejection sampling
         nodes = [] if initial_points is None else initial_points
         for idx in range(num_points - len(nodes)):
             if sample_via_gaussian:
                 nodes.append(self.sample_via_gaussian(nodes, var = gaussian_sample_var))
             else:
-                nodes.append(self.sample_node_pos(MAXIT=max_it))
+                nodes.append(self.node_sampling_function(MAXIT=max_it))
             if self.verbose and idx % 30 == 0:
                 print('[PRM] Samples', idx)
         self.nodes_list = nodes
         self.nodes = np.array(nodes)
         self.nodes_kd = cKDTree(self.nodes)
+
 
         # generate edges
         self.adjacency_list, self.dist_adj = self.connect_nodes()
@@ -73,14 +78,16 @@ class PRM:
             if good_sample:
                 return pos_samp 
             ctr += 1
-        return self.sample_node_pos(collision_free=collision_free, MAXIT=MAXIT)
+        return self.node_sampling_function(collision_free=collision_free, MAXIT=MAXIT)
              
 
 
     def sample_node_pos(self, collision_free=True, MAXIT=1e4):
 
-        rand = np.random.rand(self.dim)
-        pos_samp = self.min_pos + rand * self.min_max_diff
+        # rand = np.random.rand(self.dim)
+        # pos_samp = self.min_pos + rand * self.min_max_diff
+        pos_samp = np.random.uniform(self.min_pos, self.max_pos)
+
         if self.check_col:
             good_sample = not self.in_collision(pos_samp) if collision_free else True
         else:
@@ -88,9 +95,11 @@ class PRM:
 
         it = 0
         while not good_sample and it < MAXIT:
-            rand = np.random.rand(self.dim)
-            pos_samp = self.min_pos + rand * self.min_max_diff
+            # rand = np.random.rand(self.dim)
+            # pos_samp = self.min_pos + rand * self.min_max_diff
+            pos_samp = np.random.uniform(self.min_pos, self.max_pos)
             good_sample = not self.in_collision(pos_samp)
+
             it += 1
         # good_sample = True
         if not good_sample:
