@@ -243,6 +243,9 @@ def visualize_task_space_trajectory(vis_bundle, segment_start, segment_end,
     points = np.array(points)
     pc = PointCloud(len(points))
     pc.mutable_xyzs()[:] = points.T
+
+    pc_waypoints = PointCloud(len(s_waypoints))
+    pc.mutable_xyzs()[:] = [segment_start, segment_end]
     vis_bundle.meshcat_instance.SetObject(path, pc, point_size=path_size, rgba=color)
 
 
