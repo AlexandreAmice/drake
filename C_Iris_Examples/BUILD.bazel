@@ -57,19 +57,10 @@ drake_py_library(
     visibility = ["//visibility:public"],
 )
 
-
 drake_py_library(
-    name = "prm",
+    name = "sampling_based_motion_planners",
     srcs = [
-        "prm.py",
-    ],
-    visibility = ["//visibility:public"],
-)
-
-drake_py_library(
-    name = "rrt",
-    srcs = [
-        "rrt.py",
+        "sampling_based_motion_planners.py",
     ],
     visibility = ["//visibility:public"],
 )
@@ -97,7 +88,7 @@ drake_jupyter_py_binary(
     ],
     deps = [
         "//C_Iris_Examples:iris_plant_visualizer",
-        "//C_Iris_Examples:prm",
+        "//C_Iris_Examples:sampling_based_motion_planners",
         "//C_Iris_Examples:visualization_utils",
         "//bindings/pydrake",
     ],
@@ -112,7 +103,7 @@ drake_jupyter_py_binary(
     ],
     deps = [
         "//C_Iris_Examples:iris_plant_visualizer",
-        "//C_Iris_Examples:prm",
+        "//C_Iris_Examples:sampling_based_motion_planners",
         "//C_Iris_Examples:visualization_utils",
         "//bindings/pydrake",
     ],
@@ -126,7 +117,7 @@ drake_jupyter_py_binary(
     ],
     deps = [
         "//C_Iris_Examples:iris_plant_visualizer",
-        "//C_Iris_Examples:prm",
+        "//C_Iris_Examples:sampling_based_motion_planners",
         "//C_Iris_Examples:visualization_utils",
         "//bindings/pydrake",
     ],
@@ -140,7 +131,7 @@ drake_jupyter_py_binary(
     ],
     deps = [
         "//C_Iris_Examples:iris_plant_visualizer",
-        "//C_Iris_Examples:prm",
+        "//C_Iris_Examples:sampling_based_motion_planners",
         "//C_Iris_Examples:visualization_utils",
         "//bindings/pydrake",
     ],
@@ -154,7 +145,7 @@ drake_jupyter_py_binary(
     ],
     deps = [
         "//C_Iris_Examples:iris_plant_visualizer",
-        "//C_Iris_Examples:prm",
+        "//C_Iris_Examples:sampling_based_motion_planners",
         "//C_Iris_Examples:visualization_utils",
         "//bindings/pydrake",
     ],
@@ -169,7 +160,7 @@ drake_jupyter_py_binary(
     ],
     deps = [
         "//C_Iris_Examples:iris_plant_visualizer",
-        "//C_Iris_Examples:prm",
+        "//C_Iris_Examples:sampling_based_motion_planners",
         "//C_Iris_Examples:visualization_utils",
         "//bindings/pydrake",
     ],
@@ -183,7 +174,7 @@ drake_jupyter_py_binary(
     ],
     deps = [
         "//C_Iris_Examples:iris_plant_visualizer",
-        "//C_Iris_Examples:prm",
+        "//C_Iris_Examples:sampling_based_motion_planners",
         "//C_Iris_Examples:visualization_utils",
         "//bindings/pydrake",
     ],
@@ -259,7 +250,7 @@ drake_py_binary(
     ],
     deps = [
         "//C_Iris_Examples:iris_plant_visualizer",
-        "//C_Iris_Examples:prm",
+        "//C_Iris_Examples:sampling_based_motion_planners",
         "//C_Iris_Examples:visualization_utils",
         "//bindings/pydrake",
     ],
