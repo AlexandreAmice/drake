@@ -256,6 +256,19 @@ drake_py_binary(
     ],
 )
 
+drake_py_binary(
+    name = "n_link_pendulum_stat_collector",
+    srcs = ["n_link_pendulum_stat_collector.py"],
+    add_test_rule = 0,
+    data = [
+        "//C_Iris_Examples:models",
+    ],
+    deps = [
+        "//C_Iris_Examples:sampling_based_motion_planners",
+        "//bindings/pydrake",
+    ],
+)
+
 drake_jupyter_py_binary(
     name = "ik_teleop",
     add_test_rule = 0,

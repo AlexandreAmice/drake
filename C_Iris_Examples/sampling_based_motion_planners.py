@@ -44,7 +44,6 @@ class PRM:
         max_it=int(1e4),
         initial_points=None,
     ):
-        self.straight_line_col_checker = straight_line_col_checker
         self.max_it = max_it
 
         self.prm = nx.Graph()
@@ -52,22 +51,41 @@ class PRM:
             for p in initial_points:
                 self.prm.add_node(p)
 
-        self._build(node_sampling_fun, num_points, max_it, num_neighbors, dist_thresh)
+        self._build(
+            node_sampling_fun,
+            straight_line_col_checker,
+            num_points,
+            max_it,
+            num_neighbors,
+            dist_thresh,
+        )
 
         print(f"PRM has {len(self.prm.nodes)} nodes")
         print(f"PRM has {len(self.prm.edges)} edges")
 
-    def _build(self, node_sampling_fun, num_points, max_it, num_neighbors, dist_thresh):
-        self._sample_nodes(node_sampling_fun, num_points, max_it)
+    def _build(
+        self,
+        node_sampling_fun,
+        num_points,
+        straight_line_col_checker,
+        max_it,
+        num_neighbors,
+        dist_thresh,
+    ):
+        self._sample_nodes(
+            node_sampling_fun, straight_line_col_checker, num_points, max_it
+        )
         self.node_kd_tree = cKDTree(self.prm.nodes)
-        self._connect_nodes(num_neighbors, dist_thresh)
+        self._connect_nodes(num_neighbors, straight_line_col_checker, dist_thresh)
 
-    def _sample_nodes(self, node_sampling_fun, num_points, max_it):
+    def _sample_nodes(
+        self, node_sampling_fun, straight_line_col_checker, num_points, max_it
+    ):
         add_node_attempt_ctr = 0
         node_added_ctr = 0
         while node_added_ctr < num_points:
             x = node_sampling_fun()
-            if not self.straight_line_col_checker.in_collision_handle(x):
+            if not straight_line_col_checker.in_collision_handle(x):
                 add_node_attempt_ctr = 0
                 self.prm.add_node(tuple(x))
                 node_added_ctr += 1
@@ -76,12 +94,16 @@ class PRM:
             if add_node_attempt_ctr > max_it:
                 import warnings
 
-                warnings.warn(
-                    f"[PRM] failed to find a collision free point after {max_it}. Building PRM with {len(self.prm.nodes)}/{num_points}"
+                txt = (
+                    f"[PRM] failed to find a collision free point after {max_it}. "
+                    f"Building PRM with {len(self.prm.nodes)}/{num_points}"
                 )
+                warnings.warn(txt)
+                print(txt)
+                print()
                 break
 
-    def _connect_nodes(self, num_neighbors, dist_thresh):
+    def _connect_nodes(self, num_neighbors, straight_line_col_checker, dist_thresh):
         for n in self.prm.nodes:
             dists, inds = self.node_kd_tree.query(
                 n, k=num_neighbors, p=2, distance_upper_bound=dist_thresh
@@ -91,7 +113,7 @@ class PRM:
                 dist_is_inf = dists[i + 1] == np.inf
                 if dists[i + 1] != np.inf:
                     has_collision = (
-                        self.straight_line_col_checker.straight_line_has_collision(
+                        straight_line_col_checker.straight_line_has_collision(
                             np.array(n), self.node_kd_tree.data[neighbor_ind]
                         )
                     )
@@ -140,14 +162,62 @@ class PRMFixedEdges(PRM):
             initial_points,
         )
 
-    def _build(self, node_sampling_fun, num_edges, max_it, num_neighbors, dist_thresh):
-        node_sample_stride = int(np.sqrt(num_edges))
-        while len(self.prm.edges) < num_edges:
-            self._sample_nodes(node_sampling_fun, node_sample_stride, max_it)
-            self.node_kd_tree = cKDTree(self.prm.nodes)
-            self._connect_nodes(num_neighbors, dist_thresh, num_edges=num_edges)
+    def _build(
+        self,
+        node_sampling_fun,
+        straight_line_col_checker,
+        num_edges,
+        max_it,
+        num_neighbors,
+        dist_thresh,
+    ):
+        self.add_k_edges(
+            num_edges,
+            node_sampling_fun,
+            straight_line_col_checker,
+            max_it,
+            num_neighbors,
+            dist_thresh,
+        )
 
-    def _connect_nodes(self, num_neighbors, dist_thresh, num_edges=-1):
+    def add_k_edges(
+        self,
+        k,
+        node_sampling_fun,
+        straight_line_col_checker,
+        max_it,
+        num_neighbors,
+        dist_thresh,
+    ):
+        node_sample_stride = max(1, int(np.sqrt(k)))
+        edges_added = 0
+        while edges_added < k:
+            cur_num_edges = len(self.prm.edges)
+            self._sample_nodes(
+                node_sampling_fun, straight_line_col_checker, node_sample_stride, max_it
+            )
+            if len(self.prm.nodes) < 2:
+                while len(self.prm.nodes) < 2:
+                    self._sample_nodes(
+                        node_sampling_fun,
+                        straight_line_col_checker,
+                        node_sample_stride,
+                        max_it,
+                    )
+            self.node_kd_tree = cKDTree(self.prm.nodes)
+            self._connect_nodes(
+                num_neighbors,
+                straight_line_col_checker,
+                dist_thresh,
+                num_edges=len(self.prm.edges) + k - edges_added,
+            )
+            edges_added += len(self.prm.edges) - cur_num_edges
+            print(f"PRM has {len(self.prm.nodes)} nodes")
+            print(f"PRM has {len(self.prm.edges)} edges")
+
+    def _connect_nodes(
+        self, num_neighbors, straight_line_col_checker, dist_thresh, num_edges=0
+    ):
         for n in self.prm.nodes:
             dists, inds = self.node_kd_tree.query(
                 n, k=num_neighbors, p=2, distance_upper_bound=dist_thresh
@@ -157,7 +227,7 @@ class PRMFixedEdges(PRM):
                 dist_is_inf = dists[i + 1] == np.inf
                 if dists[i + 1] != np.inf:
                     has_collision = (
-                        self.straight_line_col_checker.straight_line_has_collision(
+                        straight_line_col_checker.straight_line_has_collision(
                             np.array(n), self.node_kd_tree.data[neighbor_ind]
                         )
                     )
@@ -165,7 +235,7 @@ class PRMFixedEdges(PRM):
                         self.prm.add_edge(
                             n, tuple(self.node_kd_tree.data[neighbor_ind])
                         )
-                        if num_edges > 0 and len(self.prm.edges) >= num_edges:
+                        if num_edges > 0 and len(self.prm.edges()) >= num_edges:
                             return
 
 
