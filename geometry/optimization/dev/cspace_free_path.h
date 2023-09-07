@@ -127,6 +127,79 @@ class CspaceFreePath {
     bool terminate_path_certification_at_failure{false};
   };
 
+  struct FindSeparationCertificateStatistics {
+    FindSeparationCertificateStatistics(
+        const std::vector<int>& active_plane_indices) {
+      for (const auto& ind : active_plane_indices) {
+        certifying_poly_degree[ind] = std::nullopt;
+        pair_is_safe[ind] = std::nullopt;
+        time_to_build_prog[ind] = std::nullopt;
+        time_to_solve_prog[ind] = std::nullopt;
+        total_time_to_certify_pair[ind] = std::nullopt;
+      }
+    }
+
+    FindSeparationCertificateStatistics(
+        const std::unordered_map<int, std::optional<int>>&
+            m_certifying_poly_degree,
+        const std::unordered_map<int, std::optional<bool>>& m_pair_is_safe,
+        const std::unordered_map<int, std::optional<double>>&
+            m_time_to_build_prog,
+        const std::unordered_map<int, std::optional<double>>&
+            m_time_to_solve_prog,
+        const std::unordered_map<int, std::optional<double>>&
+            m_total_time_to_certify_pair)
+        : certifying_poly_degree(m_certifying_poly_degree),
+          pair_is_safe(m_pair_is_safe),
+          time_to_build_prog(m_time_to_build_prog),
+          time_to_solve_prog(m_time_to_solve_prog),
+          total_time_to_certify_pair(m_total_time_to_certify_pair) {}
+    // Each of these maps a plane index to a statistic
+    std::unordered_map<int, std::optional<int>>
+        certifying_poly_degree;  // The degree of the certifying polynomials
+    std::unordered_map<int, std::optional<bool>> pair_is_safe;
+    // All times are in ms
+    std::unordered_map<int, std::optional<double>> time_to_build_prog;
+    std::unordered_map<int, std::optional<double>> time_to_solve_prog;
+    // includes time waiting for mutex and for
+    // writing
+    std::unordered_map<int, std::optional<double>> total_time_to_certify_pair;
+
+    [[nodiscard]] bool certified_safe() const {
+      return std::all_of(
+          pair_is_safe.begin(), pair_is_safe.end(),
+          [](const std::pair<int, std::optional<bool>> keyValue) {
+            return keyValue.second.value_or(false);
+          });
+    }
+
+    // return -1 if not all progs are solved
+    [[nodiscard]] double total_time_building_progs() const {
+      return sum_optional_or_return_neg_1(time_to_build_prog);
+    }
+
+    [[nodiscard]] double total_time_to_solve_progs() {
+      return sum_optional_or_return_neg_1(time_to_solve_prog);
+    }
+
+    [[nodiscard]] double total_time_to_certify() {
+      return sum_optional_or_return_neg_1(total_time_to_certify_pair);
+    }
+
+   private:
+    [[nodiscard]] double sum_optional_or_return_neg_1(
+        const std::unordered_map<int, std::optional<double>>& map) const {
+      double ret{0};
+      for (const auto [_, val] : map) {
+        if (val.has_value()) {
+          ret += val.value();
+        } else {
+          return -1;
+        }
+      }
+      return ret;
+    }
+  };
   /**
    Finds the certificates that a piecewise polynomial path is collision free.
 
@@ -143,12 +216,11 @@ class CspaceFreePath {
    will terminate the search once it fails to find the certificate for any
    pair.
 
-   @retval[out] A vector with the same number of columns as piecewise_path. Each
-   entry will be true if the segment is certified as collision free, false
-   otherwise, and nullopt if the options terminate the path certification at
-   failure early.
+   @retval[out] A vector with the same number of columns as piecewise_paths.
+   Each entry will contain the statistics of the SeparationCertificateProgram or
+   nullopt if the options terminate the path certification at failure early.
    */
-  [[nodiscard]] std::vector<std::optional<bool>>
+  [[nodiscard]] std::vector<FindSeparationCertificateStatistics>
   FindSeparationCertificateGivenPath(
       const MatrixX<Polynomiald>& piecewise_path,
       const IgnoredCollisionPairs& ignored_collision_pairs,

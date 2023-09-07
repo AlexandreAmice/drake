@@ -177,7 +177,7 @@ void CspaceFreePath::GeneratePathRationals(
   }
 }
 
-[[nodiscard]] std::vector<std::optional<bool>>
+[[nodiscard]] std::vector<CspaceFreePath::FindSeparationCertificateStatistics>
 CspaceFreePath::FindSeparationCertificateGivenPath(
     const MatrixX<Polynomiald>& piecewise_path,
     const IgnoredCollisionPairs& ignored_collision_pairs,
@@ -186,6 +186,10 @@ CspaceFreePath::FindSeparationCertificateGivenPath(
                                    std::optional<SeparationCertificateResult>>>*
         certificates) const {
   const int num_pieces{static_cast<int>(piecewise_path.cols())};
+
+  // import chrono for timing
+  typedef std::chrono::high_resolution_clock clock;
+  using std::chrono::duration;
 
   certificates->clear();
   certificates->reserve(num_pieces);
@@ -228,13 +232,31 @@ CspaceFreePath::FindSeparationCertificateGivenPath(
       static_cast<unsigned int>(num_pieces), std::nullopt);
   std::vector<std::mutex> piece_is_safe_mutex{
       static_cast<unsigned int>(num_pieces)};
+  std::vector<CspaceFreePath::FindSeparationCertificateStatistics>
+      certification_statistics(num_pieces, active_plane_indices);
+  // Find the max degree of the separation condition polynomial.
+  for (auto stats : certification_statistics) {
+    for (const auto [plane_index, _] : stats.certifying_poly_degree) {
+      int max_deg = 0;
+      PlaneSeparatesGeometriesOnPath plane_geoms =
+          plane_geometries_on_path_.at(plane_index);
+      for (const auto& condition : plane_geoms.positive_side_conditions) {
+        max_deg = std::max(max_deg, condition.get_p().TotalDegree());
+      }
+      for (const auto& condition : plane_geoms.negative_side_conditions) {
+        max_deg = std::max(max_deg, condition.get_p().TotalDegree());
+      }
+      stats.certifying_poly_degree.at(plane_index) = max_deg;
+    }
+  }
 
   // Certify that the plane pair at the plane_count index is safe for the
   // segment given by segment_idx.
   auto certify_plane_pair_over_segment = [this, &active_plane_indices,
                                           &piecewise_path, &options,
                                           &certificates, &piece_is_safe,
-                                          &piece_is_safe_mutex](
+                                          &piece_is_safe_mutex,
+                                          &certification_statistics](
                                              int plane_count, int segment_idx) {
     // Only perform the certification if the current piece might still be safe,
     // and we are not terminating early.
@@ -242,31 +264,33 @@ CspaceFreePath::FindSeparationCertificateGivenPath(
         piece_is_safe.at(segment_idx).value_or(true);
     if (cur_piece_maybe_safe ||
         !(options.terminate_segment_certification_at_failure)) {
+      const auto cert_time_start = clock::now();
+
       const int plane_index = active_plane_indices[plane_count];
       const Eigen::VectorX<Polynomiald> path = piecewise_path.col(segment_idx);
       const SortedPair<geometry::GeometryId> pair(
           separating_planes()[plane_index].positive_side_geometry->id(),
           separating_planes()[plane_index].negative_side_geometry->id());
+
+      auto prog_build_time_start = std::chrono::high_resolution_clock::now();
       auto certificate_program = MakeIsGeometrySeparableOnPathProgram(
           pair, piecewise_path.col(segment_idx));
+      auto prog_build_time_end = std::chrono::high_resolution_clock::now();
+      certification_statistics.at(segment_idx)
+          .time_to_build_prog.at(plane_index) =
+          duration<double>(prog_build_time_end - prog_build_time_start).count();
 
       auto result =
           SolveSeparationCertificateProgram(certificate_program, options);
+      certification_statistics.at(segment_idx)
+          .time_to_solve_prog.at(plane_index) = 1000*
+          result.result.get_solver_details<solvers::MosekSolver>()
+              .optimizer_time; // convert time to ms.
+      certification_statistics.at(segment_idx).pair_is_safe.at(plane_index) =
+          result.result.is_success();
+
       certificates->at(segment_idx).at(pair) = result;
       piece_is_safe_mutex.at(segment_idx).lock();
-      if (!result.result.is_success() && options.verbose) {
-        std::cout << fmt::format("({},{})", plane_count, segment_idx)
-                  << std::endl;
-        std::cout << fmt::format(
-                         "Failed to separate ({}, {}) at segment idx {}",
-                         scene_graph_.model_inspector().GetName(pair.first()),
-                         scene_graph_.model_inspector().GetName(pair.second()),
-                         segment_idx)
-                  << std::endl;
-        std::cout << fmt::format("result.result.is_success() = {}\n",
-                                 result.result.is_success())
-                  << std::endl;
-      }
       piece_is_safe.at(segment_idx) =
           piece_is_safe.at(segment_idx).value_or(true) &&
           result.result.is_success();
@@ -278,6 +302,10 @@ CspaceFreePath::FindSeparationCertificateGivenPath(
             active_plane_indices.size(), segment_idx, piecewise_path.cols(),
             certificates->at(segment_idx).at(pair).has_value());
       }
+      const auto cert_time_end = clock::now();
+      certification_statistics.at(segment_idx)
+          .total_time_to_certify_pair.at(plane_index) =
+          duration<double>(cert_time_end - cert_time_start).count();
     }
   };
 
@@ -344,40 +372,7 @@ CspaceFreePath::FindSeparationCertificateGivenPath(
     thread_pool.at(i).join();
   }
 
-  // Now go through and verify which paths were certified as safe
-  //  for (int i = 0; i < num_pieces; ++i) {
-  //    bool piece_has_value = piece_is_safe.at(i).has_value();
-  ////    std::cout << fmt::format("Piece is safe index {}, has value = {}", i,
-  ////                             piece_has_value)
-  ////              << std::endl;
-  ////    if (piece_is_safe.at(i).has_value()) {
-  ////      std::cout << fmt::format("Piece is safe index {}, value = {}\n", i,
-  ////                               piece_is_safe.at(i).value())
-  ////                << std::endl;
-  ////    }
-  //    // piece_is_safe.at(i) can only have a value at this point if that piece
-  //    is
-  //    // unsafe. If it does not have a value, we check whether all the pairs
-  //    were
-  //    // certified as collision free by checking whether all the collision
-  //    pairs
-  //    // have a certificate at that piece. If they don't we terminated early
-  //    and
-  //    // never checked.
-  //    //   if (!piece_is_safe.at(i).has_value()) {
-  //    //      piece_is_safe.at(i) =
-  //    //          std::all_of(certificates->begin(), certificates->end(),
-  //    //                      [&i](auto pair_to_certificate_elt) {
-  //    //                        // check that this pair has a certificate
-  //    value at
-  //    //                        the
-  //    //                        // iᵗʰ position
-  //    //                        return
-  //    // pair_to_certificate_elt.second.at(i).has_value();
-  //    //                      });
-  //    //    }
-  //  }
-  return piece_is_safe;
+  return certification_statistics;
 }
 
 [[nodiscard]] CspaceFreePath::SeparationCertificateProgram

@@ -507,22 +507,27 @@ TEST_F(CIrisRobotPolytopicGeometryTest,
           std::optional<CspaceFreePath::SeparationCertificateResult>>>
           certificates;
       auto start = std::chrono::high_resolution_clock::now();
-      std::vector<std::optional<bool>> piece_is_safe =
-          tester.cspace_free_path().FindSeparationCertificateGivenPath(
-              bezier_poly_path_safe, ignored_collision_pairs,
-              find_certificate_options, &certificates);
+      //      std::vector<std::optional<bool>> piece_is_safe =
+      //          tester.cspace_free_path().FindSeparationCertificateGivenPath(
+      //              bezier_poly_path_safe, ignored_collision_pairs,
+      //              find_certificate_options, &certificates);
+      std::vector<CspaceFreePath::FindSeparationCertificateStatistics>
+          certification_statistics =
+              tester.cspace_free_path().FindSeparationCertificateGivenPath(
+                  bezier_poly_path_safe, ignored_collision_pairs,
+                  find_certificate_options, &certificates);
       auto end = std::chrono::high_resolution_clock::now();
       auto duration =
           std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
       std::cout << "Time taken by function: " << duration.count() << std::endl;
 
-      EXPECT_EQ(static_cast<int>(piece_is_safe.size()),
+      EXPECT_EQ(static_cast<int>(certification_statistics.size()),
                 static_cast<int>(bezier_poly_path_safe.cols()));
 
       // Check that all the pieces are safe
-      EXPECT_TRUE(std::all_of(piece_is_safe.begin(), piece_is_safe.end(),
-                              [](std::optional<bool> flag) {
-                                return flag.has_value() && flag.value();
+      EXPECT_TRUE(std::all_of(certification_statistics.begin(), certification_statistics.end(),
+                              [](CspaceFreePath::FindSeparationCertificateStatistics stat) {
+                                return stat.certified_safe();
                               }));
 
       // Check that all the certificates are populated

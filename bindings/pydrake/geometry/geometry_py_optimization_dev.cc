@@ -176,10 +176,12 @@ void DefineGeometryOptimizationDev(py::module m) {
     auto separates_cls =
         py::class_<PlaneSeparatesGeometries>(
             m, "PlaneSeparatesGeometries", separates_doc.doc)
-            .def_readonly("positive_side_rationals", &PlaneSeparatesGeometries::positive_side_rationals)
-            .def_readonly("negative_side_rationals", &PlaneSeparatesGeometries::negative_side_rationals)
-            .def_readonly("plane_index",
-                &PlaneSeparatesGeometries::plane_index);
+            .def_readonly("positive_side_rationals",
+                &PlaneSeparatesGeometries::positive_side_rationals)
+            .def_readonly("negative_side_rationals",
+                &PlaneSeparatesGeometries::negative_side_rationals)
+            .def_readonly(
+                "plane_index", &PlaneSeparatesGeometries::plane_index);
   }
   {
     using Class = CspaceFreePolytope;
@@ -375,9 +377,9 @@ void DefineGeometryOptimizationDev(py::module m) {
             py::arg("poly"), py::arg("interval_variable"),
             py::arg("parameters"), cls_doc.ctor.doc)
         //  TODO(Alexandre.Amice) bind AddPositivityConstraintToProgram.
-//        .def("AddPositivityConstraintToProgram",
-//            &Class::AddPositivityConstraintToProgram, py::arg("env"),
-//            py::arg("prog"), cls_doc.AddPositivityConstraintToProgram)
+        //        .def("AddPositivityConstraintToProgram",
+        //            &Class::AddPositivityConstraintToProgram, py::arg("env"),
+        //            py::arg("prog"), cls_doc.AddPositivityConstraintToProgram)
         .def("get_mu", &Class::get_mu)
         .def("get_p", &Class::get_p)
         .def("get_poly", &Class::get_poly)
@@ -390,15 +392,14 @@ void DefineGeometryOptimizationDev(py::module m) {
   {
     constexpr auto& separates_doc = doc.PlaneSeparatesGeometriesOnPath;
     auto separates_cls =
-    py::class_<PlaneSeparatesGeometriesOnPath>(m,
-        "PlaneSeparatesGeometriesOnPath",
-        separates_doc.doc)
-        .def_readonly("positive_side_conditions",
-            &PlaneSeparatesGeometriesOnPath::positive_side_conditions)
-        .def_readonly("negative_side_conditions",
-            &PlaneSeparatesGeometriesOnPath::negative_side_conditions)
-        .def_readonly(
-            "plane_index", &PlaneSeparatesGeometriesOnPath::plane_index);
+        py::class_<PlaneSeparatesGeometriesOnPath>(
+            m, "PlaneSeparatesGeometriesOnPath", separates_doc.doc)
+            .def_readonly("positive_side_conditions",
+                &PlaneSeparatesGeometriesOnPath::positive_side_conditions)
+            .def_readonly("negative_side_conditions",
+                &PlaneSeparatesGeometriesOnPath::negative_side_conditions)
+            .def_readonly(
+                "plane_index", &PlaneSeparatesGeometriesOnPath::plane_index);
 
     using Class = CspaceFreePath;
     const auto& cls_doc = doc.CspaceFreePath;
@@ -427,7 +428,8 @@ void DefineGeometryOptimizationDev(py::module m) {
               return ret;
             })
         .def("separating_planes", &Class::separating_planes)
-        .def("plane_geometries_on_path", &Class::plane_geometries_on_path, py_rvp::reference_internal)
+        .def("plane_geometries_on_path", &Class::plane_geometries_on_path,
+            py_rvp::reference_internal)
         .def(
             "FindSeparationCertificateGivenPath",
             [](const CspaceFreePath* self,
@@ -442,9 +444,10 @@ void DefineGeometryOptimizationDev(py::module m) {
               //              std::cout << "Starting certificate search" <<
               //              std::endl; auto start =
               //              std::chrono::high_resolution_clock::now();
-              std::vector<std::optional<bool>> success =
-                  self->FindSeparationCertificateGivenPath(piecewise_path,
-                      ignored_collision_pairs, options, &certificates);
+              std::vector<CspaceFreePath::FindSeparationCertificateStatistics>
+                  statistics =
+                      self->FindSeparationCertificateGivenPath(piecewise_path,
+                          ignored_collision_pairs, options, &certificates);
               //              auto end =
               //              std::chrono::high_resolution_clock::now(); auto
               //              duration =
@@ -461,7 +464,7 @@ void DefineGeometryOptimizationDev(py::module m) {
                   ret.at(i)[py::make_tuple(k.first(), k.second())] = v;
                 }
               }
-              return std::pair(success, ret);
+              return std::pair(statistics, ret);
             },
             py::arg("piecewise_path"), py::arg("ignored_collision_pairs"),
             py::arg("options"), cls_doc.FindSeparationCertificateGivenPath.doc)
@@ -501,6 +504,54 @@ void DefineGeometryOptimizationDev(py::module m) {
         .def_readwrite("terminate_path_certification_at_failure",
             &Class::FindSeparationCertificateGivenPathOptions::
                 terminate_path_certification_at_failure);
+
+    py::class_<Class::FindSeparationCertificateStatistics>(
+        cspace_free_path_cls, "FindSeparationCertificateStatistics")
+        //        .def(py::init<const std::vector<int>&>(),
+        //        py::arg("active_plane_indices"))
+        .def_readonly("certifying_poly_degree",
+            &Class::FindSeparationCertificateStatistics::certifying_poly_degree)
+        .def_readonly("pair_is_safe",
+            &Class::FindSeparationCertificateStatistics::pair_is_safe)
+        .def_readonly("time_to_build_prog",
+            &Class::FindSeparationCertificateStatistics::time_to_build_prog)
+        .def_readonly("time_to_solve_prog",
+            &Class::FindSeparationCertificateStatistics::time_to_solve_prog)
+        .def_readonly("total_time_to_certify_pair",
+            &Class::FindSeparationCertificateStatistics::
+                total_time_to_certify_pair)
+        .def("certified_safe",
+            &Class::FindSeparationCertificateStatistics::certified_safe)
+        .def("total_time_building_progs",
+            &Class::FindSeparationCertificateStatistics::
+                total_time_building_progs)
+        .def("total_time_to_solve_progs",
+            &Class::FindSeparationCertificateStatistics::
+                total_time_to_solve_progs)
+        .def("total_time_to_certify",
+            &Class::FindSeparationCertificateStatistics::total_time_to_certify)
+        .def(py::pickle(
+            [](const Class::FindSeparationCertificateStatistics& self) {
+              std::tuple<std::unordered_map<int, std::optional<int>>,
+                  std::unordered_map<int, std::optional<bool>>,
+                  std::unordered_map<int, std::optional<double>>,
+                  std::unordered_map<int, std::optional<double>>,
+                  std::unordered_map<int, std::optional<double>>>
+                  ret{self.certifying_poly_degree, self.pair_is_safe,
+                      self.time_to_build_prog, self.time_to_solve_prog,
+                      self.total_time_to_certify_pair};
+              return ret;
+            },
+            [](std::tuple<std::unordered_map<int, std::optional<int>>,
+                std::unordered_map<int, std::optional<bool>>,
+                std::unordered_map<int, std::optional<double>>,
+                std::unordered_map<int, std::optional<double>>,
+                std::unordered_map<int, std::optional<double>>>
+                    args) {
+              return Class::FindSeparationCertificateStatistics(
+                  std::get<0>(args), std::get<1>(args), std::get<2>(args),
+                  std::get<3>(args), std::get<4>(args));
+            }));
 
     py::class_<Class::SeparationCertificateProgram>(cspace_free_path_cls,
         "SeparationCertificateProgram",
