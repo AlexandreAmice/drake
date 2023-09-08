@@ -360,6 +360,13 @@ def n_link_k_boxes_l_edges_experiment(
     cert_options.solver_options = SolverOptions()
     cert_options.terminate_path_certification_at_failure = False
     for l in num_edges:
+        save_path = (
+            path_to_save_folder
+            / f"{n}_links_{k}_obstacles_{l}_edges_{good_checker}_collision_checker.pkl"
+        )
+        if save_path.is_file():
+            continue
+
         prm_save_name = (
             path_to_prm_folder / f"prm_{n}_links_{k}_boxes_{good_checker}_{l}_edges.pkl"
         )
@@ -381,21 +388,17 @@ def n_link_k_boxes_l_edges_experiment(
             f"Certification of {n}_links, {k}_boxes, {l}_edges, {good_checker} PRM in {t1 - t0}s"
         )
 
-        save_path = (
-            path_to_save_folder
-            / f"{n}_links_{k}_obstacles_{l}_edges_{good_checker}_collision_checker.pkl"
-        )
         with open(save_path, "wb") as f:
             pickle.dump(statistics, f)
 
 
 num_links = np.arange(2, 14, 1)
-num_boxes = np.array([10, 50, 100])
-num_edges = np.array([100, 500, 1000])
+# num_boxes = np.array([10, 50, 100])
+# num_edges = np.array([100, 500, 1000])
 
 # num_links = np.arange(2, 4, 1)
-# num_boxes = np.array([10, 50])
-# num_edges = np.array([100, 500, 1000])
+num_boxes = np.array([10])
+num_edges = np.array([100])
 
 NN, KK = np.meshgrid(num_links, num_boxes, indexing="ij")
 n_list, k_list = NN.flatten(), KK.flatten()
