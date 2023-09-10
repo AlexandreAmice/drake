@@ -41,6 +41,8 @@ filegroup(
         "assets/iiwa6/iiwa6_with_box_collision.sdf",
         "assets/iiwa6/iiwa6_no_collision.sdf",
         "directives/trans2dof_directives.yaml",
+        "directives/7_dof_directives.yaml",
+        "directives/7_dof_directives_newshelf.yaml",
     ],
     visibility = ["//visibility:public"],
 )

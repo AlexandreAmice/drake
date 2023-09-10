@@ -478,7 +478,7 @@ TEST_F(CIrisRobotPolytopicGeometryTest,
   const int num_trials = 15;
 
   const int plane_order = 8;
-  for (const int maximum_path_degree : {1}) {
+  for (const int maximum_path_degree : {1,3}) {
     CspaceFreePathTester tester(plant_, scene_graph_, q_star,
                                 maximum_path_degree, plane_order);
 

@@ -1,6 +1,7 @@
 #include "drake/geometry/optimization/dev/cspace_free_path.h"
 
 #include <algorithm>
+#include <chrono>
 #include <future>
 #include <iostream>
 #include <mutex>
@@ -45,6 +46,7 @@ PlaneSeparatesGeometriesOnPath::PlaneSeparatesGeometriesOnPath(
     const symbolic::Variables& indeterminates,
     symbolic::Polynomial::SubstituteAndExpandCacheData* cached_substitutions)
     : plane_index{plane_geometries.plane_index} {
+  using std::chrono::duration;
   auto substitute_and_create_condition =
       [this, &cached_substitutions, &path_with_y_subs, &indeterminates, &mu](
           const symbolic::RationalFunction& rational, bool positive_side) {
@@ -52,21 +54,36 @@ PlaneSeparatesGeometriesOnPath::PlaneSeparatesGeometriesOnPath(
         for (const auto& var : rational.numerator().indeterminates()) {
           parameters.insert(path_with_y_subs.at(var).decision_variables());
         }
+        auto t0 = std::chrono::high_resolution_clock::now();
         symbolic::Polynomial path_numerator{
             rational.numerator().SubstituteAndExpand(path_with_y_subs,
                                                      cached_substitutions)};
+        auto t1 = std::chrono::high_resolution_clock::now();
+        std::cout << fmt::format("Time to expand poly = {}",
+                                 duration<double>(t1 - t0).count())
+                  << std::endl;
 
         // The current y_slacks along with mu.
         symbolic::Variables cur_indeterminates{
             intersect(indeterminates, rational.numerator().indeterminates())};
         cur_indeterminates.insert(mu);
 
+        t0 = std::chrono::high_resolution_clock::now();
         path_numerator.SetIndeterminates(cur_indeterminates);
+        t1 = std::chrono::high_resolution_clock::now();
+        std::cout << fmt::format("Time to parse indets poly = {}",
+                                 duration<double>(t1 - t0).count())
+                  << std::endl;
+         t0 = std::chrono::high_resolution_clock::now();
         if (positive_side) {
           positive_side_conditions.emplace_back(path_numerator, mu, parameters);
         } else {
           negative_side_conditions.emplace_back(path_numerator, mu, parameters);
         }
+        t1 = std::chrono::high_resolution_clock::now();
+        std::cout << fmt::format("Time to build conditions = {}",
+                                 duration<double>(t1 - t0).count())
+                  << std::endl;
       };
 
   for (const auto& rational : plane_geometries.positive_side_rationals) {
@@ -150,6 +167,8 @@ CspaceFreePath::CspaceFreePath(const multibody::MultibodyPlant<double>* plant,
   internal::GenerateRationals(separating_planes_ptrs, y_slack_, q_star_,
                               rational_forward_kin_, &plane_geometries);
   GeneratePathRationals(plane_geometries);
+
+  std::cout << "BUILT OBJECT" << std::endl;
 }
 
 void CspaceFreePath::GeneratePathRationals(
@@ -185,8 +204,9 @@ CspaceFreePath::FindSeparationCertificateGivenPath(
     std::vector<std::unordered_map<SortedPair<geometry::GeometryId>,
                                    std::optional<SeparationCertificateResult>>>*
         certificates) const {
+  std::cout << "METHOD ENTERED" << std::endl;
   const int num_pieces{static_cast<int>(piecewise_path.cols())};
-
+  std::cout << "cols accessed" << std::endl;
   // import chrono for timing
   typedef std::chrono::high_resolution_clock clock;
   using std::chrono::duration;
@@ -273,19 +293,23 @@ CspaceFreePath::FindSeparationCertificateGivenPath(
           separating_planes()[plane_index].negative_side_geometry->id());
 
       auto prog_build_time_start = std::chrono::high_resolution_clock::now();
+      std::cout << "building program" << std::endl;
       auto certificate_program = MakeIsGeometrySeparableOnPathProgram(
           pair, piecewise_path.col(segment_idx));
+      std::cout << "prog built" << std::endl;
       auto prog_build_time_end = std::chrono::high_resolution_clock::now();
       certification_statistics.at(segment_idx)
           .time_to_build_prog.at(plane_index) =
           duration<double>(prog_build_time_end - prog_build_time_start).count();
 
+      std::cout << "solving program" << std::endl;
       auto result =
           SolveSeparationCertificateProgram(certificate_program, options);
+      std::cout << "prog solved" << std::endl;
       certification_statistics.at(segment_idx)
-          .time_to_solve_prog.at(plane_index) = 1000*
-          result.result.get_solver_details<solvers::MosekSolver>()
-              .optimizer_time; // convert time to ms.
+          .time_to_solve_prog.at(plane_index) =
+          1000 * result.result.get_solver_details<solvers::MosekSolver>()
+                     .optimizer_time;  // convert time to ms.
       certification_statistics.at(segment_idx).pair_is_safe.at(plane_index) =
           result.result.is_success();
 
@@ -394,6 +418,7 @@ CspaceFreePath::MakeIsGeometrySeparableOnPathProgram(
   // configuration space variable s to symbolic::Polynomial in mu.
   std::unordered_map<symbolic::Variable, symbolic::Polynomial>
       cspace_var_to_sym_path;
+  std::cout << "starting evaluation construction" << std::endl;
   for (int i = 0; i < path.rows(); ++i) {
     DRAKE_DEMAND(path(i).is_univariate());
     DRAKE_DEMAND(path(i).GetDegree() <= static_cast<int>(max_degree_));
@@ -405,7 +430,12 @@ CspaceFreePath::MakeIsGeometrySeparableOnPathProgram(
     cspace_var_to_sym_path.emplace(rational_forward_kin_.s()(i),
                                    symbolic::Polynomial{sym_path_map});
   }
-
+  std::cout << "ending evaluation construction" << std::endl;
+  std::cout << "constructing plane search prog" << std::endl;
+  std::cout << fmt::format(
+                   "plane index is {}, while plane_geometries path is size {}",
+                   plane_index, plane_geometries_on_path_.size())
+            << std::endl;
   return ConstructPlaneSearchProgramOnPath(
       plane_geometries_on_path_.at(plane_index), cspace_var_to_sym_path);
 }
@@ -420,6 +450,7 @@ CspaceFreePath::ConstructPlaneSearchProgramOnPath(
   ret.prog->AddIndeterminates(this->y_slack());
 
   // construct the parameter to value map
+  std::cout << "evaluating parameters" << std::endl;
   symbolic::Environment param_eval_map;
   for (const auto& [config_space_var, eval_path] : path) {
     const symbolic::Polynomial symbolic_path{path_.at(config_space_var)};
@@ -437,6 +468,7 @@ CspaceFreePath::ConstructPlaneSearchProgramOnPath(
                             mu_var_coeff_eval);
     }
   }
+  std::cout << "finished evaluating parameters" << std::endl;
 
   // Now add the separation conditions to the program
   for (const auto& condition :

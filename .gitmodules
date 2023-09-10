@@ -1,0 +1,3 @@
+[submodule "cvisiris_examples"]
+	path = cvisiris_examples
+	url = https://github.com/wernerpe/cvisiris_examples.git
