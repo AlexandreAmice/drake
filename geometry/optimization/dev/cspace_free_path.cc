@@ -55,13 +55,20 @@ PlaneSeparatesGeometriesOnPath::PlaneSeparatesGeometriesOnPath(
           parameters.insert(path_with_y_subs.at(var).decision_variables());
         }
         auto t0 = std::chrono::high_resolution_clock::now();
+        drake::log()->debug(
+            "Degree of rational = {}", rational.numerator().TotalDegree());
+        auto t1 = std::chrono::high_resolution_clock::now();
+        t0 = std::chrono::high_resolution_clock::now();
         symbolic::Polynomial path_numerator{
             rational.numerator().SubstituteAndExpand(path_with_y_subs,
                                                      cached_substitutions)};
-        auto t1 = std::chrono::high_resolution_clock::now();
-        std::cout << fmt::format("Time to expand poly = {}",
-                                 duration<double>(t1 - t0).count())
-                  << std::endl;
+        t1 = std::chrono::high_resolution_clock::now();
+        drake::log()->debug(
+            "Time to expand poly of degree {} = {}", path_numerator.TotalDegree(),
+            duration<double>(t1 - t0).count());
+//        std::cout << fmt::format("Time to expand poly = {}",
+//                                 duration<double>(t1 - t0).count())
+//                  << std::endl;
 
         // The current y_slacks along with mu.
         symbolic::Variables cur_indeterminates{
@@ -71,9 +78,11 @@ PlaneSeparatesGeometriesOnPath::PlaneSeparatesGeometriesOnPath(
         t0 = std::chrono::high_resolution_clock::now();
         path_numerator.SetIndeterminates(cur_indeterminates);
         t1 = std::chrono::high_resolution_clock::now();
-        std::cout << fmt::format("Time to parse indets poly = {}",
-                                 duration<double>(t1 - t0).count())
-                  << std::endl;
+        drake::log()->debug(
+            "Time to parse indets poly = {}", duration<double>(t1 - t0).count());
+//        std::cout << fmt::format("Time to parse indets poly = {}",
+//                                 duration<double>(t1 - t0).count())
+//                  << std::endl;
          t0 = std::chrono::high_resolution_clock::now();
         if (positive_side) {
           positive_side_conditions.emplace_back(path_numerator, mu, parameters);
@@ -81,9 +90,11 @@ PlaneSeparatesGeometriesOnPath::PlaneSeparatesGeometriesOnPath(
           negative_side_conditions.emplace_back(path_numerator, mu, parameters);
         }
         t1 = std::chrono::high_resolution_clock::now();
-        std::cout << fmt::format("Time to build conditions = {}",
-                                 duration<double>(t1 - t0).count())
-                  << std::endl;
+        drake::log()->debug(
+            "Time to build conditions = {}\n\n", duration<double>(t1 - t0).count());
+//        std::cout << fmt::format("Time to build conditions = {}",
+//                                 duration<double>(t1 - t0).count())
+//                  << std::endl;
       };
 
   for (const auto& rational : plane_geometries.positive_side_rationals) {
