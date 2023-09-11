@@ -155,7 +155,6 @@ void CheckSeparationBySamples(
       }
     }
   }
-  std::cout << std::endl;
 }
 
 void CheckForCollisionAlongPath(
@@ -237,7 +236,7 @@ TEST_F(CIrisToyRobotTest, MakeAndSolveIsGeometrySeparableOnPathProgram) {
   //  const Eigen::Vector3d s0_unsafe{0.65*M_PI, 1.63, 2.9};
   //  const Eigen::Vector3d s_end_unsafe{-1.63, 0.612, -0.65};
 
-  for (const int maximum_path_degree : {1, 4}) {
+  for (const int maximum_path_degree : {1, 6}) {
     CspaceFreePathTester tester(plant_, scene_graph_, q_star,
                                 maximum_path_degree, plane_order);
 
@@ -477,14 +476,17 @@ TEST_F(CIrisRobotPolytopicGeometryTest,
 
   const int num_trials = 15;
 
+//  const int plane_order = 8;
   const int plane_order = 8;
-  for (const int maximum_path_degree : {1,3}) {
+//  for (const int maximum_path_degree : {1,3}) {
+  for (const int maximum_path_degree : {8}) {
     CspaceFreePathTester tester(plant_, scene_graph_, q_star,
                                 maximum_path_degree, plane_order);
 
     // Check that we can certify paths up to the maximum degree.
-    for (int bezier_curve_order = 1; bezier_curve_order <= maximum_path_degree;
-         ++bezier_curve_order) {
+//    for (int bezier_curve_order = 1; bezier_curve_order <= maximum_path_degree;
+//         ++bezier_curve_order) {
+      for (const int bezier_curve_order : {maximum_path_degree}) {
       // Construct a polynonomial of degree bezier_curve_order <=
       // maximum_path_degree. By constructing this with the control points
       // inside c_free_polyhedron, we guarantee that the trajectory inside

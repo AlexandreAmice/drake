@@ -386,8 +386,11 @@ void DefineGeometryOptimizationDev(py::module m) {
         .def("get_lambda", &Class::get_lambda)
         .def("get_nu", &Class::get_nu)
         .def("get_parameters", &Class::get_parameters)
-        .def("get_psatz_variables_and_psd_constraints",
-            &Class::get_psatz_variables_and_psd_constraints);
+        .def("get_psatz_variables_and_psd_constraints",[](const Class* self) {
+                              return self->get_psatz_variables_and_psd_constraints().get();
+                            },
+                            py_rvp::reference_internal);
+//            &Class::get_psatz_variables_and_psd_constraints);
   }
   {
     constexpr auto& separates_doc = doc.PlaneSeparatesGeometriesOnPath;
@@ -438,7 +441,6 @@ void DefineGeometryOptimizationDev(py::module m) {
                     ignored_collision_pairs,
                 const CspaceFreePath::FindSeparationCertificateGivenPathOptions&
                     options) {
-              std::cout << "ENTERING METHOD" << std::endl;
               std::vector<std::unordered_map<SortedPair<geometry::GeometryId>,
                   std::optional<CspaceFreePath::SeparationCertificateResult>>>
                   certificates;
@@ -459,7 +461,6 @@ void DefineGeometryOptimizationDev(py::module m) {
               //                        << std::endl;
               // Template deduction for drake::SortedPair<GeometryId> does not
               // work. Here we manually make a map of tuples instead.
-              std::cout << "FUNCTION IS RETURNING" << std::endl;
               std::vector<py::dict> ret(certificates.size());
               for (int i = 0; i < static_cast<int>(certificates.size()); ++i) {
                 for (const auto& [k, v] : certificates[i]) {
