@@ -8,7 +8,6 @@
 namespace drake {
 namespace geometry {
 namespace optimization {
-
 /**
  * Certifying a path as collision free will require certifying that many matrix
  * SOS conditions poly(μ,y) = [1;y]ᵀP(μ;s)[1;y] ≥ 0 for μ ∈ [0,1] where the s is
@@ -30,12 +29,12 @@ class ParametrizedPolynomialPositiveOnUnitInterval {
   ParametrizedPolynomialPositiveOnUnitInterval(
       const symbolic::Polynomial& poly,
       const symbolic::Variable& interval_variable,
-      const symbolic::Variables& parameters);
+      const symbolic::Variables& parameters,
+      const std::optional<const solvers::MatrixXDecisionVariable>&
+          Q_lambda_optional = std::nullopt,
+      const std::optional<const solvers::MatrixXDecisionVariable>&
+          Q_nu_optional = std::nullopt);
 
-  // Add the constraint that this parametrized polynomial is positive on the
-  // unit interval. The Environment env must contain an evaluation for all the
-  // parameters in parameters_. The MathematicalProgram prog must already
-  // contain the indeterminates of psatz_variables_and_psd_constraints_.
   void AddPositivityConstraintToProgram(
       const symbolic::Environment& env,
       solvers::MathematicalProgram* prog) const;

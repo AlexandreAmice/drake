@@ -63,6 +63,21 @@ drake_cc_library(
 )
 
 drake_cc_library(
+    name = "cspace_free_path_internal",
+    srcs = [
+        "cspace_free_path_internal.cc",
+    ],
+    hdrs = ["cspace_free_path_internal.h"],
+    deps = [
+        "//geometry/optimization:c_iris_collision_geometry",
+        "//geometry/optimization:cspace_free_structs",
+        "//geometry/optimization:cspace_separating_plane",
+        "//solvers:choose_best_solver",
+        "//solvers:mathematical_program",
+    ],
+)
+
+drake_cc_library(
     name = "c_iris_path_test_utilities",
     testonly = 1,
     hdrs = ["test/c_iris_path_test_utilities.h"],

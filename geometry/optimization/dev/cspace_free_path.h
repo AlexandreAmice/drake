@@ -45,7 +45,17 @@ struct PlaneSeparatesGeometriesOnPath {
       const std::unordered_map<symbolic::Variable, symbolic::Polynomial>&
           path_with_y_subs,
       const symbolic::Variables& indeterminates,
-      symbolic::Polynomial::SubstituteAndExpandCacheData* cached_substitutions);
+      symbolic::Polynomial::SubstituteAndExpandCacheData* cached_substitutions,
+      const std::optional <
+        std::vector<std::pair<
+            solvers::MatrixXDecisionVariable,
+            solvers::MatrixXDecisionVariable>>>& Q_lam_Q_nu_pairs_pos_side =
+        std::nullopt,
+    const std::optional <
+        std::vector<std::pair<
+            solvers::MatrixXDecisionVariable,
+            solvers::MatrixXDecisionVariable>>>& Q_lam_Q_nu_pairs_neg_side =
+        std::nullopt);
 
   // We use lists instead of vectors since
   // ParametrizedPolynomialPositiveOnUnitInterval is NO_COPY_NO_MOVE_NO_ASSIGN
@@ -293,7 +303,22 @@ class CspaceFreePath {
    collision free as a function of the path variable.
   */
   void GeneratePathRationals(
-      const std::vector<PlaneSeparatesGeometries>& plane_geometries);
+      const std::vector<PlaneSeparatesGeometries>& plane_geometries,
+      const std::optional<const std::map < const CIrisCollisionGeometry*,
+      std::vector<std::pair<solvers::MatrixXDecisionVariable,
+                            solvers::MatrixXDecisionVariable>>>>&
+          psd_multiplier_map = std::nullopt);
+
+  /**
+   For Every CIrisCollision Geometry, pre-allocate the largest PSD variable that
+   will be needed.
+  */
+  std::map<const CIrisCollisionGeometry*,
+         std::vector<std::pair<solvers::MatrixXDecisionVariable,
+                               solvers::MatrixXDecisionVariable>>>
+  PreAllocateMultiplierPSD(
+      const std::vector<PlaneSeparatesGeometries>& plane_geometries,
+      const int plane_order, const int maximum_path_degree);
 
   int GetSeparatingPlaneIndex(
       const SortedPair<geometry::GeometryId>& pair) const;

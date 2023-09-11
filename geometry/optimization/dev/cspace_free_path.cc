@@ -48,60 +48,109 @@ PlaneSeparatesGeometriesOnPath::PlaneSeparatesGeometriesOnPath(
     const std::unordered_map<symbolic::Variable, symbolic::Polynomial>&
         path_with_y_subs,
     const symbolic::Variables& indeterminates,
-    symbolic::Polynomial::SubstituteAndExpandCacheData* cached_substitutions)
+    symbolic::Polynomial::SubstituteAndExpandCacheData* cached_substitutions,
+    const std::optional<std::vector<std::pair<
+        solvers::MatrixXDecisionVariable, solvers::MatrixXDecisionVariable>>>&
+        Q_lam_Q_nu_pairs_pos_side,
+    const std::optional<std::vector<std::pair<
+        solvers::MatrixXDecisionVariable, solvers::MatrixXDecisionVariable>>>&
+        Q_lam_Q_nu_pairs_neg_side)
     : plane_index{plane_geometries.plane_index} {
   using std::chrono::duration;
-//  auto method_start = std::chrono::high_resolution_clock::now();
-  auto substitute_and_create_condition =
-      [this, &cached_substitutions, &path_with_y_subs, &indeterminates, &mu](
-          const symbolic::RationalFunction& rational, bool positive_side) {
-        symbolic::Variables parameters;
-        for (const auto& var : rational.numerator().indeterminates()) {
-          parameters.insert(path_with_y_subs.at(var).decision_variables());
-        }
-        auto t0 = std::chrono::high_resolution_clock::now();
-//        drake::log()->debug("Degree of rational = {}",
-//                            rational.numerator().TotalDegree());
-        auto t1 = std::chrono::high_resolution_clock::now();
-        t0 = std::chrono::high_resolution_clock::now();
-        symbolic::Polynomial path_numerator{
-            rational.numerator().SubstituteAndExpand(path_with_y_subs,
-                                                     cached_substitutions)};
-        t1 = std::chrono::high_resolution_clock::now();
-//        drake::log()->debug("Time to expand poly of degree {} = {}",
-//                            path_numerator.TotalDegree(),
-//                            duration<double>(t1 - t0).count());
+  //  auto method_start = std::chrono::high_resolution_clock::now();
+  auto substitute_and_create_condition = [this, &cached_substitutions,
+                                          &path_with_y_subs, &indeterminates,
+                                          &mu, &plane_geometries,
+                                          &Q_lam_Q_nu_pairs_pos_side,
+                                          &Q_lam_Q_nu_pairs_neg_side](
+                                             const int rational_idx,
+                                             bool positive_side) {
+    const symbolic::RationalFunction& rational{
+        positive_side
+            ? plane_geometries.positive_side_rationals.at(rational_idx)
+            : plane_geometries.negative_side_rationals.at(rational_idx)};
+    symbolic::Variables parameters;
+    for (const auto& var : rational.numerator().indeterminates()) {
+      parameters.insert(path_with_y_subs.at(var).decision_variables());
+    }
+    auto t0 = std::chrono::high_resolution_clock::now();
+    //        drake::log()->debug("Degree of rational = {}",
+    //                            rational.numerator().TotalDegree());
+    auto t1 = std::chrono::high_resolution_clock::now();
+    t0 = std::chrono::high_resolution_clock::now();
+    symbolic::Polynomial path_numerator{
+        rational.numerator().SubstituteAndExpand(path_with_y_subs,
+                                                 cached_substitutions)};
+    t1 = std::chrono::high_resolution_clock::now();
+    //        drake::log()->debug("Time to expand poly of degree {} = {}",
+    //                            path_numerator.TotalDegree(),
+    //                            duration<double>(t1 - t0).count());
 
-        // The current y_slacks along with mu.
-        symbolic::Variables cur_indeterminates{
-            intersect(indeterminates, rational.numerator().indeterminates())};
-        cur_indeterminates.insert(mu);
+    // The current y_slacks along with mu.
+    symbolic::Variables cur_indeterminates{
+        intersect(indeterminates, rational.numerator().indeterminates())};
+    cur_indeterminates.insert(mu);
 
-        t0 = std::chrono::high_resolution_clock::now();
-        path_numerator.SetIndeterminates(cur_indeterminates);
-        t1 = std::chrono::high_resolution_clock::now();
-//        drake::log()->debug("Time to parse indets poly = {}",
-//                            duration<double>(t1 - t0).count());
-        t0 = std::chrono::high_resolution_clock::now();
-        if (positive_side) {
-          positive_side_conditions.emplace_back(path_numerator, mu, parameters);
-        } else {
-          negative_side_conditions.emplace_back(path_numerator, mu, parameters);
-        }
-        t1 = std::chrono::high_resolution_clock::now();
-//        drake::log()->debug("Time to build conditions = {}\n\n",
-//                            duration<double>(t1 - t0).count());
-      };
-
-  for (const auto& rational : plane_geometries.positive_side_rationals) {
-    substitute_and_create_condition(rational, true);
+    t0 = std::chrono::high_resolution_clock::now();
+    path_numerator.SetIndeterminates(cur_indeterminates);
+    t1 = std::chrono::high_resolution_clock::now();
+    //        drake::log()->debug("Time to parse indets poly = {}",
+    //                            duration<double>(t1 - t0).count());
+    t0 = std::chrono::high_resolution_clock::now();
+    if (positive_side) {
+      if (Q_lam_Q_nu_pairs_pos_side.has_value()) {
+        auto [Q_lam, Q_nu] = Q_lam_Q_nu_pairs_pos_side.value().at(rational_idx);
+        positive_side_conditions.emplace_back(path_numerator, mu, parameters,
+                                              Q_lam, Q_nu);
+      } else {
+        positive_side_conditions.emplace_back(path_numerator, mu, parameters);
+      }
+    } else {
+      if (Q_lam_Q_nu_pairs_neg_side.has_value()) {
+        auto [Q_lam, Q_nu] = Q_lam_Q_nu_pairs_neg_side.value().at(rational_idx);
+        negative_side_conditions.emplace_back(path_numerator, mu, parameters,
+                                              Q_lam, Q_nu);
+      }
+      negative_side_conditions.emplace_back(path_numerator, mu, parameters);
+    }
+    t1 = std::chrono::high_resolution_clock::now();
+    //        drake::log()->debug("Time to build conditions = {}\n\n",
+    //                            duration<double>(t1 - t0).count());
+  };
+  if (Q_lam_Q_nu_pairs_pos_side.has_value()) {
+    std::cout << Q_lam_Q_nu_pairs_pos_side.value().size() << std::endl;
+    std::cout << plane_geometries.positive_side_rationals.size() << std::endl;
+    DRAKE_DEMAND(Q_lam_Q_nu_pairs_pos_side.value().size() ==
+                 plane_geometries.positive_side_rationals.size());
   }
-  for (const auto& rational : plane_geometries.negative_side_rationals) {
-    substitute_and_create_condition(rational, false);
+  if (Q_lam_Q_nu_pairs_pos_side.has_value()) {
+    std::cout << Q_lam_Q_nu_pairs_neg_side.value().size() << std::endl;
+    std::cout << plane_geometries.negative_side_rationals.size() << std::endl;
+    DRAKE_DEMAND(Q_lam_Q_nu_pairs_neg_side.value().size() ==
+                 plane_geometries.negative_side_rationals.size());
   }
-//  auto method_end = std::chrono::high_resolution_clock::now();
-//  drake::log()->debug("Time to build plane separates geometry = {}\n\n",
-//                      duration<double>(method_end - method_start).count());
+  for (int i = 0;
+       i < static_cast<int>(plane_geometries.positive_side_rationals.size());
+       ++i) {
+    substitute_and_create_condition(i, true);
+  }
+  for (int i = 0;
+       i < static_cast<int>(plane_geometries.negative_side_rationals.size());
+       ++i) {
+    substitute_and_create_condition(i, false);
+  }
+
+  //  for (const auto& rational : plane_geometries.positive_side_rationals) {
+  //    substitute_and_create_condition(rational, true,
+  //                                    separating_planes_.at(plane_index));
+  //  }
+  //  for (const auto& rational : plane_geometries.negative_side_rationals) {
+  //    substitute_and_create_condition(rational, false);
+  //  }
+
+  //  auto method_end = std::chrono::high_resolution_clock::now();
+  //  drake::log()->debug("Time to build plane separates geometry = {}\n\n",
+  //                      duration<double>(method_end - method_start).count());
 }
 
 CspaceFreePath::CspaceFreePath(const multibody::MultibodyPlant<double>* plant,
@@ -176,16 +225,126 @@ CspaceFreePath::CspaceFreePath(const multibody::MultibodyPlant<double>* plant,
   std::vector<PlaneSeparatesGeometries> plane_geometries;
   internal::GenerateRationals(separating_planes_ptrs, y_slack_, q_star_,
                               rational_forward_kin_, &plane_geometries);
-  GeneratePathRationals(plane_geometries);
+  const std::map<const CIrisCollisionGeometry*,
+                 std::vector<std::pair<solvers::MatrixXDecisionVariable,
+                                       solvers::MatrixXDecisionVariable>>>
+      psd_multiplier_map = PreAllocateMultiplierPSD(
+          plane_geometries, plane_order, maximum_path_degree);
+  GeneratePathRationals(plane_geometries, psd_multiplier_map);
+
+  //  GeneratePathRationals(plane_geometries);
+}
+
+namespace {
+// COPIED FROM cspace_free_polytope.cc!!
+template <typename T>
+void SymmetricMatrixFromLowerTriangularPart(
+    int rows, const Eigen::Ref<const VectorX<T>>& lower_triangle,
+    MatrixX<T>* mat) {
+  mat->resize(rows, rows);
+  DRAKE_DEMAND(lower_triangle.rows() == rows * (rows + 1) / 2);
+  int count = 0;
+  for (int j = 0; j < rows; ++j) {
+    (*mat)(j, j) = lower_triangle(count++);
+    for (int i = j + 1; i < rows; ++i) {
+      (*mat)(i, j) = lower_triangle(count);
+      (*mat)(j, i) = lower_triangle(count);
+      count++;
+    }
+  }
+}
+}  // namespace
+std::map<const CIrisCollisionGeometry*,
+         std::vector<std::pair<solvers::MatrixXDecisionVariable,
+                               solvers::MatrixXDecisionVariable>>>
+CspaceFreePath::PreAllocateMultiplierPSD(
+    const std::vector<PlaneSeparatesGeometries>& plane_geometries,
+    const int plane_order, const int maximum_path_degree) {
+  // compute the largest PSD needed
+  std::map<const CIrisCollisionGeometry*, std::vector<int>>
+      collision_geometry_to_poly_sep_condition_max_degree_mu;
+  std::map<const CIrisCollisionGeometry*, std::vector<int>>
+      collision_geometry_to_poly_sep_condition_max_num_y;
+  for (const auto& plane_seps_geom : plane_geometries) {
+    const CSpacePathSeparatingPlane<symbolic::Variable> plane{
+        separating_planes_.at(plane_seps_geom.plane_index)};
+    for (const auto& [geom, rationals] :
+         {std::pair(plane.positive_side_geometry,
+                    plane_seps_geom.positive_side_rationals),
+          std::pair(plane.negative_side_geometry,
+                    plane_seps_geom.negative_side_rationals)}) {
+      if (!collision_geometry_to_poly_sep_condition_max_degree_mu.contains(
+              geom)) {
+        collision_geometry_to_poly_sep_condition_max_degree_mu.emplace(
+            geom, std::vector<int>(rationals.size(), 0));
+        collision_geometry_to_poly_sep_condition_max_num_y.emplace(
+            geom, std::vector<int>(rationals.size(), 0));
+      }
+      for (int i = 0; i < static_cast<int>(rationals.size()); ++i) {
+        const int poly_degree_mu =
+            rationals.at(i).numerator().Degree(mu_) * maximum_path_degree +
+            plane_order;
+        collision_geometry_to_poly_sep_condition_max_degree_mu.at(geom).at(i) =
+            std::max(
+                collision_geometry_to_poly_sep_condition_max_degree_mu.at(geom)
+                    .at(i),
+                poly_degree_mu);
+
+        const int num_y =
+            internal::GetNumYInRational(rationals.at(i), y_slack_);
+        collision_geometry_to_poly_sep_condition_max_num_y.at(geom).at(i) =
+            std::max(
+                collision_geometry_to_poly_sep_condition_max_num_y.at(geom).at(
+                    i),
+                num_y);
+      }
+    }
+  }
+
+  std::map<const CIrisCollisionGeometry*,
+           std::vector<std::pair<solvers::MatrixXDecisionVariable,
+                                 solvers::MatrixXDecisionVariable>>>
+      ret_map;
+  for (const auto& [col_geom_ptr, max_deg_vec] :
+       collision_geometry_to_poly_sep_condition_max_degree_mu) {
+    ret_map.emplace(col_geom_ptr, max_deg_vec.size());
+    for (int i = 0; i < static_cast<int>(max_deg_vec.size()); ++i) {
+      const int d = static_cast<int>(std::floor(max_deg_vec.at(i) / 2));
+      // basis is [μᵈ, ... μ, 1, y₁, ..., yₙ]
+      const int lam_basis_size =
+          d + 1 +
+          collision_geometry_to_poly_sep_condition_max_num_y.at(col_geom_ptr)
+              .at(i);
+      MatrixX<symbolic::Variable> Q_lam;
+      VectorX<symbolic::Variable> Q_lam_vars{lam_basis_size *
+                                             (lam_basis_size + 1) / 2};
+      SymmetricMatrixFromLowerTriangularPart<symbolic::Variable>(
+          lam_basis_size, Q_lam_vars, &Q_lam);
+
+      const int nu_basis_size =
+          d % 2 == 0 ? lam_basis_size - 1 : lam_basis_size;
+      MatrixX<symbolic::Variable> Q_nu;
+      VectorX<symbolic::Variable> Q_nu_vars{nu_basis_size *
+                                            (nu_basis_size + 1) / 2};
+      SymmetricMatrixFromLowerTriangularPart<symbolic::Variable>(
+          nu_basis_size, Q_nu_vars, &Q_nu);
+      ret_map.at(col_geom_ptr).emplace_back(Q_lam, Q_nu);
+    }
+  }
+  return ret_map;
 }
 
 void CspaceFreePath::GeneratePathRationals(
-    const std::vector<PlaneSeparatesGeometries>& plane_geometries) {
+    const std::vector<PlaneSeparatesGeometries>& plane_geometries,
+    const std::optional<const std::map<
+        const CIrisCollisionGeometry*,
+        std::vector<std::pair<solvers::MatrixXDecisionVariable,
+                              solvers::MatrixXDecisionVariable>>>>&
+        psd_multiplier_map) {
   // plane_geometries_ currently has rationals in terms of the configuration
   // space variable. We create PlaneSeparatesGeometriesOnPath objects which are
   // in terms of the path variable and can be used to construct the
   // certification program once a path is chosen.
-
 
   // Add the auxilliary variables for matrix SOS constraints to the substitution
   // map.
@@ -198,9 +357,9 @@ void CspaceFreePath::GeneratePathRationals(
     indeterminates.insert(y_slack_(i));
   }
 
-  const int num_threads =
-      std::min(static_cast<int>(std::thread::hardware_concurrency()),
-               static_cast<int>(plane_geometries.size()));
+  const int num_threads = 1;
+  //      std::min(static_cast<int>(std::thread::hardware_concurrency()),
+  //               static_cast<int>(plane_geometries.size()));
   std::vector<symbolic::Polynomial::SubstituteAndExpandCacheData>
       cached_substitutions(num_threads);
   plane_geometries_on_path_.resize(
@@ -216,17 +375,28 @@ void CspaceFreePath::GeneratePathRationals(
   std::mutex vec_arg_mtx;
   auto plane_geom_constructor_worker =
       [this, &plane_geometries, &cached_substitutions, &vec_args, &vec_arg_mtx,
-       &path_with_y_subs, &indeterminates](const int cached_idx) {
-    while (!vec_args.empty()) {
-      vec_arg_mtx.lock();
-      const int i = vec_args.front();
-      vec_args.pop();
-      vec_arg_mtx.unlock();
-      plane_geometries_on_path_.at(i) = PlaneSeparatesGeometriesOnPath(
-          plane_geometries.at(i), mu_, path_with_y_subs, indeterminates,
-          &cached_substitutions.at(cached_idx));
-    }
-    return;
+       &path_with_y_subs, &indeterminates,
+       &psd_multiplier_map](const int cached_idx) {
+        while (!vec_args.empty()) {
+          vec_arg_mtx.lock();
+          const int i = vec_args.front();
+          vec_args.pop();
+          vec_arg_mtx.unlock();
+          if (psd_multiplier_map.has_value()) {
+            const CSpacePathSeparatingPlane<symbolic::Variable> plane{
+                separating_planes_.at(plane_geometries.at(i).plane_index)};
+            plane_geometries_on_path_.at(i) = PlaneSeparatesGeometriesOnPath(
+                plane_geometries.at(i), mu_, path_with_y_subs, indeterminates,
+                &cached_substitutions.at(cached_idx),
+                psd_multiplier_map.value().at(plane.positive_side_geometry),
+                psd_multiplier_map.value().at(plane.negative_side_geometry));
+          } else {
+            plane_geometries_on_path_.at(i) = PlaneSeparatesGeometriesOnPath(
+                plane_geometries.at(i), mu_, path_with_y_subs, indeterminates,
+                &cached_substitutions.at(cached_idx));
+          }
+        }
+        return;
       };
   std::vector<std::thread> thread_pool;
   thread_pool.reserve(num_threads);
@@ -248,9 +418,9 @@ CspaceFreePath::FindSeparationCertificateGivenPath(
     std::vector<std::unordered_map<SortedPair<geometry::GeometryId>,
                                    std::optional<SeparationCertificateResult>>>*
         certificates) const {
-//  std::cout << "METHOD ENTERED" << std::endl;
+  //  std::cout << "METHOD ENTERED" << std::endl;
   const int num_pieces{static_cast<int>(piecewise_path.cols())};
-//  std::cout << "cols accessed" << std::endl;
+  //  std::cout << "cols accessed" << std::endl;
   // import chrono for timing
   typedef std::chrono::high_resolution_clock clock;
   using std::chrono::duration;
@@ -337,19 +507,19 @@ CspaceFreePath::FindSeparationCertificateGivenPath(
           separating_planes()[plane_index].negative_side_geometry->id());
 
       auto prog_build_time_start = std::chrono::high_resolution_clock::now();
-//      std::cout << "building program" << std::endl;
+      //      std::cout << "building program" << std::endl;
       auto certificate_program = MakeIsGeometrySeparableOnPathProgram(
           pair, piecewise_path.col(segment_idx));
-//      std::cout << "prog built" << std::endl;
+      //      std::cout << "prog built" << std::endl;
       auto prog_build_time_end = std::chrono::high_resolution_clock::now();
       certification_statistics.at(segment_idx)
           .time_to_build_prog.at(plane_index) =
           duration<double>(prog_build_time_end - prog_build_time_start).count();
 
-//      std::cout << "solving program" << std::endl;
+      //      std::cout << "solving program" << std::endl;
       auto result =
           SolveSeparationCertificateProgram(certificate_program, options);
-//      std::cout << "prog solved" << std::endl;
+      //      std::cout << "prog solved" << std::endl;
       certification_statistics.at(segment_idx)
           .time_to_solve_prog.at(plane_index) =
           1000 * result.result.get_solver_details<solvers::MosekSolver>()
@@ -462,7 +632,7 @@ CspaceFreePath::MakeIsGeometrySeparableOnPathProgram(
   // configuration space variable s to symbolic::Polynomial in mu.
   std::unordered_map<symbolic::Variable, symbolic::Polynomial>
       cspace_var_to_sym_path;
-//  std::cout << "starting evaluation construction" << std::endl;
+  //  std::cout << "starting evaluation construction" << std::endl;
   for (int i = 0; i < path.rows(); ++i) {
     DRAKE_DEMAND(path(i).is_univariate());
     DRAKE_DEMAND(path(i).GetDegree() <= static_cast<int>(max_degree_));
@@ -474,12 +644,13 @@ CspaceFreePath::MakeIsGeometrySeparableOnPathProgram(
     cspace_var_to_sym_path.emplace(rational_forward_kin_.s()(i),
                                    symbolic::Polynomial{sym_path_map});
   }
-//  std::cout << "ending evaluation construction" << std::endl;
-//  std::cout << "constructing plane search prog" << std::endl;
-//  std::cout << fmt::format(
-//                   "plane index is {}, while plane_geometries path is size {}",
-//                   plane_index, plane_geometries_on_path_.size())
-//            << std::endl;
+  //  std::cout << "ending evaluation construction" << std::endl;
+  //  std::cout << "constructing plane search prog" << std::endl;
+  //  std::cout << fmt::format(
+  //                  "plane index is {}, while plane_geometries path is size
+  //                  {}",
+  //                   plane_index, plane_geometries_on_path_.size())
+  //            << std::endl;
   return ConstructPlaneSearchProgramOnPath(
       plane_geometries_on_path_.at(plane_index), cspace_var_to_sym_path);
 }
@@ -494,7 +665,7 @@ CspaceFreePath::ConstructPlaneSearchProgramOnPath(
   ret.prog->AddIndeterminates(this->y_slack());
 
   // construct the parameter to value map
-//  std::cout << "evaluating parameters" << std::endl;
+  //  std::cout << "evaluating parameters" << std::endl;
   symbolic::Environment param_eval_map;
   for (const auto& [config_space_var, eval_path] : path) {
     const symbolic::Polynomial symbolic_path{path_.at(config_space_var)};
@@ -512,7 +683,7 @@ CspaceFreePath::ConstructPlaneSearchProgramOnPath(
                             mu_var_coeff_eval);
     }
   }
-//  std::cout << "finished evaluating parameters" << std::endl;
+  //  std::cout << "finished evaluating parameters" << std::endl;
 
   // Now add the separation conditions to the program
   for (const auto& condition :

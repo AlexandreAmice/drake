@@ -13,7 +13,11 @@ ParametrizedPolynomialPositiveOnUnitInterval::
     ParametrizedPolynomialPositiveOnUnitInterval(
         const symbolic::Polynomial& poly,
         const symbolic::Variable& interval_variable,
-        const symbolic::Variables& parameters)
+        const symbolic::Variables& parameters,
+        const std::optional<const solvers::MatrixXDecisionVariable>&
+            Q_lambda_optional,
+        const std::optional<const solvers::MatrixXDecisionVariable>&
+            Q_nu_optional)
     : mu_(interval_variable),
       poly_(poly),
       p_(poly),
@@ -33,9 +37,16 @@ ParametrizedPolynomialPositiveOnUnitInterval::
   if (poly.TotalDegree() == 0) {
     // If poly is of degree 0, then it is a scalar, and we just need to
     // constraint that p_ >= 0.
-    const solvers::VectorXDecisionVariable lambda{
-        psatz_variables_and_psd_constraints_.get_mutable()
-            ->NewContinuousVariables(1, "Sl")};
+    const Eigen::Matrix<symbolic::Variable, 1, 1> lambda{
+        Q_lambda_optional.has_value()
+            ? Q_lambda_optional.value()(0, 0)
+            : psatz_variables_and_psd_constraints_.get_mutable()
+                  ->NewContinuousVariables(1, "Sl")(0)};
+    if (Q_lambda_optional.has_value()) {
+      psatz_variables_and_psd_constraints_.get_mutable()->AddDecisionVariables(
+          lambda);
+    }
+
     psatz_variables_and_psd_constraints_.get_mutable()
         ->AddBoundingBoxConstraint(0, std::numeric_limits<double>::infinity(),
                                    lambda);
@@ -65,27 +76,61 @@ ParametrizedPolynomialPositiveOnUnitInterval::
     // Constructs the multiplier polynomials and their associated Gram matrices
     // as well as the polynomial p_. Recall that p_ has already been initialized
     // to poly(μ,y).
-    auto [lambda, Q_lambda] =
-        psatz_variables_and_psd_constraints_.get_mutable()->NewSosPolynomial(
-            multiplier_basis_d, type, "Sl");
-    lambda_ = std::move(lambda);
+    if (Q_lambda_optional.has_value()) {
+      const solvers::MatrixXDecisionVariable Q_lambda{
+          Q_lambda_optional.value().topLeftCorner(multiplier_basis_d.rows(),
+                                                  multiplier_basis_d.rows())};
+      psatz_variables_and_psd_constraints_.get_mutable()->AddDecisionVariables(
+          Q_lambda);
+      lambda_ =
+          psatz_variables_and_psd_constraints_.get_mutable()->NewSosPolynomial(
+              Q_lambda, multiplier_basis_d, type);
+    } else {
+      auto [lambda, Q_lambda] =
+          psatz_variables_and_psd_constraints_.get_mutable()->NewSosPolynomial(
+              multiplier_basis_d, type, "Sl");
+      lambda_ = std::move(lambda);
+    }
     if (deg == 0) {
       // interval variable doesn't exist in the program, so we can ignore it.
       p_ -= lambda_;
     } else if (deg % 2 == 0) {
-      auto [nu, Q_nu] =
-          psatz_variables_and_psd_constraints_.get_mutable()->NewSosPolynomial(
-              multiplier_basis_d.tail(multiplier_basis_d.size() -
-                                      1),  // exclude μᵈ monomial
-              type, "Sv");
-      nu_ = std::move(nu);
+      const VectorX<symbolic::Monomial> nu_basis{multiplier_basis_d.tail(
+          multiplier_basis_d.size() - 1)};  // exclude μᵈ monomial
+      if (Q_nu_optional.has_value()) {
+        const solvers::MatrixXDecisionVariable Q_nu{
+            Q_nu_optional.value().topLeftCorner(nu_basis.rows(),
+                                                nu_basis.rows())};
+        psatz_variables_and_psd_constraints_.get_mutable()
+            ->AddDecisionVariables(Q_nu);
+        nu_ = psatz_variables_and_psd_constraints_.get_mutable()
+                  ->NewSosPolynomial(Q_nu, multiplier_basis_d, type);
+      } else {
+        auto [nu, Q_nu] =
+            psatz_variables_and_psd_constraints_.get_mutable()
+                ->NewSosPolynomial(nu_basis,  // exclude μᵈ monomial
+                                   type, "Sv");
+        nu_ = std::move(nu);
+      }
       p_ -= lambda_ + nu_ * symbolic::Polynomial(mu_, {mu_}) *
                           (symbolic::Polynomial(1 - mu_, {mu_}));
     } else {
-      auto [nu, Q_nu] =
-          psatz_variables_and_psd_constraints_.get_mutable()->NewSosPolynomial(
-              multiplier_basis_d, type, "Sv");
-      nu_ = std::move(nu);
+      const VectorX<symbolic::Monomial> nu_basis{
+          multiplier_basis_d};
+      if (Q_nu_optional.has_value()) {
+        const solvers::MatrixXDecisionVariable Q_nu{
+            Q_nu_optional.value().topLeftCorner(nu_basis.rows(),
+                                                nu_basis.rows())};
+        psatz_variables_and_psd_constraints_.get_mutable()
+            ->AddDecisionVariables(Q_nu);
+        nu_ = psatz_variables_and_psd_constraints_.get_mutable()
+                  ->NewSosPolynomial(Q_nu, multiplier_basis_d, type);
+      } else {
+        auto [nu, Q_nu] =
+            psatz_variables_and_psd_constraints_.get_mutable()
+                ->NewSosPolynomial(multiplier_basis_d, type, "Sv");
+        nu_ = std::move(nu);
+      }
       p_ -= lambda_ * symbolic::Polynomial(mu_, {mu_}) +
             nu_ * (symbolic::Polynomial(1 - mu_, {mu_}));
     }
