@@ -201,16 +201,16 @@ CspaceFreePath::CspaceFreePath(const multibody::MultibodyPlant<double>* plant,
   std::vector<PlaneSeparatesGeometries> plane_geometries;
   internal::GenerateRationals(separating_planes_ptrs, y_slack_, q_star_,
                               rational_forward_kin_, &plane_geometries);
-//
-//  const std::map<const CIrisCollisionGeometry*,
-//                 std::map<const symbolic::RationalFunction*,
-//                          std::pair<solvers::MatrixXDecisionVariable,
-//                                    solvers::MatrixXDecisionVariable>>>
-//      psd_multiplier_map = PreAllocateMultiplierPSD(
-//          plane_geometries, plane_order, maximum_path_degree);
-//  GeneratePathRationals(plane_geometries, psd_multiplier_map);
 
-        GeneratePathRationals(plane_geometries);
+  const std::map<const CIrisCollisionGeometry*,
+                 std::map<const symbolic::RationalFunction*,
+                          std::pair<solvers::MatrixXDecisionVariable,
+                                    solvers::MatrixXDecisionVariable>>>
+      psd_multiplier_map = PreAllocateMultiplierPSD(
+          plane_geometries, plane_order, maximum_path_degree);
+  GeneratePathRationals(plane_geometries, psd_multiplier_map);
+
+//        GeneratePathRationals(plane_geometries);
 }
 
 namespace {
@@ -259,31 +259,42 @@ CspaceFreePath::PreAllocateMultiplierPSD(
         const auto [iterator, success] = ret.at(*geom).try_emplace(&rational);
         // this means that the rational wasn't already in the map
         if (success) {
+          int rat_degree_mu = 0;
+          for(const auto& [monom, coeff]: rational.numerator().monomial_to_coefficient_map()) {
+            int deg_s = 0;
+            for(const auto& [var, power] : monom.get_powers()) {
+              for(const auto& s: rational_forward_kin_.s()) {
+                if(var.equal_to(s)) {
+                  deg_s += power;
+                }
+              }
+            }
+            rat_degree_mu = std::max(rat_degree_mu, deg_s);
+          }
           const int poly_degree_mu =
-              rational.numerator().Degree(mu_) * maximum_path_degree +
+              rat_degree_mu * maximum_path_degree +
               plane_order;
           const int num_y = internal::GetNumYInRational(rational, y_slack_);
 
           const int d = static_cast<int>(std::floor(poly_degree_mu / 2));
-//          const int d = static_cast<int>(std::ceil(poly_degree_mu / 2));
-          const int lam_basis_size = d + 1 + num_y + 4;
+          const int lam_basis_size = d + 1 + num_y;
 
           MatrixX<symbolic::Variable> Q_lam{lam_basis_size, lam_basis_size};
           for (int i = 0; i < lam_basis_size; ++i) {
-            Q_lam(i, i) = symbolic::Variable(fmt::format("Sl_{}_{}", i, i));
+            Q_lam(i, i) = symbolic::Variable(fmt::format("Sl({},{})", i, i));
             for (int j = i; j < lam_basis_size; ++j) {
-              Q_lam(i, j) = symbolic::Variable(fmt::format("Sl_{}_{}", i, j));
+              Q_lam(i, j) = symbolic::Variable(fmt::format("Sl({},{})", i, j));
               Q_lam(j, i) = Q_lam(i, j);
             }
           }
 
           const int nu_basis_size =
-              d % 2 == 0 ? lam_basis_size - 1 : lam_basis_size;
+              poly_degree_mu % 2 == 0 ? lam_basis_size - 1 : lam_basis_size;
           MatrixX<symbolic::Variable> Q_nu(nu_basis_size, nu_basis_size);
           for (int i = 0; i < nu_basis_size; ++i) {
-            Q_nu(i, i) = symbolic::Variable(fmt::format("Snu_{}_{}", i, i));
+            Q_nu(i, i) = symbolic::Variable(fmt::format("Snu({},{})", i, i));
             for (int j = i; j < nu_basis_size; ++j) {
-              Q_nu(i, j) = symbolic::Variable(fmt::format("Snu_{}_{}", i, j));
+              Q_nu(i, j) = symbolic::Variable(fmt::format("Snu({},{})", i, j));
               Q_nu(j, i) = Q_nu(i, j);
             }
           }

@@ -48,7 +48,7 @@ VectorX<Polynomiald> MakeBezierCurvePolynomialPath(
   control_points.col(0) = s0;
   control_points.col(curve_order) = s_end;
 
-  const int div = 1000;
+  const int div = 10000;
   Eigen::VectorXd orth_offset{s0.rows()};
   for (int i = 0; i < s0.rows(); ++i) {
     orth_offset(i) = std::pow(-1, i % 2) / div;
@@ -63,9 +63,10 @@ VectorX<Polynomiald> MakeBezierCurvePolynomialPath(
     }
     control_points.col(i) = si;
   }
-  if (poly_to_check_containment.has_value()) {
-    poly_to_check_containment.value().PointInSet(control_points);
-  }
+//  if (poly_to_check_containment.has_value()) {
+//    poly_to_check_containment.value().PointInSet(control_points);
+//  }
+
   //
   //
   //  if (poly_to_check_containment.has_value() && curve_order > 1) {
@@ -236,12 +237,12 @@ TEST_F(CIrisToyRobotTest, MakeAndSolveIsGeometrySeparableOnPathProgram) {
   //  const Eigen::Vector3d s0_unsafe{0.65*M_PI, 1.63, 2.9};
   //  const Eigen::Vector3d s_end_unsafe{-1.63, 0.612, -0.65};
 
-  for (const int maximum_path_degree : {1}) {
+  for (const int maximum_path_degree : {1, 4}) {
     CspaceFreePathTester tester(plant_, scene_graph_, q_star,
                                 maximum_path_degree, plane_order);
 
     // Check that we can certify paths up to the maximum degree.
-    for (int bezier_curve_order = maximum_path_degree; bezier_curve_order <= maximum_path_degree;
+    for (int bezier_curve_order = 1; bezier_curve_order <= maximum_path_degree;
          ++bezier_curve_order) {
       // Construct a polynonomial of degree bezier_curve_order <=
       // maximum_path_degree. By constructing this with the control points
@@ -250,6 +251,7 @@ TEST_F(CIrisToyRobotTest, MakeAndSolveIsGeometrySeparableOnPathProgram) {
       VectorX<Polynomiald> bezier_poly_path_safe =
           MakeBezierCurvePolynomialPath(s0_safe, s_end_safe, bezier_curve_order,
                                         c_free_polyhedron);
+
       auto separation_certificate_program =
           tester.cspace_free_path().MakeIsGeometrySeparableOnPathProgram(
               geometry_pair, bezier_poly_path_safe);
