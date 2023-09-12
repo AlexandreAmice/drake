@@ -2,6 +2,7 @@
 
 #include <limits>
 #include <utility>
+#include <iostream>
 
 #include "drake/common/symbolic/monomial_util.h"
 
@@ -73,6 +74,11 @@ ParametrizedPolynomialPositiveOnUnitInterval::
       }
     }
 
+    for(int j = 0; j < multiplier_basis_d.size(); ++j) {
+      std::cout << multiplier_basis_d(j) << std::endl;
+    }
+    std::cout << std::endl;
+
     // Constructs the multiplier polynomials and their associated Gram matrices
     // as well as the polynomial p_. Recall that p_ has already been initialized
     // to poly(μ,y).
@@ -104,7 +110,7 @@ ParametrizedPolynomialPositiveOnUnitInterval::
         psatz_variables_and_psd_constraints_.get_mutable()
             ->AddDecisionVariables(Q_nu);
         nu_ = psatz_variables_and_psd_constraints_.get_mutable()
-                  ->NewSosPolynomial(Q_nu, multiplier_basis_d, type);
+                  ->NewSosPolynomial(Q_nu, nu_basis, type);
       } else {
         auto [nu, Q_nu] =
             psatz_variables_and_psd_constraints_.get_mutable()
@@ -124,11 +130,11 @@ ParametrizedPolynomialPositiveOnUnitInterval::
         psatz_variables_and_psd_constraints_.get_mutable()
             ->AddDecisionVariables(Q_nu);
         nu_ = psatz_variables_and_psd_constraints_.get_mutable()
-                  ->NewSosPolynomial(Q_nu, multiplier_basis_d, type);
+                  ->NewSosPolynomial(Q_nu, nu_basis, type);
       } else {
         auto [nu, Q_nu] =
             psatz_variables_and_psd_constraints_.get_mutable()
-                ->NewSosPolynomial(multiplier_basis_d, type, "Sv");
+                ->NewSosPolynomial(nu_basis, type, "Sv");
         nu_ = std::move(nu);
       }
       p_ -= lambda_ * symbolic::Polynomial(mu_, {mu_}) +

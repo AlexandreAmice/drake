@@ -320,7 +320,9 @@ class CspaceFreePath {
                               solvers::MatrixXDecisionVariable>>>
   PreAllocateMultiplierPSD(
       const std::vector<PlaneSeparatesGeometries>& plane_geometries,
-      const int plane_order, const int maximum_path_degree);
+      const int plane_order, const int maximum_path_degree) const;
+
+
 
   int GetSeparatingPlaneIndex(
       const SortedPair<geometry::GeometryId>& pair) const;
