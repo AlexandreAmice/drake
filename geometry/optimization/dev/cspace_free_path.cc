@@ -49,108 +49,94 @@ PlaneSeparatesGeometriesOnPath::PlaneSeparatesGeometriesOnPath(
         path_with_y_subs,
     const symbolic::Variables& indeterminates,
     symbolic::Polynomial::SubstituteAndExpandCacheData* cached_substitutions,
-    const std::optional<std::vector<std::pair<
-        solvers::MatrixXDecisionVariable, solvers::MatrixXDecisionVariable>>>&
+    const std::optional<std::map<const symbolic::RationalFunction*,
+                                 std::pair<solvers::MatrixXDecisionVariable,
+                                           solvers::MatrixXDecisionVariable>>>&
         Q_lam_Q_nu_pairs_pos_side,
-    const std::optional<std::vector<std::pair<
-        solvers::MatrixXDecisionVariable, solvers::MatrixXDecisionVariable>>>&
+    const std::optional<std::map<const symbolic::RationalFunction*,
+                                 std::pair<solvers::MatrixXDecisionVariable,
+                                           solvers::MatrixXDecisionVariable>>>&
         Q_lam_Q_nu_pairs_neg_side)
     : plane_index{plane_geometries.plane_index} {
   using std::chrono::duration;
   //  auto method_start = std::chrono::high_resolution_clock::now();
-  auto substitute_and_create_condition = [this, &cached_substitutions,
-                                          &path_with_y_subs, &indeterminates,
-                                          &mu, &plane_geometries,
-                                          &Q_lam_Q_nu_pairs_pos_side,
-                                          &Q_lam_Q_nu_pairs_neg_side](
-                                             const int rational_idx,
-                                             bool positive_side) {
-    const symbolic::RationalFunction& rational{
-        positive_side
-            ? plane_geometries.positive_side_rationals.at(rational_idx)
-            : plane_geometries.negative_side_rationals.at(rational_idx)};
-    symbolic::Variables parameters;
-    for (const auto& var : rational.numerator().indeterminates()) {
-      parameters.insert(path_with_y_subs.at(var).decision_variables());
-    }
-    auto t0 = std::chrono::high_resolution_clock::now();
-    //        drake::log()->debug("Degree of rational = {}",
-    //                            rational.numerator().TotalDegree());
-    auto t1 = std::chrono::high_resolution_clock::now();
-    t0 = std::chrono::high_resolution_clock::now();
-    symbolic::Polynomial path_numerator{
-        rational.numerator().SubstituteAndExpand(path_with_y_subs,
-                                                 cached_substitutions)};
-    t1 = std::chrono::high_resolution_clock::now();
-    //        drake::log()->debug("Time to expand poly of degree {} = {}",
-    //                            path_numerator.TotalDegree(),
-    //                            duration<double>(t1 - t0).count());
+  auto substitute_and_create_condition =
+      [this, &cached_substitutions, &path_with_y_subs, &indeterminates, &mu,
+       &plane_geometries, &Q_lam_Q_nu_pairs_pos_side,
+       &Q_lam_Q_nu_pairs_neg_side](const symbolic::RationalFunction& rational,
+                                   bool positive_side) {
+        symbolic::Variables parameters;
+        for (const auto& var : rational.numerator().indeterminates()) {
+          parameters.insert(path_with_y_subs.at(var).decision_variables());
+        }
+        auto t0 = std::chrono::high_resolution_clock::now();
+        //        drake::log()->debug("Degree of rational = {}",
+        //                            rational.numerator().TotalDegree());
+        auto t1 = std::chrono::high_resolution_clock::now();
+        t0 = std::chrono::high_resolution_clock::now();
+        symbolic::Polynomial path_numerator{
+            rational.numerator().SubstituteAndExpand(path_with_y_subs,
+                                                     cached_substitutions)};
+        t1 = std::chrono::high_resolution_clock::now();
+        //        drake::log()->debug("Time to expand poly of degree {} = {}",
+        //                            path_numerator.TotalDegree(),
+        //                            duration<double>(t1 - t0).count());
 
-    // The current y_slacks along with mu.
-    symbolic::Variables cur_indeterminates{
-        intersect(indeterminates, rational.numerator().indeterminates())};
-    cur_indeterminates.insert(mu);
+        // The current y_slacks along with mu.
+        symbolic::Variables cur_indeterminates{
+            intersect(indeterminates, rational.numerator().indeterminates())};
+        cur_indeterminates.insert(mu);
 
-    t0 = std::chrono::high_resolution_clock::now();
-    path_numerator.SetIndeterminates(cur_indeterminates);
-    t1 = std::chrono::high_resolution_clock::now();
-    //        drake::log()->debug("Time to parse indets poly = {}",
-    //                            duration<double>(t1 - t0).count());
-    t0 = std::chrono::high_resolution_clock::now();
-    if (positive_side) {
-      if (Q_lam_Q_nu_pairs_pos_side.has_value()) {
-        auto [Q_lam, Q_nu] = Q_lam_Q_nu_pairs_pos_side.value().at(rational_idx);
-        positive_side_conditions.emplace_back(path_numerator, mu, parameters,
-                                              Q_lam, Q_nu);
-      } else {
-        positive_side_conditions.emplace_back(path_numerator, mu, parameters);
-      }
-    } else {
-      if (Q_lam_Q_nu_pairs_neg_side.has_value()) {
-        auto [Q_lam, Q_nu] = Q_lam_Q_nu_pairs_neg_side.value().at(rational_idx);
-        negative_side_conditions.emplace_back(path_numerator, mu, parameters,
-                                              Q_lam, Q_nu);
-      }
-      negative_side_conditions.emplace_back(path_numerator, mu, parameters);
-    }
-    t1 = std::chrono::high_resolution_clock::now();
-    //        drake::log()->debug("Time to build conditions = {}\n\n",
-    //                            duration<double>(t1 - t0).count());
-  };
+        t0 = std::chrono::high_resolution_clock::now();
+        path_numerator.SetIndeterminates(cur_indeterminates);
+        t1 = std::chrono::high_resolution_clock::now();
+        //        drake::log()->debug("Time to parse indets poly = {}",
+        //                            duration<double>(t1 - t0).count());
+        t0 = std::chrono::high_resolution_clock::now();
+        if (positive_side) {
+          if (Q_lam_Q_nu_pairs_pos_side.has_value()) {
+            auto [Q_lam, Q_nu] =
+                Q_lam_Q_nu_pairs_pos_side.value().at(&rational);
+            positive_side_conditions.emplace_back(path_numerator, mu,
+                                                  parameters, Q_lam, Q_nu);
+          } else {
+            positive_side_conditions.emplace_back(path_numerator, mu,
+                                                  parameters);
+          }
+        } else {
+          if (Q_lam_Q_nu_pairs_neg_side.has_value()) {
+            auto [Q_lam, Q_nu] =
+                Q_lam_Q_nu_pairs_neg_side.value().at(&rational);
+            negative_side_conditions.emplace_back(path_numerator, mu,
+                                                  parameters, Q_lam, Q_nu);
+          }
+          negative_side_conditions.emplace_back(path_numerator, mu, parameters);
+        }
+        t1 = std::chrono::high_resolution_clock::now();
+        //        drake::log()->debug("Time to build conditions = {}\n\n",
+        //                            duration<double>(t1 - t0).count());
+      };
   if (Q_lam_Q_nu_pairs_pos_side.has_value()) {
     std::cout << Q_lam_Q_nu_pairs_pos_side.value().size() << std::endl;
     std::cout << plane_geometries.positive_side_rationals.size() << std::endl;
-    DRAKE_DEMAND(Q_lam_Q_nu_pairs_pos_side.value().size() ==
+    for (const auto& elt : Q_lam_Q_nu_pairs_pos_side.value()) {
+      std::cout << *elt.first << std::endl;
+    }
+    DRAKE_DEMAND(Q_lam_Q_nu_pairs_pos_side.value().size() >=
                  plane_geometries.positive_side_rationals.size());
   }
-  if (Q_lam_Q_nu_pairs_pos_side.has_value()) {
+  if (Q_lam_Q_nu_pairs_neg_side.has_value()) {
     std::cout << Q_lam_Q_nu_pairs_neg_side.value().size() << std::endl;
     std::cout << plane_geometries.negative_side_rationals.size() << std::endl;
-    DRAKE_DEMAND(Q_lam_Q_nu_pairs_neg_side.value().size() ==
+    DRAKE_DEMAND(Q_lam_Q_nu_pairs_neg_side.value().size() >=
                  plane_geometries.negative_side_rationals.size());
   }
-  for (int i = 0;
-       i < static_cast<int>(plane_geometries.positive_side_rationals.size());
-       ++i) {
-    substitute_and_create_condition(i, true);
+  for (const auto& rational : plane_geometries.positive_side_rationals) {
+    substitute_and_create_condition(rational, true);
   }
-  for (int i = 0;
-       i < static_cast<int>(plane_geometries.negative_side_rationals.size());
-       ++i) {
-    substitute_and_create_condition(i, false);
+  for (const auto& rational : plane_geometries.negative_side_rationals) {
+    substitute_and_create_condition(rational, false);
   }
-
-  //  for (const auto& rational : plane_geometries.positive_side_rationals) {
-  //    substitute_and_create_condition(rational, true,
-  //                                    separating_planes_.at(plane_index));
-  //  }
-  //  for (const auto& rational : plane_geometries.negative_side_rationals) {
-  //    substitute_and_create_condition(rational, false);
-  //  }
-
-  //  auto method_end = std::chrono::high_resolution_clock::now();
-  //  drake::log()->debug("Time to build plane separates geometry = {}\n\n",
-  //                      duration<double>(method_end - method_start).count());
 }
 
 CspaceFreePath::CspaceFreePath(const multibody::MultibodyPlant<double>* plant,
@@ -226,8 +212,9 @@ CspaceFreePath::CspaceFreePath(const multibody::MultibodyPlant<double>* plant,
   internal::GenerateRationals(separating_planes_ptrs, y_slack_, q_star_,
                               rational_forward_kin_, &plane_geometries);
   const std::map<const CIrisCollisionGeometry*,
-                 std::vector<std::pair<solvers::MatrixXDecisionVariable,
-                                       solvers::MatrixXDecisionVariable>>>
+                 std::map<const symbolic::RationalFunction*,
+                          std::pair<solvers::MatrixXDecisionVariable,
+                                    solvers::MatrixXDecisionVariable>>>
       psd_multiplier_map = PreAllocateMultiplierPSD(
           plane_geometries, plane_order, maximum_path_degree);
   GeneratePathRationals(plane_geometries, psd_multiplier_map);
@@ -254,18 +241,21 @@ void SymmetricMatrixFromLowerTriangularPart(
   }
 }
 }  // namespace
+
 std::map<const CIrisCollisionGeometry*,
-         std::vector<std::pair<solvers::MatrixXDecisionVariable,
-                               solvers::MatrixXDecisionVariable>>>
+         std::map<const symbolic::RationalFunction*,
+                  std::pair<solvers::MatrixXDecisionVariable,
+                            solvers::MatrixXDecisionVariable>>>
 CspaceFreePath::PreAllocateMultiplierPSD(
     const std::vector<PlaneSeparatesGeometries>& plane_geometries,
     const int plane_order, const int maximum_path_degree) {
   // compute the largest PSD needed
-  std::map<const CIrisCollisionGeometry*, std::vector<int>>
-      collision_geometry_to_poly_sep_condition_max_degree_mu;
-  std::map<const CIrisCollisionGeometry*, std::vector<int>>
-      collision_geometry_to_poly_sep_condition_max_num_y;
-  for (const auto& plane_seps_geom : plane_geometries) {
+  std::map<const CIrisCollisionGeometry*,
+           std::map<const symbolic::RationalFunction*,
+                    std::pair<MatrixX<symbolic::Variable>,
+                              MatrixX<symbolic::Variable>>>>
+      ret;
+  for (const PlaneSeparatesGeometries& plane_seps_geom : plane_geometries) {
     const CSpacePathSeparatingPlane<symbolic::Variable> plane{
         separating_planes_.at(plane_seps_geom.plane_index)};
     for (const auto& [geom, rationals] :
@@ -273,73 +263,79 @@ CspaceFreePath::PreAllocateMultiplierPSD(
                     plane_seps_geom.positive_side_rationals),
           std::pair(plane.negative_side_geometry,
                     plane_seps_geom.negative_side_rationals)}) {
-      if (!collision_geometry_to_poly_sep_condition_max_degree_mu.contains(
-              geom)) {
-        collision_geometry_to_poly_sep_condition_max_degree_mu.emplace(
-            geom, std::vector<int>(rationals.size(), 0));
-        collision_geometry_to_poly_sep_condition_max_num_y.emplace(
-            geom, std::vector<int>(rationals.size(), 0));
-      }
-      for (int i = 0; i < static_cast<int>(rationals.size()); ++i) {
-        const int poly_degree_mu =
-            rationals.at(i).numerator().Degree(mu_) * maximum_path_degree +
-            plane_order;
-        collision_geometry_to_poly_sep_condition_max_degree_mu.at(geom).at(i) =
-            std::max(
-                collision_geometry_to_poly_sep_condition_max_degree_mu.at(geom)
-                    .at(i),
-                poly_degree_mu);
+      ret.try_emplace(geom);
+      for (const auto& rational : rationals) {
+        if (!ret.at(geom).contains(&rational)) {
+          const auto [iterator, success] = ret.at(geom).try_emplace(&rational);
+          if(success) {
+            std::cout << &rational << std::endl;
+            std::cout << rational << std::endl;
+          }
+          else {
+            std::cout << "rational repeated" << std::endl;
+          }
+          unused(plane_order, maximum_path_degree);
+//          const int poly_degree_mu =
+//              rational.numerator().Degree(mu_) * maximum_path_degree +
+//              plane_order;
+//          const int num_y = internal::GetNumYInRational(rational, y_slack_);
+//
+//          const int d = static_cast<int>(std::floor(poly_degree_mu / 2));
+//          const int lam_basis_size = d + 1 + num_y;
+//
+//          MatrixX<symbolic::Variable>* Q_lam = new MatrixX<symbolic::Variable>();
+//          VectorX<symbolic::Variable> Q_lam_vars{lam_basis_size *
+//                                                 (lam_basis_size + 1) / 2};
+//          SymmetricMatrixFromLowerTriangularPart<symbolic::Variable>(
+//              lam_basis_size, Q_lam_vars, Q_lam);
+//
+//          const int nu_basis_size =
+//              d % 2 == 0 ? lam_basis_size - 1 : lam_basis_size;
+//          MatrixX<symbolic::Variable>* Q_nu = new MatrixX<symbolic::Variable>();
+//          VectorX<symbolic::Variable> Q_nu_vars{nu_basis_size *
+//                                                (nu_basis_size + 1) / 2};
+//          SymmetricMatrixFromLowerTriangularPart<symbolic::Variable>(
+//              nu_basis_size, Q_nu_vars,Q_nu);
+//
+//          ret.at(geom).insert({&rational, std::pair(*Q_lam, *Q_nu)});
+        }
 
-        const int num_y =
-            internal::GetNumYInRational(rationals.at(i), y_slack_);
-        collision_geometry_to_poly_sep_condition_max_num_y.at(geom).at(i) =
-            std::max(
-                collision_geometry_to_poly_sep_condition_max_num_y.at(geom).at(
-                    i),
-                num_y);
       }
+//      for(const auto& elt:   ret.at(geom)) {
+//          std::cout << *elt.first << std::endl;
+//          throw std::runtime_error("done");
+//        }
     }
   }
+  std::cout << fmt::format("ret size = {}", ret.size()) << std::endl;
+  int i = 0;
+  for (const auto& elt : ret) {
+//        std::cout << elt.first << std::endl;
+        if(i == 0) {
+          i +=3;
+          continue;
+        }
+        std::cout << "start print rats" << std::endl;
+        for(const auto& [rat_ptr, pair]: elt.second) {
+//          std::cout << (rat_ptr == nullptr) << std::endl;
+          std::cout << rat_ptr << std::endl;
+          std::cout << *rat_ptr << std::endl;
+        }
+        std::cout << std::endl;
+      }
+            throw std::runtime_error("done");
 
-  std::map<const CIrisCollisionGeometry*,
-           std::vector<std::pair<solvers::MatrixXDecisionVariable,
-                                 solvers::MatrixXDecisionVariable>>>
-      ret_map;
-  for (const auto& [col_geom_ptr, max_deg_vec] :
-       collision_geometry_to_poly_sep_condition_max_degree_mu) {
-    ret_map.emplace(col_geom_ptr, max_deg_vec.size());
-    for (int i = 0; i < static_cast<int>(max_deg_vec.size()); ++i) {
-      const int d = static_cast<int>(std::floor(max_deg_vec.at(i) / 2));
-      // basis is [μᵈ, ... μ, 1, y₁, ..., yₙ]
-      const int lam_basis_size =
-          d + 1 +
-          collision_geometry_to_poly_sep_condition_max_num_y.at(col_geom_ptr)
-              .at(i);
-      MatrixX<symbolic::Variable> Q_lam;
-      VectorX<symbolic::Variable> Q_lam_vars{lam_basis_size *
-                                             (lam_basis_size + 1) / 2};
-      SymmetricMatrixFromLowerTriangularPart<symbolic::Variable>(
-          lam_basis_size, Q_lam_vars, &Q_lam);
-
-      const int nu_basis_size =
-          d % 2 == 0 ? lam_basis_size - 1 : lam_basis_size;
-      MatrixX<symbolic::Variable> Q_nu;
-      VectorX<symbolic::Variable> Q_nu_vars{nu_basis_size *
-                                            (nu_basis_size + 1) / 2};
-      SymmetricMatrixFromLowerTriangularPart<symbolic::Variable>(
-          nu_basis_size, Q_nu_vars, &Q_nu);
-      ret_map.at(col_geom_ptr).emplace_back(Q_lam, Q_nu);
-    }
-  }
-  return ret_map;
+  return ret;
 }
+
 
 void CspaceFreePath::GeneratePathRationals(
     const std::vector<PlaneSeparatesGeometries>& plane_geometries,
-    const std::optional<const std::map<
-        const CIrisCollisionGeometry*,
-        std::vector<std::pair<solvers::MatrixXDecisionVariable,
-                              solvers::MatrixXDecisionVariable>>>>&
+    const std::optional<
+        const std::map<const CIrisCollisionGeometry*,
+                       std::map<const symbolic::RationalFunction*,
+                                std::pair<solvers::MatrixXDecisionVariable,
+                                          solvers::MatrixXDecisionVariable>>>>&
         psd_multiplier_map) {
   // plane_geometries_ currently has rationals in terms of the configuration
   // space variable. We create PlaneSeparatesGeometriesOnPath objects which are

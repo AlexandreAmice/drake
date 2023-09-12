@@ -13,8 +13,88 @@ namespace drake {
 namespace geometry {
 namespace optimization {
 
+
+TEST_F(CIrisRobotPolytopicGeometryTest, CspaceFreePathConstructor) {
+  // Test CspaceFreePathConstructor constructor.
+  const Eigen::Vector3d q_star(0, 0, 0);
+  for (int maximum_path_degree = 1; maximum_path_degree < 3;
+       ++maximum_path_degree) {
+    for (int plane_order = 1; plane_order < 3; ++plane_order) {
+      CspaceFreePathTester tester(plant_, scene_graph_, q_star,
+                                  maximum_path_degree, plane_order);
+      const CspaceFreePath& dut = tester.cspace_free_path();
+      EXPECT_EQ(dut.max_degree(), maximum_path_degree);
+      EXPECT_EQ(dut.plane_order(), plane_order);
+      // check that the path map is properly instantiated
+      VectorX<symbolic::Variable> s_vars{
+          tester.get_rational_forward_kin()->s()};
+      for (int i = 0; i < s_vars.size(); ++i) {
+        EXPECT_GT(tester.get_path().count(s_vars(i)), 0);
+
+        const symbolic::Polynomial& path_component{
+            tester.get_path().at(s_vars(i))};
+        EXPECT_EQ(path_component.indeterminates().size(), 1);
+        EXPECT_EQ((*path_component.indeterminates().cbegin()), tester.get_mu());
+        EXPECT_EQ(static_cast<unsigned int>(path_component.TotalDegree()),
+                  maximum_path_degree);
+        EXPECT_EQ(path_component.monomial_to_coefficient_map().size(),
+                  maximum_path_degree + 1);
+      }
+
+      int num_planes_expected = 0;
+
+      const auto link_geometries =
+          internal::GetCollisionGeometries(*plant_, *scene_graph_);
+      // Count the expected number of planes by hand.
+      num_planes_expected +=
+          link_geometries.at(plant_->world_body().index()).size() *
+          // Don't include world_body to body0 as there is only a weld joint
+          // between them.
+          (link_geometries.at(body_indices_[1]).size() +
+           link_geometries.at(body_indices_[2]).size() +
+           link_geometries.at(body_indices_[3]).size());
+      num_planes_expected += link_geometries.at(body_indices_[0]).size() *
+                             link_geometries.at(body_indices_[2]).size();
+      num_planes_expected += link_geometries.at(body_indices_[1]).size() *
+                             link_geometries.at(body_indices_[3]).size();
+      num_planes_expected += link_geometries.at(body_indices_[2]).size() *
+                             link_geometries.at(body_indices_[3]).size();
+      EXPECT_EQ(tester.get_separating_planes().size(), num_planes_expected);
+      EXPECT_EQ(dut.plane_order(), plane_order);
+      for (const auto& [geometry_pair, plane_index] :
+           dut.map_geometries_to_separating_planes()) {
+        // check plane
+        const auto& plane = dut.separating_planes()[plane_index];
+        EXPECT_EQ(plane.plane_degree, plane_order);
+        if (plane.positive_side_geometry->id() <
+            plane.negative_side_geometry->id()) {
+          EXPECT_EQ(geometry_pair.first(), plane.positive_side_geometry->id());
+          EXPECT_EQ(geometry_pair.second(), plane.negative_side_geometry->id());
+        } else {
+          EXPECT_EQ(geometry_pair.first(), plane.negative_side_geometry->id());
+          EXPECT_EQ(geometry_pair.second(), plane.positive_side_geometry->id());
+        }
+        // Check the expressed body.
+        EXPECT_EQ(plane.expressed_body,
+                  multibody::internal::FindBodyInTheMiddleOfChain(
+                      *plant_, plane.positive_side_geometry->body_index(),
+                      plane.negative_side_geometry->body_index()));
+        for (int i = 0; i < 3; ++i) {
+          EXPECT_EQ(plane.a(i).TotalDegree(), plane_order);
+          EXPECT_EQ(plane.a(i).indeterminates(),
+                    symbolic::Variables({dut.mu()}));
+        }
+        EXPECT_EQ(plane.b.TotalDegree(), plane_order);
+        EXPECT_EQ(plane.b.indeterminates(), symbolic::Variables({dut.mu()}));
+      }
+      EXPECT_EQ(dut.y_slack().size(), 3);
+      // We will check the path rationals in a later test.
+    }
+  }
+}
+
 TEST_F(CIrisToyRobotTest, CspaceFreePathConstructor) {
-  // Test CspaceFreePolytope constructor.
+  // Test CspaceFreePathConstructor constructor.
   const Eigen::Vector3d q_star(0, 0, 0);
   for (int maximum_path_degree = 1; maximum_path_degree < 3;
        ++maximum_path_degree) {
