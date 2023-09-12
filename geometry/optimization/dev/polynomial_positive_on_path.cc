@@ -11,14 +11,14 @@ namespace geometry {
 namespace optimization {
 
 ParametrizedPolynomialPositiveOnUnitInterval::
-    ParametrizedPolynomialPositiveOnUnitInterval(
-        const symbolic::Polynomial& poly,
-        const symbolic::Variable& interval_variable,
-        const symbolic::Variables& parameters,
-        const std::optional<const solvers::MatrixXDecisionVariable>&
-            Q_lambda_optional,
-        const std::optional<const solvers::MatrixXDecisionVariable>&
-            Q_nu_optional)
+ParametrizedPolynomialPositiveOnUnitInterval(
+    const symbolic::Polynomial &poly,
+    const symbolic::Variable &interval_variable,
+    const symbolic::Variables &parameters,
+    const std::optional<const solvers::MatrixXDecisionVariable> &
+    Q_lambda_optional,
+    const std::optional<const solvers::MatrixXDecisionVariable> &
+    Q_nu_optional)
     : mu_(interval_variable),
       poly_(poly),
       p_(poly),
@@ -26,7 +26,7 @@ ParametrizedPolynomialPositiveOnUnitInterval::
       psatz_variables_and_psd_constraints_(new solvers::MathematicalProgram()) {
   psatz_variables_and_psd_constraints_.get_mutable()->AddIndeterminates(
       poly.indeterminates());
-  for (const auto& var : poly.decision_variables()) {
+  for (const auto &var: poly.decision_variables()) {
     // Add the decision variables of poly which are not parameters.
     if (!parameters_.include(var)) {
       psatz_variables_and_psd_constraints_.get_mutable()->AddDecisionVariables(
@@ -40,9 +40,9 @@ ParametrizedPolynomialPositiveOnUnitInterval::
     // constraint that p_ >= 0.
     const Eigen::Matrix<symbolic::Variable, 1, 1> lambda{
         Q_lambda_optional.has_value()
-            ? Q_lambda_optional.value()(0, 0)
-            : psatz_variables_and_psd_constraints_.get_mutable()
-                  ->NewContinuousVariables(1, "Sl")(0)};
+        ? Q_lambda_optional.value()(0, 0)
+        : psatz_variables_and_psd_constraints_.get_mutable()
+            ->NewContinuousVariables(1, "Sl")(0)};
     if (Q_lambda_optional.has_value()) {
       psatz_variables_and_psd_constraints_.get_mutable()->AddDecisionVariables(
           lambda);
@@ -66,18 +66,13 @@ ParametrizedPolynomialPositiveOnUnitInterval::
 
     multiplier_basis_d.head(d + 1) = symbolic::MonomialBasis({mu_}, d);
     int i = d + 1;
-    for (const auto& var : poly.indeterminates()) {
+    for (const auto &var: poly.indeterminates()) {
       if (!var.equal_to(mu_)) {
         DRAKE_DEMAND(poly.Degree(var) <= 2);
         multiplier_basis_d(i) = symbolic::Monomial(var);
         ++i;
       }
     }
-
-    for(int j = 0; j < multiplier_basis_d.size(); ++j) {
-      std::cout << multiplier_basis_d(j) << std::endl;
-    }
-    std::cout << std::endl;
 
     // Constructs the multiplier polynomials and their associated Gram matrices
     // as well as the polynomial p_. Recall that p_ has already been initialized
@@ -110,7 +105,7 @@ ParametrizedPolynomialPositiveOnUnitInterval::
         psatz_variables_and_psd_constraints_.get_mutable()
             ->AddDecisionVariables(Q_nu);
         nu_ = psatz_variables_and_psd_constraints_.get_mutable()
-                  ->NewSosPolynomial(Q_nu, nu_basis, type);
+            ->NewSosPolynomial(Q_nu, nu_basis, type);
       } else {
         auto [nu, Q_nu] =
             psatz_variables_and_psd_constraints_.get_mutable()
@@ -119,7 +114,7 @@ ParametrizedPolynomialPositiveOnUnitInterval::
         nu_ = std::move(nu);
       }
       p_ -= lambda_ + nu_ * symbolic::Polynomial(mu_, {mu_}) *
-                          (symbolic::Polynomial(1 - mu_, {mu_}));
+          (symbolic::Polynomial(1 - mu_, {mu_}));
     } else {
       const VectorX<symbolic::Monomial> nu_basis{
           multiplier_basis_d};
@@ -130,7 +125,7 @@ ParametrizedPolynomialPositiveOnUnitInterval::
         psatz_variables_and_psd_constraints_.get_mutable()
             ->AddDecisionVariables(Q_nu);
         nu_ = psatz_variables_and_psd_constraints_.get_mutable()
-                  ->NewSosPolynomial(Q_nu, nu_basis, type);
+            ->NewSosPolynomial(Q_nu, nu_basis, type);
       } else {
         auto [nu, Q_nu] =
             psatz_variables_and_psd_constraints_.get_mutable()
@@ -138,16 +133,16 @@ ParametrizedPolynomialPositiveOnUnitInterval::
         nu_ = std::move(nu);
       }
       p_ -= lambda_ * symbolic::Polynomial(mu_, {mu_}) +
-            nu_ * (symbolic::Polynomial(1 - mu_, {mu_}));
+          nu_ * (symbolic::Polynomial(1 - mu_, {mu_}));
     }
   }
 }
 
 void ParametrizedPolynomialPositiveOnUnitInterval::
-    AddPositivityConstraintToProgram(const symbolic::Environment& env,
-                                     solvers::MathematicalProgram* prog) const {
+AddPositivityConstraintToProgram(const symbolic::Environment &env,
+                                 solvers::MathematicalProgram *prog) const {
   DRAKE_DEMAND(env.size() == parameters_.size());
-  for (const auto& parameter : parameters_) {
+  for (const auto &parameter: parameters_) {
     DRAKE_DEMAND(env.find(parameter) != env.cend());
   }
   for (int i = 0;
@@ -155,21 +150,21 @@ void ParametrizedPolynomialPositiveOnUnitInterval::
        ++i) {
     // Check that prog contains the indeterminates of this program.
     DRAKE_DEMAND(prog->indeterminates_index().count(
-                     psatz_variables_and_psd_constraints_.get()
-                         ->indeterminates()(i)
-                         .get_id()) > 0);
+        psatz_variables_and_psd_constraints_.get()
+            ->indeterminates()(i)
+            .get_id()) > 0);
   }
 
   prog->AddDecisionVariables(
       psatz_variables_and_psd_constraints_.get()->decision_variables());
-  for (const auto& binding :
-       psatz_variables_and_psd_constraints_.get()->GetAllConstraints()) {
+  for (const auto &binding:
+      psatz_variables_and_psd_constraints_.get()->GetAllConstraints()) {
     prog->AddConstraint(binding);
   }
   // Add the p_ == 0 constraint after evaluation. Do this manually to avoid a
   // call to Reparse that occurs in AddEqualityConstraintBetweenPolynomials.
   const symbolic::Polynomial p_evaled{p_.EvaluatePartial(env)};
-  for (const auto& item : p_evaled.monomial_to_coefficient_map()) {
+  for (const auto &item: p_evaled.monomial_to_coefficient_map()) {
     prog->AddLinearEqualityConstraint(item.second, 0);
   }
 }

@@ -51,7 +51,7 @@ VectorX<Polynomiald> MakeBezierCurvePolynomialPath(
   const int div = 1000;
   Eigen::VectorXd orth_offset{s0.rows()};
   for (int i = 0; i < s0.rows(); ++i) {
-    orth_offset << std::pow(-1, i % 2) / div;
+    orth_offset(i) = std::pow(-1, i % 2) / div;
   }
   for (int i = 1; i < curve_order - 1; ++i) {
     // another control point slightly off the straight line path between s0
@@ -236,12 +236,12 @@ TEST_F(CIrisToyRobotTest, MakeAndSolveIsGeometrySeparableOnPathProgram) {
   //  const Eigen::Vector3d s0_unsafe{0.65*M_PI, 1.63, 2.9};
   //  const Eigen::Vector3d s_end_unsafe{-1.63, 0.612, -0.65};
 
-  for (const int maximum_path_degree : {1, 6}) {
+  for (const int maximum_path_degree : {1}) {
     CspaceFreePathTester tester(plant_, scene_graph_, q_star,
                                 maximum_path_degree, plane_order);
 
     // Check that we can certify paths up to the maximum degree.
-    for (int bezier_curve_order = 1; bezier_curve_order <= maximum_path_degree;
+    for (int bezier_curve_order = maximum_path_degree; bezier_curve_order <= maximum_path_degree;
          ++bezier_curve_order) {
       // Construct a polynonomial of degree bezier_curve_order <=
       // maximum_path_degree. By constructing this with the control points

@@ -14,10 +14,6 @@
 #include "drake/geometry/optimization/cspace_free_structs.h"
 #include "drake/multibody/rational/rational_forward_kinematics_internal.h"
 
-#if defined(_OPENMP)
-#include <omp.h>
-#endif
-
 namespace drake {
 namespace geometry {
 namespace optimization {
@@ -109,7 +105,9 @@ PlaneSeparatesGeometriesOnPath::PlaneSeparatesGeometriesOnPath(
             negative_side_conditions.emplace_back(path_numerator, mu,
                                                   parameters, Q_lam, Q_nu);
           }
-          negative_side_conditions.emplace_back(path_numerator, mu, parameters);
+          else {
+            negative_side_conditions.emplace_back(path_numerator, mu, parameters);
+          }
         }
         t1 = std::chrono::high_resolution_clock::now();
         //        drake::log()->debug("Time to build conditions = {}\n\n",
@@ -203,16 +201,16 @@ CspaceFreePath::CspaceFreePath(const multibody::MultibodyPlant<double>* plant,
   std::vector<PlaneSeparatesGeometries> plane_geometries;
   internal::GenerateRationals(separating_planes_ptrs, y_slack_, q_star_,
                               rational_forward_kin_, &plane_geometries);
+//
+//  const std::map<const CIrisCollisionGeometry*,
+//                 std::map<const symbolic::RationalFunction*,
+//                          std::pair<solvers::MatrixXDecisionVariable,
+//                                    solvers::MatrixXDecisionVariable>>>
+//      psd_multiplier_map = PreAllocateMultiplierPSD(
+//          plane_geometries, plane_order, maximum_path_degree);
+//  GeneratePathRationals(plane_geometries, psd_multiplier_map);
 
-  const std::map<const CIrisCollisionGeometry*,
-                 std::map<const symbolic::RationalFunction*,
-                          std::pair<solvers::MatrixXDecisionVariable,
-                                    solvers::MatrixXDecisionVariable>>>
-      psd_multiplier_map = PreAllocateMultiplierPSD(
-          plane_geometries, plane_order, maximum_path_degree);
-  GeneratePathRationals(plane_geometries, psd_multiplier_map);
-
-  //      GeneratePathRationals(plane_geometries);
+        GeneratePathRationals(plane_geometries);
 }
 
 namespace {
@@ -294,20 +292,6 @@ CspaceFreePath::PreAllocateMultiplierPSD(
       }
     }
   }
-
-  //    std::cout << fmt::format("ret size = {}", ret.size()) << std::endl;
-  //    for (const auto& elt : ret) {
-  //      std::cout << "start print rats" << std::endl;
-  //      for (const auto& [rat_ptr, pair] : elt.second) {
-  //        //          std::cout << (rat_ptr == nullptr) << std::endl;
-  //        std::cout << rat_ptr << std::endl;
-  //        std::cout << pair.first(0,0) << std::endl;
-  //        std::cout << "access success" << std::endl;
-  //      }
-  //      std::cout << std::endl;
-  //    }
-  //    throw std::runtime_error("done");
-
   return ret;
 }
 
@@ -335,9 +319,19 @@ void CspaceFreePath::GeneratePathRationals(
     indeterminates.insert(y_slack_(i));
   }
 
-  const int num_threads = 1;
-  //      std::min(static_cast<int>(std::thread::hardware_concurrency()),
-  //               static_cast<int>(plane_geometries.size()));
+//  symbolic::Polynomial::SubstituteAndExpandCacheData cached_substitutions;
+//  for (const auto& plane_geometry : plane_geometries) {
+//    plane_geometries_on_path_.emplace_back(plane_geometry, mu_,
+//                                           path_with_y_subs, indeterminates,
+//                                           &cached_substitutions);
+//  }
+//  unused(psd_multiplier_map);
+
+
+
+  const int num_threads =
+        std::min(static_cast<int>(std::thread::hardware_concurrency()),
+                 static_cast<int>(plane_geometries.size()));
   std::vector<symbolic::Polynomial::SubstituteAndExpandCacheData>
       cached_substitutions(num_threads);
   plane_geometries_on_path_.resize(
@@ -355,26 +349,27 @@ void CspaceFreePath::GeneratePathRationals(
       [this, &plane_geometries, &cached_substitutions, &vec_args, &vec_arg_mtx,
        &path_with_y_subs, &indeterminates,
        &psd_multiplier_map](const int cached_idx) {
-        while (!vec_args.empty()) {
-          vec_arg_mtx.lock();
-          const int i = vec_args.front();
-          vec_args.pop();
-          vec_arg_mtx.unlock();
-          if (psd_multiplier_map.has_value()) {
-            const CSpacePathSeparatingPlane<symbolic::Variable> plane{
-                separating_planes_.at(plane_geometries.at(i).plane_index)};
-            plane_geometries_on_path_.at(i) = PlaneSeparatesGeometriesOnPath(
-                plane_geometries.at(i), mu_, path_with_y_subs, indeterminates,
-                &cached_substitutions.at(cached_idx),
-                psd_multiplier_map.value().at(plane.positive_side_geometry),
-                psd_multiplier_map.value().at(plane.negative_side_geometry));
-          } else {
-            plane_geometries_on_path_.at(i) = PlaneSeparatesGeometriesOnPath(
-                plane_geometries.at(i), mu_, path_with_y_subs, indeterminates,
-                &cached_substitutions.at(cached_idx));
-          }
+      while (!vec_args.empty()) {
+        vec_arg_mtx.lock();
+        const int i = vec_args.front();
+        vec_args.pop();
+        vec_arg_mtx.unlock();
+        if (psd_multiplier_map.has_value()) {
+          const CSpacePathSeparatingPlane<symbolic::Variable> plane{
+              separating_planes_.at(plane_geometries.at(i).plane_index)};
+          plane_geometries_on_path_.at(i) = PlaneSeparatesGeometriesOnPath(
+              plane_geometries.at(i), mu_, path_with_y_subs, indeterminates,
+              &cached_substitutions.at(cached_idx),
+              psd_multiplier_map.value().at(plane.positive_side_geometry),
+              psd_multiplier_map.value().at(plane.negative_side_geometry)
+          );
+        } else {
+          plane_geometries_on_path_.at(i) = PlaneSeparatesGeometriesOnPath(
+              plane_geometries.at(i), mu_, path_with_y_subs, indeterminates,
+              &cached_substitutions.at(cached_idx));
         }
-        return;
+      }
+      return;
       };
   std::vector<std::thread> thread_pool;
   thread_pool.reserve(num_threads);
