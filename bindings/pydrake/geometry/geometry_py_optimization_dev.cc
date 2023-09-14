@@ -386,11 +386,12 @@ void DefineGeometryOptimizationDev(py::module m) {
         .def("get_lambda", &Class::get_lambda)
         .def("get_nu", &Class::get_nu)
         .def("get_parameters", &Class::get_parameters)
-        .def("get_psatz_variables_and_psd_constraints",[](const Class* self) {
-                              return self->get_psatz_variables_and_psd_constraints().get();
-                            },
-                            py_rvp::reference_internal);
-//            &Class::get_psatz_variables_and_psd_constraints);
+        .def(
+            "get_psatz_variables_and_psd_constraints",
+            [](const Class* self) {
+              return self->get_psatz_variables_and_psd_constraints().get();
+            },
+            py_rvp::reference_internal);
   }
   {
     constexpr auto& separates_doc = doc.PlaneSeparatesGeometriesOnPath;
@@ -523,6 +524,10 @@ void DefineGeometryOptimizationDev(py::module m) {
         .def_readonly("total_time_to_certify_pair",
             &Class::FindSeparationCertificateStatistics::
                 total_time_to_certify_pair)
+        .def_readonly(
+            "rescodes", &Class::FindSeparationCertificateStatistics::rescodes)
+        .def_readonly("solution_statuses",
+            &Class::FindSeparationCertificateStatistics::solution_statuses)
         .def("certified_safe",
             &Class::FindSeparationCertificateStatistics::certified_safe)
         .def("total_time_building_progs",
@@ -539,21 +544,27 @@ void DefineGeometryOptimizationDev(py::module m) {
                   std::unordered_map<int, std::optional<bool>>,
                   std::unordered_map<int, std::optional<double>>,
                   std::unordered_map<int, std::optional<double>>,
-                  std::unordered_map<int, std::optional<double>>>
+                  std::unordered_map<int, std::optional<double>>,
+                  std::unordered_map<int, std::optional<int>>,
+                  std::unordered_map<int, std::optional<int>>>
                   ret{self.certifying_poly_degree, self.pair_is_safe,
                       self.time_to_build_prog, self.time_to_solve_prog,
-                      self.total_time_to_certify_pair};
+                      self.total_time_to_certify_pair, self.rescodes,
+                      self.solution_statuses};
               return ret;
             },
             [](std::tuple<std::unordered_map<int, std::optional<int>>,
                 std::unordered_map<int, std::optional<bool>>,
                 std::unordered_map<int, std::optional<double>>,
                 std::unordered_map<int, std::optional<double>>,
-                std::unordered_map<int, std::optional<double>>>
+                std::unordered_map<int, std::optional<double>>,
+                std::unordered_map<int, std::optional<int>>,
+                std::unordered_map<int, std::optional<int>>>
                     args) {
               return Class::FindSeparationCertificateStatistics(
                   std::get<0>(args), std::get<1>(args), std::get<2>(args),
-                  std::get<3>(args), std::get<4>(args));
+                  std::get<3>(args), std::get<4>(args), std::get<5>(args),
+                  std::get<6>(args));
             }));
 
     py::class_<Class::SeparationCertificateProgram>(cspace_free_path_cls,

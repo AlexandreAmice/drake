@@ -8,11 +8,17 @@
 #include <queue>
 #include <thread>
 #include <vector>
+#include <ratio>
 
 #include "drake/common/symbolic/monomial_util.h"
 #include "drake/geometry/optimization/cspace_free_internal.h"
 #include "drake/geometry/optimization/cspace_free_structs.h"
 #include "drake/multibody/rational/rational_forward_kinematics_internal.h"
+
+#if defined(_OPENMP)
+#include <omp.h>
+#endif
+
 
 namespace drake {
 namespace geometry {
@@ -64,15 +70,15 @@ PlaneSeparatesGeometriesOnPath::PlaneSeparatesGeometriesOnPath(
         for (const auto& var : rational.numerator().indeterminates()) {
           parameters.insert(path_with_y_subs.at(var).decision_variables());
         }
-        auto t0 = std::chrono::high_resolution_clock::now();
+        auto t0 = std::chrono::steady_clock::now();
         //        drake::log()->debug("Degree of rational = {}",
         //                            rational.numerator().TotalDegree());
-        auto t1 = std::chrono::high_resolution_clock::now();
-        t0 = std::chrono::high_resolution_clock::now();
+        auto t1 = std::chrono::steady_clock::now();
+        t0 = std::chrono::steady_clock::now();
         symbolic::Polynomial path_numerator{
             rational.numerator().SubstituteAndExpand(path_with_y_subs,
                                                      cached_substitutions)};
-        t1 = std::chrono::high_resolution_clock::now();
+        t1 = std::chrono::steady_clock::now();
         //        drake::log()->debug("Time to expand poly of degree {} = {}",
         //                            path_numerator.TotalDegree(),
         //                            duration<double>(t1 - t0).count());
@@ -82,12 +88,12 @@ PlaneSeparatesGeometriesOnPath::PlaneSeparatesGeometriesOnPath(
             intersect(indeterminates, rational.numerator().indeterminates())};
         cur_indeterminates.insert(mu);
 
-        t0 = std::chrono::high_resolution_clock::now();
+        t0 = std::chrono::steady_clock::now();
         path_numerator.SetIndeterminates(cur_indeterminates);
-        t1 = std::chrono::high_resolution_clock::now();
+        t1 = std::chrono::steady_clock::now();
         //        drake::log()->debug("Time to parse indets poly = {}",
         //                            duration<double>(t1 - t0).count());
-        t0 = std::chrono::high_resolution_clock::now();
+        t0 = std::chrono::steady_clock::now();
         if (positive_side) {
           if (Q_lam_Q_nu_pairs_pos_side.has_value()) {
             auto [Q_lam, Q_nu] =
@@ -109,7 +115,7 @@ PlaneSeparatesGeometriesOnPath::PlaneSeparatesGeometriesOnPath(
             negative_side_conditions.emplace_back(path_numerator, mu, parameters);
           }
         }
-        t1 = std::chrono::high_resolution_clock::now();
+        t1 = std::chrono::steady_clock::now();
         //        drake::log()->debug("Time to build conditions = {}\n\n",
         //                            duration<double>(t1 - t0).count());
       };
@@ -142,18 +148,27 @@ CspaceFreePath::CspaceFreePath(const multibody::MultibodyPlant<double>* plant,
       max_degree_(maximum_path_degree),
       path_(initialize_path_map(this, maximum_path_degree,
                                 rational_forward_kin_.s())) {
+    auto t0 = std::chrono::steady_clock::now();
+      auto t1  = std::chrono::steady_clock::now();
   // collision_pairs maps each pair of body to the pair of collision geometries
   // on that pair of body.
   std::map<SortedPair<multibody::BodyIndex>,
            std::vector<std::pair<const CIrisCollisionGeometry*,
                                  const CIrisCollisionGeometry*>>>
       collision_pairs;
+  drake::log()->debug("Generating collision pairs");
+  t0 = std::chrono::steady_clock::now();
   int num_collision_pairs = internal::GenerateCollisionPairs(
       rational_forward_kin_.plant(), scene_graph_, link_geometries_,
       &collision_pairs);
+  t1 = std::chrono::steady_clock::now();
+  drake::log()->debug("Collision pairs generated in {} seconds", std::chrono::duration<double, std::ratio<1>> (t1-t0).count());
+
 
   const int num_coeffs_per_poly = plane_order + 1;
   separating_planes_.reserve(num_collision_pairs);
+  drake::log()->debug("Generating separating planes");
+  t0 = std::chrono::steady_clock::now();
   for (const auto& [link_pair, geometry_pairs] : collision_pairs) {
     for (const auto& geometry_pair : geometry_pairs) {
       // Generate the separating plane for this collision pair.
@@ -183,6 +198,8 @@ CspaceFreePath::CspaceFreePath(const multibody::MultibodyPlant<double>* plant,
           static_cast<int>(separating_planes_.size()) - 1);
     }
   }
+  t1 = std::chrono::steady_clock::now();
+  drake::log()->debug("Separating planes generated in {} seconds",std::chrono::duration<double, std::ratio<1>> (t1-t0).count());
 
   for (int i = 0; i < 3; ++i) {
     y_slack_(i) = symbolic::Variable("y" + std::to_string(i));
@@ -198,17 +215,33 @@ CspaceFreePath::CspaceFreePath(const multibody::MultibodyPlant<double>* plant,
   // Generate the rationals for the separating planes. At this point, the plane
   // components are a function of mu, but the plane_geometries will still be in
   // terms of the s variable.
+
   std::vector<PlaneSeparatesGeometries> plane_geometries;
+
+  t0 = std::chrono::steady_clock::now();
+  drake::log()->debug("Generating TC-space rationals");
   internal::GenerateRationals(separating_planes_ptrs, y_slack_, q_star_,
                               rational_forward_kin_, &plane_geometries);
+  t1 = std::chrono::steady_clock::now();
+  drake::log()->debug("TC-space rationals generated in {} seconds", std::chrono::duration<double, std::ratio<1>> (t1-t0).count());
 
+  drake::log()->debug("Pre-allocating PSD");
+  t0 = std::chrono::steady_clock::now();
   const std::map<const CIrisCollisionGeometry*,
                  std::map<const symbolic::RationalFunction*,
                           std::pair<solvers::MatrixXDecisionVariable,
                                     solvers::MatrixXDecisionVariable>>>
       psd_multiplier_map = PreAllocateMultiplierPSD(
           plane_geometries, plane_order, maximum_path_degree);
+  t1 = std::chrono::steady_clock::now();
+  drake::log()->debug("PSD allocated in {} seconds", std::chrono::duration<double, std::ratio<1>> (t1-t0).count());
+
+  drake::log()->debug("Expanding rationals and pre-allocating programs");
+  t0 = std::chrono::steady_clock::now();
   GeneratePathRationals(plane_geometries, psd_multiplier_map);
+  t1 = std::chrono::steady_clock::now();
+  drake::log()->debug("Path rationals and programs allocated in {} seconds", std::chrono::duration<double, std::ratio<1>> (t1-t0).count());
+
 
 //        GeneratePathRationals(plane_geometries);
 }
@@ -246,6 +279,8 @@ CspaceFreePath::PreAllocateMultiplierPSD(
                     std::pair<MatrixX<symbolic::Variable>,
                               MatrixX<symbolic::Variable>>>>
       ret;
+//  #if defined(_OPENMP)
+//#pragma omp parallel for num_threads(std::thread::hardware_concurrency())
   for (const PlaneSeparatesGeometries& plane_seps_geom : plane_geometries) {
     const CSpacePathSeparatingPlane<symbolic::Variable> plane{
         separating_planes_.at(plane_seps_geom.plane_index)};
@@ -255,6 +290,8 @@ CspaceFreePath::PreAllocateMultiplierPSD(
           std::pair(&plane.negative_side_geometry,
                     &plane_seps_geom.negative_side_rationals)}) {
       ret.try_emplace(*geom);
+
+
       for (const auto& rational : *rationals) {
         const auto [iterator, success] = ret.at(*geom).try_emplace(&rational);
         // this means that the rational wasn't already in the map
@@ -303,6 +340,8 @@ CspaceFreePath::PreAllocateMultiplierPSD(
       }
     }
   }
+//        #endif
+
   return ret;
 }
 
@@ -363,6 +402,7 @@ void CspaceFreePath::GeneratePathRationals(
       while (!vec_args.empty()) {
         vec_arg_mtx.lock();
         const int i = vec_args.front();
+//std::cout << fmt::format("Staring geom {}/{}", i, plane_geometries.size()) << std::endl;
         vec_args.pop();
         vec_arg_mtx.unlock();
         if (psd_multiplier_map.has_value()) {
@@ -406,8 +446,9 @@ CspaceFreePath::FindSeparationCertificateGivenPath(
   const int num_pieces{static_cast<int>(piecewise_path.cols())};
   //  std::cout << "cols accessed" << std::endl;
   // import chrono for timing
-  typedef std::chrono::high_resolution_clock clock;
+  typedef std::chrono::steady_clock clock;
   using std::chrono::duration;
+  using std::chrono::milliseconds;
 
   certificates->clear();
   certificates->reserve(num_pieces);
@@ -490,26 +531,31 @@ CspaceFreePath::FindSeparationCertificateGivenPath(
           separating_planes()[plane_index].positive_side_geometry->id(),
           separating_planes()[plane_index].negative_side_geometry->id());
 
-      auto prog_build_time_start = std::chrono::high_resolution_clock::now();
+      auto prog_build_time_start = std::chrono::steady_clock::now();
       //      std::cout << "building program" << std::endl;
       auto certificate_program = MakeIsGeometrySeparableOnPathProgram(
           pair, piecewise_path.col(segment_idx));
       //      std::cout << "prog built" << std::endl;
-      auto prog_build_time_end = std::chrono::high_resolution_clock::now();
+      auto prog_build_time_end = std::chrono::steady_clock::now();
       certification_statistics.at(segment_idx)
           .time_to_build_prog.at(plane_index) =
-          duration<double>(prog_build_time_end - prog_build_time_start).count();
+          std::chrono::duration<double,std::milli> (prog_build_time_end - prog_build_time_start).count();
 
       //      std::cout << "solving program" << std::endl;
       auto result =
           SolveSeparationCertificateProgram(certificate_program, options);
       //      std::cout << "prog solved" << std::endl;
+      solvers::MosekSolverDetails details =
+          result.result.get_solver_details<solvers::MosekSolver>();
       certification_statistics.at(segment_idx)
           .time_to_solve_prog.at(plane_index) =
-          1000 * result.result.get_solver_details<solvers::MosekSolver>()
-                     .optimizer_time;  // convert time to ms.
+          1000 * details.optimizer_time;  // convert time to ms.
       certification_statistics.at(segment_idx).pair_is_safe.at(plane_index) =
           result.result.is_success();
+      certification_statistics.at(segment_idx).rescodes.at(plane_index) =
+          details.rescode;
+      certification_statistics.at(segment_idx).solution_statuses.at(plane_index) =
+          details.solution_status;
 
       certificates->at(segment_idx).at(pair) = result;
       piece_is_safe_mutex.at(segment_idx).lock();
@@ -527,7 +573,7 @@ CspaceFreePath::FindSeparationCertificateGivenPath(
       const auto cert_time_end = clock::now();
       certification_statistics.at(segment_idx)
           .total_time_to_certify_pair.at(plane_index) =
-          duration<double>(cert_time_end - cert_time_start).count();
+          std::chrono::duration<double,std::milli> (cert_time_end - cert_time_start).count();
     }
   };
 

@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 import os
 from tqdm import tqdm
+import pickle
 
 from pydrake.common import FindResourceOrThrow
 from pydrake.multibody.parsing import Parser
@@ -48,6 +49,66 @@ from pydrake.all import (
 from pydrake.geometry.optimization import HPolyhedron, Hyperellipsoid
 from pydrake.geometry.optimization_dev import CspaceFreePath
 from joblib import Parallel, delayed
+
+import numpy as np
+from functools import partial
+import visualization_utils as vis_utils
+from iris_plant_visualizer import IrisPlantVisualizer
+import ipywidgets as widgets
+from IPython.display import display
+from scipy.linalg import block_diag
+import matplotlib.pyplot as plt
+from pathlib import Path
+import os
+
+# pydrake imports
+from pydrake.common import FindResourceOrThrow
+from pydrake.multibody.parsing import Parser
+from pydrake.multibody.plant import AddMultibodyPlantSceneGraph
+from pydrake.systems.framework import DiagramBuilder
+from pydrake.geometry import Role, GeometrySet, CollisionFilterDeclaration
+from pydrake.all import RigidTransform, RollPitchYaw, RevoluteJoint
+from pydrake.all import RotationMatrix, MeshcatVisualizer, StartMeshcat, Sphere
+import pydrake.symbolic as sym
+from pydrake.solvers import MosekSolver, CommonSolverOption, SolverOptions, ScsSolver
+from pydrake.all import (
+    PointCloud,
+    MeshcatVisualizerParams,
+    Role,
+    HalfSpace,
+    CoulombFriction,
+    Box,
+    Rgba,
+    WeldJoint,
+    GeometrySet,
+)
+from pydrake.polynomial import Polynomial as PolynomialCommon
+import time
+from scipy.spatial.transform import Rotation as sp_rot
+from sampling_based_motion_planners import (
+    StraightLineCollisionChecker,
+    PRM,
+    BiRRT,
+    PRMFixedEdges,
+)
+
+
+from pydrake.all import (
+    RationalForwardKinematics,
+    ModelInstanceIndex,
+    SpatialInertia,
+    RevoluteJoint,
+    FixedOffsetFrame,
+    MultibodyPlant,
+)
+from pydrake.geometry.optimization import HPolyhedron, Hyperellipsoid
+from pydrake.geometry.optimization_dev import CspaceFreePath
+from dataclasses import dataclass
+
+import logging
+
+drake_logger = logging.getLogger("drake")
+drake_logger.setLevel(logging.DEBUG)
 
 
 def AddPendulumLink(
@@ -121,7 +182,6 @@ def N_Link_Pendulum(
             colors[i],
         )
         geom_ids.append(geom_id)
-
     return geom_ids
 
 
@@ -135,7 +195,14 @@ def AddRandomBox(
 ):
     link_name = f"obstacle_{index}"
 
-    center = np.append(np.random.uniform(pos_limits[0], pos_limits[1], 2), 0)
+    def random_center():
+        dist = pos_limits[1] * np.sqrt(np.random.uniform(0, 1))
+        ang = np.random.uniform(0, 2 * np.pi)
+        return dist * np.array([np.cos(ang), np.sin(ang), 0])
+
+    center = (
+        random_center()
+    )  # np.append(np.random.uniform(pos_limits[0], pos_limits[1], 2), 0)
 
     dimensions = np.append(np.random.uniform(size_limits[0], size_limits[1], 2), 0.001)
     box = Box(*dimensions)
@@ -157,14 +224,16 @@ def AddRandomBox(
     ):
         random_rp[2] = np.random.uniform(-lim, lim)
         angle = RotationMatrix(RollPitchYaw(random_rp))
+        center = random_center()
         pose = RigidTransform(p=center) @ RigidTransform(R=angle)
         origin_local = pose.inverse() @ RigidTransform()
 
     plant.AddJoint(WeldJoint(link_name, plant.world_frame(), body.body_frame(), pose))
-    plant.RegisterCollisionGeometry(
+    col_id = plant.RegisterCollisionGeometry(
         body, RigidTransform(), box, link_name, CoulombFriction()
     )
     plant.RegisterVisualGeometry(body, RigidTransform(), box, link_name, color)
+    return col_id
 
 
 def AddNRandomBoxes(
@@ -176,117 +245,168 @@ def AddNRandomBoxes(
     color=[0, 0, 0, 1],
 ):
     assert n > 0
+    joint_sphere = Sphere(0.05)
+    plant.RegisterVisualGeometry(
+        plant.world_body(),
+        RigidTransform(),
+        joint_sphere,
+        "pend_start",
+        np.array([0, 0, 1, 1]),
+    )
+    geom_ids = []
     for i in range(n):
-        AddRandomBox(plant, obstacle_model_instance, i, pos_limits, size_limits, color)
+        geom_ids.append(
+            AddRandomBox(
+                plant, obstacle_model_instance, i, pos_limits, size_limits, color
+            )
+        )
+    return geom_ids
 
 
-def make_line_polys(plant: MultibodyPlant, prm):
-    polys = np.empty(shape=(plant.num_positions(), len(prm.prm.edges())), dtype=object)
+def make_line_polys(prm, max_num_edges=-1):
+    polys = np.empty(
+        shape=(
+            experiment.plant.num_positions(),
+            len(prm.prm.edges()) if max_num_edges < 0 else max_num_edges,
+        ),
+        dtype=object,
+    )
     for i, (s0, s1) in enumerate(prm.prm.edges()):
-        for j in range(plant.num_positions()):
+        for j in range(experiment.plant.num_positions()):
+            if max_num_edges > 0 and not i < max_num_edges:
+                break
             polys[j, i] = PolynomialCommon(np.array([s0[j], s1[j] - s0[j]]))
+
     return polys
 
 
-def build_n_link_k_boxes_plant(n: int, k: int, exclude_pend_self_collisions=True):
-    builder = DiagramBuilder()
-    plant, scene_graph = AddMultibodyPlantSceneGraph(builder, time_step=0.001)
-
-    link_dimensions = (0.1, 0.2, 0.001)
-    pendulum_model_instance = plant.AddModelInstance("pendulum")
-    obstacle_model_instance = plant.AddModelInstance("obstacle")
-
-    num_pend = n
-    num_obstacles = k
-    np.random.seed(num_pend * num_obstacles)
-
-    pend_geom_ids = N_Link_Pendulum(
-        num_pend, plant, pendulum_model_instance, np.array(link_dimensions)
-    )
-
-    scale = 2
-    obstacle_pos_limits = link_dimensions[1] * num_pend * np.array([-scale, scale])
-    obstacle_size_limits = (0.01 / np.sqrt(num_obstacles), 0.5 / np.sqrt(num_obstacles))
-    AddNRandomBoxes(
-        num_obstacles,
-        plant,
-        obstacle_model_instance,
-        obstacle_pos_limits,
-        obstacle_size_limits,
-    )
-
-    plant.Finalize()
-    if exclude_pend_self_collisions:
-        collision_filter_manager = scene_graph.collision_filter_manager()
-        pend_geom_set = GeometrySet(pend_geom_ids)
-        decl = CollisionFilterDeclaration().ExcludeWithin(pend_geom_set)
-        collision_filter_manager.Apply(decl)
-
-    diagram = builder.Build()
-    return plant, scene_graph, diagram
-
-
-def build_and_save_prm(
-    prm_save_name: Path,
-    num_edges: list[int],
-    node_sampling_fun,  # generate a random sample. It does not need to be collision free.
-    straight_line_col_checker,
-    dist_thresh=0.1,
-    num_neighbors=5,
-    max_it=int(1e4),
-    initial_points=None,
-):
-    num_edges.sort()
-    prm = PRMFixedEdges(
-        node_sampling_fun,  # generate a random sample. It does not need to be collision free.
-        num_edges[0],
-        straight_line_col_checker,
-        dist_thresh,
-        num_neighbors,
-        max_it,
-        initial_points,
-    )
-    with open(str(prm_save_name) + (f"_{num_edges[0]}_edges.pkl"), "wb") as f:
-        pickle.dump(prm, f)
-    for k in num_edges[1:]:
-        edges_to_add = k - len(prm.prm.edges())
-        prm.add_k_edges(
-            edges_to_add,
-            node_sampling_fun,
-            straight_line_col_checker,
-            max_it,
-            num_neighbors,
-            dist_thresh,
+class N_Link_K_Boxes_Experiment:
+    def __init__(
+        self,
+        n: int,
+        k: int,
+        exclude_pend_self_collisions=True,
+        plane_order=1,
+        maximum_path_degree=1,
+        meshcat_instance=None,
+    ):
+        builder = DiagramBuilder()
+        self.plant, self.scene_graph = AddMultibodyPlantSceneGraph(
+            builder, time_step=0.001
         )
-        with open(str(prm_save_name) + f"_{k}_edges.pkl", "wb") as f:
-            pickle.dump(prm, f)
+
+        self.link_dimensions = (0.1, 0.2, 0.001)
+        self.pendulum_model_instance = self.plant.AddModelInstance("pendulum")
+        self.obstacle_model_instance = self.plant.AddModelInstance("obstacle")
+
+        num_pend = n
+        num_obstacles = k
+        np.random.seed(num_pend * num_obstacles)
+
+        self.pend_geom_ids = N_Link_Pendulum(
+            num_pend,
+            self.plant,
+            self.pendulum_model_instance,
+            np.array(self.link_dimensions),
+        )
+        self.pend_geom_set = GeometrySet(self.pend_geom_ids)
+
+        if k > 0:
+            obstacle_pos_limits = (
+                self.link_dimensions[1] * num_pend * np.array([-1.25, 1.25])
+            )
+            obstacle_size_limits = (
+                0.01 / np.log(num_obstacles),
+                0.5 / np.log(num_obstacles),
+            )
+            self.obstacle_geom_ids = AddNRandomBoxes(
+                num_obstacles,
+                self.plant,
+                self.obstacle_model_instance,
+                obstacle_pos_limits,
+                obstacle_size_limits,
+            )
+            self.obstacle_geom_set = GeometrySet(self.obstacle_geom_ids)
+        else:
+            self.obstacle_geom_ids = None
+            self.obstacle_geom_set = None
+
+        self.plant.Finalize()
+        if exclude_pend_self_collisions:
+            collision_filter_manager = self.scene_graph.collision_filter_manager()
+            decl = CollisionFilterDeclaration().ExcludeWithin(self.pend_geom_set)
+            collision_filter_manager.Apply(decl)
+
+        if meshcat_instance is not None:
+            self.visualizer = MeshcatVisualizer.AddToBuilder(
+                builder, self.scene_graph, meshcat_instance
+            )
+
+        self.diagram = builder.Build()
+
+        self.q_star = np.zeros(self.plant.num_positions())
+
+        if maximum_path_degree > 0:
+            t0 = time.time()
+            self.cspace_free_path = CspaceFreePath(
+                self.plant,
+                self.scene_graph,
+                self.q_star,
+                maximum_path_degree=maximum_path_degree,
+                plane_order=plane_order,
+            )
+            t1 = time.time()
+            print(
+                f"Time to construct line certifier for {n}-links, {k}-boxes = {t1 - t0}s"
+            )
+        else:
+            print("Did not build cspace free path")
+            self.cspace_free_path = None
 
 
-def generate_prm_for_n_k(
-    n,
-    k,
-    num_edges: list[int],
-    use_good_checker,
-    save_folder,
-    exclude_pend_self_collision=True,
-):
-    (plant, scene_graph, diagram) = build_n_link_k_boxes_plant(
-        n, k, exclude_pend_self_collision
+path_to_data_save_folder = Path(
+    "/home/amice/Documents/coding_projects/drake/C_Iris_Examples/final_experiment_data"
+)
+n = 12
+plane_order = 1
+maximum_path_degree = 1
+k = 100
+num_obstacles = k
+l = 100
+
+num_edges = l
+if __name__ == "__main__":
+    meshcat = StartMeshcat()
+    experiment = N_Link_K_Boxes_Experiment(
+        n,
+        k,
+        exclude_pend_self_collisions=True,
+        plane_order=plane_order,
+        maximum_path_degree=maximum_path_degree,
+        meshcat_instance=meshcat,
     )
-    diagram_col_context = diagram.CreateDefaultContext()
-    plant_col_context = diagram.GetMutableSubsystemContext(plant, diagram_col_context)
-    scene_graph_col_context = diagram.GetMutableSubsystemContext(
-        scene_graph, diagram_col_context
+    diagram_context = experiment.diagram.CreateDefaultContext()
+    plant_context = experiment.diagram.GetMutableSubsystemContext(
+        experiment.plant, diagram_context
     )
-    query_port = scene_graph.get_query_output_port()
-    q_star = np.zeros(plant.num_positions())
-    Ratfk = RationalForwardKinematics(plant)
+    experiment.diagram.ForcedPublish(diagram_context)
+
+    ######### BUILD PRM ##########
+    Ratfk = RationalForwardKinematics(experiment.plant)
+    diagram_col_context = experiment.diagram.CreateDefaultContext()
+    plant_col_context = experiment.diagram.GetMutableSubsystemContext(
+        experiment.plant, diagram_col_context
+    )
+    scene_graph_col_context = experiment.diagram.GetMutableSubsystemContext(
+        experiment.scene_graph, diagram_col_context
+    )
+    query_port = experiment.scene_graph.get_query_output_port()
 
     def check_collision_q_by_query(q):
-        if np.all(q >= plant.GetPositionLowerLimits()) and np.all(
-            q <= plant.GetPositionUpperLimits()
+        if np.all(q >= experiment.plant.GetPositionLowerLimits()) and np.all(
+            q <= experiment.plant.GetPositionUpperLimits()
         ):
-            plant.SetPositions(plant_col_context, q)
+            experiment.plant.SetPositions(plant_col_context, q)
             query_object = query_port.Eval(scene_graph_col_context)
             return 1 if query_object.HasCollisions() else 0
         else:
@@ -294,156 +414,96 @@ def generate_prm_for_n_k(
 
     def check_collision_s_by_query(s):
         s = np.array(s)
-        q = Ratfk.ComputeQValue(s, q_star)
+        q = Ratfk.ComputeQValue(s, experiment.q_star)
         return check_collision_q_by_query(q)
 
-    def sample_s_point():
+    def sample_col_free_point():
         q = np.random.uniform(
-            plant.GetPositionLowerLimits(), plant.GetPositionUpperLimits()
+            experiment.plant.GetPositionLowerLimits(),
+            experiment.plant.GetPositionUpperLimits(),
         )
-        s = Ratfk.ComputeSValue(q, q_star)
+        s = Ratfk.ComputeSValue(q, experiment.q_star)
         return s
 
-    if use_good_checker:
-        collision_checker = StraightLineCollisionChecker(
-            check_collision_s_by_query, 100
+    collision_checker = StraightLineCollisionChecker(check_collision_s_by_query, 100)
+    prm_save_name = (
+        path_to_data_save_folder / f"{n}_link_{k}_obstacles_{l}_edges_PRM.pkl"
+    )
+    print(str(prm_save_name))
+    if not prm_save_name.exists():
+        prm = PRMFixedEdges(
+            sample_col_free_point, l, collision_checker, dist_thresh=100
         )
+        with open(prm_save_name, "wb") as f:
+            pickle.dump(prm, f)
     else:
-        collision_checker = StraightLineCollisionChecker(check_collision_s_by_query, 10)
+        with open(prm_save_name, "rb") as f:
+            prm = pickle.load(f)
 
-    good_checker = "good_checker" if use_good_checker else "bad_checker"
-
-    prm_save_name = save_folder / f"prm_{n}_links_{k}_boxes_{good_checker}"
-    build_and_save_prm(
-        prm_save_name,
-        num_edges,
-        sample_s_point,
-        collision_checker,
-        dist_thresh=100,
-        num_neighbors=4,
-        max_it=int(1e4),
+    diagram_vis_context = experiment.diagram.CreateDefaultContext()
+    plant_vis_context = experiment.diagram.GetMutableSubsystemContext(
+        experiment.plant, diagram_vis_context
     )
-    return None
-
-
-def n_link_k_boxes_l_edges_experiment(
-    n: int,
-    k: int,
-    num_edges: list[int],
-    path_to_prm_folder: Path,
-    path_to_save_folder: Path,
-    exclude_pend_self_collisions=True,
-    plane_order=1,
-    # True uses good collision checker, False uses bad, or give True and False to do both
-    use_good_checker=True,
-):
-    (plant, scene_graph, diagram) = build_n_link_k_boxes_plant(
-        n, k, exclude_pend_self_collisions
+    vis_bundle = vis_utils.VisualizationBundle(
+        experiment.diagram,
+        diagram_context,
+        experiment.plant,
+        plant_vis_context,
+        Ratfk,
+        meshcat,
+        experiment.q_star,
     )
-    q_star = np.zeros(plant.num_positions())
-    good_checker = "good_checker" if use_good_checker else "bad_checker"
-    t0 = time.time()
-    cspace_free_path = CspaceFreePath(
-        plant,
-        scene_graph,
-        q_star,
-        maximum_path_degree=1,
-        plane_order=plane_order,
-    )
-    t1 = time.time()
-    print(f"Time to build collision checker {n}_links, {k}_boxes = {t1-t0}")
+    end_effector = experiment.plant.GetBodyByName(f"link_{n}")
+
+    prm.draw_tree(vis_bundle, end_effector)
+    path_safe = make_line_polys(prm)
+    ############## CERTIFICATION ##################
     cert_options = CspaceFreePath.FindSeparationCertificateGivenPathOptions()
     cert_options.terminate_segment_certification_at_failure = False
+
     cert_options.num_threads = -1
     cert_options.verbose = False
     cert_options.solver_id = MosekSolver.id()
     cert_options.solver_options = SolverOptions()
     cert_options.terminate_path_certification_at_failure = False
-    for l in num_edges:
-        save_path = (
-            path_to_save_folder
-            / f"{n}_links_{k}_obstacles_{l}_edges_{good_checker}_collision_checker.pkl"
-        )
-        if save_path.is_file():
-            continue
 
-        prm_save_name = (
-            path_to_prm_folder / f"prm_{n}_links_{k}_boxes_{good_checker}_{l}_edges.pkl"
+    for num_links in range(2, n + 1):
+        ignored_col_set = set(
+            [
+                elt
+                for elt in zip(
+                    experiment.pend_geom_ids[:-1], experiment.pend_geom_ids[1:]
+                )
+            ]
         )
-        with open(prm_save_name, "rb") as f:
-            prm = pickle.load(f)
-        prm_poly_paths = make_line_polys(plant, prm)
-        print(
-            f"Beginning certification of {n}_links, {k}_boxes, {l}_edges, {good_checker}"
-        )
+        for j in range(
+            num_links, experiment.plant.num_positions()
+        ):  # +1 for num joints +1 to include last joint name
+            pend_j_col_geom = experiment.pend_geom_ids[j]
+            for obs_id in experiment.obstacle_geom_ids:
+                ignored_col_set.add((pend_j_col_geom, obs_id))
         t0 = time.time()
         (
             statistics,
             cert_result,
-        ) = cspace_free_path.FindSeparationCertificateGivenPath(
-            prm_poly_paths, set(), cert_options
+        ) = experiment.cspace_free_path.FindSeparationCertificateGivenPath(
+            path_safe, ignored_col_set, cert_options
         )
         t1 = time.time()
-        print(
-            f"Certification of {n}_links, {k}_boxes, {l}_edges, {good_checker} PRM in {t1 - t0}s"
+        file_name = path_to_data_save_folder / (
+            f"{num_links}_links_{k}_obstacles_{l}_edges.pkl"
         )
-
-        with open(save_path, "wb") as f:
+        with open(
+            file_name,
+            "wb",
+        ) as f:
             pickle.dump(statistics, f)
-
-
-num_links = np.arange(2, 14, 1)
-# num_boxes = np.array([10, 50, 100])
-# num_edges = np.array([100, 500, 1000])
-
-# num_links = np.arange(2, 4, 1)
-num_boxes = np.array([10])
-num_edges = np.array([100])
-
-NN, KK = np.meshgrid(num_links, num_boxes, indexing="ij")
-n_list, k_list = NN.flatten(), KK.flatten()
-
-path_to_prm_save_folder = Path(
-    "/home/amice/Documents/coding_projects/drake/C_Iris_Examples/n_link_pend_prm"
-)
-path_to_data_save_folder = Path(
-    "/home/amice/Documents/coding_projects/drake/C_Iris_Examples/n_link_pend_data"
-)
-
-if __name__ == "__main__2":
-    Parallel(n_jobs=-1, backend="multiprocessing")(
-        delayed(generate_prm_for_n_k)(
-            n, k, num_edges.copy(), True, path_to_prm_save_folder, True
+        print(f"num pairs to certify {len(statistics[0].total_time_to_certify_pair)}")
+        print(f"Certification of safe PRM for {num_links} links in {t1 - t0}s")
+        print(
+            f"Frac edges safe = {sum([1 if s.certified_safe() else 0 for s in statistics])}/{len(statistics)}"
         )
-        for (n, k) in tqdm(zip(n_list, k_list))
-    )
-    Parallel(n_jobs=-1, backend="multiprocessing")(
-        delayed(generate_prm_for_n_k)(
-            n, k, num_edges.copy(), False, path_to_prm_save_folder, True
+        print(
+            f"Unsafe inds = {[idx for idx, s in enumerate(statistics) if not s.certified_safe()]}"
         )
-        for (n, k) in tqdm(zip(n_list, k_list))
-    )
-
-if __name__ == "__main__":
-    for n, k in tqdm(zip(n_list, k_list)):
-        n_link_k_boxes_l_edges_experiment(
-            n,
-            k,
-            num_edges.copy(),
-            path_to_prm_save_folder,
-            path_to_data_save_folder,
-            True,
-            1,
-            True,
-        )
-    for n, k in tqdm(zip(n_list, k_list)):
-        n_link_k_boxes_l_edges_experiment(
-            n,
-            k,
-            num_edges.copy(),
-            path_to_prm_save_folder,
-            path_to_data_save_folder,
-            True,
-            1,
-            False,
-        )
+    print("DONE!")

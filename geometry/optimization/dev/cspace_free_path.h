@@ -146,6 +146,8 @@ class CspaceFreePath {
         time_to_build_prog[ind] = std::nullopt;
         time_to_solve_prog[ind] = std::nullopt;
         total_time_to_certify_pair[ind] = std::nullopt;
+        rescodes[ind] = std::nullopt;
+        solution_statuses[ind] = std::nullopt;
       }
     }
 
@@ -158,12 +160,18 @@ class CspaceFreePath {
         const std::unordered_map<int, std::optional<double>>&
             m_time_to_solve_prog,
         const std::unordered_map<int, std::optional<double>>&
-            m_total_time_to_certify_pair)
+            m_total_time_to_certify_pair,
+            const std::unordered_map<int, std::optional<int>> m_rescodes,
+    const std::unordered_map<int, std::optional<int>> m_solution_statuses
+            )
         : certifying_poly_degree(m_certifying_poly_degree),
           pair_is_safe(m_pair_is_safe),
           time_to_build_prog(m_time_to_build_prog),
           time_to_solve_prog(m_time_to_solve_prog),
-          total_time_to_certify_pair(m_total_time_to_certify_pair) {}
+          total_time_to_certify_pair(m_total_time_to_certify_pair),
+          rescodes(m_rescodes),
+          solution_statuses(m_solution_statuses)
+          {}
     // Each of these maps a plane index to a statistic
     std::unordered_map<int, std::optional<int>>
         certifying_poly_degree;  // The degree of the certifying polynomials
@@ -174,6 +182,8 @@ class CspaceFreePath {
     // includes time waiting for mutex and for
     // writing
     std::unordered_map<int, std::optional<double>> total_time_to_certify_pair;
+    std::unordered_map<int, std::optional<int>> rescodes;
+    std::unordered_map<int, std::optional<int>> solution_statuses;
 
     [[nodiscard]] bool certified_safe() const {
       return std::all_of(
