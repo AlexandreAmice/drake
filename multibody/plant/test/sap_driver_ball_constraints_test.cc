@@ -157,7 +157,7 @@ TEST_P(TwoBodiesTest, ConfirmConstraintProperties) {
             Vector3d(kInfinity, kInfinity, kInfinity));
 
   EXPECT_EQ(p.stiffnesses(), Vector3d(kInfinity, kInfinity, kInfinity));
-  EXPECT_EQ(p.relaxation_times(), plant_.time_step() * Vector3d::Ones());
+  EXPECT_EQ(p.relaxation_times(), Vector3d::Zero());
 
   // This value is hard-coded in the source. This test serves as a brake to
   // prevent the value changing without notification. Changing this value
@@ -227,6 +227,47 @@ std::vector<TestConfig> MakeTestCases() {
 INSTANTIATE_TEST_SUITE_P(SapBallConstraintTests, TwoBodiesTest,
                          testing::ValuesIn(MakeTestCases()),
                          testing::PrintToStringParamName());
+
+GTEST_TEST(BallConstraintsTests, VerifyIdMapping) {
+  MultibodyPlant<double> plant{0.1};
+  plant.set_discrete_contact_solver(DiscreteContactSolver::kSap);
+  const RigidBody<double>& bodyA =
+      plant.AddRigidBody("A", SpatialInertia<double>{});
+  const RigidBody<double>& bodyB =
+      plant.AddRigidBody("B", SpatialInertia<double>{});
+  const Vector3d p_AP(1, 2, 3);
+  const Vector3d p_BQ(4, 5, 6);
+  MultibodyConstraintId ball_id =
+      plant.AddBallConstraint(bodyA, p_AP, bodyB, p_BQ);
+  const BallConstraintSpec& ball_spec =
+      plant.get_ball_constraint_specs(ball_id);
+  EXPECT_EQ(ball_spec.id, ball_id);
+  EXPECT_EQ(ball_spec.body_A, bodyA.index());
+  EXPECT_EQ(ball_spec.body_B, bodyB.index());
+  EXPECT_EQ(ball_spec.p_AP, p_AP);
+  EXPECT_EQ(ball_spec.p_BQ, p_BQ);
+
+  const std::map<MultibodyConstraintId, BallConstraintSpec>& ball_specs =
+      plant.get_ball_constraint_specs();
+  ASSERT_EQ(ssize(ball_specs), 1);
+
+  const MultibodyConstraintId ball_id_from_map = ball_specs.begin()->first;
+  const BallConstraintSpec& ball_spec_from_map = ball_specs.begin()->second;
+
+  // Check the id in the map matches the one returned.
+  EXPECT_EQ(ball_id, ball_id_from_map);
+
+  // Check that the one spec in the map is equal to `ball_spec`.
+  EXPECT_EQ(ball_spec.id, ball_spec_from_map.id);
+  EXPECT_EQ(ball_spec.body_A, ball_spec_from_map.body_A);
+  EXPECT_EQ(ball_spec.body_B, ball_spec_from_map.body_B);
+  EXPECT_EQ(ball_spec.p_AP, ball_spec_from_map.p_AP);
+  EXPECT_EQ(ball_spec.p_BQ, ball_spec_from_map.p_BQ);
+
+  // Throw on id to wrong constraint specs type.
+  EXPECT_THROW(plant.get_coupler_constraint_specs(ball_id), std::exception);
+  EXPECT_THROW(plant.get_distance_constraint_specs(ball_id), std::exception);
+}
 
 GTEST_TEST(BallConstraintTests, FailOnTAMSI) {
   MultibodyPlant<double> plant{0.1};

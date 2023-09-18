@@ -106,8 +106,10 @@ class CollisionCheckerTester : public UnimplementedCollisionChecker {
  public:
   explicit CollisionCheckerTester(CollisionCheckerParams params,
                                   bool supports_parallel_checking = false)
-      : UnimplementedCollisionChecker(std::move(params),
-                                      supports_parallel_checking) {}
+      : UnimplementedCollisionChecker(
+            MaybeNerfParamParallelism(std::move(params),
+                                      supports_parallel_checking),
+            supports_parallel_checking) {}
 
   //@{
   // Interesting virtual overrides.
@@ -138,9 +140,14 @@ class CollisionCheckerTester : public UnimplementedCollisionChecker {
     return added_shape_id_;
   }
 
-  void DoRemoveAddedGeometries(
+  void RemoveAddedGeometries(
       const std::vector<CollisionChecker::AddedShape>& shapes) override {
     // Don't need to do work; just don't throw.
+  }
+
+  void UpdateCollisionFilters() override {
+    // Capture the updated collision filter matrix.
+    updated_filter_matrix_ = GetFilteredCollisionMatrix();
   }
 
   RobotClearance DoCalcContextRobotClearance(
@@ -215,9 +222,23 @@ class CollisionCheckerTester : public UnimplementedCollisionChecker {
   // Returns the positions available in this checker from the most recent
   // Check*ConfigCollisionFree() call.
   const VectorXd& positions_for_check() const { return positions_for_check_; }
+
+  // Returns the filter matrix available in this checker from the most recent
+  // operation that modified the filter matrix.
+  const Eigen::MatrixXi& updated_filter_matrix() const {
+    return updated_filter_matrix_;
+  }
   //@}
 
  private:
+  static CollisionCheckerParams MaybeNerfParamParallelism(
+      CollisionCheckerParams params, bool supports_parallel_checking) {
+    if (!supports_parallel_checking) {
+      params.implicit_context_parallelism = Parallelism::None();
+    }
+    return params;
+  }
+
   bool collision_free_{false};
   optional<GeometryId> added_shape_id_;
   // Updated with every call to DoUpdateContextPositions().
@@ -226,6 +247,8 @@ class CollisionCheckerTester : public UnimplementedCollisionChecker {
   mutable VectorXd positions_for_classify_;
   // Updated with every call to DoCheckContextConfigCollisionFree().
   mutable VectorXd positions_for_check_;
+  // Updated with every call to UpdateCollisionFilters().
+  Eigen::MatrixXi updated_filter_matrix_;
 };
 
 // Makes a test checker for the given model and enumerated set of robot
@@ -338,11 +361,6 @@ class CollisionCheckerThrowTest : public testing::Test {
   double self_collision_padding_{0.0};
 };
 
-TEST_F(CollisionCheckerThrowTest, BadFn) {
-  distance_fn_ = {};
-  ExpectConstructorThrow(".*distance_function != nullptr.*");
-}
-
 TEST_F(CollisionCheckerThrowTest, BadStepSize) {
   edge_step_size_ = 0.0;
   ExpectConstructorThrow(".*edge_step_size.*");
@@ -429,17 +447,26 @@ GTEST_TEST(CollisionCheckerTest, CollisionCheckerEmpty) {
   // are required to allocate contexts during construction. This is proof that
   // such an erroneous implementation can't appear functional.
   EXPECT_THROW(dut.plant_context(), std::exception);
+  EXPECT_THROW(dut.plant_context(0), std::exception);
   EXPECT_THROW(dut.model_context(), std::exception);
+  EXPECT_THROW(dut.model_context(0), std::exception);
   EXPECT_THROW(dut.Clone(), std::exception);
   EXPECT_THROW(dut.MakeStandaloneModelContext(), std::exception);
   EXPECT_THROW(dut.PerformOperationAgainstAllModelContexts(op), std::exception);
 
   dut.AllocateContexts();
   EXPECT_NO_THROW(dut.plant_context());
+  EXPECT_NO_THROW(dut.plant_context(0));
   EXPECT_NO_THROW(dut.model_context());
+  EXPECT_NO_THROW(dut.model_context(0));
   EXPECT_NO_THROW(dut.Clone());
   EXPECT_NO_THROW(dut.MakeStandaloneModelContext());
   EXPECT_NO_THROW(dut.PerformOperationAgainstAllModelContexts(op));
+
+  // Asking for an out-of-range context number throws.
+  EXPECT_FALSE(dut.SupportsParallelChecking());
+  EXPECT_THROW(dut.plant_context(1), std::exception);
+  EXPECT_THROW(dut.model_context(1), std::exception);
 }
 
 // Test the robot model introspection APIs.
@@ -458,12 +485,6 @@ GTEST_TEST(CollisionCheckerTest, ModelIntrospection) {
 
   EXPECT_THAT(checker->robot_model_instances(),
               testing::ElementsAre(robot_index));
-
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-  EXPECT_EQ(checker->GetScopedName(b1), "m3::b0");
-  EXPECT_EQ(checker->GetScopedName(b1.body_frame()), "m3::b0");
-#pragma GCC diagnostic pop
 
   const auto q = checker->GetZeroConfiguration();
   EXPECT_EQ(q.size(), checker->plant().num_positions());
@@ -601,6 +622,57 @@ TEST_F(TrivialCollisionCheckerTest, ClonesAndContexts) {
   context.reset();  // Give up our standalone context.
   EXPECT_EQ(count_contexts(dut_.get()),
             dut_->num_allocated_contexts() + 1 /* prototype context */);
+}
+
+// We want to confirm that when setting distance/interpolation functions, they
+// are validated using *default* configuration and *not* zero configuration.
+// So, we'll create functions that have two properties:
+//
+//   1. They report they've been called.
+//   2. They get angry if they're not provided the default configuration as
+//      parameter values.
+//
+TEST_F(TrivialCollisionCheckerTest, NonZeroDefaultConfiguration) {
+  // We need a plant that has a non-zero default configuration, so we can't
+  // use dut_.
+  auto [robot, robot_index] =
+      MakeModel({.weld_robot = false, .on_env_base = true});
+
+  // Retrieve the default configuration, and cross-check that it's non-zero.
+  const VectorXd default_q =
+      robot->plant().GetPositions(*robot->plant().CreateDefaultContext());
+  ASSERT_TRUE((default_q.array() != 0).any());
+
+  std::unique_ptr<CollisionChecker> dut =
+      MakeUnallocatedChecker(std::move(robot), {robot_index});
+
+  // Create distance function that rejects all configs except the default. This
+  // will prove that the dut only probes the default config when validating the
+  // distance function during SetConfigurationDistanceFunction.
+  bool distance_called = false;
+  auto distance = [&distance_called, &default_q](const VectorXd& q0,
+                                                 const VectorXd& q1) {
+    distance_called = true;
+    EXPECT_EQ(q0, default_q);
+    EXPECT_EQ(q1, default_q);
+    return 0.0;
+  };
+  EXPECT_NO_THROW(dut->SetConfigurationDistanceFunction(distance));
+  EXPECT_TRUE(distance_called);
+
+  // Create interpolation function that rejects all configs except the default.
+  // This will prove that the dut only probes the default config when validating
+  // the interpolation function during SetConfigurationInterpolationFunction.
+  bool interp_called = false;
+  auto interp = [&interp_called, &default_q](const VectorXd& q0,
+                                             const VectorXd& q1, double) {
+    interp_called = true;
+    EXPECT_EQ(q0, default_q);
+    EXPECT_EQ(q1, default_q);
+    return default_q;
+  };
+  EXPECT_NO_THROW(dut->SetConfigurationInterpolationFunction(interp));
+  EXPECT_TRUE(interp_called);
 }
 
 TEST_F(TrivialCollisionCheckerTest, Padding) {
@@ -928,6 +1000,10 @@ TEST_F(TrivialCollisionCheckerTest, SetCollisionFilterMatrix) {
   EXPECT_FALSE(CompareMatrices(dut_->GetFilteredCollisionMatrix(), no_filters));
   ASSERT_NO_THROW(dut_->SetCollisionFilterMatrix(no_filters));
   EXPECT_TRUE(CompareMatrices(dut_->GetFilteredCollisionMatrix(), no_filters));
+  // Confirm that the collision filter matrix was updated before calling
+  // UpdateCollisionFilters().
+  EXPECT_TRUE(CompareMatrices(dut_->updated_filter_matrix(),
+                              dut_->GetFilteredCollisionMatrix()));
 
   // Now test the various ways we can throw.
 
@@ -1186,6 +1262,10 @@ TEST_F(TrivialCollisionCheckerTest, SetCollisionFilteredBetween) {
     EXPECT_FALSE(dut_->IsCollisionFilteredBetween(b[1], b[4]));
     EXPECT_NO_THROW(
         dut_->SetCollisionFilterMatrix(dut_->GetFilteredCollisionMatrix()));
+    // Confirm that the collision filter matrix was updated before calling
+    // UpdateCollisionFilters().
+    EXPECT_TRUE(CompareMatrices(dut_->updated_filter_matrix(),
+                                dut_->GetFilteredCollisionMatrix()));
   }
 
   {
@@ -1230,13 +1310,33 @@ TEST_F(TrivialCollisionCheckerTest, SetCollisionFilteredWithAllBodies) {
   }
 
   {
-    // Setting a robot body doesn't throw, produces a consistent matrix and
-    // reports filters as expected.
+    // Setting a robot body (via index) doesn't throw, produces a consistent
+    // matrix and reports filters as expected.
     EXPECT_NO_THROW(dut_->SetCollisionFilteredWithAllBodies(b[3]));
+    // Confirm that the collision filter matrix was updated before calling
+    // UpdateCollisionFilters().
+    EXPECT_TRUE(CompareMatrices(dut_->updated_filter_matrix(),
+                                dut_->GetFilteredCollisionMatrix()));
     EXPECT_NO_THROW(
         dut_->SetCollisionFilterMatrix(dut_->GetFilteredCollisionMatrix()));
     for (BodyIndex i(0); i < num_bodies; ++i) {
       EXPECT_TRUE(dut_->IsCollisionFilteredBetween(i, b[3]));
+    }
+  }
+
+  {
+    // Setting a robot body (via reference) doesn't throw, produces a consistent
+    // matrix and reports filters as expected.
+    EXPECT_NO_THROW(
+        dut_->SetCollisionFilteredWithAllBodies(dut_->get_body(b[2])));
+    // Confirm that the collision filter matrix was updated before calling
+    // UpdateCollisionFilters().
+    EXPECT_TRUE(CompareMatrices(dut_->updated_filter_matrix(),
+                                dut_->GetFilteredCollisionMatrix()));
+    EXPECT_NO_THROW(
+        dut_->SetCollisionFilterMatrix(dut_->GetFilteredCollisionMatrix()));
+    for (BodyIndex i(0); i < num_bodies; ++i) {
+      EXPECT_TRUE(dut_->IsCollisionFilteredBetween(i, b[2]));
     }
   }
 }
@@ -1331,7 +1431,7 @@ GTEST_TEST(EdgeCheckTest, Configuration) {
                                                  const VectorXd& q2) {
     const double dist = (q1 - q2).norm();
     if (dist == 0) return 0.0;
-    return -1.5;
+    return 1.5;
   };
   CollisionCheckerTester dut = MakeEdgeChecker<CollisionCheckerTester>(dist0);
   const int q_size = dut.plant().num_positions();
@@ -1362,9 +1462,9 @@ GTEST_TEST(EdgeCheckTest, Configuration) {
     // Distance function.
 
     // Evaluate (1) and (2) as constructed. dist0 should always return -1.5.
-    EXPECT_EQ(dut.ComputeConfigurationDistance(q1, q2), -1.5);
+    EXPECT_EQ(dut.ComputeConfigurationDistance(q1, q2), 1.5);
     ASSERT_NE(dut.MakeStandaloneConfigurationDistanceFunction(), nullptr);
-    EXPECT_EQ(dut.MakeStandaloneConfigurationDistanceFunction()(q1, q2), -1.5);
+    EXPECT_EQ(dut.MakeStandaloneConfigurationDistanceFunction()(q1, q2), 1.5);
 
     // Change the function via (3).
     const ConfigurationDistanceFunction dist1 = [](const VectorXd& a,

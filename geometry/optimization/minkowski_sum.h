@@ -16,10 +16,17 @@ namespace optimization {
 S = X₁ ⨁ X₂ ⨁ ... ⨁ Xₙ =
     {x₁ + x₂ + ... + xₙ | x₁ ∈ X₁, x₂ ∈ X₂, ..., xₙ ∈ Xₙ}
 
+Special behavior for IsEmpty: The Minkowski sum of zero sets (i.e. when we
+have sets_.size() == 0) is treated as the singleton {0}, which is nonempty.
+This includes the zero-dimensional case.
+
 @ingroup geometry_optimization */
 class MinkowskiSum final : public ConvexSet {
  public:
   DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(MinkowskiSum)
+
+  /** Constructs a default (zero-dimensional, nonempty) set. */
+  MinkowskiSum();
 
   /** Constructs the sum from a vector of convex sets. */
   explicit MinkowskiSum(const ConvexSets& sets);
@@ -59,12 +66,20 @@ class MinkowskiSum final : public ConvexSet {
  private:
   std::unique_ptr<ConvexSet> DoClone() const final;
 
-  bool DoIsBounded() const final;
+  std::optional<bool> DoIsBoundedShortcut() const final;
+
+  bool DoIsEmpty() const final;
+
+  std::optional<Eigen::VectorXd> DoMaybeGetPoint() const final;
+
+  std::optional<Eigen::VectorXd> DoMaybeGetFeasiblePoint() const final;
 
   bool DoPointInSet(const Eigen::Ref<const Eigen::VectorXd>& x,
                     double tol) const final;
 
-  void DoAddPointInSetConstraints(
+  std::pair<VectorX<symbolic::Variable>,
+            std::vector<solvers::Binding<solvers::Constraint>>>
+  DoAddPointInSetConstraints(
       solvers::MathematicalProgram*,
       const Eigen::Ref<const solvers::VectorXDecisionVariable>&) const final;
 

@@ -22,6 +22,7 @@
 #include "drake/systems/framework/leaf_context.h"
 #include "drake/systems/framework/system.h"
 #include "drake/systems/framework/system_output.h"
+#include "drake/systems/framework/test_utilities/initialization_test_system.h"
 #include "drake/systems/framework/test_utilities/my_vector.h"
 #include "drake/systems/framework/test_utilities/pack_value.h"
 
@@ -1720,12 +1721,13 @@ TEST_F(LeafSystemTest, CallbackAndInvalidUpdates) {
   // Create an unrestricted update callback that just copies the state.
   LeafCompositeEventCollection<double> leaf_events;
   {
-    UnrestrictedUpdateEvent<double>::UnrestrictedUpdateCallback callback = [](
-        const Context<double>& c, const Event<double>&, State<double>* s) {
-      s->SetFrom(*c.CloneState());
-    };
-
-    UnrestrictedUpdateEvent<double> event(TriggerType::kPeriodic, callback);
+    UnrestrictedUpdateEvent<double> event(
+        TriggerType::kPeriodic,
+        [](const System<double>&, const Context<double>& c,
+           const Event<double>&, State<double>* s) {
+          s->SetFrom(*c.CloneState());
+          return EventStatus::Succeeded();
+        });
     event.AddToComposite(&leaf_events);
   }
 
@@ -1738,14 +1740,15 @@ TEST_F(LeafSystemTest, CallbackAndInvalidUpdates) {
   // exception is thrown.
   leaf_events.Clear();
   {
-    UnrestrictedUpdateEvent<double>::UnrestrictedUpdateCallback callback = [](
-        const Context<double>& c, const Event<double>&, State<double>* s) {
-      s->SetFrom(*c.CloneState());
-      s->set_continuous_state(std::make_unique<ContinuousState<double>>(
-          std::make_unique<BasicVector<double>>(4), 4, 0, 0));
-    };
-
-    UnrestrictedUpdateEvent<double> event(TriggerType::kPeriodic, callback);
+    UnrestrictedUpdateEvent<double> event(
+        TriggerType::kPeriodic,
+        [](const System<double>&, const Context<double>& c,
+           const Event<double>&, State<double>* s) {
+          s->SetFrom(*c.CloneState());
+          s->set_continuous_state(std::make_unique<ContinuousState<double>>(
+              std::make_unique<BasicVector<double>>(4), 4, 0, 0));
+          return EventStatus::Succeeded();
+        });
     event.AddToComposite(&leaf_events);
   }
 
@@ -1763,17 +1766,18 @@ TEST_F(LeafSystemTest, CallbackAndInvalidUpdates) {
   // Change the event to indicate to change the discrete state dimension.
   leaf_events.Clear();
   {
-    UnrestrictedUpdateEvent<double>::UnrestrictedUpdateCallback callback = [](
-        const Context<double>& c, const Event<double>&, State<double>* s) {
-      std::vector<std::unique_ptr<BasicVector<double>>> disc_data;
-      s->SetFrom(*c.CloneState());
-      disc_data.push_back(std::make_unique<BasicVector<double>>(1));
-      disc_data.push_back(std::make_unique<BasicVector<double>>(1));
-      s->set_discrete_state(
-          std::make_unique<DiscreteValues<double>>(std::move(disc_data)));
-    };
-
-    UnrestrictedUpdateEvent<double> event(TriggerType::kPeriodic, callback);
+    UnrestrictedUpdateEvent<double> event(
+        TriggerType::kPeriodic,
+        [](const System<double>&, const Context<double>& c,
+           const Event<double>&, State<double>* s) {
+          std::vector<std::unique_ptr<BasicVector<double>>> disc_data;
+          s->SetFrom(*c.CloneState());
+          disc_data.push_back(std::make_unique<BasicVector<double>>(1));
+          disc_data.push_back(std::make_unique<BasicVector<double>>(1));
+          s->set_discrete_state(
+              std::make_unique<DiscreteValues<double>>(std::move(disc_data)));
+          return EventStatus::Succeeded();
+        });
     event.AddToComposite(&leaf_events);
   }
 
@@ -1791,13 +1795,14 @@ TEST_F(LeafSystemTest, CallbackAndInvalidUpdates) {
   // Change the event to indicate to change the abstract state dimension.
   leaf_events.Clear();
   {
-    UnrestrictedUpdateEvent<double>::UnrestrictedUpdateCallback callback = [](
-        const Context<double>& c, const Event<double>&, State<double>* s) {
-      s->SetFrom(*c.CloneState());
-      s->set_abstract_state(std::make_unique<AbstractValues>());
-    };
-
-    UnrestrictedUpdateEvent<double> event(TriggerType::kPeriodic, callback);
+    UnrestrictedUpdateEvent<double> event(
+        TriggerType::kPeriodic,
+        [](const System<double>&, const Context<double>& c,
+           const Event<double>&, State<double>* s) {
+          s->SetFrom(*c.CloneState());
+          s->set_abstract_state(std::make_unique<AbstractValues>());
+          return EventStatus::Succeeded();
+        });
     event.AddToComposite(&leaf_events);
   }
 
@@ -2812,56 +2817,9 @@ GTEST_TEST(RandomContextTest, SetRandomTest) {
           .all());
 }
 
-// Tests initialization works properly for a leaf system.
-GTEST_TEST(InitializationTest, InitializationTest) {
-  class InitializationTestSystem : public LeafSystem<double> {
-   public:
-    InitializationTestSystem() {
-      PublishEvent<double> pub_event(
-          std::bind(&InitializationTestSystem::InitPublish, this,
-                    std::placeholders::_1, std::placeholders::_2));
-      DeclareInitializationEvent(pub_event);
-
-      DeclareInitializationEvent(DiscreteUpdateEvent<double>());
-      DeclareInitializationEvent(UnrestrictedUpdateEvent<double>());
-    }
-
-    bool get_pub_init() const { return pub_init_; }
-    bool get_dis_update_init() const { return dis_update_init_; }
-    bool get_unres_update_init() const { return unres_update_init_; }
-
-   private:
-    void InitPublish(const Context<double>&,
-                     const PublishEvent<double>& event) const {
-      EXPECT_EQ(event.get_trigger_type(), TriggerType::kInitialization);
-      pub_init_ = true;
-    }
-
-    void DoCalcDiscreteVariableUpdates(
-        const Context<double>&,
-        const std::vector<const DiscreteUpdateEvent<double>*>& events,
-        DiscreteValues<double>*) const final {
-      EXPECT_EQ(events.size(), 1);
-      EXPECT_EQ(events.front()->get_trigger_type(),
-                TriggerType::kInitialization);
-      dis_update_init_ = true;
-    }
-
-    void DoCalcUnrestrictedUpdate(
-        const Context<double>&,
-        const std::vector<const UnrestrictedUpdateEvent<double>*>& events,
-        State<double>*) const final {
-      EXPECT_EQ(events.size(), 1);
-      EXPECT_EQ(events.front()->get_trigger_type(),
-                TriggerType::kInitialization);
-      unres_update_init_ = true;
-    }
-
-    mutable bool pub_init_{false};
-    mutable bool dis_update_init_{false};
-    mutable bool unres_update_init_{false};
-  };
-
+// Tests initialization works properly for a leaf system. This flavor checks
+// the event functions individually.
+GTEST_TEST(InitializationTest, ManualEventProcessing) {
   InitializationTestSystem dut;
   auto context = dut.CreateDefaultContext();
   auto discrete_updates = dut.AllocateDiscreteVariables();
@@ -2880,6 +2838,21 @@ GTEST_TEST(InitializationTest, InitializationTest) {
   EXPECT_TRUE(dut.get_pub_init());
   EXPECT_TRUE(dut.get_dis_update_init());
   EXPECT_TRUE(dut.get_unres_update_init());
+}
+
+// Tests initialization works properly for a leaf system. This flavor checks
+// the built-in System function for initialization.
+GTEST_TEST(InitializationTest, DefaultEventProcessing) {
+  InitializationTestSystem dut;
+  auto context = dut.CreateDefaultContext();
+
+  dut.ExecuteInitializationEvents(context.get());
+
+  EXPECT_TRUE(dut.get_pub_init());
+  EXPECT_TRUE(dut.get_dis_update_init());
+  EXPECT_TRUE(dut.get_unres_update_init());
+  EXPECT_EQ(context->get_discrete_state_vector()[0], 1.23);
+  EXPECT_TRUE(context->get_abstract_state<bool>(0));
 }
 
 // Although many of the tests above validate behavior of events when the

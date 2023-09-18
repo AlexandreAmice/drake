@@ -181,6 +181,11 @@ FrameId SceneGraph<T>::RegisterFrame(SourceId source_id, FrameId parent_id,
 }
 
 template <typename T>
+void SceneGraph<T>::RenameFrame(FrameId frame_id, const std::string& name) {
+  return model_.RenameFrame(frame_id, name);
+}
+
+template <typename T>
 GeometryId SceneGraph<T>::RegisterGeometry(
     SourceId source_id, FrameId frame_id,
     std::unique_ptr<GeometryInstance> geometry) {
@@ -216,6 +221,12 @@ GeometryId SceneGraph<T>::RegisterDeformableGeometry(
   auto& g_state = mutable_geometry_state(context);
   return g_state.RegisterDeformableGeometry(
       source_id, frame_id, std::move(geometry), resolution_hint);
+}
+
+template <typename T>
+void SceneGraph<T>::RenameGeometry(GeometryId geometry_id,
+                                   const std::string& name) {
+  return model_.RenameGeometry(geometry_id, name);
 }
 
 template <typename T>
@@ -323,8 +334,9 @@ void SceneGraph<T>::AssignRole(Context<T>* context, SourceId source_id,
   static const logging::Warn one_time(
       "Due to a bug (see issue #13597), changing the illustration roles or "
       "properties in the context will not have any apparent effect in, at "
-      "least, drake_visualizer. Please change the illustration role in the "
-      "model prior to allocating the Context.");
+      "least, the legacy `drake_visualizer` application of days past. Please "
+      "change the illustration role in the model prior to allocating the "
+      "Context.");
   auto& g_state = mutable_geometry_state(context);
   g_state.AssignRole(source_id, geometry_id, std::move(properties), assign);
 }
@@ -523,6 +535,7 @@ void SceneGraph<T>::ThrowUnlessRegistered(SourceId source_id,
 template <typename T>
 GeometryState<T>& SceneGraph<T>::mutable_geometry_state(
     Context<T>* context) const {
+  this->ValidateContext(context);
   return context->get_mutable_parameters()
       .template get_mutable_abstract_parameter<GeometryState<T>>(
           geometry_state_index_);

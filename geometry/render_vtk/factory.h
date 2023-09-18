@@ -8,9 +8,17 @@
 
 namespace drake {
 namespace geometry {
+// We need to get clang-format to ignore the long table lines so they get
+// rendered properly in doxygen.
+// clang-format off
 
 /** Constructs a RenderEngine implementation which uses a VTK-based OpenGL
  renderer.
+
+ @warning On macOS, we've observed that RenderEngineVtk sometimes does not obey
+ render::ColorRenderCamera::show_window when it's set to `true`. Refer to issue
+ <a href="https://github.com/RobotLocomotion/drake/issues/20144">#20144</a>
+ for further discussion.
 
  @anchor render_engine_vtk_properties
  <h2>Geometry perception properties</h2>
@@ -57,14 +65,10 @@ namespace geometry {
 
  | Group name | Property Name |   Required    |  Property Type  | Property Description |
  | :--------: | :-----------: | :-----------: | :-------------: | :------------------- |
- |   label    | id            | configurable⁵ |  RenderLabel    | The label to render into the image. |
+ |   label    | id            | no⁵           |  RenderLabel    | The label to render into the image. |
 
- ⁵ %RenderEngineVtk has a default render label value that is applied to any
- geometry that doesn't have a (label, id) property at registration. If a value
- is not explicitly specified, %RenderEngineVtk uses RenderLabel::kUnspecified
- as this default value. It can be explicitly set upon construction. The possible
- values for this default label and the ramifications of that choice are
- documented @ref render_engine_default_label "here".
+ ⁵ When the label property is not set, %RenderEngineVtk uses a default render
+ label of RenderLabel::kDontCare.
 
  <h3>Geometries accepted by %RenderEngineVtk</h3>
 
@@ -78,6 +82,7 @@ namespace geometry {
  */
 std::unique_ptr<render::RenderEngine> MakeRenderEngineVtk(
     const RenderEngineVtkParams& params);
+// clang-format on
 
 }  // namespace geometry
 }  // namespace drake

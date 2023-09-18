@@ -72,6 +72,7 @@ drake_cc_binary(
 filegroup(
     name = "models",
     srcs = glob([
+        "**/*.gltf",
         "**/*.obj",
         "**/*.sdf",
         "**/*.urdf",
@@ -113,4 +114,4 @@ drake_cc_binary(
     ],
 )
 
-add_lint_tests()
+add_lint_tests(enable_clang_format_lint = False)

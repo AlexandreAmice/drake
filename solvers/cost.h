@@ -10,6 +10,7 @@
 
 #include <Eigen/SparseCore>
 
+#include "drake/solvers/decision_variable.h"
 #include "drake/solvers/evaluator_base.h"
 
 namespace drake {
@@ -92,6 +93,8 @@ class LinearCost : public Cost {
 
   std::ostream& DoDisplay(std::ostream&,
                           const VectorX<symbolic::Variable>&) const override;
+
+  std::string DoToLatex(const VectorX<symbolic::Variable>&, int) const override;
 
  private:
   template <typename DerivedX, typename U>
@@ -204,6 +207,8 @@ class QuadraticCost : public Cost {
   std::ostream& DoDisplay(std::ostream&,
                           const VectorX<symbolic::Variable>&) const override;
 
+  std::string DoToLatex(const VectorX<symbolic::Variable>&, int) const override;
+
   bool CheckHessianPsd();
 
   Eigen::MatrixXd Q_;
@@ -276,6 +281,8 @@ class L1NormCost : public Cost {
   std::ostream& DoDisplay(std::ostream&,
                           const VectorX<symbolic::Variable>&) const override;
 
+  std::string DoToLatex(const VectorX<symbolic::Variable>&, int) const override;
+
  private:
   Eigen::MatrixXd A_;
   Eigen::VectorXd b_;
@@ -328,6 +335,8 @@ class L2NormCost : public Cost {
   std::ostream& DoDisplay(std::ostream&,
                           const VectorX<symbolic::Variable>&) const override;
 
+  std::string DoToLatex(const VectorX<symbolic::Variable>&, int) const override;
+
  private:
   Eigen::MatrixXd A_;
   Eigen::VectorXd b_;
@@ -379,16 +388,22 @@ class LInfNormCost : public Cost {
   std::ostream& DoDisplay(std::ostream&,
                           const VectorX<symbolic::Variable>&) const override;
 
+  std::string DoToLatex(const VectorX<symbolic::Variable>&, int) const override;
+
  private:
   Eigen::MatrixXd A_;
   Eigen::VectorXd b_;
 };
 
 /**
- * If z = Ax + b, implements a cost of the form:
+ * If \f$ z = Ax + b,\f$ implements a cost of the form:
+ * @f[
  * (z_1^2 + z_2^2 + ... + z_{n-1}^2) / z_0.
+ * @f]
  * Note that this cost is convex when we additionally constrain z_0 > 0. It is
  * treated as a generic nonlinear objective by most solvers.
+ *
+ * Costs of this form are sometimes referred to as "quadratic over linear".
  *
  * @ingroup solver_evaluators
  */
@@ -432,6 +447,8 @@ class PerspectiveQuadraticCost : public Cost {
 
   std::ostream& DoDisplay(std::ostream&,
                           const VectorX<symbolic::Variable>&) const override;
+
+  std::string DoToLatex(const VectorX<symbolic::Variable>&, int) const override;
 
  private:
   template <typename DerivedX, typename U>
@@ -540,6 +557,50 @@ class PolynomialCost : public EvaluatorCost<PolynomialEvaluator> {
   const std::vector<Polynomiald::VarType>& poly_vars() const {
     return evaluator().poly_vars();
   }
+};
+
+/**
+ * Impose a generic (potentially nonlinear) cost represented as a symbolic
+ * Expression.  Expression::Evaluate is called on every constraint evaluation.
+ *
+ * Uses symbolic::Jacobian to provide the gradients to the AutoDiff method.
+ *
+ * @ingroup solver_evaluators
+ */
+class ExpressionCost : public Cost {
+ public:
+  DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(ExpressionCost)
+
+  explicit ExpressionCost(const symbolic::Expression& e);
+
+  /**
+   * @return the list of the variables involved in the vector of expressions,
+   * in the order that they are expected to be received during DoEval.
+   * Any Binding that connects this constraint to decision variables should
+   * pass this list of variables to the Binding.
+   */
+  const VectorXDecisionVariable& vars() const;
+
+  /** @return the symbolic expression. */
+  const symbolic::Expression& expression() const;
+
+ protected:
+  void DoEval(const Eigen::Ref<const Eigen::VectorXd>& x,
+              Eigen::VectorXd* y) const override;
+
+  void DoEval(const Eigen::Ref<const AutoDiffVecXd>& x,
+              AutoDiffVecXd* y) const override;
+
+  void DoEval(const Eigen::Ref<const VectorX<symbolic::Variable>>& x,
+              VectorX<symbolic::Expression>* y) const override;
+
+  std::ostream& DoDisplay(std::ostream&,
+                          const VectorX<symbolic::Variable>&) const override;
+
+  std::string DoToLatex(const VectorX<symbolic::Variable>&, int) const override;
+
+ private:
+  std::unique_ptr<EvaluatorBase> evaluator_;
 };
 
 /**

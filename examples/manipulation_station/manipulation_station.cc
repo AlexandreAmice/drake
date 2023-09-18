@@ -59,7 +59,7 @@ namespace internal {
 namespace {
 
 // This system computes the generalized forces on the IIWA arm of the
-// manipulation resulting from externally applied spatial forces.
+// manipulation station resulting from externally applied spatial forces.
 //
 // @system
 // name: ExternalGeneralizedForcesComputer
@@ -165,7 +165,7 @@ class ExternalGeneralizedForcesComputer : public systems::LeafSystem<double> {
 // @retval M_SGo_G spatial inertia of set S about Go, expressed in frame G.
 SpatialInertia<double> CalcGripperSpatialInertia(
     const std::string& wsg_sdf_path) {
-  // Set timestep to 1.0 since it is arbitrary, to quiet joint limit warnings.
+  // Set time_step to 1.0 since it is arbitrary, to quiet joint limit warnings.
   MultibodyPlant<double> plant(1.0);
   multibody::Parser parser(&plant);
   parser.AddModels(wsg_sdf_path);
@@ -232,17 +232,17 @@ multibody::ModelInstanceIndex AddAndWeldModelFrom(
     const RigidTransform<double>& X_PC, MultibodyPlant<T>* plant) {
   DRAKE_THROW_UNLESS(!plant->HasModelInstanceNamed(model_name));
 
-  // Since we need to force the model name here, exploit the fact that model
-  // directives processing can do that.
+  // We need to parse model_url into a plant model instance named model_name,
+  // ignoring the model name defined within the model_url file. We accomplish
+  // that by parsing the model first and then renaming it second. If the model
+  // name defined within the model_url file was already in use, the first step
+  // would throw; to avoid that, we must enable auto renaming during its parse.
   multibody::Parser parser(plant);
-  multibody::parsing::ModelDirectives directives;
-  multibody::parsing::ModelDirective directive;
-  directive.add_model = multibody::parsing::AddModel{
-      model_url, model_name, {}, {}};
-  directives.directives.push_back(directive);
-  const auto models = ProcessModelDirectives(directives, &parser);
+  parser.SetAutoRenaming(true);
+  const auto models = parser.AddModelsFromUrl(model_url);
   DRAKE_THROW_UNLESS(models.size() == 1);
-  const multibody::ModelInstanceIndex new_model = models[0].model_instance;
+  plant->RenameModelInstance(models[0], model_name);
+  const multibody::ModelInstanceIndex new_model = models[0];
 
   const auto& child_frame = plant->GetFrameByName(child_frame_name, new_model);
   plant->WeldFrames(parent, child_frame, X_PC);
@@ -796,6 +796,10 @@ void ManipulationStation<T>::Finalize(
                   computer->GetInputPort("multibody_state"));
   builder.ExportInput(computer->GetInputPort("applied_spatial_force"),
                       "applied_spatial_force");
+  // Connect the exported input to the plant's applied spatial force input as
+  // well.
+  builder.ConnectToSame(computer->GetInputPort("applied_spatial_force"),
+                        plant_->get_applied_spatial_force_input_port());
 
   // Adder to compute τ_external = τ_applied_spatial_force + τ_contact
   systems::Adder<double>* external_forces_adder =

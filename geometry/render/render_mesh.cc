@@ -35,6 +35,8 @@ RenderMaterial MakeMaterialFromMtl(const tinyobj::material_t& mat,
                                    bool has_tex_coord,
                                    const DiagnosticPolicy& policy) {
   RenderMaterial result;
+
+  result.from_mesh_file = true;
   result.diffuse.set(mat.diffuse[0], mat.diffuse[1], mat.diffuse[2],
                      mat.dissolve);
   result.diffuse_map = [&mat, &obj_path]() -> std::string {
@@ -271,8 +273,8 @@ RenderMesh LoadRenderMeshFromObj(const std::filesystem::path& obj_path,
   // referenced material is "-1", it means there is no material.
   if (referenced_materials.size() == 1 && referenced_materials.count(-1) == 0) {
     mesh_data.material =
-        MakeMaterialFromMtl(reader.GetMaterials().front(), obj_path,
-                            properties, has_tex_coord, policy);
+        MakeMaterialFromMtl(reader.GetMaterials().front(), obj_path, properties,
+                            has_tex_coord, policy);
   } else {
     // We'll need to use the material fallback logic for meshes.
     if (referenced_materials.size() > 1) {
@@ -287,15 +289,15 @@ RenderMesh LoadRenderMeshFromObj(const std::filesystem::path& obj_path,
             return i < 0 ? std::string("__default__")
                          : fmt::format("'{}'", reader.GetMaterials()[i].name);
           });
-      policy.Warning(fmt::format(
+      log()->debug(
           "Drake currently only supports OBJs that use a single material "
           "across the whole mesh; for {}, {} materials were used: {}. The "
           "parsed materials will not be used.",
           obj_path.string(), referenced_materials.size(),
-          fmt::join(mat_names, ", ")));
+          fmt::join(mat_names, ", "));
     }
-    mesh_data.material = MakeMeshFallbackMaterial(properties, obj_path,
-                                                  default_diffuse, policy);
+    mesh_data.material =
+        MakeMeshFallbackMaterial(properties, obj_path, default_diffuse, policy);
   }
 
   return mesh_data;

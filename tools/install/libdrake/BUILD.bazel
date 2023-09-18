@@ -1,5 +1,6 @@
 package(default_visibility = ["//visibility:private"])
 
+load("@bazel_skylib//lib:selects.bzl", "selects")
 load(
     "@python//:version.bzl",
     "PYTHON_SITE_PACKAGES_RELPATH",
@@ -126,25 +127,23 @@ install(
     ],
 )
 
-# Depend on CLP's shared library iff CLP is enabled.
-cc_library(
-    name = "clp_deps",
-    deps = select({
-        "//conditions:default": [
-            "@clp",
-        ],
-        "//tools:no_clp": [],
-    }),
+# Depend on IPOPT's shared library iff IPOPT is enabled and we're on a platform
+# that uses the host OS shared library.
+selects.config_setting_group(
+    name = "ipopt_not_shared",
+    match_any = [
+        "//tools:no_ipopt",
+        "//tools/cc_toolchain:linux",
+    ],
 )
 
-# Depend on IPOPT's shared library iff IPOPT is enabled.
 cc_library(
     name = "ipopt_deps",
-    deps = select({
+    deps = selects.with_or({
         "//conditions:default": [
             "@ipopt",
         ],
-        "//tools:no_ipopt": [],
+        ":ipopt_not_shared": [],
     }),
 )
 
@@ -164,28 +163,6 @@ cc_library(
         "//tools:with_mosek": ["@mosek"],
         "//conditions:default": [],
     }),
-)
-
-# Depend on the subset of VTK's shared libraries that Drake uses.
-cc_library(
-    name = "vtk_deps",
-    deps = [
-        # TODO(jwnimmer-tri) This duplicates the list of VTK libraries needed
-        # by //sensors.  We should find a way for ":drake_shared_library" to be
-        # declared without having to repeat this list here.
-        "@vtk//:vtkCommonCore",
-        "@vtk//:vtkCommonDataModel",
-        "@vtk//:vtkCommonExecutionModel",
-        "@vtk//:vtkCommonTransforms",
-        "@vtk//:vtkFiltersGeneral",
-        "@vtk//:vtkFiltersSources",
-        "@vtk//:vtkIOExport",
-        "@vtk//:vtkIOGeometry",
-        "@vtk//:vtkIOImage",
-        "@vtk//:vtkIOImport",
-        "@vtk//:vtkRenderingCore",
-        "@vtk//:vtkRenderingOpenGL2",
-    ],
 )
 
 # Depend on X11 iff on Ubuntu and not MacOS.
@@ -227,11 +204,9 @@ cc_library(
 cc_library(
     name = "libdrake_runtime_so_deps",
     deps = [
-        ":clp_deps",
         ":gurobi_deps",
         ":ipopt_deps",
         ":mosek_deps",
-        ":vtk_deps",
         ":x11_deps",
         "//common:drake_marker_shared_library",
         "@lcm",

@@ -1,10 +1,6 @@
 #include "drake/bindings/pydrake/systems/framework_py_systems.h"
 
-#include "pybind11/eigen.h"
 #include "pybind11/eval.h"
-#include "pybind11/functional.h"
-#include "pybind11/pybind11.h"
-#include "pybind11/stl.h"
 
 #include "drake/bindings/pydrake/common/cpp_template_pybind.h"
 #include "drake/bindings/pydrake/common/default_scalars_pybind.h"
@@ -170,15 +166,24 @@ struct Impl {
     // trampoline if this is needed outside of LeafSystem.
     void DoGetWitnessFunctions(const Context<T>& context,
         std::vector<const WitnessFunction<T>*>* witnesses) const override {
-      auto wrapped = [&]() -> std::vector<const WitnessFunction<T>*> {
-        PYBIND11_OVERLOAD_INT(std::vector<const WitnessFunction<T>*>,
+      auto wrapped =
+          [&]() -> std::optional<std::vector<const WitnessFunction<T>*>> {
+        PYBIND11_OVERLOAD_INT(
+            std::optional<std::vector<const WitnessFunction<T>*>>,
             LeafSystem<T>, "DoGetWitnessFunctions", &context);
         std::vector<const WitnessFunction<T>*> result;
         // If the macro did not return, use default functionality.
         Base::DoGetWitnessFunctions(context, &result);
-        return result;
+        return {result};
       };
-      *witnesses = wrapped();
+      auto result = wrapped();
+      if (!result.has_value()) {
+        // Give a good error message in case the user forgot to return anything.
+        throw py::type_error(
+            "Overrides of DoGetWitnessFunctions() must return "
+            "List[WitnessFunction], not NoneType.");
+      }
+      *witnesses = std::move(*result);
     }
   };
 
@@ -414,6 +419,9 @@ struct Impl {
         .def("CalcForcedUnrestrictedUpdate",
             &System<T>::CalcForcedUnrestrictedUpdate, py::arg("context"),
             py::arg("state"), doc.System.CalcForcedUnrestrictedUpdate.doc)
+        .def("ExecuteInitializationEvents",
+            &System<T>::ExecuteInitializationEvents, py::arg("context"),
+            doc.System.ExecuteInitializationEvents.doc)
         .def("GetUniquePeriodicDiscreteUpdateAttribute",
             &System<T>::GetUniquePeriodicDiscreteUpdateAttribute,
             doc.System.GetUniquePeriodicDiscreteUpdateAttribute.doc)
@@ -481,6 +489,8 @@ Note: The above is for the C++ documentation. For Python, use
         .def("GetInputPort", &System<T>::GetInputPort,
             py_rvp::reference_internal, py::arg("port_name"),
             doc.System.GetInputPort.doc)
+        .def("HasInputPort", &System<T>::HasInputPort, py::arg("port_name"),
+            doc.System.HasInputPort.doc)
         .def("get_output_port",
             overload_cast_explicit<const OutputPort<T>&, int>(
                 &System<T>::get_output_port),
@@ -493,6 +503,8 @@ Note: The above is for the C++ documentation. For Python, use
         .def("GetOutputPort", &System<T>::GetOutputPort,
             py_rvp::reference_internal, py::arg("port_name"),
             doc.System.GetOutputPort.doc)
+        .def("HasOutputPort", &System<T>::HasOutputPort, py::arg("port_name"),
+            doc.System.HasOutputPort.doc)
         // Graphviz methods.
         .def(
             "GetGraphvizString",
@@ -891,10 +903,20 @@ Note: The above is for the C++ documentation. For Python, use
         .def("MakeWitnessFunction",
             WrapCallbacks([](PyLeafSystem* self, const std::string& description,
                               const WitnessFunctionDirection& direction_type,
-                              std::function<T(const Context<T>&)> calc)
-                              -> std::unique_ptr<WitnessFunction<T>> {
-              return self->MakeWitnessFunction(
-                  description, direction_type, calc);
+                              std::function<std::optional<T>(const Context<T>&)>
+                                  calc) -> std::unique_ptr<WitnessFunction<T>> {
+              return self->MakeWitnessFunction(description, direction_type,
+                  [calc](const Context<T>& context) -> T {
+                    const std::optional<T> result = calc(context);
+                    if (!result.has_value()) {
+                      // Give a good error message in case the user forgot to
+                      // return anything.
+                      throw py::type_error(
+                          "The MakeWitnessFunction() calc callback must return "
+                          "a floating point value, not NoneType.");
+                    }
+                    return *result;
+                  });
             }),
             py_rvp::reference_internal, py::arg("description"),
             py::arg("direction_type"), py::arg("calc"),
@@ -976,21 +998,21 @@ Note: The above is for the C++ documentation. For Python, use
               py::object self_py = py::cast(self, py_rvp::reference);
               for (auto& [input_locator, output_locator] :
                   self->connection_map()) {
-                py::object input_system_py =
-                    py::cast(input_locator.first, py_rvp::reference);
-                py::object input_port_index_py = py::cast(input_locator.second);
                 // Keep alive, ownership: `input_system_py` keeps `self` alive.
-                py_keep_alive(input_system_py, self_py);
+                py::object input_system_py = py::cast(
+                    input_locator.first, py_rvp::reference_internal, self_py);
+                py::object input_port_index_py = py::cast(input_locator.second);
+
                 py::tuple input_locator_py(2);
                 input_locator_py[0] = input_system_py;
                 input_locator_py[1] = input_port_index_py;
 
-                py::object output_system_py =
-                    py::cast(output_locator.first, py_rvp::reference);
+                // Keep alive, ownership: `output_system_py` keeps `self` alive.
+                py::object output_system_py = py::cast(
+                    output_locator.first, py_rvp::reference_internal, self_py);
                 py::object output_port_index_py =
                     py::cast(output_locator.second);
-                // Keep alive, ownership: `output_system_py` keeps `self` alive.
-                py_keep_alive(output_system_py, self_py);
+
                 py::tuple output_locator_py(2);
                 output_locator_py[0] = output_system_py;
                 output_locator_py[1] = output_port_index_py;
@@ -1006,11 +1028,11 @@ Note: The above is for the C++ documentation. For Python, use
               py::list out;
               py::object self_py = py::cast(self, py_rvp::reference);
               for (auto& locator : self->GetInputPortLocators(port_index)) {
-                py::object system_py =
-                    py::cast(locator.first, py_rvp::reference);
-                py::object port_index_py = py::cast(locator.second);
                 // Keep alive, ownership: `system_py` keeps `self` alive.
-                py_keep_alive(system_py, self_py);
+                py::object system_py = py::cast(
+                    locator.first, py_rvp::reference_internal, self_py);
+                py::object port_index_py = py::cast(locator.second);
+
                 py::tuple locator_py(2);
                 locator_py[0] = system_py;
                 locator_py[1] = port_index_py;
@@ -1024,10 +1046,11 @@ Note: The above is for the C++ documentation. For Python, use
             [](Diagram<T>* self, OutputPortIndex port_index) {
               py::object self_py = py::cast(self, py_rvp::reference);
               const auto& locator = self->get_output_port_locator(port_index);
-              py::object system_py = py::cast(locator.first, py_rvp::reference);
-              py::object port_index_py = py::cast(locator.second);
               // Keep alive, ownership: `system_py` keeps `self` alive.
-              py_keep_alive(system_py, self_py);
+              py::object system_py =
+                  py::cast(locator.first, py_rvp::reference_internal, self_py);
+              py::object port_index_py = py::cast(locator.second);
+
               py::tuple locator_py(2);
               locator_py[0] = system_py;
               locator_py[1] = port_index_py;
@@ -1046,19 +1069,7 @@ Note: The above is for the C++ documentation. For Python, use
         .def("GetSubsystemByName", &Diagram<T>::GetSubsystemByName,
             py::arg("name"), py_rvp::reference_internal,
             doc.Diagram.GetSubsystemByName.doc)
-        .def(
-            "GetSystems",
-            [](Diagram<T>* self) {
-              py::list out;
-              py::object self_py = py::cast(self, py_rvp::reference);
-              for (auto* system : self->GetSystems()) {
-                py::object system_py = py::cast(system, py_rvp::reference);
-                // Keep alive, ownership: `system` keeps `self` alive.
-                py_keep_alive(system_py, self_py);
-                out.append(system_py);
-              }
-              return out;
-            },
+        .def("GetSystems", &Diagram<T>::GetSystems, py_rvp::reference_internal,
             doc.Diagram.GetSystems.doc);
 
     // N.B. This will effectively allow derived classes of `VectorSystem` to
@@ -1127,6 +1138,10 @@ void DoScalarIndependentDefinitions(py::module m) {
         .def("implicit_time_derivatives_residual_size",
             &Class::implicit_time_derivatives_residual_size,
             cls_doc.implicit_time_derivatives_residual_size.doc)
+        .def("ValidateContext",
+            overload_cast_explicit<void, const ContextBase&>(
+              &Class::ValidateContext),
+            py::arg("context"), cls_doc.ValidateContext.doc)
         // Parameters.
         .def("num_abstract_parameters", &Class::num_abstract_parameters,
             cls_doc.num_abstract_parameters.doc)
@@ -1249,8 +1264,13 @@ void DoScalarIndependentDefinitions(py::module m) {
         GetPyParamList(ConversionPairs{});
   }
 
-  m.def("GenerateHtml", &GenerateHtml, py::arg("system"),
-      py::arg("initial_depth") = 1, doc.GenerateHtml.doc);
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+  m.def("GenerateHtml",
+      WrapDeprecated(doc.GenerateHtml.doc_deprecated, &GenerateHtml),
+      py::arg("system"), py::arg("initial_depth") = 1,
+      doc.GenerateHtml.doc_deprecated);
+#pragma GCC diagnostic pop
 }
 
 }  // namespace

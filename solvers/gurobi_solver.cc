@@ -3,9 +3,11 @@
 #include <algorithm>
 #include <charconv>
 #include <cmath>
+#include <fstream>
 #include <limits>
 #include <optional>
 #include <stdexcept>
+#include <string>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -331,7 +333,7 @@ __attribute__((unused)) bool HasCorrectNumberOfVariables(
 // constraints stored in the gurobi model.
 // @return error as an integer. The full set of error values are
 // described here :
-// https://www.gurobi.com/documentation/9.5/refman/error_codes.html
+// https://www.gurobi.com/documentation/10.0/refman/error_codes.html
 // This function assumes `vars` doesn't contain duplicate variables.
 int AddLinearConstraintNoDuplication(
     const MathematicalProgram& prog, GRBmodel* model,
@@ -385,7 +387,7 @@ int AddLinearConstraintNoDuplication(
 
   // The matrix A_gurobi is stored in Compressed Sparse Row (CSR) format, using
   // three vectors cbeg, cind and cval. Please refer to
-  // https://www.gurobi.com/documentation/9.5/refman/c_addconstrs.html for the
+  // https://www.gurobi.com/documentation/10.0/refman/c_addconstrs.html for the
   // meaning of these three vectors. The non-zero entries in the i'th row of
   // A_gurobi is stored in the chunk cind[cbeg[i]:cbeg[i+1]] and
   // cval[cbeg[i]:cbeg[i+1]]
@@ -538,7 +540,7 @@ int AddSecondOrderConeConstraints(
 
     // Gurobi uses a matrix Q to differentiate Lorentz cone and rotated Lorentz
     // cone constraint.
-    // https://www.gurobi.com/documentation/9.5/refman/c_grbaddqconstr.html
+    // https://www.gurobi.com/documentation/10.0/refman/c_addqconstr.html
     // For Lorentz cone constraint,
     // Q = [-1 0 0 ... 0]
     //     [ 0 1 0 ... 0]
@@ -1039,6 +1041,14 @@ class GurobiSolver::License {
           "Could not locate Gurobi license key file because GRB_LICENSE_FILE "
           "environment variable was not set.");
     }
+    if (const char* filename = std::getenv("GRB_LICENSE_FILE")) {
+      // For unit testing, we employ a hack to keep env_ uninitialized so that
+      // we don't need a valid license file.
+      if (std::string_view{filename}.find("DRAKE_UNIT_TEST_NO_LICENSE") !=
+          std::string_view::npos) {
+        return;
+      }
+    }
     const int num_tries = 3;
     int grb_load_env_error = 1;
     for (int i = 0; grb_load_env_error && i < num_tries; ++i) {
@@ -1066,7 +1076,41 @@ class GurobiSolver::License {
   GRBenv* env_ = nullptr;
 };
 
+namespace {
+bool IsGrbLicenseFileLocalHost() {
+  // We use the existence of the string HOSTID in the license file as
+  // confirmation that the license is associated with the local host.
+  const char* grb_license_file = std::getenv("GRB_LICENSE_FILE");
+  if (grb_license_file == nullptr) {
+    return false;
+  }
+  std::ifstream stream{grb_license_file};
+  const std::string contents{std::istreambuf_iterator<char>{stream},
+                             std::istreambuf_iterator<char>{}};
+  if (stream.fail()) {
+    return false;
+  }
+  return contents.find("HOSTID") != std::string::npos;
+}
+}  // namespace
+
 std::shared_ptr<GurobiSolver::License> GurobiSolver::AcquireLicense() {
+  // Gurobi recommends acquiring the license only once per program to avoid
+  // overhead from acquiring the license (and console spew for academic license
+  // users; see #19657). However, if users are using a shared network license
+  // from a limited pool, then we risk them checking out the license and not
+  // giving it back (e.g., if they are working in a jupyter notebook). As a
+  // compromise, we extend license beyond the lifetime of the GurobiSolver iff
+  // we can confirm that the license is associated with the local host.
+  //
+  // The first time the anyone calls GurobiSolver::AcquireLicense, we check
+  // whether the license is local. If yes, the local_host_holder keeps the
+  // license's use_count lower bounded to 1. If no, the local_hold_holder is
+  // null and the usual GetScopedSingleton workflow applies.
+  static never_destroyed<std::shared_ptr<void>> local_host_holder{
+     IsGrbLicenseFileLocalHost()
+           ? GetScopedSingleton<GurobiSolver::License>()
+           : nullptr};
   return GetScopedSingleton<GurobiSolver::License>();
 }
 
@@ -1376,7 +1420,7 @@ void GurobiSolver::DoSolve(const MathematicalProgram& prog,
     }
   }
 
-  SolutionResult solution_result = SolutionResult::kUnknownError;
+  SolutionResult solution_result = SolutionResult::kSolverSpecificError;
 
   GurobiSolverDetails& solver_details =
       result->SetSolverDetailsType<GurobiSolverDetails>();

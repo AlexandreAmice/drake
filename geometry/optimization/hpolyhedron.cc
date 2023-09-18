@@ -10,15 +10,18 @@
 #include <tuple>
 
 #include <Eigen/Eigenvalues>
-#include <drake_vendor/libqhullcpp/Coordinates.h>
-#include <drake_vendor/libqhullcpp/Qhull.h>
-#include <drake_vendor/libqhullcpp/QhullFacet.h>
-#include <drake_vendor/libqhullcpp/QhullFacetList.h>
+#include <drake/solvers/binding.h>
 #include <fmt/format.h>
+#include <libqhullcpp/Coordinates.h>
+#include <libqhullcpp/Qhull.h>
+#include <libqhullcpp/QhullFacet.h>
+#include <libqhullcpp/QhullFacetList.h>
 
+#include "drake/geometry/optimization/affine_subspace.h"
 #include "drake/geometry/optimization/vpolytope.h"
 #include "drake/math/matrix_util.h"
 #include "drake/math/rotation_matrix.h"
+#include "drake/solvers/constraint.h"
 #include "drake/solvers/gurobi_solver.h"
 #include "drake/solvers/solve.h"
 
@@ -32,6 +35,8 @@ using Eigen::VectorXd;
 using math::RigidTransformd;
 using solvers::Binding;
 using solvers::Constraint;
+using solvers::LinearConstraint;
+using solvers::LinearCost;
 using solvers::MathematicalProgram;
 using solvers::MatrixXDecisionVariable;
 using solvers::VectorXDecisionVariable;
@@ -52,16 +57,6 @@ std::tuple<bool, solvers::MathematicalProgramResult> IsInfeasible(
   return {result.get_solution_result() ==
               solvers::SolutionResult::kInfeasibleConstraints,
           result};
-}
-
-// Checks if Ax ≤ b defines an empty set.
-bool DoIsEmpty(const Eigen::Ref<const MatrixXd>& A,
-               const Eigen::Ref<const VectorXd>& b) {
-  solvers::MathematicalProgram prog;
-  solvers::VectorXDecisionVariable x =
-      prog.NewContinuousVariables(A.cols(), "x");
-  prog.AddLinearConstraint(A, VectorXd::Constant(b.rows(), -kInf), b, x);
-  return std::get<0>(IsInfeasible(prog));
 }
 
 /* Checks whether the constraint cᵀ x ≤ d is already implied by the linear
@@ -111,18 +106,18 @@ bool IsRedundant(const Eigen::Ref<const MatrixXd>& c, double d,
 
 }  // namespace
 
-HPolyhedron::HPolyhedron() : ConvexSet(0) {}
+HPolyhedron::HPolyhedron() : ConvexSet(0, false) {}
 
 HPolyhedron::HPolyhedron(const Eigen::Ref<const MatrixXd>& A,
                          const Eigen::Ref<const VectorXd>& b)
-    : ConvexSet(A.cols()), A_{A}, b_{b} {
+    : ConvexSet(A.cols(), false), A_(A), b_(b) {
   CheckInvariants();
 }
 
 HPolyhedron::HPolyhedron(const QueryObject<double>& query_object,
                          GeometryId geometry_id,
                          std::optional<FrameId> reference_frame)
-    : ConvexSet(3) {
+    : ConvexSet(3, false) {
   std::pair<MatrixXd, VectorXd> Ab_G;
   query_object.inspector().GetShape(geometry_id).Reify(this, &Ab_G);
 
@@ -137,13 +132,127 @@ HPolyhedron::HPolyhedron(const QueryObject<double>& query_object,
 }
 
 HPolyhedron::HPolyhedron(const VPolytope& vpoly)
-    : ConvexSet(vpoly.ambient_dimension()) {
+    : ConvexSet(vpoly.ambient_dimension(), false) {
+  // First, handle the case where the VPolytope is empty.
+  if (vpoly.IsEmpty()) {
+    if (vpoly.ambient_dimension() == 0) {
+      throw std::runtime_error(
+          "Cannot convert an empty VPolytope with ambient dimension zero into "
+          "a HPolyhedron.");
+    } else {
+      // Just create an infeasible HPolyhedron.
+      Eigen::MatrixXd A = Eigen::MatrixXd::Zero(2, vpoly.ambient_dimension());
+      Eigen::VectorXd b = Eigen::VectorXd::Zero(2);
+      // x <= 1
+      A(0, 0) = 1;
+      b[0] = 1;
+      // -x <= -2, equivalent to x >= 2
+      A(1, 0) = -1;
+      b[1] = -2;
+      *this = HPolyhedron(A, b);
+      return;
+    }
+  }
+  // Next, handle the case where the VPolytope is not full dimensional.
+  const AffineSubspace affine_hull(vpoly);
+  if (affine_hull.AffineDimension() < affine_hull.ambient_dimension()) {
+    // This special case avoids two QHull errors: QH6214 and QH6154.
+    // QH6214 is due to the VPolytope not having enough vertices to make a
+    // full dimensional simplex, and QH6154 is due to the VPolytope not being
+    // full-dimensional, because all the vertices lie along a proper affine
+    // subspace. We can handle both of these cases by projecting onto the
+    // affine hull and doing the computations there. Then, we lift back to the
+    // original space, and add hyperplanes to require the point lie on the
+    // affine subspace.
+    Eigen::MatrixXd points_local =
+        affine_hull.ToLocalCoordinates(vpoly.vertices());
+
+    // Note that QHull will not function in zero or one dimensional spaces, so
+    // we handle these separately here.
+    Eigen::MatrixXd global_A;
+    Eigen::VectorXd global_b;
+    if (affine_hull.AffineDimension() == 0) {
+      // If it's just a point, then the orthogonal complement constraints
+      // will do all the work, and we can set global_A and global_b to empty.
+      global_A = Eigen::MatrixXd::Zero(0, ambient_dimension());
+      global_b = Eigen::VectorXd::Zero(0);
+    } else if (affine_hull.AffineDimension() == 1) {
+      // In this case, we have a line, so we just pick the highest and lowest
+      // points on that line (w.r.t. the direction of the one vector in the
+      // affine basis) and put hyperplanes there.
+      int min_idx, max_idx;
+      Eigen::VectorXd point_local_vector = points_local.row(0);
+
+      point_local_vector.minCoeff(&min_idx);
+      point_local_vector.maxCoeff(&max_idx);
+      Eigen::VectorXd lower_point = vpoly.vertices().col(min_idx);
+      Eigen::VectorXd upper_point = vpoly.vertices().col(max_idx);
+      Eigen::VectorXd direction = affine_hull.basis();
+
+      global_A = Eigen::MatrixXd::Zero(2, ambient_dimension());
+      global_A.row(0) = -direction;
+      global_A.row(1) = direction;
+      global_b = Eigen::VectorXd::Zero(2);
+      global_b[0] = -lower_point.dot(direction);
+      global_b[1] = upper_point.dot(direction);
+    } else {
+      // Construct a new VPolytope in the local coordinates, and then try
+      // converting it to an HPolyhedron. This VPolytope is full dimensional
+      // and has enough points for QHull, so in the subsequent call of the
+      // VPolytope -> HPolyhedron constructor, none of this conditional block
+      // is considered, and it goes directly to QHull. If QHull has additional
+      // errors besides the dimension ones, they will be caught there.
+      HPolyhedron hpoly_subspace(VPolytope{points_local});
+
+      // Now, lift the HPolyhedron to the original ambient space. A point x in
+      // R^n is projected to P(x-d), where d is the AffineSubspace translation,
+      // and P is the projection matrix associated with the basis B (so that PB
+      // is the identity matrix, mapping points in the local coordinates of the
+      // AffineSubspace to themselves, where B is the matrix whose columns are
+      // the basis vectors). Thus, an HPolyhedron in local coordinates
+      // {Ay <= b : y in R^m} can be lifted to an HPolyhedron in global
+      // coordinates by substituting P(x-d) for y. After simplification, we have
+      // {APx <= b + APd : x in R^n}.
+
+      // First, we obtain the matrix P. Because it's a linear operator, we can
+      // compute its matrix by passing in the standard basis vectors (centered
+      // at the translation of the AffineSubspace).
+      Eigen::MatrixXd P_in =
+          Eigen::MatrixXd::Identity(ambient_dimension(), ambient_dimension());
+      Eigen::MatrixXd P = affine_hull.ToLocalCoordinates(
+          P_in.colwise() + affine_hull.translation());
+
+      // Now, we construct the global versions of A and b.
+      global_A = hpoly_subspace.A() * P;
+      global_b = hpoly_subspace.b() +
+                 hpoly_subspace.A() * P * affine_hull.translation();
+    }
+
+    // Finally, we add additional constraints from the perpendicular basis. This
+    // ensures that the points in the new HPolyhedron lie along the affine hull
+    // of the VPolytope.
+    Eigen::MatrixXd perpendicular_basis =
+        affine_hull.OrthogonalComplementBasis();
+    Eigen::MatrixXd perp_A(2 * perpendicular_basis.cols(), ambient_dimension());
+    perp_A << perpendicular_basis.transpose(), -perpendicular_basis.transpose();
+    Eigen::VectorXd perp_b = perp_A * affine_hull.translation();
+
+    Eigen::MatrixXd full_A(global_A.rows() + perp_A.rows(),
+                           ambient_dimension());
+    full_A << global_A, perp_A;
+    Eigen::VectorXd full_b(global_b.size() + perp_b.size());
+    full_b << global_b, perp_b;
+    *this = HPolyhedron(full_A, full_b);
+    return;
+  }
+
+  // Now that we know that the VPolytope is full dimensional, we can call QHull.
   orgQhull::Qhull qhull;
   qhull.runQhull("", vpoly.ambient_dimension(), vpoly.vertices().cols(),
                  vpoly.vertices().data(), "");
   if (qhull.qhullStatus() != 0) {
     throw std::runtime_error(
-        fmt::format("Qhull terminated with status {} and  message:\n{}",
+        fmt::format("Qhull exited with status {} and  message:\n{}",
                     qhull.qhullStatus(), qhull.qhullMessage()));
   }
   A_.resize(qhull.facetCount(), ambient_dimension());
@@ -230,6 +339,19 @@ VectorXd HPolyhedron::ChebyshevCenter() const {
         result.get_solver_id().name(), result.get_solution_result()));
   }
   return result.GetSolution(x);
+}
+
+HPolyhedron HPolyhedron::Scale(double scale,
+                               std::optional<Eigen::VectorXd> center) const {
+  DRAKE_THROW_UNLESS(scale >= 0.0);
+  if (center) {
+    DRAKE_THROW_UNLESS(center->size() == ambient_dimension());
+  } else {
+    center = ChebyshevCenter();
+  }
+  return HPolyhedron(
+      A_, std::pow(scale, 1.0 / ambient_dimension()) * (b_ - A_ * *center) +
+              A_ * *center);
 }
 
 HPolyhedron HPolyhedron::CartesianProduct(const HPolyhedron& other) const {
@@ -338,7 +460,7 @@ HPolyhedron HPolyhedron::MakeL1Ball(const int dim) {
   return {A, b};
 }
 
-bool HPolyhedron::DoIsBounded() const {
+std::optional<bool> HPolyhedron::DoIsBoundedShortcut() const {
   if (A_.rows() < A_.cols()) {
     return false;
   }
@@ -363,11 +485,22 @@ bool HPolyhedron::DoIsBounded() const {
   return result.is_success();
 }
 
+bool HPolyhedron::DoIsEmpty() const {
+  if (ambient_dimension() == 0) {
+    return false;
+  }
+  solvers::MathematicalProgram prog;
+  solvers::VectorXDecisionVariable x =
+      prog.NewContinuousVariables(A_.cols(), "x");
+  prog.AddLinearConstraint(A_, VectorXd::Constant(b_.rows(), -kInf), b_, x);
+  return std::get<0>(IsInfeasible(prog));
+}
+
 bool HPolyhedron::ContainedIn(const HPolyhedron& other, double tol) const {
   DRAKE_THROW_UNLESS(other.A().cols() == A_.cols());
   // `this` defines an empty set and therefore is contained in any `other`
   // HPolyhedron.
-  if (DoIsEmpty(A_, b_)) {
+  if (DoIsEmpty()) {
     return true;
   }
 
@@ -439,8 +572,9 @@ HPolyhedron HPolyhedron::DoIntersectionWithChecks(const HPolyhedron& other,
       A.row(num_kept) = other.A().row(i);
       b.row(num_kept) = other.b().row(i);
       ++num_kept;
-      if (DoIsEmpty(A.topRows(num_kept), b.topRows(num_kept))) {
-        return {A.topRows(num_kept), b.topRows(num_kept)};
+      HPolyhedron maybe_empty(A.topRows(num_kept), b.topRows(num_kept));
+      if (maybe_empty.IsEmpty()) {
+        return maybe_empty;
       }
     }
   }
@@ -465,65 +599,36 @@ HPolyhedron HPolyhedron::ReduceInequalities(double tol) const {
 }
 
 std::set<int> HPolyhedron::FindRedundant(double tol) const {
-  const int num_inequalities = A_.rows();
-  const int num_vars = A_.cols();
-
-  std::set<int> kept_indices;
-  for (int i = 0; i < num_inequalities; ++i) {
-    kept_indices.emplace(i);
-  }
-  // TODO(hongkai.dai): create just one program and remove the redundant
-  // constraint
-  for (int excluded_index = 0; excluded_index < num_inequalities;
-       ++excluded_index) {
-    solvers::MathematicalProgram prog;
-    solvers::VectorXDecisionVariable x =
-        prog.NewContinuousVariables(num_vars, "x");
-
-    std::set<int> cur_kept_indices = kept_indices;
-    cur_kept_indices.erase(excluded_index);
-
-    // Current constraints.
-    for (const int i : cur_kept_indices) {
-      prog.AddLinearConstraint(A_.row(i), VectorXd::Constant(1, -kInf),
-                               b_.row(i), x);
-    }
-
-    // First we check whether the current index defines an empty set. If it
-    // does, then any new constraint is already redundant. This check is
-    // expected before calling IsRedundant.
-    if (std::get<0>(IsInfeasible(prog))) {
-      kept_indices.erase(excluded_index);
-    } else {
-      // Constraint to check redundant.
-      Binding<solvers::LinearConstraint> redundant_constraint_binding =
-          prog.AddLinearConstraint(
-              A_.row(excluded_index), VectorXd::Constant(1, -kInf),
-              b_.row(excluded_index) + VectorXd::Ones(1), x);
-
-      // Construct cost binding for prog.
-      Binding<solvers::LinearCost> program_cost_binding =
-          prog.AddLinearCost(-A_.row(excluded_index), 0, x);
-
-      // The current inequality is redundant.
-      if (IsRedundant(A_.row(excluded_index), b_(excluded_index), &prog,
-                      &redundant_constraint_binding, &program_cost_binding,
-                      tol)) {
-        kept_indices.erase(excluded_index);
-      }
-    }
-  }
+  // This method is based on removing each constraint and solving the resulting
+  // LP. If the optimal cost is greater than the constraint's right hand side,
+  // then the constraint is redundant.
+  // Possible future speed up: solve duals instead of primal in parallel,
+  // however this would require building num_threads mathematical programs and
+  // may not be worth it.
   std::set<int> redundant_indices;
-  for (int i = 0; i < num_inequalities; ++i) {
-    if (kept_indices.count(i) == 0) {
-      redundant_indices.emplace(i);
+  MathematicalProgram prog;
+  const int num_vars = A_.cols();
+  const int num_cons = A_.rows();
+  const auto x = prog.NewContinuousVariables(num_vars, "x");
+  std::vector<Binding<LinearConstraint>> bindings_vec;
+  for (int i = 0; i < num_cons; ++i) {
+    bindings_vec.push_back(prog.AddLinearConstraint(
+        A_.row(i), -std::numeric_limits<double>::infinity(), b_[i], x));
+  }
+  auto const_binding = prog.AddLinearCost(-A_.row(0), 0, x);
+  for (int i = 0; i < num_cons; ++i) {
+    prog.RemoveConstraint(bindings_vec.at(i));
+    const_binding.evaluator()->UpdateCoefficients(-A_.row(i), 0);
+    const auto result = Solve(prog);
+    if ((result.is_success() && -result.get_optimal_cost() > b_[i] + tol) ||
+        !result.is_success()) {
+      // Bring back the constraint, it is not redundant.
+      prog.AddConstraint(bindings_vec.at(i));
+    } else {
+      redundant_indices.insert(i);
     }
   }
   return redundant_indices;
-}
-
-bool HPolyhedron::IsEmpty() const {
-  return DoIsEmpty(A_, b_);
 }
 
 std::unique_ptr<ConvexSet> HPolyhedron::DoClone() const {
@@ -536,13 +641,17 @@ bool HPolyhedron::DoPointInSet(const Eigen::Ref<const VectorXd>& x,
   return ((A_ * x).array() <= b_.array() + tol).all();
 }
 
-void HPolyhedron::DoAddPointInSetConstraints(
+std::pair<VectorX<Variable>, std::vector<Binding<Constraint>>>
+HPolyhedron::DoAddPointInSetConstraints(
     MathematicalProgram* prog,
     const Eigen::Ref<const VectorXDecisionVariable>& vars) const {
-  prog->AddLinearConstraint(
+  VectorX<Variable> new_vars;
+  std::vector<Binding<Constraint>> new_constraints;
+  new_constraints.push_back(prog->AddLinearConstraint(
       A_,
       VectorXd::Constant(b_.size(), -std::numeric_limits<double>::infinity()),
-      b_, vars);
+      b_, vars));
+  return {std::move(new_vars), std::move(new_constraints)};
 }
 
 std::vector<Binding<Constraint>>

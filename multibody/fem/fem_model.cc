@@ -39,11 +39,13 @@ void FemModel<T>::CalcResidual(const FemState<T>& fem_state,
 template <typename T>
 void FemModel<T>::CalcTangentMatrix(
     const FemState<T>& fem_state, const Vector3<T>& weights,
-    internal::PetscSymmetricBlockSparseMatrix* tangent_matrix) const {
+    contact_solvers::internal::Block3x3SparseSymmetricMatrix* tangent_matrix)
+    const {
   if constexpr (std::is_same_v<T, double>) {
     DRAKE_DEMAND(tangent_matrix != nullptr);
     DRAKE_DEMAND(tangent_matrix->rows() == num_dofs());
     DRAKE_DEMAND(tangent_matrix->cols() == num_dofs());
+    DRAKE_THROW_UNLESS(weights.minCoeff() >= 0.0);
     ThrowIfModelStateIncompatible(__func__, fem_state);
     DoCalcTangentMatrix(fem_state, weights, tangent_matrix);
     dirichlet_bc_.ApplyBoundaryConditionToTangentMatrix(tangent_matrix);
@@ -54,14 +56,13 @@ void FemModel<T>::CalcTangentMatrix(
 }
 
 template <typename T>
-std::unique_ptr<internal::PetscSymmetricBlockSparseMatrix>
-FemModel<T>::MakePetscSymmetricBlockSparseTangentMatrix() const {
+std::unique_ptr<contact_solvers::internal::Block3x3SparseSymmetricMatrix>
+FemModel<T>::MakeTangentMatrix() const {
   if constexpr (std::is_same_v<T, double>) {
-    return DoMakePetscSymmetricBlockSparseTangentMatrix();
+    return DoMakeTangentMatrix();
   } else {
     throw std::logic_error(
-        "FemModel::MakePetscSymmetricBlockSparseTangentMatrix() only supports "
-        "double at the moment.");
+        "FemModel::MakeTangentMatrix() only supports double at the moment.");
   }
 }
 
@@ -80,7 +81,7 @@ FemModel<T>::FemModel()
 template <typename T>
 void FemModel<T>::ThrowIfModelStateIncompatible(
     const char* func, const FemState<T>& fem_state) const {
-  if (!fem_state.is_created_from_system(*fem_state_system_)) {
+  if (!is_compatible_with(fem_state)) {
     throw std::logic_error(std::string(func) +
                            "(): The FEM model and state are not compatible.");
   }

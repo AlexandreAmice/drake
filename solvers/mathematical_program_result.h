@@ -101,6 +101,12 @@ class MathematicalProgramResult final {
                                   std::numeric_limits<double>::quiet_NaN());
   }
 
+  /** Gets decision_variable_index. */
+  const std::optional<std::unordered_map<symbolic::Variable::Id, int>>&
+  get_decision_variable_index() const {
+    return decision_variable_index_;
+  }
+
   /** Sets SolutionResult. */
   void set_solution_result(SolutionResult solution_result) {
     solution_result_ = solution_result;
@@ -198,6 +204,13 @@ class MathematicalProgramResult final {
    */
   [[nodiscard]] double GetSolution(const symbolic::Variable& var) const;
 
+  /** Resets the solution of a single decision variable that is already
+  registered with this result.
+  @throws std::exception if `var` is not captured in the mapping @p
+  decision_variable_index, as the input argument of
+  set_decision_variable_index(). */
+  void SetSolution(const symbolic::Variable& var, double value);
+
   /**
    * Substitutes the value of all decision variables into the Expression.
    * @param e The decision variable.
@@ -282,7 +295,7 @@ class MathematicalProgramResult final {
    *    GurobiSolver solver;
    *    // Explicitly tell the solver to compute the dual solution for Lorentz
    *    // cone or rotated Lorentz cone constraint, check
-   *    // https://www.gurobi.com/documentation/9.5/refman/qcpdual.html for
+   *    // https://www.gurobi.com/documentation/10.0/refman/qcpdual.html for
    *    // more information.
    *    SolverOptions options;
    *    options.SetOption(GurobiSolver::id(), "QCPDual", 1);

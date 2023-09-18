@@ -4,7 +4,6 @@
 #include <atomic>
 #include <cctype>
 #include <exception>
-#include <filesystem>
 #include <fstream>
 #include <functional>
 #include <future>
@@ -20,9 +19,9 @@
 
 #include <App.h>
 #include <common_robotics_utilities/base64_helpers.hpp>
-#include <drake_vendor/msgpack.hpp>
-#include <drake_vendor/uuid.h>
 #include <fmt/format.h>
+#include <msgpack.hpp>
+#include <uuid.h>
 
 #include "drake/common/drake_export.h"
 #include "drake/common/drake_throw.h"
@@ -30,8 +29,8 @@
 #include "drake/common/network_policy.h"
 #include "drake/common/never_destroyed.h"
 #include "drake/common/scope_exit.h"
+#include "drake/common/ssize.h"
 #include "drake/common/text_logging.h"
-#include "drake/common/unused.h"
 #include "drake/geometry/meshcat_types.h"
 
 #ifdef BOOST_VERSION
@@ -81,6 +80,19 @@ const std::string& GetUrlContent(std::string_view url_path) {
   }
   drake::log()->warn("Ignoring Meshcat http request for {}", url_path);
   return empty.access();
+}
+
+template <typename Mapping>
+[[noreturn]] void ThrowThingNotFound(
+    std::string_view thing, std::string_view name, Mapping thing_map) {
+  std::vector<std::string> keys;
+  for (const auto& map_pair : thing_map) {
+    keys.push_back(map_pair.first);
+  }
+  throw std::logic_error(
+      fmt::format("Meshcat does not have any {} named {}.  The "
+                  "registered {} names are ({}).",
+                  thing, name, thing, fmt::join(keys, ", ")));
 }
 
 }  // namespace
@@ -204,13 +216,11 @@ class SceneTreeElement {
     if (transform_) {
       ws->send(*transform_);
     }
-    for (const auto& [property, msg] : properties_) {
-      unused(property);
+    for (const auto& [_, msg] : properties_) {
       ws->send(msg);
     }
 
-    for (const auto& [name, child] : children_) {
-      unused(name);
+    for (const auto& [_, child] : children_) {
       child->Send(ws);
     }
   }
@@ -225,13 +235,11 @@ class SceneTreeElement {
     if (transform_) {
       html += CreateCommand(*transform_);
     }
-    for (const auto& [property, msg] : properties_) {
-      unused(property);
+    for (const auto& [_, msg] : properties_) {
       html += CreateCommand(msg);
     }
 
-    for (const auto& [name, child] : children_) {
-      unused(name);
+    for (const auto& [_, child] : children_) {
       html += child->CreateCommands();
     }
     return html;
@@ -264,8 +272,9 @@ class MeshcatShapeReifier : public ShapeReifier {
 
   using ShapeReifier::ImplementGeometry;
 
-  template <typename T>
-  void ImplementMesh(const T& mesh, void* data) {
+  // @tparam MeshType is either Mesh or Convex.
+  template <typename MeshType>
+  void ImplementMesh(const MeshType& mesh, void* data) {
     DRAKE_DEMAND(data != nullptr);
     auto& lumped = *static_cast<internal::LumpedObjectData*>(data);
 
@@ -273,8 +282,7 @@ class MeshcatShapeReifier : public ShapeReifier {
     // meshes unless necessary.  Using the filename is tempting, but that leads
     // to problems when the file contents change on disk.
 
-    const std::filesystem::path filename(mesh.filename());
-    std::string format = filename.extension();
+    std::string format = mesh.extension();
     format.erase(0, 1);  // remove the . from the extension
     std::ifstream input(mesh.filename(), std::ios::binary | std::ios::ate);
     if (!input.is_open()) {
@@ -319,7 +327,8 @@ class MeshcatShapeReifier : public ShapeReifier {
       std::string mtllib = matches.str(1);
 
       // Use filename path as the base directory for textures.
-      const std::filesystem::path basedir = filename.parent_path();
+      const std::filesystem::path basedir =
+          std::filesystem::path(mesh.filename()).parent_path();
 
       // Read .mtl file into geometry.mtl_library.
       std::ifstream mtl_stream(basedir / mtllib, std::ios::ate);
@@ -359,8 +368,8 @@ class MeshcatShapeReifier : public ShapeReifier {
                             std::istreambuf_iterator<char>());
             meshfile_object.resources.try_emplace(
                 map, std::string("data:image/png;base64,") +
-                          common_robotics_utilities::base64_helpers::Encode(
-                              map_data));
+                         common_robotics_utilities::base64_helpers::Encode(
+                             map_data));
           } else {
             drake::log()->warn(
                 "Meshcat: Failed to load texture. \"{}\" references {}, but "
@@ -378,7 +387,42 @@ class MeshcatShapeReifier : public ShapeReifier {
       matrix(0, 0) = mesh.scale();
       matrix(1, 1) = mesh.scale();
       matrix(2, 2) = mesh.scale();
-    } else {  // not obj or no mtllib.
+    } else if (format == "gltf") {
+      auto& meshfile_object =
+          lumped.object.emplace<internal::MeshFileObjectData>();
+      meshfile_object.uuid = uuids::to_string((*uuid_generator_)());
+      meshfile_object.format = std::move(format);
+      meshfile_object.data = std::move(mesh_data);
+      Eigen::Map<Eigen::Matrix4d> matrix(meshfile_object.matrix);
+      matrix(0, 0) = mesh.scale();
+      matrix(1, 1) = mesh.scale();
+      matrix(2, 2) = mesh.scale();
+    } else {
+      // We have a mesh that isn't a .gltf nor an obj with mtl. So, we'll make
+      // mesh file *geometry* instead of mesh file *object*. This will most
+      // typically be a Collada .dae file, an .stl, or simply an .obj that
+      // doesn't reference an .mtl.
+
+      // TODO(SeanCurtis-TRI): This doesn't work for STL even though meshcat
+      // supports STL. Meshcat treats STL differently from obj or dae.
+      // https://github.com/meshcat-dev/meshcat/blob/4b4f8ffbaa5f609352ea6227bd5ae8207b579c70/src/index.js#L130-L146.
+      // The "data" property of the _meshfile_geometry for obj and dae are
+      // simply passed along verbatim. But for STL it is interpreted as a
+      // buffer. However, we're not passing the data in a way that deserializes
+      // into a data array. So, either meshcat needs to change how it gets
+      // STL (being more permissive), or we need to change how we transmit STL
+      // data.
+
+      // TODO(SeanCurtis-TRI): Provide test showing that .dae works.
+
+      if (format != "obj" && format != "dae") {
+        // Note: We send the data along to meshcat regardless relying on meshcat
+        // to ignore the mesh and move on. The *path* will still exist.
+        static const logging::Warn one_time(
+            "Drake's Meshcat only supports Mesh/Convex specifications which "
+            "use .obj, .gltf, or .dae files. Mesh specifications using other "
+            "mesh types (e.g., .stl, etc.) will not be visualized.");
+      }
       auto geometry = std::make_unique<internal::MeshFileGeometryData>();
       geometry->uuid = uuids::to_string((*uuid_generator_)());
       geometry->format = std::move(format);
@@ -391,7 +435,7 @@ class MeshcatShapeReifier : public ShapeReifier {
       matrix(1, 1) = mesh.scale();
       matrix(2, 2) = mesh.scale();
     }
-    }
+  }
 
   void ImplementGeometry(const Box& box, void* data) override {
     DRAKE_DEMAND(data != nullptr);
@@ -518,6 +562,14 @@ int ToMeshcatColor(const Rgba& rgba) {
          static_cast<int>(255 * rgba.b());
 }
 
+// Meshcat inherits three.js's y-up world and it is applied to camera and
+// camera target positions. To simply set the object's position property, we
+// need to express the position in three.js's y-up world frame.
+// It's simply a 90-degree rotation around the x-axis, so we hard-code it here.
+Eigen::Vector3d MeshcatYUpPosition(const Eigen::Vector3d& p_WP) {
+  return Eigen::Vector3d(p_WP.x(), p_WP.z(), -p_WP.y());
+}
+
 }  // namespace
 
 class Meshcat::Impl {
@@ -532,7 +584,7 @@ class Meshcat::Impl {
   // invariants that we need to maintain.
   //
   // It launches the websocket thread and waits for the thread to reply that
-  // either the application started listning successfully, or else failed.
+  // either the application started listening successfully, or else failed.
   //
   // If the websocket thread failed to bind to a port, then this constructor
   // will first join the websocket thread and then throw an exception; the
@@ -546,7 +598,8 @@ class Meshcat::Impl {
       : prefix_("/drake"),
         main_thread_id_(std::this_thread::get_id()),
         params_(params) {
-    DRAKE_THROW_UNLESS(params.port.value_or(7000) >= 1024);
+    DRAKE_THROW_UNLESS(!params.port.has_value() || *params.port == 0 ||
+                       *params.port >= 1024);
     if (!drake::internal::IsNetworkingAllowed("meshcat")) {
       throw std::runtime_error(
           "Meshcat has been disabled via the DRAKE_ALLOW_NETWORK environment "
@@ -641,6 +694,7 @@ class Meshcat::Impl {
   // This function is public via the PIMPL.
   void SetRealtimeRate(double rate) {
     DRAKE_DEMAND(IsThread(main_thread_id_));
+    realtime_rate_ = rate;
     internal::RealtimeRateData data;
     data.rate = rate;
     Defer([this, data = std::move(data)]() {
@@ -651,6 +705,12 @@ class Meshcat::Impl {
       std::string message = message_stream.str();
       app_->publish("all", message, uWS::OpCode::BINARY, false);
     });
+  }
+
+  // This function is public via the PIMPL.
+  double GetRealtimeRate() const {
+    DRAKE_DEMAND(IsThread(main_thread_id_));
+    return realtime_rate_;
   }
 
   // This function is public via the PIMPL.
@@ -1010,10 +1070,13 @@ class Meshcat::Impl {
   void SetCamera(CameraData camera, std::string path) {
     DRAKE_DEMAND(IsThread(main_thread_id_));
 
+    is_orthographic_ = std::is_same_v<OrthographicCamera, CameraData>;
+
     uuids::uuid_random_generator uuid_generator{generator_};
     internal::SetCameraData<CameraData> data;
     data.path = std::move(path);
     data.object.object = std::move(camera);
+    SetCameraTarget({0, 0, 0});
 
     Defer([this, data = std::move(data)]() {
       DRAKE_DEMAND(IsThread(websocket_thread_id_));
@@ -1218,6 +1281,42 @@ class Meshcat::Impl {
   }
 
   // This function is public via the PIMPL.
+  // The public version of this only applies to perspective cameras. But, this
+  // implementation allows for an override so that SetCameraPose() can orient
+  // orthographic cameras as well.
+  void SetCameraTarget(const Eigen::Vector3d& p_WT,
+                       bool only_perspective = true) {
+    DRAKE_DEMAND(IsThread(main_thread_id_));
+
+    if (only_perspective && is_orthographic_) return;
+
+    internal::SetCameraTargetData data;
+    // The target position in meshcat's y-up world.
+    const Eigen::Vector3d p_WT_y = MeshcatYUpPosition(p_WT);
+    data.value = {p_WT_y.x(), p_WT_y.y(), p_WT_y.z()};
+
+    Defer([this, data = std::move(data)]() {
+      DRAKE_DEMAND(IsThread(websocket_thread_id_));
+      DRAKE_DEMAND(app_ != nullptr);
+      std::stringstream message_stream;
+      msgpack::pack(message_stream, data);
+      std::string message = message_stream.str();
+      app_->publish("all", message, uWS::OpCode::BINARY, false);
+      camera_target_message_ = std::move(message);
+    });
+  }
+
+  // This function is public via the PIMPL.
+  void SetCameraPose(const Eigen::Vector3d& p_WC, const Eigen::Vector3d& p_WT) {
+    SetCameraTarget(p_WT, false /* only_perspective */);
+    SetTransform("/Cameras/default", math::RigidTransformd());
+    // The camera position in meshcat's y-up world.
+    const Eigen::Vector3d p_WC_y = MeshcatYUpPosition(p_WC);
+    SetProperty("/Cameras/default/rotated/<object>", "position",
+                std::vector<double>{p_WC_y.x(), p_WC_y.y(), p_WC_y.z()});
+  }
+
+  // This function is public via the PIMPL.
   void AddButton(std::string name, std::string keycode) {
     DRAKE_DEMAND(IsThread(main_thread_id_));
 
@@ -1272,8 +1371,7 @@ class Meshcat::Impl {
     std::lock_guard<std::mutex> lock(controls_mutex_);
     auto iter = buttons_.find(name);
     if (iter == buttons_.end()) {
-      throw std::logic_error(
-          fmt::format("Meshcat does not have any button named {}.", name));
+      ThrowThingNotFound("button", name, buttons_);
     }
     return iter->second.num_clicks;
   }
@@ -1287,8 +1385,7 @@ class Meshcat::Impl {
       std::lock_guard<std::mutex> lock(controls_mutex_);
       auto iter = buttons_.find(name);
       if (iter == buttons_.end()) {
-        throw std::logic_error(
-            fmt::format("Meshcat does not have any button named {}.", name));
+        ThrowThingNotFound("button", name, buttons_);
       }
       buttons_.erase(iter);
       auto c_iter = std::find(controls_.begin(), controls_.end(), name);
@@ -1365,8 +1462,7 @@ class Meshcat::Impl {
       std::lock_guard<std::mutex> lock(controls_mutex_);
       auto iter = sliders_.find(name);
       if (iter == sliders_.end()) {
-        throw std::logic_error(
-            fmt::format("Meshcat does not have any slider named {}.", name));
+        ThrowThingNotFound("slider", name, sliders_);
       }
       internal::SetSliderControl& s = iter->second;
       // Match setValue in NumberController.js from dat.GUI.
@@ -1396,8 +1492,7 @@ class Meshcat::Impl {
     std::lock_guard<std::mutex> lock(controls_mutex_);
     auto iter = sliders_.find(name);
     if (iter == sliders_.end()) {
-      throw std::logic_error(
-          fmt::format("Meshcat does not have any slider named {}.", name));
+        ThrowThingNotFound("slider", name, sliders_);
     }
     return iter->second.value;
   }
@@ -1423,8 +1518,7 @@ class Meshcat::Impl {
       std::lock_guard<std::mutex> lock(controls_mutex_);
       auto iter = sliders_.find(name);
       if (iter == sliders_.end()) {
-        throw std::logic_error(
-            fmt::format("Meshcat does not have any slider named {}.", name));
+        ThrowThingNotFound("slider", name, sliders_);
       }
       sliders_.erase(iter);
       auto c_iter = std::find(controls_.begin(), controls_.end(), name);
@@ -1482,6 +1576,9 @@ class Meshcat::Impl {
       std::string commands = scene_tree_root_.CreateCommands();
       if (!animation_.empty()) {
         commands += CreateCommand(animation_);
+      }
+      if (!camera_target_message_.empty()) {
+        commands += CreateCommand(camera_target_message_);
       }
       p.set_value(std::move(commands));
     });
@@ -1675,9 +1772,6 @@ class Meshcat::Impl {
     // our code from potential implementation changes to uWebSockets.
     const std::string bind_host = (host == "*") ? "" : host;
 
-    int port = desired_port ? *desired_port : 7000;
-    const int kMaxPort = desired_port ? *desired_port : 7099;
-
     uWS::App::WebSocketBehavior<PerSocketData> behavior;
     // Set maxBackpressure = 0 so that uWS does *not* drop any messages due to
     // back pressure.
@@ -1686,15 +1780,13 @@ class Meshcat::Impl {
       // IsThread(websocket_thread_id_) is checked by the Handle... function.
       HandleSocketOpen(ws);
     };
-    behavior.close = [this](WebSocket* ws, int, std::string_view message) {
+    behavior.close = [this](WebSocket* ws, int, std::string_view) {
       // IsThread(websocket_thread_id_) is checked by the Handle... function.
-      unused(message);
       HandleSocketClose(ws);
     };
     behavior.message = [this](WebSocket* ws, std::string_view message,
-                              uWS::OpCode op_code) {
+                              uWS::OpCode) {
       // IsThread(websocket_thread_id_) is checked by the Handle... function.
-      unused(op_code);
       HandleMessage(ws, message);
     };
 
@@ -1708,20 +1800,30 @@ class Meshcat::Impl {
             .ws<PerSocketData>("/*", std::move(behavior));
     app_ = &app;
 
-    do {
-      app.listen(
-          bind_host, port, LIBUS_LISTEN_EXCLUSIVE_PORT,
-          [this](us_listen_socket_t* socket) {
-            DRAKE_DEMAND(IsThread(websocket_thread_id_));
-            if (socket) {
-              listen_socket_ = socket;
-            }
-          });
-    } while (listen_socket_ == nullptr && port++ < kMaxPort);
+    // Search for an open port.
+    int chosen_port{};
+    const int search_start = desired_port.value_or(7000);
+    const int search_end = desired_port.value_or(8000);
+    for (int port = search_start; port <= search_end; ++port) {
+      // N.B. Using `port == 0` requests an ephemeral port.
+      // https://github.com/uNetworking/uSockets/pull/136.
+      app.listen(bind_host, port, LIBUS_LISTEN_EXCLUSIVE_PORT,
+                 [this](us_listen_socket_t* socket) {
+                   DRAKE_DEMAND(IsThread(websocket_thread_id_));
+                   if (socket) {
+                     listen_socket_ = socket;
+                   }
+                 });
+      if (listen_socket_ != nullptr) {
+        chosen_port = us_socket_local_port(
+            /* ssl = */ 0, reinterpret_cast<us_socket_t*>(listen_socket_));
+        DRAKE_THROW_UNLESS(chosen_port > 0);
+        break;
+      }
+    }
 
     bool connected = listen_socket_ != nullptr;
-    app_promise.set_value(std::make_tuple(port, connected));
-
+    app_promise.set_value(std::make_tuple(chosen_port, connected));
     if (!connected) {
       return;
     }
@@ -1775,6 +1877,10 @@ class Meshcat::Impl {
         msgpack::pack(message_stream, s_iter->second);
         ws->send(message_stream.str());
       }
+    }
+
+    if (!camera_target_message_.empty()) {
+      ws->send(camera_target_message_);
     }
 
     // Tell client if the realtime rate plot should be hidden
@@ -1919,6 +2025,7 @@ class Meshcat::Impl {
   mutable std::mutex controls_mutex_;
   std::map<std::string, internal::SetButtonControl, std::less<>> buttons_{};
   std::map<std::string, internal::SetSliderControl, std::less<>> sliders_{};
+  std::string camera_target_message_;
   Meshcat::Gamepad gamepad_{};
   std::vector<std::string> controls_{};  // Names of buttons and sliders in the
                                          // order they were added.
@@ -1929,6 +2036,8 @@ class Meshcat::Impl {
   const MeshcatParams params_;
   int port_{};
   std::mt19937 generator_{};
+  double realtime_rate_{0.0};
+  bool is_orthographic_{false};
 
   // These variables should only be accessed in the websocket thread.
   std::thread::id websocket_thread_id_{};
@@ -2025,16 +2134,8 @@ class Meshcat::Impl {
   std::atomic<bool> inject_message_fault_{false};
 };
 
-namespace {
-MeshcatParams MakeMeshcatParamsPortOnly(std::optional<int> port) {
-  MeshcatParams result;
-  result.port = port;
-  return result;
-}
-}  // namespace
-
 Meshcat::Meshcat(std::optional<int> port)
-    : Meshcat(MakeMeshcatParamsPortOnly(port)) {}
+    : Meshcat(MeshcatParams{.port = port}) {}
 
 Meshcat::Meshcat(const MeshcatParams& params)
     // Creates the server thread, bind to the port, etc.
@@ -2224,6 +2325,10 @@ void Meshcat::SetRealtimeRate(double rate) {
   impl().SetRealtimeRate(rate);
 }
 
+double Meshcat::GetRealtimeRate() const {
+  return impl().GetRealtimeRate();
+}
+
 void Meshcat::SetProperty(std::string_view path, std::string property,
                           bool value, const std::optional<double>& time) {
   if (recording_ && time) {
@@ -2258,6 +2363,40 @@ void Meshcat::SetProperty(std::string_view path, std::string property,
   }
 }
 
+void Meshcat::SetEnvironmentMap(const std::filesystem::path& image_path) {
+  // We broadcast the image to Meshcat as a base64-encoded data URL. So, we
+  // need to determine its mime type (from extension) and encode the image
+  // contents. We have a stated prereq that the file is actually an image, So,
+  // we're not even validating the extension. In the case of a bad extension or
+  // bad file contents, we defer to meshcat to report problems in the browser.
+  std::string ext = image_path.extension();
+  std::string image_encoding = "";
+  if (ssize(ext) > 1) {
+    ext = ext.substr(1);
+    std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) {
+      return std::tolower(c);
+    });
+    std::ifstream map_stream(image_path, std::ios::binary | std::ios::ate);
+    if (map_stream.is_open()) {
+      int map_size = map_stream.tellg();
+      map_stream.seekg(0, std::ios::beg);
+      std::vector<uint8_t> map_data;
+      map_data.reserve(map_size);
+      map_data.assign(std::istreambuf_iterator<char>(map_stream),
+                      std::istreambuf_iterator<char>());
+      image_encoding =
+          fmt::format("data:image/{};base64,", ext) +
+          common_robotics_utilities::base64_helpers::Encode(map_data);
+    } else {
+      throw std::runtime_error(
+          fmt::format("Requested environment map cannot be read: '{}'.",
+                      image_path.string()));
+    }
+  }
+  impl().SetProperty("/Background/<object>", "environment_map",
+                      image_encoding);
+}
+
 void Meshcat::SetAnimation(const MeshcatAnimation& animation) {
   impl().SetAnimation(animation);
 }
@@ -2269,6 +2408,15 @@ void Meshcat::Set2dRenderMode(const math::RigidTransformd& X_WC, double xmin,
 
 void Meshcat::ResetRenderMode() {
   impl().ResetRenderMode();
+}
+
+void Meshcat::SetCameraTarget(const Eigen::Vector3d& target_in_world) {
+  impl().SetCameraTarget(target_in_world);
+}
+
+void Meshcat::SetCameraPose(const Eigen::Vector3d& camera_in_world,
+                            const Eigen::Vector3d& target_in_world) {
+  impl().SetCameraPose(camera_in_world, target_in_world);
 }
 
 void Meshcat::AddButton(std::string name, std::string keycode) {

@@ -1,8 +1,5 @@
 #include "drake/systems/framework/system.h"
 
-#include <iomanip>
-#include <ios>
-#include <regex>
 #include <set>
 #include <string_view>
 #include <vector>
@@ -38,9 +35,6 @@ std::unique_ptr<System<T>> System<T>::Clone() const {
   auto intermediate = this->template ToScalarTypeMaybe<U>();
   if (intermediate != nullptr) {
     result = intermediate->template ToScalarTypeMaybe<T>();
-    if (result != nullptr) {
-      result->ResetSystemId();
-    }
   }
 
   // If anything went wrong, throw an exception.
@@ -479,6 +473,37 @@ void System<T>::GetInitializationEvents(
 }
 
 template <typename T>
+void System<T>::ExecuteInitializationEvents(Context<T>* context) const {
+  auto discrete_updates = AllocateDiscreteVariables();
+  auto state = context->CloneState();
+  auto init_events = AllocateCompositeEventCollection();
+
+  // NOTE: The execution order here must match the code in
+  // Simulator::Initialize().
+  GetInitializationEvents(*context, init_events.get());
+  // Do unrestricted updates first.
+  if (init_events->get_unrestricted_update_events().HasEvents()) {
+    CalcUnrestrictedUpdate(*context,
+                           init_events->get_unrestricted_update_events(),
+                           state.get());
+    ApplyUnrestrictedUpdate(init_events->get_unrestricted_update_events(),
+                            state.get(), context);
+  }
+  // Do restricted (discrete variable) updates next.
+  if (init_events->get_discrete_update_events().HasEvents()) {
+    CalcDiscreteVariableUpdate(*context,
+                               init_events->get_discrete_update_events(),
+                               discrete_updates.get());
+    ApplyDiscreteVariableUpdate(init_events->get_discrete_update_events(),
+                                discrete_updates.get(), context);
+  }
+  // Do any publishes last.
+  if (init_events->get_publish_events().HasEvents()) {
+    Publish(*context, init_events->get_publish_events());
+  }
+}
+
+template <typename T>
 std::optional<PeriodicEventData>
     System<T>::GetUniquePeriodicDiscreteUpdateAttribute() const {
   std::optional<PeriodicEventData> saved_attr;
@@ -698,25 +723,35 @@ System<T>::DoGetTargetSystemCompositeEventCollection(
 }
 
 template <typename T>
-std::string System<T>::GetMemoryObjectName() const {
-  using std::setfill;
-  using std::setw;
-  using std::hex;
+const InputPort<T>& System<T>::GetSoleInputPort() const {
+  // Give a nice message if there were no inputs at all.
+  if (num_input_ports() == 0) {
+    throw std::logic_error(fmt::format(
+        "System::get_input_port(): {} system '{}' does not have any inputs",
+        this->GetSystemType(), this->GetSystemPathname()));
+  }
 
-  // Remove the template parameter(s).
-  const std::string type_name_without_templates = std::regex_replace(
-      NiceTypeName::Get(*this), std::regex("<.*>$"), std::string());
+  // Check if there is exactly one non-deprecated input port (and return it).
+  int num_non_deprecated = 0;
+  InputPortIndex non_deprecated_index;
+  for (InputPortIndex i{0}; i < num_input_ports(); i++) {
+    const InputPortBase& port_base = this->GetInputPortBaseOrThrow(
+        __func__, i, /* warn_deprecated = */ false);
+    if (port_base.get_deprecation() == std::nullopt) {
+      ++num_non_deprecated;
+      non_deprecated_index = i;
+    }
+  }
+  if (num_non_deprecated == 1) {
+    return get_input_port(non_deprecated_index);
+  }
 
-  // Replace "::" with "/" because ":" is System::GetSystemPathname's separator.
-  // TODO(sherm1) Change the separator to "/" and avoid this!
-  const std::string default_name = std::regex_replace(
-      type_name_without_templates, std::regex(":+"), std::string("/"));
-
-  // Append the address spelled like "@0123456789abcdef".
-  const int64_t address = GetGraphvizId();
-  std::ostringstream result;
-  result << default_name << '@' << setfill('0') << setw(16) << hex << address;
-  return result.str();
+  // Too many inputs.
+  throw std::logic_error(fmt::format(
+      "System::get_input_port(): {} system '{}' has {} inputs, so this "
+      "convenience function cannot be used; instead, use another overload "
+      "e.g. get_input_port(InputPortIndex) or GetInputPort(string)",
+      this->GetSystemType(), this->GetSystemPathname(), num_input_ports()));
 }
 
 template <typename T>
@@ -778,6 +813,38 @@ bool System<T>::HasInputPort(
     }
   }
   return false;
+}
+
+template <typename T>
+const OutputPort<T>& System<T>::GetSoleOutputPort() const {
+  // Give a nice message if there were no outputs at all.
+  if (num_output_ports() == 0) {
+    throw std::logic_error(fmt::format(
+        "System::get_output_port(): {} system '{}' does not have any outputs",
+        this->GetSystemType(), this->GetSystemPathname()));
+  }
+
+  // Check if there is exactly one non-deprecated output port (and return it).
+  int num_non_deprecated = 0;
+  OutputPortIndex non_deprecated_index;
+  for (OutputPortIndex i{0}; i < num_output_ports(); i++) {
+    const OutputPortBase& port_base = this->GetOutputPortBaseOrThrow(
+        __func__, i, /* warn_deprecated = */ false);
+    if (port_base.get_deprecation() == std::nullopt) {
+      ++num_non_deprecated;
+      non_deprecated_index = i;
+    }
+  }
+  if (num_non_deprecated == 1) {
+    return get_output_port(non_deprecated_index);
+  }
+
+  // Too many outputs.
+  throw std::logic_error(fmt::format(
+      "System::get_output_port(): {} system '{}' has {} outputs, so this "
+      "convenience function cannot be used; instead, use another overload "
+      "e.g. get_output_port(OutputPortIndex) or GetOutputPort(string)",
+      this->GetSystemType(), this->GetSystemPathname(), num_output_ports()));
 }
 
 template <typename T>

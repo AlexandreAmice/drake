@@ -36,6 +36,7 @@ drake_cc_library(
     interface_deps = [
         ":point_cloud_flags",
         "//common:essential",
+        "//common:parallelism",
     ],
     deps = [
         "//common:unused",
@@ -123,4 +124,4 @@ drake_cc_googletest(
     ],
 )
 
-add_lint_tests()
+add_lint_tests(enable_clang_format_lint = False)

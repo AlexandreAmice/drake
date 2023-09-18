@@ -4,7 +4,7 @@
 #include <utility>
 #include <vector>
 
-#include <drake_vendor/fcl/fcl.h>
+#include <fcl/fcl.h>
 #include <fmt/format.h>
 
 #include "drake/common/drake_export.h"
@@ -56,7 +56,9 @@ bool Callback(fcl::CollisionObjectd* object_A_ptr,
               // NOLINTNEXTLINE
               void* callback_data);
 
+// clang-format off
 }  // namespace find_collision_candidates
+// clang-format on
 }  // namespace internal
 }  // namespace geometry
 }  // namespace drake

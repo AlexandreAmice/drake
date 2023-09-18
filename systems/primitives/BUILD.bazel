@@ -38,6 +38,7 @@ drake_cc_package_library(
         ":trajectory_affine_system",
         ":trajectory_linear_system",
         ":trajectory_source",
+        ":transfer_function",
         ":vector_log",
         ":vector_log_sink",
         ":wrap_to_system",
@@ -171,11 +172,24 @@ drake_cc_library(
         "//common/symbolic:expression",
     ],
     deps = [
+        ":linear_system_internal",
         "//common/symbolic:polynomial",
         "//math:autodiff",
         "//math:gradient",
         "//systems/framework",
     ],
+)
+
+drake_cc_library(
+    name = "linear_system_internal",
+    srcs = ["linear_system_internal.cc"],
+    hdrs = ["linear_system_internal.h"],
+    internal = True,
+    visibility = ["//:__subpackages__"],
+    interface_deps = [
+        "//common:essential",
+    ],
+    deps = [],
 )
 
 drake_cc_library(
@@ -273,6 +287,16 @@ drake_cc_library(
         "//common:default_scalars",
         "//math:gradient",
         "//systems/framework",
+    ],
+)
+
+drake_cc_library(
+    name = "transfer_function",
+    srcs = ["transfer_function.cc"],
+    hdrs = ["transfer_function.h"],
+    deps = [
+        "//common:essential",
+        "//common/symbolic:rational_function",
     ],
 )
 
@@ -563,6 +587,14 @@ drake_cc_googletest(
     ],
 )
 
+drake_cc_googletest(
+    name = "transfer_function_test",
+    deps = [
+        ":transfer_function",
+        "//common/test_utilities:expect_throws_message",
+    ],
+)
+
 drake_cc_library(
     name = "trajectory_linear_affine_test",
     testonly = 1,
@@ -660,8 +692,11 @@ drake_cc_googletest(
     deps = [
         ":trajectory_source",
         "//common/test_utilities:eigen_matrix_compare",
+        "//common/test_utilities:expect_throws_message",
+        "//common/trajectories:bezier_curve",
         "//common/trajectories:piecewise_polynomial",
         "//systems/framework",
+        "//systems/framework/test_utilities:scalar_conversion",
     ],
 )
 

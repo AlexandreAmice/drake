@@ -2,12 +2,12 @@
  and drake/geometry/render* directories. They can be found in the
  pydrake.geometry module. */
 
-#include "pybind11/operators.h"
-
 #include "drake/bindings/pydrake/common/default_scalars_pybind.h"
+#include "drake/bindings/pydrake/common/deprecation_pybind.h"
 #include "drake/bindings/pydrake/common/serialize_pybind.h"
 #include "drake/bindings/pydrake/common/value_pybind.h"
 #include "drake/bindings/pydrake/documentation_pybind.h"
+#include "drake/geometry/render/light_parameter.h"
 #include "drake/geometry/render/render_engine.h"
 #include "drake/geometry/render/render_label.h"
 #include "drake/geometry/render_gl/factory.h"
@@ -23,6 +23,8 @@ using geometry::PerceptionProperties;
 using geometry::Shape;
 using geometry::render::ColorRenderCamera;
 using geometry::render::DepthRenderCamera;
+using geometry::render::LightParameter;
+using geometry::render::LightType;
 using geometry::render::RenderEngine;
 using math::RigidTransformd;
 using systems::sensors::CameraInfo;
@@ -336,6 +338,17 @@ void DoScalarIndependentDefinitions(py::module m) {
   }
 
   {
+    using Class = geometry::render::LightParameter;
+    constexpr auto& cls_doc = doc.LightParameter;
+    py::class_<Class> cls(m, "LightParameter", cls_doc.doc);
+    cls  // BR
+        .def(ParamInit<Class>());
+    DefAttributesUsingSerialize(&cls);
+    DefReprUsingSerialize(&cls);
+    DefCopyAndDeepCopy(&cls);
+  }
+
+  {
     using Class = RenderEngineVtkParams;
     constexpr auto& cls_doc = doc_geometry.RenderEngineVtkParams;
     py::class_<Class> cls(m, "RenderEngineVtkParams", cls_doc.doc);
@@ -344,15 +357,23 @@ void DoScalarIndependentDefinitions(py::module m) {
     DefAttributesUsingSerialize(&cls, cls_doc);
     DefReprUsingSerialize(&cls);
     DefCopyAndDeepCopy(&cls);
+    // Shim in the vestigial (deprecated) attribute; it's not part of Serialize.
+    // Remove this on 2023-12-01.
+    cls.def_property("default_label",
+        WrapDeprecated(cls_doc.default_label.doc,
+            [](const Class& self) { return self.default_label; }),
+        WrapDeprecated(cls_doc.default_label.doc,
+            [](Class& self, const RenderLabel& value) {
+              self.default_label = value;
+            }),
+        cls_doc.default_label.doc);
   }
 
   m.def("MakeRenderEngineVtk", &MakeRenderEngineVtk, py::arg("params"),
       doc_geometry.MakeRenderEngineVtk.doc);
 
   {
-    // TODO(zachfang): During the 2023-07-01 deprecation removals also
-    // remove the spurious `geometry::` qualifier on this typename.
-    using Class = geometry::RenderEngineGlParams;
+    using Class = RenderEngineGlParams;
     constexpr auto& cls_doc = doc_geometry.RenderEngineGlParams;
     py::class_<Class> cls(m, "RenderEngineGlParams", cls_doc.doc);
     cls  // BR
@@ -360,12 +381,20 @@ void DoScalarIndependentDefinitions(py::module m) {
     DefAttributesUsingSerialize(&cls, cls_doc);
     DefReprUsingSerialize(&cls);
     DefCopyAndDeepCopy(&cls);
+    // Shim in the vestigial (deprecated) attribute; it's not part of Serialize.
+    // Remove this on 2023-12-01.
+    cls.def_property("default_label",
+        WrapDeprecated(cls_doc.default_label.doc,
+            [](const Class& self) { return self.default_label; }),
+        WrapDeprecated(cls_doc.default_label.doc,
+            [](Class& self, const RenderLabel& value) {
+              self.default_label = value;
+            }),
+        cls_doc.default_label.doc);
   }
 
-  // TODO(zachfang): During the 2023-07-01 deprecation removals also
-  // remove the spurious `geometry::` qualifier on this typename.
-  m.def("MakeRenderEngineGl", &geometry::MakeRenderEngineGl,
-      py::arg("params") = geometry::RenderEngineGlParams(),
+  m.def("MakeRenderEngineGl", &MakeRenderEngineGl,
+      py::arg("params") = RenderEngineGlParams(),
       doc_geometry.MakeRenderEngineGl.doc);
 
   {
@@ -377,6 +406,16 @@ void DoScalarIndependentDefinitions(py::module m) {
     DefAttributesUsingSerialize(&cls, cls_doc);
     DefReprUsingSerialize(&cls);
     DefCopyAndDeepCopy(&cls);
+    // Shim in the vestigial (deprecated) attribute; it's not part of Serialize.
+    // Remove this on 2023-12-01.
+    cls.def_property("default_label",
+        WrapDeprecated(cls_doc.default_label.doc,
+            [](const Class& self) { return self.default_label; }),
+        WrapDeprecated(cls_doc.default_label.doc,
+            [](Class& self, const RenderLabel& value) {
+              self.default_label = value;
+            }),
+        cls_doc.default_label.doc);
   }
 
   m.def("MakeRenderEngineGltfClient", &MakeRenderEngineGltfClient,

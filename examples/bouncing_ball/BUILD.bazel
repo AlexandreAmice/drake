@@ -26,9 +26,10 @@ drake_cc_googletest(
     name = "bouncing_ball_test",
     deps = [
         ":bouncing_ball",
+        "//systems/analysis:runge_kutta3_integrator",
         "//systems/analysis:simulator",
         "//systems/framework/test_utilities",
     ],
 )
 
-add_lint_tests()
+add_lint_tests(enable_clang_format_lint = False)

@@ -6,6 +6,8 @@
 
 #include "drake/common/drake_assert.h"
 #include "drake/common/drake_copyable.h"
+#include "drake/common/drake_deprecated.h"
+#include "drake/common/drake_throw.h"
 #include "drake/common/reset_after_move.h"
 #include "drake/systems/sensors/pixel_types.h"
 
@@ -41,9 +43,20 @@ using ImageLabel16I = Image<PixelType::kLabel16I>;
 /// The type for greyscale image where the channel has the type of uint8_t.
 using ImageGrey8U = Image<PixelType::kGrey8U>;
 
+#ifndef DRAKE_DOXYGEN_CXX
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+constexpr auto kInternalPixelTypeExpr = PixelType::kExpr;
+#pragma GCC diagnostic pop
+#endif
+
 /// The type for symbolic image where the channel has the type of
 /// symbolic::Expression.
-using ImageExpr = Image<PixelType::kExpr>;
+using ImageExpr DRAKE_DEPRECATED(
+    "2023-12-01",
+    "ImageExpr is deprecated because kExpr is no longer a supported PixelType."
+    "There is no direct replacement available, but Eigen::Array<Expression> "
+    "might be a suitable alternative.") = Image<kInternalPixelTypeExpr>;
 
 /// Simple data format for Image. For the complex calculation with the image,
 /// consider converting this to other libaries' Matrix data format, i.e.,
@@ -81,27 +94,24 @@ class Image {
   /// The format for pixels.
   static constexpr PixelFormat kPixelFormat = Traits::kPixelFormat;
 
+  /// Constructs a zero-sized image.
+  Image() = default;
+
   /// Image size only constructor.  Specifies a width and height for the image.
+  /// The width and height can be either both zero or both strictly positive.
   /// All the channel values in all the pixels are initialized with zero.
-  /// @param width Size of width for image which should be greater than zero
-  /// @param height Size of height for image which should be greater than zero
   Image(int width, int height) : Image(width, height, 0) {}
 
   /// Image size and initial value constructor.  Specifies a
   /// width, height and an initial value for all the channels in all the pixels.
-  /// @param width Size of width for image which should be greater than zero.
-  /// @param height Size of height for image which should be greater than zero.
-  /// @param initial_value A value set to all the channels in all the pixels
+  /// The width and height can be either both zero or both strictly positive.
   Image(int width, int height, T initial_value)
       : width_(width),
         height_(height),
         data_(width * height * kNumChannels, initial_value) {
-    DRAKE_ASSERT(width > 0);
-    DRAKE_ASSERT(height > 0);
+    DRAKE_THROW_UNLESS((width >= 0) && (height >= 0));
+    DRAKE_THROW_UNLESS((width == 0) == (height == 0));
   }
-
-  /// Constructs a zero-sized image.
-  Image() = default;
 
   /// Returns the size of width for the image
   int width() const { return width_; }
@@ -113,14 +123,12 @@ class Image {
   /// channels in a pixel
   int size() const { return width_ * height_ * kNumChannels; }
 
-  /// Changes the sizes of the width and height for the image.  The values for
-  /// them should be greater than zero.  (To resize to zero, assign a default-
-  /// constructed Image into this; do not use this method.)  All the values in
-  /// the pixels become zero after resize.
+  /// Changes the sizes of the width and height for the image.  The new width
+  /// and height can be either both zero or both strictly positive.  All the
+  /// values in the pixels become zero after resize.
   void resize(int width, int height) {
-    DRAKE_ASSERT(width > 0);
-    DRAKE_ASSERT(height > 0);
-
+    DRAKE_THROW_UNLESS((width >= 0) && (height >= 0));
+    DRAKE_THROW_UNLESS((width == 0) == (height == 0));
     data_.resize(width * height * kNumChannels);
     std::fill(data_.begin(), data_.end(), 0);
     width_ = width;
@@ -153,8 +161,7 @@ class Image {
 
   /// Compares whether two images are exactly the same.
   bool operator==(const Image& other) const {
-    return width_ == other.width_ &&
-           height_ == other.height_ &&
+    return width_ == other.width_ && height_ == other.height_ &&
            data_ == other.data_;
   }
 
@@ -163,6 +170,18 @@ class Image {
   reset_after_move<int> height_;
   std::vector<T> data_;
 };
+
+/// Converts a single channel 32-bit float depth image with depths in meters to
+/// a single channel 16-bit unsigned int depth image with depths in millimeters.
+///
+/// Note that pixels that are not kTooFar in the input image may saturate to be
+/// kTooFar in the output image due to the smaller representable range.
+void ConvertDepth32FTo16U(const ImageDepth32F& input, ImageDepth16U* output);
+
+/// Converts a single channel 16-bit unsigned int depth image with depths in
+/// millimeters to a single channel 32-bit float depth image with depths in
+/// meters.
+void ConvertDepth16UTo32F(const ImageDepth16U& input, ImageDepth32F* output);
 
 }  // namespace sensors
 }  // namespace systems

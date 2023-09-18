@@ -52,8 +52,9 @@ drake_cc_googletest(
         ":free_body",
         "//common/test_utilities:eigen_matrix_compare",
         "//multibody/test_utilities:floating_body_plant",
+        "//systems/analysis:runge_kutta3_integrator",
         "//systems/analysis:simulator",
     ],
 )
 
-add_lint_tests()
+add_lint_tests(enable_clang_format_lint = False)

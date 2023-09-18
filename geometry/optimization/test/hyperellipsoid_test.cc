@@ -6,18 +6,22 @@
 
 #include "drake/common/eigen_types.h"
 #include "drake/common/test_utilities/eigen_matrix_compare.h"
+#include "drake/common/test_utilities/expect_throws_message.h"
+#include "drake/common/yaml/yaml_io.h"
 #include "drake/geometry/geometry_frame.h"
 #include "drake/geometry/optimization/hpolyhedron.h"
 #include "drake/geometry/optimization/test_utilities.h"
 #include "drake/geometry/scene_graph.h"
 #include "drake/math/random_rotation.h"
 #include "drake/math/rigid_transform.h"
+#include "drake/solvers/mosek_solver.h"
 #include "drake/solvers/solve.h"
 
 namespace drake {
 namespace geometry {
 namespace optimization {
 
+using Eigen::Matrix2d;
 using Eigen::Matrix3d;
 using Eigen::MatrixXd;
 using Eigen::RowVector2d;
@@ -28,6 +32,7 @@ using Eigen::VectorXd;
 using internal::CheckAddPointInSetConstraints;
 using internal::MakeSceneGraphWithShape;
 using math::RigidTransformd;
+using math::RollPitchYawd;
 using math::RotationMatrixd;
 using solvers::Binding;
 using solvers::Constraint;
@@ -52,6 +57,16 @@ GTEST_TEST(HyperellipsoidTest, UnitSphereTest) {
   Hyperellipsoid E_scene_graph(query, geom_id);
   EXPECT_TRUE(CompareMatrices(A, E_scene_graph.A()));
   EXPECT_TRUE(CompareMatrices(center, E_scene_graph.center()));
+
+  // Test MaybeGetPoint.
+  EXPECT_FALSE(E.MaybeGetPoint().has_value());
+
+  // Test IsEmpty (which is trivially false for Hyperellipsoid).
+  EXPECT_FALSE(E.IsEmpty());
+
+  // Test MaybeGetFeasiblePoint
+  ASSERT_TRUE(E.MaybeGetFeasiblePoint().has_value());
+  EXPECT_TRUE(E.PointInSet(E.MaybeGetFeasiblePoint().value()));
 
   // Test PointInSet.
   const Vector3d in1_W{.99, 0, 0}, in2_W{.5, .5, .5}, out1_W{1.01, 0, 0},
@@ -82,6 +97,40 @@ GTEST_TEST(HyperellipsoidTest, UnitSphereTest) {
   EXPECT_TRUE(CompareMatrices(X_WG.translation(), center, 1e-16));
   // Note: Any rotation in X_WG yields a correct solution; since the unit
   // sphere is rotationally symmetric.
+}
+
+GTEST_TEST(HyperellipsoidTest, DefaultCtor) {
+  const Hyperellipsoid dut;
+  EXPECT_EQ(dut.A().rows(), 0);
+  EXPECT_EQ(dut.A().cols(), 0);
+  EXPECT_EQ(dut.center().size(), 0);
+  DRAKE_EXPECT_THROWS_MESSAGE(dut.Volume(), ".*zero.*");
+  EXPECT_THROW(dut.MinimumUniformScalingToTouch(dut), std::exception);
+  EXPECT_NO_THROW(dut.Clone());
+  EXPECT_EQ(dut.ambient_dimension(), 0);
+  EXPECT_TRUE(dut.IntersectsWith(dut));
+  EXPECT_TRUE(dut.IsBounded());
+  EXPECT_FALSE(dut.IsEmpty());
+  EXPECT_TRUE(dut.PointInSet(Eigen::VectorXd::Zero(0)));
+  ASSERT_TRUE(dut.MaybeGetFeasiblePoint().has_value());
+  EXPECT_TRUE(dut.PointInSet(dut.MaybeGetFeasiblePoint().value()));
+}
+
+GTEST_TEST(HyperellipsoidTest, Move) {
+  const Eigen::Matrix3d A = Eigen::Matrix3d::Identity();
+  const Vector3d center = Vector3d::Zero();
+  Hyperellipsoid orig(A, center);
+
+  // A move-constructed Hyperellipsoid takes over the original data.
+  Hyperellipsoid dut(std::move(orig));
+  EXPECT_EQ(dut.ambient_dimension(), 3);
+  EXPECT_TRUE(CompareMatrices(dut.A(), A));
+  EXPECT_TRUE(CompareMatrices(dut.center(), center));
+
+  // The old Hyperellipsoid is in a valid but unspecified state.
+  EXPECT_EQ(orig.A().cols(), orig.ambient_dimension());
+  EXPECT_EQ(orig.center().size(), orig.ambient_dimension());
+  EXPECT_NO_THROW(orig.Clone());
 }
 
 GTEST_TEST(HyperellipsoidTest, ScaledSphereTest) {
@@ -155,12 +204,14 @@ GTEST_TEST(HyperellipsoidTest, ArbitraryEllipsoidTest) {
   EXPECT_FALSE(CheckAddPointInSetConstraints(E, out1_W));
   EXPECT_FALSE(CheckAddPointInSetConstraints(E, out2_W));
 
+  ASSERT_TRUE(E.MaybeGetFeasiblePoint().has_value());
+  EXPECT_TRUE(E.PointInSet(E.MaybeGetFeasiblePoint().value()));
+
   // Test reference_frame frame.
   SourceId source_id = scene_graph->RegisterSource("F");
   FrameId frame_id = scene_graph->RegisterFrame(source_id, GeometryFrame("F"));
   auto context2 = scene_graph->CreateDefaultContext();
-  const RigidTransformd X_WF{math::RollPitchYawd(.1, .2, 3),
-                             Vector3d{.5, .87, .1}};
+  const RigidTransformd X_WF{RollPitchYawd(.1, .2, 3), Vector3d{.5, .87, .1}};
   const FramePoseVector<double> pose_vector{{frame_id, X_WF}};
   scene_graph->get_source_pose_port(source_id).FixValue(context2.get(),
                                                         pose_vector);
@@ -173,6 +224,9 @@ GTEST_TEST(HyperellipsoidTest, ArbitraryEllipsoidTest) {
   EXPECT_TRUE(E_F.PointInSet(X_FW * in2_W));
   EXPECT_FALSE(E_F.PointInSet(X_FW * out1_W));
   EXPECT_FALSE(E_F.PointInSet(X_FW * out2_W));
+
+  ASSERT_TRUE(E_F.MaybeGetFeasiblePoint().has_value());
+  EXPECT_TRUE(E_F.PointInSet(E_F.MaybeGetFeasiblePoint().value()));
 
   // Test ToShapeWithPose.
   auto [shape, X_WG] = E.ToShapeWithPose();
@@ -209,6 +263,9 @@ GTEST_TEST(HyperellipsoidTest, UnitBall6DTest) {
   EXPECT_TRUE(E.PointInSet(in2_W));
   EXPECT_FALSE(E.PointInSet(out1_W));
   EXPECT_FALSE(E.PointInSet(out2_W));
+
+  ASSERT_TRUE(E.MaybeGetFeasiblePoint().has_value());
+  EXPECT_TRUE(E.PointInSet(E.MaybeGetFeasiblePoint().value()));
 }
 
 GTEST_TEST(HyperellipsoidTest, CloneTest) {
@@ -370,6 +427,117 @@ GTEST_TEST(HyperellipsoidTest, MakeAxisAlignedTest) {
   EXPECT_TRUE(CompareMatrices(E.center(), E_scene_graph.center(), 1e-16));
 }
 
+GTEST_TEST(HyperellipsoidTest, MinimumVolumeCircumscribedEllipsoid) {
+  Eigen::Matrix3Xd p_FA(3, 6);
+  // clang-format off
+  p_FA << 1, 0, 0, -1,  0,  0,
+          0, 2, 0,  0, -2,  0,
+          0, 0, 3,  0,  0, -3;
+  // clang-format on
+  Hyperellipsoid E_F =
+      Hyperellipsoid::MinimumVolumeCircumscribedEllipsoid(p_FA);
+
+  const double kTol = 1e-3;
+  Matrix3d A_expected;
+  // clang-format off
+  A_expected << 1,         0,         0,
+                0, 1.0 / 2.0,         0,
+                0,         0, 1.0 / 3.0;
+  // clang-format on
+  Vector3d center_expected = Vector3d::Zero();
+  EXPECT_TRUE(CompareMatrices(E_F.A(), A_expected, kTol));
+  EXPECT_TRUE(CompareMatrices(E_F.center(), center_expected, kTol));
+
+  const RigidTransformd X_GF{RollPitchYawd(.1, .2, 3), Vector3d{.5, .87, .1}};
+  Eigen::Matrix3Xd p_GA = X_GF * p_FA;
+
+  Hyperellipsoid E_G =
+      Hyperellipsoid::MinimumVolumeCircumscribedEllipsoid(p_GA);
+
+  // The bases are not necessarily the transformed bases, but the norm of the
+  // transformed points should be 1.
+  for (int i = 0; i < p_FA.cols(); ++i) {
+    EXPECT_NEAR((E_G.A() * (X_GF * p_FA.col(i) - E_G.center())).norm(), 1,
+                kTol);
+  }
+}
+
+// This tests the case when we have too few points to define a full-dimensional
+// ellipsoid.
+GTEST_TEST(HyperellipsoidTest, MinimumVolumeCircumscribedEllipsoid2) {
+  Eigen::Matrix2Xd points(2, 2);
+  // clang-format off
+  points << 2, -2,
+            0,  0;
+  // clang-format on
+  MatrixXd A_expected(1, 2);
+  A_expected << 0.5, 0;
+
+  const double kTol = 1e-6;
+  Hyperellipsoid E =
+      Hyperellipsoid::MinimumVolumeCircumscribedEllipsoid(points);
+  EXPECT_TRUE(CompareMatrices(E.A().cwiseAbs(), A_expected, kTol));
+  EXPECT_TRUE(CompareMatrices(E.center(), Vector2d::Zero(), kTol));
+
+  // Points that *almost* lie on a manifold, but with a large rank tolerance.
+  points.resize(2, 3);
+  // clang-format off
+  points <<    2,      0,    -2,
+            1e-3,  -1e-3,  1e-3;
+  // clang-format on
+  Hyperellipsoid::MinimumVolumeCircumscribedEllipsoid(points, 1e-2);
+  EXPECT_TRUE(CompareMatrices(E.A().cwiseAbs(), A_expected, kTol));
+  EXPECT_TRUE(CompareMatrices(E.center(), Vector2d::Zero(), kTol));
+
+  // Default rank tolerance.
+  E = Hyperellipsoid::MinimumVolumeCircumscribedEllipsoid(points);
+  EXPECT_EQ(E.A().rows(), 2);
+  EXPECT_EQ(E.A().cols(), 2);
+
+  // Cause the solver to fail with an extremely thin ellipsoid and an extremely
+  // low rank tolerance.
+
+  // clang-format off
+  points <<    2,      0,    -2,
+            1e-13,  -1e-13,  1e-13;
+  // clang-format on
+  if (solvers::MosekSolver::is_available() &&
+      solvers::MosekSolver::is_enabled()) {
+    // SCS claims success because it solves to a low tolerance. It's sufficient
+    // here to demonstrate that we give an appropriate message when any one
+    // solver fails (we choose Mosek).
+    DRAKE_EXPECT_THROWS_MESSAGE(
+        Hyperellipsoid::MinimumVolumeCircumscribedEllipsoid(points, 1e-14),
+        ".*Consider adjusting rank_tol.*");
+  }
+
+  // However the default rank_tol works.
+  E = Hyperellipsoid::MinimumVolumeCircumscribedEllipsoid(points);
+  EXPECT_TRUE(CompareMatrices(E.A().cwiseAbs(), A_expected, kTol));
+  EXPECT_TRUE(CompareMatrices(E.center(), Vector2d::Zero(), kTol));
+}
+
+// Test a one-dimensional "ball" in a five-dimensional space
+GTEST_TEST(HyperellipsoidTest, MinimumVolumeCircumscribedEllipsoid3) {
+  MatrixXd point(5, 2);
+  // clang-format off
+  point << 0.1, -0.1,
+           0.2, -0.2,
+           0.3, -0.3,
+           0.4, -0.4,
+           0.5, -0.5;
+  // clang-format on
+  VectorXd center(5);
+  center << 0.123, 0.435, 2.3, -0.2, 0.75;
+  point.colwise() += center;
+
+  const double kTol = 1e-6;
+  Hyperellipsoid E = Hyperellipsoid::MinimumVolumeCircumscribedEllipsoid(point);
+  EXPECT_EQ(E.A().rows(), 1);
+  EXPECT_EQ(E.A().cols(), 5);
+  EXPECT_TRUE(CompareMatrices(E.center(), center, kTol));
+}
+
 GTEST_TEST(HyperellipsoidTest, IsBoundedAndVolumeTest) {
   // A is 2x3, so the ellipsoid is unbounded.
   Hyperellipsoid E(MatrixXd::Identity(2, 3), Vector3d::Zero());
@@ -465,6 +633,29 @@ GTEST_TEST(HyperellipsoidTest, MinimumUniformScaling4) {
   auto [sigma, x] = E.MinimumUniformScalingToTouch(E2);
   EXPECT_NEAR(sigma, 3.0, kTol);
   EXPECT_TRUE(CompareMatrices(x, Vector2d{3.0, 0.0}, kTol));
+}
+
+// Check the case when `other` has no interior.
+GTEST_TEST(HyperellipsoidTest, MinimumUniformScaling5) {
+  const Hyperellipsoid E = Hyperellipsoid::MakeUnitBall(2);
+  // x₀ ≤ -1, x₀ ≥ 1.
+  Matrix2d A;
+  // clang-format off
+  A <<  1, 0,
+       -1, 0;
+  // clang-format on
+  const HPolyhedron H(A, Vector2d(-1, -1));
+  DRAKE_EXPECT_THROWS_MESSAGE(E.MinimumUniformScalingToTouch(H),
+                              ".*is empty.*");
+}
+
+GTEST_TEST(HyperellipsoidTest, Serialize) {
+  Hyperellipsoid E = Hyperellipsoid::MakeUnitBall(2);
+  const std::string yaml = yaml::SaveYamlString(E);
+  const auto E2 = yaml::LoadYamlString<Hyperellipsoid>(yaml);
+  EXPECT_EQ(E.ambient_dimension(), E2.ambient_dimension());
+  EXPECT_TRUE(CompareMatrices(E.A(), E2.A()));
+  EXPECT_TRUE(CompareMatrices(E.center(), E2.center()));
 }
 
 }  // namespace optimization

@@ -15,6 +15,11 @@ namespace drake {
 namespace solvers {
 namespace {
 
+using Eigen::Vector2d;
+using symbolic::Variable;
+
+const double kInf = std::numeric_limits<double>::infinity();
+
 void CheckParseQuadraticConstraint(
     const Expression& e, double lb, double ub,
     std::optional<QuadraticConstraint::HessianType> hessian_type,
@@ -58,7 +63,6 @@ class ParseQuadraticConstraintTest : public ::testing::Test {
 };
 
 TEST_F(ParseQuadraticConstraintTest, Test0) {
-  const double kInf = std::numeric_limits<double>::infinity();
   CheckParseQuadraticConstraint(
       x0_ * x0_, 1, 1, QuadraticConstraint::HessianType::kPositiveSemidefinite,
       QuadraticConstraint::HessianType::kPositiveSemidefinite);
@@ -122,10 +126,10 @@ void CheckParseRotatedLorentzConeConstraint(
 
 void CheckParseRotatedLorentzConeConstraint(
     const Expression& linear_expression1, const Expression& linear_expression2,
-    const Expression& quadratic_expression) {
+    const Expression& quadratic_expression, const double tol = 0) {
   Binding<RotatedLorentzConeConstraint> binding =
       internal::ParseRotatedLorentzConeConstraint(
-          linear_expression1, linear_expression2, quadratic_expression);
+          linear_expression1, linear_expression2, quadratic_expression, tol);
   const Eigen::MatrixXd A = binding.evaluator()->A();
   const Eigen::VectorXd b = binding.evaluator()->b();
   const VectorX<Expression> z = A * binding.variables() + b;
@@ -274,7 +278,8 @@ TEST_F(ParseRotatedLorentzConeConstraintTest, Test2) {
   CheckParseRotatedLorentzConeConstraint(expression);
   CheckParseRotatedLorentzConeConstraint(
       expression(0), expression(1),
-      pow(x_(1) + x_(2), 2) + pow(x_(2) + 2 * x_(3) + 2, 2) + 5);
+      pow(x_(1) + x_(2), 2) + pow(x_(2) + 2 * x_(3) + 2, 2) + 5,
+      4 * std::numeric_limits<double>::epsilon());
 }
 
 TEST_F(ParseRotatedLorentzConeConstraintTest, Test3) {
@@ -507,6 +512,62 @@ GTEST_TEST(ParseConstraintTest, TrueFormula) {
       internal::ParseLinearEqualityConstraint(symbolic::Expression(1) == 1);
   EXPECT_EQ(binding6.evaluator()->num_constraints(), 0);
   EXPECT_EQ(binding6.variables().rows(), 0);
+}
+
+// Confirm that ParseConstraint also parses the quadratic constraint.
+GTEST_TEST(ParseConstraintTest, Quadratic) {
+  symbolic::Variable x0("x0"), x1("x1");
+  Binding<Constraint> binding =
+      internal::ParseConstraint(-x0 * x0 + 2 * x1, -kInf, 3);
+  EXPECT_NE(dynamic_cast<QuadraticConstraint*>(binding.evaluator().get()),
+            nullptr);
+
+  // A vector of quadratic constraints is an ExpressionConstraint (not
+  // quadratic).
+  binding = internal::ParseConstraint(
+      Vector2<Expression>(x0 * x0 + 2 * x1, x1 * x1), Vector2d::Constant(-kInf),
+      Vector2d::Constant(3));
+  EXPECT_NE(dynamic_cast<ExpressionConstraint*>(binding.evaluator().get()),
+            nullptr);
+
+  // A scalar non-polynomial constraint is an ExpressionConstraint (not
+  // quadratic).
+  binding = internal::ParseConstraint(x0 * x0 + 2 * x1 + sin(x1), -kInf, 3);
+  EXPECT_NE(dynamic_cast<ExpressionConstraint*>(binding.evaluator().get()),
+            nullptr);
+
+  // A polynomial constraint of degree > 2 is an ExpressionConstraint (not
+  // quadratic).
+  binding = internal::ParseConstraint(x0 * x0 * x1 + 2 * x1, -kInf, 3);
+  EXPECT_NE(dynamic_cast<ExpressionConstraint*>(binding.evaluator().get()),
+            nullptr);
+}
+
+GTEST_TEST(ParseConstraintTest, FormulaWithInfiniteLowerOrUpperBounds) {
+  Variable x0("x0"), x1("x1");
+  Vector2<Variable> x(x0, x1);
+  Vector2d b(0.12, kInf);
+  Binding<Constraint> binding =
+      internal::ParseConstraint(x <= b);
+  EXPECT_TRUE(CompareMatrices(binding.evaluator()->upper_bound(), b));
+  binding = internal::ParseConstraint(-b <= x);
+  // Note: The constraints are sorted via get_operands(f) which returns a
+  // std::set. This one gets flipped.
+  EXPECT_TRUE(CompareMatrices(binding.evaluator()->lower_bound(),
+                              -Vector2d(b[1], b[0])));
+  binding = internal::ParseConstraint(b >= x);
+  EXPECT_TRUE(CompareMatrices(binding.evaluator()->upper_bound(), b));
+  binding = internal::ParseConstraint(x >= -b);
+  EXPECT_TRUE(CompareMatrices(binding.evaluator()->lower_bound(), -b));
+
+  DRAKE_EXPECT_THROWS_MESSAGE(internal::ParseConstraint(x <= -b),
+                              ".*an upper bound of -inf.*");
+  DRAKE_EXPECT_THROWS_MESSAGE(internal::ParseConstraint(b <= x),
+                              ".*a lower bound of.*");
+  DRAKE_EXPECT_THROWS_MESSAGE(internal::ParseConstraint(-b >= x),
+                              ".*an upper bound of -inf.*");
+  DRAKE_EXPECT_THROWS_MESSAGE(internal::ParseConstraint(x >= b),
+                              ".*a lower bound of.*");
 }
 
 std::shared_ptr<RotatedLorentzConeConstraint>

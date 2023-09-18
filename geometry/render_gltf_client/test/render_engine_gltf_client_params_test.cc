@@ -2,6 +2,8 @@
 
 #include <gtest/gtest.h>
 
+#include "drake/common/yaml/yaml_io.h"
+
 namespace drake {
 namespace geometry {
 namespace {
@@ -12,6 +14,7 @@ GTEST_TEST(RenderEngineGltfClientParams, GetUrl) {
     std::string render_endpoint;
     std::string expected_full_url;
   };
+  // clang-format off
   std::vector<TestData> all_test_cases{{
       // Check that sandwiched slashes are added or removed correctly.
       {"127.0.0.1:8000",    "render",    "127.0.0.1:8000/render"},
@@ -38,12 +41,29 @@ GTEST_TEST(RenderEngineGltfClientParams, GetUrl) {
       {"///",          "///",       "/"},
       {"///",          "render",    "/render"},
   }};
+  // clang-format on
   for (const auto& one_case : all_test_cases) {
     RenderEngineGltfClientParams dut;
     dut.base_url = one_case.base_url;
     dut.render_endpoint = one_case.render_endpoint;
     EXPECT_EQ(dut.GetUrl(), one_case.expected_full_url);
   }
+}
+
+GTEST_TEST(RenderEngineGltfClientParams, Serialization) {
+  using Params = RenderEngineGltfClientParams;
+  const Params original{
+      .base_url = "http://hello",
+      .render_endpoint = "world",
+      .verbose = true,
+      .cleanup = false,
+  };
+  const std::string yaml = yaml::SaveYamlString<Params>(original);
+  const Params dut = yaml::LoadYamlString<Params>(yaml);
+  EXPECT_EQ(dut.base_url, original.base_url);
+  EXPECT_EQ(dut.render_endpoint, original.render_endpoint);
+  EXPECT_EQ(dut.verbose, original.verbose);
+  EXPECT_EQ(dut.cleanup, original.cleanup);
 }
 
 }  // namespace

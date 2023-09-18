@@ -1,6 +1,3 @@
-#include "pybind11/eigen.h"
-#include "pybind11/pybind11.h"
-
 #include "drake/bindings/pydrake/common/default_scalars_pybind.h"
 #include "drake/bindings/pydrake/common/sorted_pair_pybind.h"
 #include "drake/bindings/pydrake/documentation_pybind.h"
@@ -52,10 +49,12 @@ PYBIND11_MODULE(rational, m) {
         .def(
             "ComputeSValue",
             [](const Class& self, const Eigen::VectorXd& q_val,
-                const Eigen::Ref<const Eigen::VectorXd>& q_star_val) {
-              return self.ComputeSValue(q_val, q_star_val);
+                const Eigen::Ref<const Eigen::VectorXd>& q_star_val,
+                bool angles_wrap_to_inf) {
+              return self.ComputeSValue(q_val, q_star_val, angles_wrap_to_inf);
             },
-            py::arg("q_val"), py::arg("q_star_val"), cls_doc.ComputeSValue.doc)
+            py::arg("q_val"), py::arg("q_star_val"),
+            py::arg("angles_wrap_to_inf") = false, cls_doc.ComputeSValue.doc)
         .def(
             "ComputeSValue",
             [](const Class& self, const AutoDiffVecXd& q_val,

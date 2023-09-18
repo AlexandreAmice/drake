@@ -4,7 +4,6 @@
  pydrake.geometry module. */
 
 #include "drake/bindings/pydrake/common/default_scalars_pybind.h"
-#include "drake/bindings/pydrake/common/deprecation_pybind.h"
 #include "drake/bindings/pydrake/common/monostate_pybind.h"
 #include "drake/bindings/pydrake/common/type_pack.h"
 #include "drake/bindings/pydrake/common/value_pybind.h"
@@ -52,9 +51,9 @@ void DoScalarDependentDefinitions(py::module m, T) {
     cls  // BR
          // Scene-graph wide data.
         .def("num_sources", &Class::num_sources, cls_doc.num_sources.doc)
-        .def("num_frames", &Class::num_frames, cls_doc.num_frames.doc);
-
-    cls  // BR
+        .def("num_frames", &Class::num_frames, cls_doc.num_frames.doc)
+        .def("GetAllSourceIds", &Class::GetAllSourceIds,
+            cls_doc.GetAllSourceIds.doc)
         .def("GetAllFrameIds", &Class::GetAllFrameIds,
             cls_doc.GetAllFrameIds.doc)
         .def("world_frame_id", &Class::world_frame_id,
@@ -192,6 +191,8 @@ void DoScalarDependentDefinitions(py::module m, T) {
                 &Class::RegisterFrame),
             py::arg("source_id"), py::arg("parent_id"), py::arg("frame"),
             cls_doc.RegisterFrame.doc_3args)
+        .def("RenameFrame", &Class::RenameFrame, py::arg("frame_id"),
+            py::arg("name"), cls_doc.RenameFrame.doc)
         .def("RegisterGeometry",
             py::overload_cast<SourceId, FrameId,
                 std::unique_ptr<GeometryInstance>>(&Class::RegisterGeometry),
@@ -208,6 +209,8 @@ void DoScalarDependentDefinitions(py::module m, T) {
                 &Class::RegisterAnchoredGeometry),
             py::arg("source_id"), py::arg("geometry"),
             cls_doc.RegisterAnchoredGeometry.doc)
+        .def("RenameGeometry", &Class::RenameGeometry, py::arg("geometry_id"),
+            py::arg("name"), cls_doc.RenameGeometry.doc)
         .def("ChangeShape",
             py::overload_cast<SourceId, GeometryId, const Shape&,
                 std::optional<math::RigidTransform<double>>>(

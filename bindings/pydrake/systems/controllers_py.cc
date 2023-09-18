@@ -1,8 +1,4 @@
-#include "pybind11/eigen.h"
-#include "pybind11/functional.h"
-#include "pybind11/pybind11.h"
-#include "pybind11/stl.h"
-
+#include "drake/bindings/pydrake/common/deprecation_pybind.h"
 #include "drake/bindings/pydrake/common/wrap_pybind.h"
 #include "drake/bindings/pydrake/documentation_pybind.h"
 #include "drake/bindings/pydrake/pydrake_pybind.h"
@@ -32,6 +28,7 @@ PYBIND11_MODULE(controllers, m) {
   py::module::import("pydrake.math");
   py::module::import("pydrake.multibody.plant");
   py::module::import("pydrake.symbolic");
+  py::module::import("pydrake.systems.analysis");
   py::module::import("pydrake.systems.framework");
   py::module::import("pydrake.systems.primitives");
   py::module::import("pydrake.trajectories");
@@ -105,8 +102,19 @@ PYBIND11_MODULE(controllers, m) {
             &Class::get_input_port_desired_acceleration,
             py_rvp::reference_internal,
             cls_doc.get_input_port_desired_acceleration.doc)
-        .def("get_output_port_force", &Class::get_output_port_force,
-            py_rvp::reference_internal, cls_doc.get_output_port_force.doc);
+        .def("get_output_port_generalized_force",
+            &Class::get_output_port_generalized_force,
+            py_rvp::reference_internal,
+            cls_doc.get_output_port_generalized_force.doc);
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+    cls  // BR
+        .def("get_output_port_force",
+            WrapDeprecated(cls_doc.get_output_port_force.doc_deprecated,
+                &Class::get_output_port_force),
+            py_rvp::reference_internal,
+            cls_doc.get_output_port_force.doc_deprecated);
+#pragma GCC diagnostic pop
   }
 
   // TODO(eric.cousineau): Expose multiple inheritance from
@@ -310,15 +318,18 @@ PYBIND11_MODULE(controllers, m) {
             cls_doc.input_port_index.doc)
         .def_readwrite("use_square_root_method", &Class::use_square_root_method,
             cls_doc.use_square_root_method.doc)
+        .def_readwrite("simulator_config", &Class::simulator_config,
+            cls_doc.simulator_config.doc)
         .def("__repr__", [](const Class& self) {
           return py::str(
               "FiniteHorizonLinearQuadraticRegulatorOptions("
               "Qf={}, "
               "N={}, "
               "input_port_index={}, "
-              "use_square_root_method={})")
+              "use_square_root_method={}, "
+              "simulator_config={})")
               .format(self.Qf, self.N, self.input_port_index,
-                  self.use_square_root_method);
+                  self.use_square_root_method, self.simulator_config);
         });
     DefReadWriteKeepAlive(&cls, "x0", &Class::x0, cls_doc.x0.doc);
     DefReadWriteKeepAlive(&cls, "u0", &Class::u0, cls_doc.u0.doc);

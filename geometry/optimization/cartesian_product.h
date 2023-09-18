@@ -22,10 +22,19 @@ with the default values set to the identity map.  This concept is required for
 reasoning about cylinders in arbitrary poses as cartesian products, and more
 generally for describing any affine transform of a CartesianProduct.
 
+Special behavior for IsEmpty: If there are no sets in the product, returns
+nonempty by convention. See:
+https://en.wikipedia.org/wiki/Empty_product#Nullary_Cartesian_product
+Otherwise, if any set in the cartesian product is empty, the whole product
+is empty.
+
 @ingroup geometry_optimization */
 class CartesianProduct final : public ConvexSet {
  public:
   DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(CartesianProduct)
+
+  /** Constructs a default (zero-dimensional, nonempty) set. */
+  CartesianProduct();
 
   /** Constructs the product from a vector of convex sets. */
   explicit CartesianProduct(const ConvexSets& sets);
@@ -34,7 +43,8 @@ class CartesianProduct final : public ConvexSet {
   CartesianProduct(const ConvexSet& setA, const ConvexSet& setB);
 
   /** Constructs the product of convex sets in the transformed coordinates:
-  {x | y = Ax + b, y ∈ Y₁ × Y₂ × ⋯ × Yₙ}. `A` must be full column rank. */
+  {x | y = Ax + b, y ∈ Y₁ × Y₂ × ⋯ × Yₙ}.
+  @throws std::exception when `A` is not full column rank. */
   CartesianProduct(const ConvexSets& sets,
                    const Eigen::Ref<const Eigen::MatrixXd>& A,
                    const Eigen::Ref<const Eigen::VectorXd>& b);
@@ -68,15 +78,34 @@ class CartesianProduct final : public ConvexSet {
   set implementations. */
   using ConvexSet::PointInSet;
 
+  /** @throws  if `set.has_exact_volume() == false` for any of the sets in the
+  product. */
+  using ConvexSet::CalcVolume;
+
  private:
   std::unique_ptr<ConvexSet> DoClone() const final;
 
-  bool DoIsBounded() const final;
+  std::optional<bool> DoIsBoundedShortcut() const final;
+
+  bool DoIsEmpty() const final;
+
+  std::optional<Eigen::VectorXd> DoMaybeGetPoint() const final;
+
+  std::optional<Eigen::VectorXd> DoMaybeGetFeasiblePoint() const final;
+
+  /* Given a list of vectors, one from each constituent set of this
+  CartesianProduct, this stacks them into a single vector. Then, if this
+  CartesianProduct has an associated transformation (in the form of an A_
+  matrix and b_ vector), it applies that transformation. */
+  Eigen::VectorXd StackAndMaybeTransform(
+      const std::vector<Eigen::VectorXd>& points) const;
 
   bool DoPointInSet(const Eigen::Ref<const Eigen::VectorXd>& x,
                     double tol) const final;
 
-  void DoAddPointInSetConstraints(
+  std::pair<VectorX<symbolic::Variable>,
+            std::vector<solvers::Binding<solvers::Constraint>>>
+  DoAddPointInSetConstraints(
       solvers::MathematicalProgram*,
       const Eigen::Ref<const solvers::VectorXDecisionVariable>&) const final;
 
@@ -110,6 +139,14 @@ class CartesianProduct final : public ConvexSet {
   // in the implementation.
   std::optional<Eigen::MatrixXd> A_{std::nullopt};
   std::optional<Eigen::VectorXd> b_{std::nullopt};
+
+  // When an `A` is passed to the constructor, we'll compute its decomposition
+  // and store it here for later use. Note that even though the constructor for
+  // a scene graph cylinder sets A_, it does not set A_decomp_.
+  std::optional<Eigen::ColPivHouseholderQR<Eigen::MatrixXd>> A_decomp_{
+      std::nullopt};
+
+  double DoCalcVolume() const final;
 };
 
 }  // namespace optimization

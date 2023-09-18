@@ -1,17 +1,40 @@
 #include "drake/common/symbolic/latex.h"
 
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 
 namespace drake {
 namespace symbolic {
 
+using std::optional;
 using std::ostringstream;
 using std::runtime_error;
 using std::string;
 using std::to_string;
 
 namespace {
+
+// If `value` is an integer multiple of `famous_constant_value`, returns the
+// latex for the multiplied constant `{int_coeff}{famous_constant_latex}`.
+std::optional<string> multiple_of_famous_constant(
+    double value, double famous_constant_value, string famous_constant_latex) {
+  const double epsilon = 1e-14;
+  if (std::abs(value) < epsilon) {  // Handle zero.
+    return std::nullopt;
+  }
+  const double coeff = std::round(value / famous_constant_value);
+  const double difference = coeff * famous_constant_value - value;
+  if (std::abs(difference) < epsilon) {
+    if (coeff == 1.0) {
+      return famous_constant_latex;
+    } else if (coeff == -1.0) {
+      return "-" + famous_constant_latex;
+    }
+    return ToLatex(coeff, 0) + famous_constant_latex;
+  }
+  return std::nullopt;
+}
 
 // Visitor class for code generation.
 class LatexVisitor {
@@ -91,7 +114,9 @@ class LatexVisitor {
       print_space = true;
     }
     for (const auto& [e_1, e_2] : base_to_exponent_map) {
-      if (print_space) { oss << " "; }
+      if (print_space) {
+        oss << " ";
+      }
       if (is_one(e_2)) {
         oss << Latex(e_1);
       } else {
@@ -230,38 +255,32 @@ class LatexVisitor {
   }
   [[nodiscard]] std::string VisitEqualTo(const Formula& f,
                                          const bool polarity) const {
-    return Latex(get_lhs_expression(f)) +
-           (polarity ? " = " : " \\neq ") +
+    return Latex(get_lhs_expression(f)) + (polarity ? " = " : " \\neq ") +
            Latex(get_rhs_expression(f));
   }
   [[nodiscard]] std::string VisitNotEqualTo(const Formula& f,
                                             const bool polarity) const {
-    return Latex(get_lhs_expression(f)) +
-           (polarity ? " \\neq " : " = ") +
+    return Latex(get_lhs_expression(f)) + (polarity ? " \\neq " : " = ") +
            Latex(get_rhs_expression(f));
   }
   [[nodiscard]] std::string VisitGreaterThan(const Formula& f,
                                              const bool polarity) const {
-    return Latex(get_lhs_expression(f)) +
-           (polarity ? " > " : " \\le ") +
+    return Latex(get_lhs_expression(f)) + (polarity ? " > " : " \\le ") +
            Latex(get_rhs_expression(f));
   }
   [[nodiscard]] std::string VisitGreaterThanOrEqualTo(
       const Formula& f, const bool polarity) const {
-    return Latex(get_lhs_expression(f)) +
-           (polarity ? " \\ge " : " < ") +
+    return Latex(get_lhs_expression(f)) + (polarity ? " \\ge " : " < ") +
            Latex(get_rhs_expression(f));
   }
   [[nodiscard]] std::string VisitLessThan(const Formula& f,
                                           const bool polarity) const {
-    return Latex(get_lhs_expression(f)) +
-           (polarity ? " < " : " \\ge ") +
+    return Latex(get_lhs_expression(f)) + (polarity ? " < " : " \\ge ") +
            Latex(get_rhs_expression(f));
   }
   [[nodiscard]] std::string VisitLessThanOrEqualTo(const Formula& f,
                                                    const bool polarity) const {
-    return Latex(get_lhs_expression(f)) +
-           (polarity ? " \\le " : " > ") +
+    return Latex(get_lhs_expression(f)) + (polarity ? " \\le " : " > ") +
            Latex(get_rhs_expression(f));
   }
   [[nodiscard]] std::string VisitConjunction(const Formula& f,
@@ -302,7 +321,9 @@ class LatexVisitor {
     // ∃v₁...vₙ. (¬f). However, we do not have a representation
     // FormulaExists(∃) yet. Revisit this when we add FormulaExists.
     ostringstream oss;
-    if (!polarity) { oss << "\\neg "; }
+    if (!polarity) {
+      oss << "\\neg ";
+    }
     oss << "\\forall " << VisitVariables(get_quantified_variables(f)) << ": "
         << get_quantified_formula(f);
     return oss.str();
@@ -311,7 +332,9 @@ class LatexVisitor {
   [[nodiscard]] std::string VisitIsnan(const Formula& f,
                                        const bool polarity) const {
     ostringstream oss;
-    if (!polarity) { oss << "\\neg "; }
+    if (!polarity) {
+      oss << "\\neg ";
+    }
     oss << "\\text{isnan}(" << Latex(get_unary_expression(f)) << ")";
     return oss.str();
   }
@@ -329,7 +352,9 @@ class LatexVisitor {
     ostringstream oss;
     bool delimiter = false;
     for (const auto& v : vars) {
-      if (delimiter) { oss << ", "; }
+      if (delimiter) {
+        oss << ", ";
+      }
       oss << VisitVariable(v);
       delimiter = true;
     }
@@ -361,10 +386,24 @@ string ToLatex(const Formula& f, int precision) {
 }
 
 string ToLatex(double val, int precision) {
+  if (std::isnan(val)) {
+    return "\\text{NaN}";
+  }
+  if (std::isinf(val)) {
+    return val < 0 ? "-\\infty" : "\\infty";
+  }
+  if (optional<string> result =
+          multiple_of_famous_constant(val, M_PI, "\\pi")) {
+    return *result;
+  }
+  if (optional<string> result = multiple_of_famous_constant(val, M_E, "e")) {
+    return *result;
+  }
   double intpart;
   if (std::modf(val, &intpart) == 0.0) {
-    // Then it's an integer.
-    return std::to_string(static_cast<int>(val));
+    // Then it's an integer. Note that we can't static_cast<int>() because it
+    // might not be a *small* integer.
+    return fmt::format("{:.0f}", val);
   }
   std::ostringstream oss;
   oss.precision(precision);

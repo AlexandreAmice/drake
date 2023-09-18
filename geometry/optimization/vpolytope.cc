@@ -9,9 +9,9 @@
 #include <numeric>
 #include <string>
 
-#include <drake_vendor/libqhullcpp/Qhull.h>
-#include <drake_vendor/libqhullcpp/QhullVertexSet.h>
 #include <fmt/format.h>
+#include <libqhullcpp/Qhull.h>
+#include <libqhullcpp/QhullVertexSet.h>
 
 #include "drake/common/is_approx_equal_abstol.h"
 #include "drake/geometry/read_obj.h"
@@ -29,6 +29,7 @@ using Eigen::VectorXd;
 using math::RigidTransformd;
 using solvers::Binding;
 using solvers::Constraint;
+using solvers::LinearCost;
 using solvers::MathematicalProgram;
 using solvers::VectorXDecisionVariable;
 using symbolic::Variable;
@@ -79,15 +80,54 @@ MatrixXd OrderCounterClockwise(const MatrixXd& vertices) {
   return sorted_vertices;
 }
 
+MatrixXd GetConvexHullFromObjFile(const std::string& filename,
+                                  const std::string& extension, double scale,
+                                  std::string_view prefix) {
+  if (extension != ".obj") {
+    throw std::runtime_error(fmt::format(
+        "{} can only use mesh shapes (i.e.., Convex, Mesh) with a .obj file "
+        "type; given '{}'.",
+        prefix, filename));
+  }
+  const auto [tinyobj_vertices, faces, num_faces] =
+      internal::ReadObjFile(filename, scale, /* triangulate = */ false);
+  unused(faces);
+  unused(num_faces);
+  orgQhull::Qhull qhull;
+  const int dim = 3;
+  std::vector<double> tinyobj_vertices_flat(tinyobj_vertices->size() * dim);
+  for (int i = 0; i < ssize(*tinyobj_vertices); ++i) {
+    for (int j = 0; j < dim; ++j) {
+      tinyobj_vertices_flat[dim * i + j] = (*tinyobj_vertices)[i](j);
+    }
+  }
+  qhull.runQhull("", dim, tinyobj_vertices->size(),
+                 tinyobj_vertices_flat.data(), "");
+  if (qhull.qhullStatus() != 0) {
+    throw std::runtime_error(
+        fmt::format("Qhull terminated with status {} and  message:\n{}",
+                    qhull.qhullStatus(), qhull.qhullMessage()));
+  }
+  Matrix3Xd vertices(3, qhull.vertexCount());
+  int vertex_count = 0;
+  for (const auto& qhull_vertex : qhull.vertexList()) {
+    vertices.col(vertex_count++) =
+        Eigen::Map<Vector3d>(qhull_vertex.point().toStdVector().data());
+  }
+  return vertices;
+}
+
 }  // namespace
 
+VPolytope::VPolytope() : VPolytope(MatrixXd(0, 0)) {}
+
 VPolytope::VPolytope(const Eigen::Ref<const MatrixXd>& vertices)
-    : ConvexSet(vertices.rows()), vertices_{vertices} {}
+    : ConvexSet(vertices.rows(), true), vertices_(vertices) {}
 
 VPolytope::VPolytope(const QueryObject<double>& query_object,
                      GeometryId geometry_id,
                      std::optional<FrameId> reference_frame)
-    : ConvexSet(3) {
+    : ConvexSet(3, true) {
   Matrix3Xd vertices;
   query_object.inspector().GetShape(geometry_id).Reify(this, &vertices);
 
@@ -99,10 +139,127 @@ VPolytope::VPolytope(const QueryObject<double>& query_object,
   vertices_ = X_EG * vertices;
 }
 
-VPolytope::VPolytope(const HPolyhedron& hpoly)
-    : ConvexSet(hpoly.ambient_dimension()) {
+VPolytope::VPolytope(const HPolyhedron& hpoly, const double tol)
+    : ConvexSet(hpoly.ambient_dimension(), true) {
+  // First, assert that the HPolyhedron is bounded (since a VPolytope cannot
+  // be used to represent an unbounded set).
   DRAKE_THROW_UNLESS(hpoly.IsBounded());
 
+  // Next, handle the case where the HPolyhedron is zero-dimensional.
+  if (hpoly.ambient_dimension() == 0) {
+    // A zero-dimensional HPolyhedron is always considered nonempty. (See
+    // documentation of the HPolyhedron class.) Thus, we construct a matrix with
+    // zero rows and one column, denoting a single point in the zero-dimensional
+    // vector space.
+    Eigen::MatrixXd points = Eigen::MatrixXd::Zero(0, 1);
+    *this = VPolytope(points);
+    return;
+  }
+
+  // Next, handle the case where the HPolyhedron is empty.
+  if (hpoly.IsEmpty()) {
+    // We construct a VPolytope with ambient_dimension() rows and zero columns,
+    // denoting zero points in the same dimensional space (i.e. the empty set).
+    *this = VPolytope(Eigen::MatrixXd::Zero(hpoly.ambient_dimension(), 0));
+    return;
+  }
+
+  // Next, handle the case where the HPolyhedron is not full dimensional.
+  const AffineSubspace affine_hull(hpoly, tol);
+  if (affine_hull.AffineDimension() < affine_hull.ambient_dimension()) {
+    // This special case avoids the QHull error QH6023, which occurs when the
+    // feasible point given to QHull is not clearly inside the HPolyhedron. If
+    // the HPolyhedron is not full dimensional, this error will occur, even if
+    // the point is indeed inside the HPolyhedron. To handle this, we project
+    // onto the affine hull and do computations there, before lifting the
+    // resulting VPolytope to the ambient space.
+
+    // Note that QHull will not function in zero or one dimensional spaces, so
+    // we handle these separately here.
+    if (affine_hull.AffineDimension() == 0) {
+      // If affine_hull is zero dimensional, then hpoly is just a single point.
+      const auto maybe_point = hpoly.MaybeGetFeasiblePoint();
+      DRAKE_DEMAND(maybe_point.has_value());
+      Eigen::MatrixXd points_in(hpoly.ambient_dimension(), 1);
+      points_in << maybe_point.value();
+      *this = VPolytope(points_in);
+      return;
+    } else if (affine_hull.AffineDimension() == 1) {
+      // If it's one dimensional, then it's a line segment. Then the affine hull
+      // has only one basis vector, so to find the endpoints, we minimize and
+      // maximize the dot product of this vector with a vector decision
+      // variable, constrained to lie in the HPolyhedron.
+      DRAKE_DEMAND(affine_hull.basis().cols() == 1);
+      MathematicalProgram prog;
+      VectorXDecisionVariable x =
+          prog.NewContinuousVariables(hpoly.ambient_dimension());
+      hpoly.AddPointInSetConstraints(&prog, x);
+      Binding<LinearCost> objective =
+          prog.AddLinearCost(affine_hull.basis().col(0), x);
+      const auto result1 = solvers::Solve(prog);
+
+      // The only reason this solve could fail is if hpoly were unbounded or
+      // empty. Both cases are explicitly handled before this.
+      DRAKE_DEMAND(result1.is_success());
+      const Eigen::VectorXd point1 = result1.GetSolution(x);
+
+      // Now, update the coefficients of the objective, and solve again.
+      objective.evaluator()->UpdateCoefficients(-affine_hull.basis().col(0));
+      const auto result2 = solvers::Solve(prog);
+      DRAKE_DEMAND(result2.is_success());
+      const Eigen::VectorXd point2 = result2.GetSolution(x);
+
+      Eigen::MatrixXd vertices(hpoly.ambient_dimension(), 2);
+      vertices << point1, point2;
+      *this = VPolytope(vertices);
+      return;
+    }
+
+    // If we have a HPolyhedron defined as {Ax <= b : x in R^n} in the ambient
+    // space, and its Affine Hull is the set {Cy + d : y in R^m}, then its
+    // representation in the local coordinates of the affine hull will be
+    // {A(Cy + d) <= b : y in R^m}, or equivalently, {ACy <= b - Ad : y in R^m}.
+
+    // To prevent numerical issues, we have to remove the halfspaces which are
+    // parallel to the affine hull. We check this by taking the dot product of
+    // each constraint vector with each basis vector. If the constraint vector
+    // is orthogonal to every basis vector (within a prespecified tolerance),
+    // then it defines a hyperplane that is parallel to the affine hull, and we
+    // must remove it.
+    Eigen::MatrixXd product = hpoly.A() * affine_hull.basis();
+    const auto mask = product.rowwise().lpNorm<Eigen::Infinity>().array() > tol;
+    const int count_nonzero = mask.count();
+    Eigen::MatrixXd A_filtered(count_nonzero, hpoly.ambient_dimension());
+    Eigen::VectorXd b_filtered(count_nonzero);
+    int row = 0;
+    for (int i = 0; i < hpoly.A().rows(); ++i) {
+      if (mask[i]) {
+        A_filtered.row(row) = hpoly.A().row(i);
+        b_filtered[row] = hpoly.b()[i];
+        ++row;
+      }
+    }
+
+    HPolyhedron hpoly_subspace(
+        A_filtered * affine_hull.basis(),
+        b_filtered - A_filtered * affine_hull.translation());
+
+    // Because hpoly_subspace is full-dimensional in the coordinates of the
+    // affine subspace, we can directly convert to a VPolytope. If QHull has
+    // additional errors besides the dimension one, they will be caught here.
+    VPolytope vpoly_subspace(hpoly_subspace);
+
+    // Finally, we extract the vertices of vpoly_subspace and lift them into the
+    // ambient space, obtaining the desired VPolytope.
+    Eigen::MatrixXd points_local = vpoly_subspace.vertices();
+    Eigen::MatrixXd points_global =
+        affine_hull.ToGlobalCoordinates(points_local);
+    *this = VPolytope(points_global);
+    return;
+  }
+
+  // Now that we know the HPolyhedron is full dimensional, we can finish the
+  // various setup steps and call QHull.
   MatrixXd coeffs(hpoly.A().rows(), hpoly.A().cols() + 1);
   coeffs.leftCols(hpoly.A().cols()) = hpoly.A();
   coeffs.col(hpoly.A().cols()) = -hpoly.b();
@@ -188,6 +345,9 @@ VPolytope VPolytope::MakeUnitBox(int dim) {
 }
 
 VPolytope VPolytope::GetMinimalRepresentation() const {
+  if (ambient_dimension() == 0) {
+    return VPolytope();
+  }
   orgQhull::Qhull qhull;
   qhull.runQhull("", vertices_.rows(), vertices_.cols(), vertices_.data(), "");
   if (qhull.qhullStatus() != 0) {
@@ -215,25 +375,6 @@ VPolytope VPolytope::GetMinimalRepresentation() const {
   }
 
   return VPolytope(minimal_vertices);
-}
-
-double VPolytope::CalcVolume() const {
-  orgQhull::Qhull qhull;
-  try {
-    qhull.runQhull("", ambient_dimension(), vertices_.cols(), vertices_.data(),
-                   "");
-  } catch (const orgQhull::QhullError& e) {
-    if (e.errorCode() == qh_ERRsingular) {
-      // The convex hull is singular. It has 0 volume.
-      return 0;
-    }
-  }
-  if (qhull.qhullStatus() != 0) {
-    throw std::runtime_error(
-        fmt::format("Qhull terminated with status {} and  message:\n{}",
-                    qhull.qhullStatus(), qhull.qhullMessage()));
-  }
-  return qhull.volume();
 }
 
 void VPolytope::WriteObj(const std::filesystem::path& filename) const {
@@ -291,8 +432,34 @@ std::unique_ptr<ConvexSet> VPolytope::DoClone() const {
   return std::make_unique<VPolytope>(*this);
 }
 
+std::optional<bool> VPolytope::DoIsBoundedShortcut() const {
+  return true;
+}
+
+bool VPolytope::DoIsEmpty() const {
+  return vertices_.cols() == 0;
+}
+
+std::optional<VectorXd> VPolytope::DoMaybeGetPoint() const {
+  if (vertices_.cols() == 1) {
+    return vertices_.col(0);
+  }
+  return std::nullopt;
+}
+
+std::optional<VectorXd> VPolytope::DoMaybeGetFeasiblePoint() const {
+  if (IsEmpty()) {
+    return std::nullopt;
+  } else {
+    return vertices_.col(0);
+  }
+}
+
 bool VPolytope::DoPointInSet(const Eigen::Ref<const VectorXd>& x,
                              double tol) const {
+  if (vertices_.cols() == 0) {
+    return false;
+  }
   const int n = ambient_dimension();
   const int m = vertices_.cols();
   const double inf = std::numeric_limits<double>::infinity();
@@ -325,30 +492,35 @@ bool VPolytope::DoPointInSet(const Eigen::Ref<const VectorXd>& x,
   return is_approx_equal_abstol(x, x_sol, tol);
 }
 
-void VPolytope::DoAddPointInSetConstraints(
+std::pair<VectorX<Variable>, std::vector<Binding<Constraint>>>
+VPolytope::DoAddPointInSetConstraints(
     solvers::MathematicalProgram* prog,
     const Eigen::Ref<const solvers::VectorXDecisionVariable>& x) const {
+  std::vector<Binding<Constraint>> new_constraints;
   const int n = ambient_dimension();
   const int m = vertices_.cols();
   VectorXDecisionVariable alpha = prog->NewContinuousVariables(m, "a");
   // 0 ≤ αᵢ ≤ 1.  The one is redundant, but may be better than inf for some
   // solvers.
-  prog->AddBoundingBoxConstraint(0, 1.0, alpha);
+  new_constraints.push_back(prog->AddBoundingBoxConstraint(0, 1.0, alpha));
   // v α - x = 0.
   MatrixXd A(n, m + n);
   A.leftCols(m) = vertices_;
   A.rightCols(n) = -MatrixXd::Identity(n, n);
-  prog->AddLinearEqualityConstraint(A, VectorXd::Zero(n), {alpha, x});
+  new_constraints.push_back(
+      prog->AddLinearEqualityConstraint(A, VectorXd::Zero(n), {alpha, x}));
   // ∑ αᵢ = 1.
-  prog->AddLinearEqualityConstraint(RowVectorXd::Ones(m), 1.0, alpha);
+  new_constraints.push_back(
+      prog->AddLinearEqualityConstraint(RowVectorXd::Ones(m), 1.0, alpha));
+  return {std::move(alpha), std::move(new_constraints)};
 }
 
-std::vector<solvers::Binding<solvers::Constraint>>
+std::vector<Binding<Constraint>>
 VPolytope::DoAddPointInNonnegativeScalingConstraints(
     solvers::MathematicalProgram* prog,
     const Eigen::Ref<const solvers::VectorXDecisionVariable>& x,
-    const symbolic::Variable& t) const {
-  std::vector<solvers::Binding<solvers::Constraint>> constraints;
+    const Variable& t) const {
+  std::vector<Binding<Constraint>> constraints;
   const int n = ambient_dimension();
   const int m = vertices_.cols();
   VectorXDecisionVariable alpha = prog->NewContinuousVariables(m, "a");
@@ -370,13 +542,13 @@ VPolytope::DoAddPointInNonnegativeScalingConstraints(
   return constraints;
 }
 
-std::vector<solvers::Binding<solvers::Constraint>>
+std::vector<Binding<Constraint>>
 VPolytope::DoAddPointInNonnegativeScalingConstraints(
     solvers::MathematicalProgram* prog, const Eigen::Ref<const MatrixXd>& A,
     const Eigen::Ref<const VectorXd>& b, const Eigen::Ref<const VectorXd>& c,
     double d, const Eigen::Ref<const VectorXDecisionVariable>& x,
     const Eigen::Ref<const VectorXDecisionVariable>& t) const {
-  std::vector<solvers::Binding<solvers::Constraint>> constraints;
+  std::vector<Binding<Constraint>> constraints;
   const int n = ambient_dimension();
   const int m = vertices_.cols();
   VectorXDecisionVariable alpha = prog->NewContinuousVariables(m, "a");
@@ -405,6 +577,25 @@ VPolytope::DoToShapeWithPose() const {
       "class (to support in-memory mesh data, or file I/O).");
 }
 
+double VPolytope::DoCalcVolume() const {
+  orgQhull::Qhull qhull;
+  try {
+    qhull.runQhull("", ambient_dimension(), vertices_.cols(), vertices_.data(),
+                   "");
+  } catch (const orgQhull::QhullError& e) {
+    if (e.errorCode() == qh_ERRsingular) {
+      // The convex hull is singular. It has 0 volume.
+      return 0;
+    }
+  }
+  if (qhull.qhullStatus() != 0) {
+    throw std::runtime_error(
+        fmt::format("Qhull terminated with status {} and  message:\n{}",
+                    qhull.qhullStatus(), qhull.qhullMessage()));
+  }
+  return qhull.volume();
+}
+
 void VPolytope::ImplementGeometry(const Box& box, void* data) {
   const double x = box.width() / 2.0;
   const double y = box.depth() / 2.0;
@@ -422,36 +613,20 @@ void VPolytope::ImplementGeometry(const Box& box, void* data) {
 void VPolytope::ImplementGeometry(const Convex& convex, void* data) {
   DRAKE_ASSERT(data != nullptr);
   Matrix3Xd* vertex_data = static_cast<Matrix3Xd*>(data);
-  *vertex_data = GetVertices(convex);
+  *vertex_data = GetConvexHullFromObjFile(convex.filename(), convex.extension(),
+                                          convex.scale(), "VPolytope");
+}
+
+void VPolytope::ImplementGeometry(const Mesh& mesh, void* data) {
+  DRAKE_ASSERT(data != nullptr);
+  Matrix3Xd* vertex_data = static_cast<Matrix3Xd*>(data);
+  *vertex_data = GetConvexHullFromObjFile(mesh.filename(), mesh.extension(),
+                                          mesh.scale(), "VPolytope");
 }
 
 MatrixXd GetVertices(const Convex& convex) {
-  const auto [tinyobj_vertices, faces, num_faces] = internal::ReadObjFile(
-      convex.filename(), convex.scale(), false /* triangulate */);
-  unused(faces);
-  unused(num_faces);
-  orgQhull::Qhull qhull;
-  const int dim = 3;
-  std::vector<double> tinyobj_vertices_flat(tinyobj_vertices->size() * dim);
-  for (int i = 0; i < ssize(*tinyobj_vertices); ++i) {
-    for (int j = 0; j < dim; ++j) {
-      tinyobj_vertices_flat[dim * i + j] = (*tinyobj_vertices)[i](j);
-    }
-  }
-  qhull.runQhull("", dim, tinyobj_vertices->size(),
-                 tinyobj_vertices_flat.data(), "");
-  if (qhull.qhullStatus() != 0) {
-    throw std::runtime_error(
-        fmt::format("Qhull terminated with status {} and  message:\n{}",
-                    qhull.qhullStatus(), qhull.qhullMessage()));
-  }
-  Matrix3Xd vertices(3, qhull.vertexCount());
-  int vertex_count = 0;
-  for (const auto& qhull_vertex : qhull.vertexList()) {
-    vertices.col(vertex_count++) =
-        Eigen::Map<Vector3d>(qhull_vertex.point().toStdVector().data());
-  }
-  return vertices;
+  return GetConvexHullFromObjFile(convex.filename(), convex.extension(),
+                                  convex.scale(), "GetVertices()");
 }
 
 }  // namespace optimization

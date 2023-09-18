@@ -55,7 +55,7 @@ void CameraConfig::FovDegrees::ValidateOrThrow() const {
 
 namespace {
 
-// Computes the focal length along a single axis based on the the image
+// Computes the focal length along a single axis based on the image
 // dimension and field of view (in a degrees) in that direction.
 // This computation must be kept in agreement with that in CameraInfo.
 double CalcFocalLength(int image_dimension, double fov_degrees) {
@@ -124,17 +124,26 @@ void CameraConfig::ValidateOrThrow() const {
   // Serialize. We don't want to validate anything if the cameras are disabled,
   // and because the default focal length is a property of the CameraConfig
   // instead of the child struct, we must not validate the child in isolation.
-  std::visit([](auto&& child) -> void {
-    child.ValidateOrThrow();
-  }, focal);
+  std::visit(
+      [](auto&& child) -> void {
+        child.ValidateOrThrow();
+      },
+      focal);
 
-  if (!renderer_class.empty() && !(renderer_class == "RenderEngineVtk" ||
-                                   renderer_class == "RenderEngineGl")) {
-    throw std::logic_error(fmt::format(
-        "Invalid camera configuration; the given renderer_class value '{}' "
-        "must be empty (to use the default) or be one of 'RenderEngineVtk' or "
-        "'RenderEngineGl'.",
-        renderer_class));
+  // We don't worry about the other variant alternatives; if we're here, we've
+  // constructed a set of parameters, and we'll defer to the RenderEngine to
+  // determine if the values are valid.
+  if (std::holds_alternative<std::string>(renderer_class)) {
+    const auto& class_name = std::get<std::string>(renderer_class);
+    if (!class_name.empty() &&
+        !(class_name == "RenderEngineVtk" || class_name == "RenderEngineGl" ||
+          class_name == "RenderEngineGltfClient")) {
+      throw std::logic_error(fmt::format(
+          "Invalid camera configuration; the given renderer_class value '{}' "
+          "must be empty (to use the default) or be one of 'RenderEngineVtk', "
+          "'RenderEngineGl', or 'RenderEngineGltfClient'.",
+          class_name));
+    }
   }
 
   // This throws for us if we have bad bad numerical camera values (or an empty
@@ -157,6 +166,13 @@ void CameraConfig::ValidateOrThrow() const {
         fmt::format("Invalid camera configuration; FPS ({}) must be a finite, "
                     "positive value.",
                     fps));
+  }
+
+  if (capture_offset < 0 || !std::isfinite(capture_offset)) {
+    throw std::logic_error(fmt::format(
+        "Invalid camera configuration; capture_offset ({}) must be a finite, "
+        "non-negative value.",
+        capture_offset));
   }
 
   if (X_BC.base_frame.has_value() && !X_BC.base_frame->empty()) {

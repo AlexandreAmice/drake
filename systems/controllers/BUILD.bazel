@@ -59,6 +59,7 @@ drake_cc_library(
         "//math:gradient",
         "//math:matrix_util",
         "//systems/analysis:simulator",
+        "//systems/analysis:simulator_config_functions",
         "//systems/framework",
     ],
 )
@@ -299,4 +300,4 @@ drake_cc_googletest(
     ],
 )
 
-add_lint_tests()
+add_lint_tests(enable_clang_format_lint = False)

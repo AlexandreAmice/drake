@@ -1,6 +1,6 @@
 #pragma once
 
-#include <drake_vendor/fcl/fcl.h>
+#include <fcl/fcl.h>
 
 #include "drake/common/drake_assert.h"
 #include "drake/common/drake_export.h"
@@ -46,10 +46,11 @@ struct CallbackData {
           process early.
   */
 bool Callback(fcl::CollisionObjectd* object_A_ptr,
-              fcl::CollisionObjectd* object_B_ptr,
-              void* callback_data);
+              fcl::CollisionObjectd* object_B_ptr, void* callback_data);
 
+// clang-format off
 }  // namespace has_collisions
+// clang-format on
 }  // namespace internal
 }  // namespace geometry
 }  // namespace drake

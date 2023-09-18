@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "drake/common/eigen_types.h"
+#include "drake/multibody/contact_solvers/block_sparse_lower_triangular_or_symmetric_matrix.h"
 #include "drake/multibody/fem/fem_element.h"
 #include "drake/multibody/fem/fem_indexes.h"
 #include "drake/multibody/fem/fem_model.h"
@@ -101,18 +102,18 @@ class FemModelImpl : public FemModel<typename Element::T> {
 
   void DoCalcTangentMatrix(
       const FemState<T>& fem_state, const Vector3<T>& weights,
-      PetscSymmetricBlockSparseMatrix* tangent_matrix) const final {
+      contact_solvers::internal::Block3x3SparseSymmetricMatrix* tangent_matrix)
+      const final {
     /* We already check for the scalar type in `CalcTangentMatrix()` but the `if
      constexpr` here is still needed to make the compiler happy. */
     if constexpr (std::is_same_v<T, double>) {
       /* Clears the old data. */
       tangent_matrix->SetZero();
 
-      /* Scratch space to store the contribution to the tangent matrix from each
-       element. */
-      Vector<int, Element::num_nodes> block_indices;
       const std::vector<Data>& element_data =
           fem_state.template EvalElementData<Data>(element_data_index_);
+      /* Scratch space to store the contribution to the tangent matrix from each
+       element. */
       Eigen::Matrix<T, Element::num_dofs, Element::num_dofs>
           element_tangent_matrix;
       for (int e = 0; e < num_elements(); ++e) {
@@ -121,22 +122,33 @@ class FemModelImpl : public FemModel<typename Element::T> {
         const std::array<FemNodeIndex, Element::num_nodes>&
             element_node_indices = elements_[e].node_indices();
         for (int a = 0; a < Element::num_nodes; ++a) {
-          block_indices(a) = element_node_indices[a];
+          const int i = element_node_indices[a];
+          for (int b = 0; b <= a; ++b) {
+            const int j = element_node_indices[b];
+            if (i >= j) {
+              tangent_matrix->AddToBlock(
+                  i, j,
+                  element_tangent_matrix.template block<3, 3>(3 * a, 3 * b));
+            } else {
+              tangent_matrix->AddToBlock(
+                  j, i,
+                  element_tangent_matrix.template block<3, 3>(3 * b, 3 * a));
+            }
+          }
         }
-        tangent_matrix->AddToBlock(block_indices, element_tangent_matrix);
       }
     } else {
+      unused(fem_state, weights, tangent_matrix);
       DRAKE_UNREACHABLE();
     }
   }
 
-  std::unique_ptr<PetscSymmetricBlockSparseMatrix>
-  DoMakePetscSymmetricBlockSparseTangentMatrix() const final {
-    /* We already check for the scalar type in `CalcTangentMatrix()` but the `if
+  std::unique_ptr<contact_solvers::internal::Block3x3SparseSymmetricMatrix>
+  DoMakeTangentMatrix() const final {
+    /* We already check for the scalar type in `MakeTangentMatrix()` but the `if
      constexpr` here is still needed to make the compiler happy. */
     if constexpr (std::is_same_v<T, double>) {
       std::vector<std::unordered_set<int>> neighbor_nodes(this->num_nodes());
-      constexpr int kDim = 3;
       /* Create a nonzero block for each pair of nodes that are connected by an
        edge in the mesh. */
       for (int e = 0; e < num_elements(); ++e) {
@@ -144,45 +156,30 @@ class FemModelImpl : public FemModel<typename Element::T> {
             element_node_indices = elements_[e].node_indices();
         for (int a = 0; a < Element::num_nodes; ++a) {
           for (int b = a; b < Element::num_nodes; ++b) {
-            /* PetscSymmetricBlockSparseMatrix only needs to allocate for the
-             upper triangular part of the matrix. So instead of allocating for
+            /* SymmetricBlockSparseMatrix only needs to allocate for the
+             lower triangular part of the matrix. So instead of allocating for
              both (element_node_indices[a], element_node_indices[b]) and
              (element_node_indices[b], element_node_indices[a]) blocks, we only
-             allocate for one of them. See PetscSymmetricBlockSparseMatrix. */
-            const int block_row =
+             allocate for one of them. See Block3x3SparseSymmetricMatrix. */
+            const int j =
                 std::min(element_node_indices[a], element_node_indices[b]);
-            const int block_col =
+            const int i =
                 std::max(element_node_indices[a], element_node_indices[b]);
-            neighbor_nodes[block_row].insert(block_col);
+            neighbor_nodes[j].insert(i);
           }
         }
       }
-      std::vector<int> nonzero_blocks(this->num_nodes());
-      for (int i = 0; i < this->num_nodes(); ++i) {
-        nonzero_blocks[i] = neighbor_nodes[i].size();
+      std::vector<std::vector<int>> sparsity_pattern;
+      sparsity_pattern.reserve(this->num_nodes());
+      for (int j = 0; j < this->num_nodes(); ++j) {
+        sparsity_pattern.emplace_back(neighbor_nodes[j].begin(),
+                                      neighbor_nodes[j].end());
       }
-      auto tangent_matrix = std::make_unique<PetscSymmetricBlockSparseMatrix>(
-          this->num_dofs(), kDim, nonzero_blocks);
-
-      /* Populate the tangent matrix with zeros at appropriate places to
-       allocate memory. */
-      Vector<int, Element::num_nodes> block_indices;
-      const Eigen::Matrix<double, Element::num_dofs, Element::num_dofs>
-          zero_matrix = Eigen::Matrix<double, Element::num_dofs,
-                                      Element::num_dofs>::Zero();
-      for (int e = 0; e < num_elements(); ++e) {
-        const std::array<FemNodeIndex, Element::num_nodes>&
-            element_node_indices = elements_[e].node_indices();
-        // TODO(xuchenhan-tri): Here we are relying on the implicit assumption
-        //  that all node indices are contiguous from 0 to the number of nodes.
-        //  We should at least verify this assumption and abort if this
-        //  assumption is violated.
-        for (int a = 0; a < Element::num_nodes; ++a) {
-          block_indices(a) = element_node_indices[a];
-        }
-        tangent_matrix->AddToBlock(block_indices, zero_matrix);
-      }
-      return tangent_matrix;
+      contact_solvers::internal::BlockSparsityPattern block_pattern(
+          std::vector<int>(this->num_nodes(), 3), std::move(sparsity_pattern));
+      return std::make_unique<
+          contact_solvers::internal::Block3x3SparseSymmetricMatrix>(
+          std::move(block_pattern));
     } else {
       DRAKE_UNREACHABLE();
     }
@@ -198,6 +195,8 @@ class FemModelImpl : public FemModel<typename Element::T> {
                                        &FemModelImpl<Element>::CalcElementData))
             .cache_index();
   }
+
+  bool do_is_linear() const final { return Element::is_linear; }
 
   /* Computes the element data for each element in this FEM model. */
   void CalcElementData(const systems::Context<T>& context,

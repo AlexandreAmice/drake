@@ -1,0 +1,26 @@
+[tinyobjloader] Fix map_Kd default
+
+If only a diffuse texture is given (map_Kd) tinyobj modulates it to 60%
+grey. We prefer 100%.
+
+--- tiny_obj_loader.h
++++ tiny_obj_loader.h
+@@ -2297,12 +2297,13 @@ void LoadMtl(std::map<std::string, int> *material_map,
+       ParseTextureNameAndOption(&(material.diffuse_texname),
+                                 &(material.diffuse_texopt), token);
+ 
+-      // Set a decent diffuse default value if a diffuse texture is specified
+-      // without a matching Kd value.
++      // If only a diffuse map has been set, we want the final color to be
++      // fully defined by that specification. So, set the diffuse color to
++      // white.
+       if (!has_kd) {
+-        material.diffuse[0] = static_cast<real_t>(0.6);
+-        material.diffuse[1] = static_cast<real_t>(0.6);
+-        material.diffuse[2] = static_cast<real_t>(0.6);
++        material.diffuse[0] = static_cast<real_t>(1);
++        material.diffuse[1] = static_cast<real_t>(1);
++        material.diffuse[2] = static_cast<real_t>(1);
+       }
+ 
+       continue;

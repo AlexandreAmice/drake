@@ -1,10 +1,6 @@
 #include <map>
 #include <string>
 
-#include "pybind11/eigen.h"
-#include "pybind11/operators.h"
-#include "pybind11/pybind11.h"
-#include "pybind11/stl.h"
 #include <fmt/format.h>
 
 #include "drake/bindings/pydrake/common/eigen_pybind.h"
@@ -581,9 +577,11 @@ PYBIND11_MODULE(symbolic, m) {
   }
 
   py::class_<Formula> formula_cls(m, "Formula", doc.Formula.doc);
-  formula_cls.def(py::init<>(), doc.Expression.ctor.doc_0args)
+  formula_cls.def(py::init<>(), doc.Formula.ctor.doc_0args)
+      .def(py::init<bool>(), py::arg("value").noconvert(),
+          doc.Formula.ctor.doc_1args_value)
       .def(py::init<const Variable&>(), py::arg("var"),
-          doc.Expression.ctor.doc_1args_var)
+          doc.Formula.ctor.doc_1args_var)
       .def(
           "Unapply",
           [m](const symbolic::Formula& f) { return internal::Unapply(m, f); },
@@ -645,6 +643,8 @@ PYBIND11_MODULE(symbolic, m) {
             "please use pydrake.common.containers.EqualToDict`.");
       });
   formula_cls.attr("__bool__") = formula_cls.attr("__nonzero__");
+  py::implicitly_convertible<bool, Formula>();
+  py::implicitly_convertible<Variable, Formula>();
 
   // Cannot overload logical operators: http://stackoverflow.com/a/471561
   // Defining custom function for clarity.
@@ -690,6 +690,14 @@ PYBIND11_MODULE(symbolic, m) {
       .def(py::self *= py::self)
       .def(py::self * double{})
       .def(double{} * py::self)
+      .def(py::self * Expression())
+      .def(Expression() * py::self)
+      .def(py::self + Expression())
+      .def(Expression() + py::self)
+      .def(py::self - Expression())
+      .def(Expression() - py::self)
+      .def(py::self / Expression())
+      .def(Expression() / py::self)
       .def(py::self == py::self)
       .def(py::self != py::self)
       .def("__hash__",
@@ -822,6 +830,7 @@ PYBIND11_MODULE(symbolic, m) {
           doc.Polynomial.RemoveTermsWithSmallCoefficients.doc)
       .def("IsEven", &Polynomial::IsEven, doc.Polynomial.IsEven.doc)
       .def("IsOdd", &Polynomial::IsOdd, doc.Polynomial.IsOdd.doc)
+      .def("Roots", &Polynomial::Roots, doc.Polynomial.Roots.doc)
       .def("CoefficientsAlmostEqual", &Polynomial::CoefficientsAlmostEqual,
           py::arg("p"), py::arg("tolerance"),
           doc.Polynomial.CoefficientsAlmostEqual.doc)
@@ -832,6 +841,8 @@ PYBIND11_MODULE(symbolic, m) {
       .def(double() + py::self)
       .def(py::self + Variable())
       .def(Variable() + py::self)
+      .def(py::self + Expression())
+      .def(Expression() + py::self)
       .def(py::self - py::self)
       .def(py::self - Monomial())
       .def(Monomial() - py::self)
@@ -839,6 +850,8 @@ PYBIND11_MODULE(symbolic, m) {
       .def(double() - py::self)
       .def(py::self - Variable())
       .def(Variable() - py::self)
+      .def(py::self - Expression())
+      .def(Expression() - py::self)
       .def(py::self * py::self)
       .def(py::self * Monomial())
       .def(Monomial() * py::self)
@@ -846,8 +859,13 @@ PYBIND11_MODULE(symbolic, m) {
       .def(double() * py::self)
       .def(py::self * Variable())
       .def(Variable() * py::self)
+      .def(py::self * Expression())
+      .def(Expression() * py::self)
       .def(-py::self)
       .def(py::self / double())
+      .def(double() / py::self)
+      .def(py::self / Expression())
+      .def(Expression() / py::self)
       .def("EqualTo", &Polynomial::EqualTo, doc.Polynomial.EqualTo.doc)
       .def(py::self == py::self)
       .def(py::self != py::self)

@@ -2,9 +2,39 @@ load("@drake//tools/skylark:drake_cc.bzl", "drake_cc_binary")
 load(
     "@drake//tools/performance:defs.bzl",
     "drake_cc_googlebench_binary",
+    "drake_py_experiment_binary",
 )
 load("//tools/lint:lint.bzl", "add_lint_tests")
 load("//tools/skylark:test_tags.bzl", "vtk_test_tags")
+
+package(default_visibility = ["//visibility:private"])
+
+drake_cc_googlebench_binary(
+    name = "iris_in_configuration_space_benchmarks",
+    srcs = ["iris_in_configuration_space_benchmarks.cc"],
+    add_test_rule = True,
+    data = [
+        "//examples/manipulation_station:models",
+        "//manipulation/models/iiwa_description:models",
+        "//manipulation/models/wsg_50_description:models",
+    ],
+    test_args = [
+        "--test",
+    ],
+    test_timeout = "moderate",
+    deps = [
+        "//geometry/optimization:iris",
+        "//multibody/inverse_kinematics",
+        "//multibody/plant",
+        "//tools/performance:fixture_common",
+        "//tools/performance:gflags_main",
+    ],
+)
+
+drake_py_experiment_binary(
+    name = "iris_in_configuration_space_experiment",
+    googlebench_binary = ":iris_in_configuration_space_benchmarks",
+)
 
 drake_cc_googlebench_binary(
     name = "mesh_intersection_benchmark",
@@ -19,6 +49,11 @@ drake_cc_googlebench_binary(
         "//geometry/proximity:mesh_intersection",
         "//math",
     ],
+)
+
+drake_py_experiment_binary(
+    name = "mesh_intersection_experiment",
+    googlebench_binary = ":mesh_intersection_benchmark",
 )
 
 drake_cc_googlebench_binary(
@@ -40,6 +75,11 @@ drake_cc_googlebench_binary(
         "@fmt",
         "@gflags",
     ],
+)
+
+drake_py_experiment_binary(
+    name = "render_experiment",
+    googlebench_binary = ":render_benchmark",
 )
 
 add_lint_tests()

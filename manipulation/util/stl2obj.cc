@@ -1,8 +1,10 @@
 #include <gflags/gflags.h>
-#include <vtkDecimatePro.h>
-#include <vtkOBJWriter.h>
-#include <vtkSTLReader.h>
-#include <vtkTriangleFilter.h>
+
+// To ease build system upkeep, we annotate VTK includes with their deps.
+#include <vtkDecimatePro.h>     // vtkFiltersCore
+#include <vtkOBJWriter.h>       // vtkIOGeometry
+#include <vtkSTLReader.h>       // vtkIOGeometry
+#include <vtkTriangleFilter.h>  // vtkFiltersCore
 
 #include "drake/common/drake_throw.h"
 #include "drake/common/text_logging.h"
@@ -26,7 +28,8 @@ void main() {
   reader->Update();
   vtkPolyData* to_be_written = reader->GetOutput();
   log()->debug("The STL mesh has {} points and {} polygons",
-      to_be_written->GetNumberOfPoints(), to_be_written->GetNumberOfPolys());
+               to_be_written->GetNumberOfPoints(),
+               to_be_written->GetNumberOfPolys());
 
   // Optionally decimate.  We must to create these objects outside of the
   // "if" block (not as temporaries inside) so that they remain available
@@ -50,7 +53,8 @@ void main() {
 
   // Write the OBJ.
   log()->debug("The OBJ mesh has {} points and {} polygons",
-      to_be_written->GetNumberOfPoints(), to_be_written->GetNumberOfPolys());
+               to_be_written->GetNumberOfPoints(),
+               to_be_written->GetNumberOfPolys());
   auto writer = vtkSmartPointer<vtkOBJWriter>::New();
   writer->SetFileName(FLAGS_output.c_str());
   writer->SetInputData(to_be_written);

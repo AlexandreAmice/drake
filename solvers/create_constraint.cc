@@ -31,6 +31,8 @@ using symbolic::Polynomial;
 using symbolic::Variable;
 using symbolic::Variables;
 
+const double kInf = numeric_limits<double>::infinity();
+
 Binding<Constraint> ParseConstraint(
     const Eigen::Ref<const VectorX<Expression>>& v,
     const Eigen::Ref<const Eigen::VectorXd>& lb,
@@ -38,6 +40,14 @@ Binding<Constraint> ParseConstraint(
   DRAKE_ASSERT(v.rows() == lb.rows() && v.rows() == ub.rows());
 
   if (!IsAffine(v)) {
+    // Quadratic constraints.
+    if (v.size() == 1 && v[0].is_polynomial()) {
+      const symbolic::Polynomial poly{v[0]};
+      if (poly.TotalDegree() == 2) {
+        return ParseQuadraticConstraint(v[0], lb[0], ub[0]);
+      }
+    }
+
     auto constraint = make_shared<ExpressionConstraint>(v, lb, ub);
     return CreateBinding(constraint, constraint->vars());
   }  // else, continue on to linear-specific version below.
@@ -329,16 +339,64 @@ Binding<Constraint> ParseConstraint(
         ub(k) = 0.0;
       } else if (is_less_than_or_equal_to(f)) {
         // f(i) := (lhs <= rhs)
-        //         (-∞ <= lhs - rhs <= 0)
-        v(k) = get_lhs_expression(f) - get_rhs_expression(f);
-        lb(k) = -std::numeric_limits<double>::infinity();
-        ub(k) = 0.0;
+        const Expression& lhs = get_lhs_expression(f);
+        const Expression& rhs = get_rhs_expression(f);
+        if (is_constant(lhs, kInf)) {
+          throw std::runtime_error(
+              fmt::format("ParseConstraint is called with a formula ({}) with "
+                          "a lower bound of +inf.", f));
+        }
+        if (is_constant(rhs, -kInf)) {
+          throw std::runtime_error(
+              fmt::format("ParseConstraint is called with a formula ({}) with "
+                          "an upper bound of -inf.", f));
+        }
+        if (is_constant(lhs, -kInf)) {
+          // The constraint is trivial, but valid.
+          v(k) = rhs;
+          lb(k) = -kInf;
+          ub(k) = kInf;
+        } else if (is_constant(rhs, kInf)) {
+          // The constraint is trivial, but valid.
+          v(k) = lhs;
+          lb(k) = -kInf;
+          ub(k) = kInf;
+        } else {
+          // -∞ <= lhs - rhs <= 0
+          v(k) = lhs - rhs;
+          lb(k) = -kInf;
+          ub(k) = 0.0;
+        }
       } else if (is_greater_than_or_equal_to(f)) {
         // f(i) := (lhs >= rhs)
-        //         (∞ >= lhs - rhs >= 0)
-        v(k) = get_lhs_expression(f) - get_rhs_expression(f);
-        lb(k) = 0.0;
-        ub(k) = std::numeric_limits<double>::infinity();
+        const Expression& lhs = get_lhs_expression(f);
+        const Expression& rhs = get_rhs_expression(f);
+        if (is_constant(rhs, kInf)) {
+          throw std::runtime_error(
+              fmt::format("ParseConstraint is called with a formula ({}) with "
+                          "a lower bound of +inf.", f));
+        }
+        if (is_constant(lhs, -kInf)) {
+          throw std::runtime_error(
+              fmt::format("ParseConstraint is called with a formula ({}) with "
+                          "an upper bound of -inf.", f));
+        }
+        if (is_constant(rhs, -kInf)) {
+          // The constraint is trivial, but valid.
+          v(k) = lhs;
+          lb(k) = -kInf;
+          ub(k) = kInf;
+        } else if (is_constant(lhs, kInf)) {
+          // The constraint is trivial, but valid.
+          v(k) = rhs;
+          lb(k) = -kInf;
+          ub(k) = kInf;
+        } else {
+          // 0 <= lhs - rhs <= ∞
+          v(k) = lhs - rhs;
+          lb(k) = 0.0;
+          ub(k) = kInf;
+        }
       } else {
         std::ostringstream oss;
         oss << "ParseConstraint is called with an "

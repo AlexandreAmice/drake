@@ -7,6 +7,7 @@
 #include "drake/math/rigid_transform.h"
 #include "drake/multibody/tree/multibody_tree-inl.h"
 #include "drake/multibody/tree/multibody_tree_system.h"
+#include "drake/multibody/tree/prismatic_joint.h"
 #include "drake/multibody/tree/test/mobilizer_tester.h"
 #include "drake/systems/framework/context.h"
 
@@ -27,9 +28,10 @@ constexpr double kTolerance = 10 * std::numeric_limits<double>::epsilon();
 class PrismaticMobilizerTest : public MobilizerTester {
  public:
   void SetUp() override {
-    slider_ = &AddMobilizerAndFinalize(
-        std::make_unique<PrismaticMobilizer<double>>(
-        tree().world_body().body_frame(), body_->body_frame(), axis_F_));
+    slider_ = &AddJointAndFinalize<PrismaticJoint, PrismaticMobilizer>(
+        std::make_unique<PrismaticJoint<double>>(
+            "joint0", tree().world_body().body_frame(), body_->body_frame(),
+            axis_F_));
   }
 
  protected:
@@ -146,6 +148,8 @@ TEST_F(PrismaticMobilizerTest, ProjectSpatialForce) {
 }
 
 TEST_F(PrismaticMobilizerTest, MapVelocityToQDotAndBack) {
+  EXPECT_TRUE(slider_->is_velocity_equal_to_qdot());
+
   Vector1d v(1.5);
   Vector1d qdot;
   slider_->MapVelocityToQDot(*context_, v, &qdot);

@@ -15,7 +15,7 @@ SolverId UnknownId() {
 
 MathematicalProgramResult::MathematicalProgramResult()
     : decision_variable_index_{},
-      solution_result_{SolutionResult::kUnknownError},
+      solution_result_{SolutionResult::kSolutionResultNotSet},
       x_val_{0},
       optimal_cost_{NAN},
       solver_id_{UnknownId()},
@@ -64,6 +64,11 @@ double GetVariableValue(
 double MathematicalProgramResult::GetSolution(
     const symbolic::Variable& var) const {
   return GetVariableValue(var, decision_variable_index_, x_val_);
+}
+
+void MathematicalProgramResult::SetSolution(const symbolic::Variable& var,
+                                            double value) {
+  x_val_(decision_variable_index_->at(var.get_id())) = value;
 }
 
 symbolic::Expression MathematicalProgramResult::GetSolution(

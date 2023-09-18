@@ -339,7 +339,7 @@ drake_cc_library(
     deps = [
         "//common:essential",
         "@fmt",
-        "@tinyobjloader",
+        "@tinyobjloader_internal//:tinyobjloader",
     ],
 )
 
@@ -469,11 +469,10 @@ drake_cc_library(
         "//common:find_resource",
         "//common:network_policy",
         "//common:scope_exit",
-        "//common:unused",
         "@common_robotics_utilities",
         "@msgpack_internal//:msgpack",
         "@stduuid_internal//:stduuid",
-        "@uwebsockets",
+        "@uwebsockets_internal//:uwebsockets",
     ],
 )
 
@@ -482,6 +481,8 @@ drake_cc_binary(
     testonly = True,
     srcs = ["test/meshcat_manual_test.cc"],
     data = [
+        ":test/env_256_brick_room.jpg",
+        ":test/env_256_cornell_box.png",
         "//examples/kuka_iiwa_arm:models",
         "//geometry/render:test_models",
         "//manipulation/models/iiwa_description:models",
@@ -492,6 +493,7 @@ drake_cc_binary(
     deps = [
         ":meshcat",
         ":meshcat_visualizer",
+        "//common/test_utilities:maybe_pause_for_user",
         "//multibody/meshcat:contact_visualizer",
         "//multibody/parsing",
         "//multibody/plant",
@@ -512,6 +514,7 @@ drake_cc_googletest(
     name = "meshcat_test",
     data = [
         ":meshcat_websocket_client",
+        ":test/env_256_cornell_box.png",
         "//geometry/render:test_models",
     ],
     tags = [
@@ -867,4 +870,4 @@ install(
     ],
 )
 
-add_lint_tests()
+add_lint_tests(enable_clang_format_lint = False)

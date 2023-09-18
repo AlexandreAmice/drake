@@ -56,13 +56,33 @@ void DiscreteUpdateManager<T>::DeclareCacheEntries() {
   // See ThrowIfNonContactForceInProgress().
   const auto& non_contact_forces_evaluation_in_progress =
       this->DeclareCacheEntry(
-          "Evaluation of non-contact forces and accelerations is in progress.",
+          "Evaluation of non-contact forces and accelerations is in progress",
           // N.B. This flag is set to true only when the computation is in
           // progress. Therefore its default value is `false`.
           systems::ValueProducer(false, &systems::ValueProducer::NoopCalc),
           {systems::System<T>::nothing_ticket()});
   cache_indexes_.non_contact_forces_evaluation_in_progress =
       non_contact_forces_evaluation_in_progress.cache_index();
+
+  MultibodyForces<T> model_forces(plant());
+  const auto& multibody_forces_cache_entry = DeclareCacheEntry(
+      "Discrete update multibody forces",
+      systems::ValueProducer(
+          this, model_forces,
+          &DiscreteUpdateManager<T>::CalcDiscreteUpdateMultibodyForces),
+      {systems::System<T>::xd_ticket(),
+       systems::System<T>::all_parameters_ticket()});
+  cache_indexes_.discrete_update_multibody_forces =
+      multibody_forces_cache_entry.cache_index();
+
+  const auto& contact_results_cache_entry = DeclareCacheEntry(
+      "Contact results (discrete)",
+      systems::ValueProducer(
+          this,
+          &DiscreteUpdateManager<T>::CalcContactResults),
+      {systems::System<T>::xd_ticket(),
+       systems::System<T>::all_parameters_ticket()});
+  cache_indexes_.contact_results = contact_results_cache_entry.cache_index();
 
   // Allow derived classes to declare their own cache entries.
   DoDeclareCacheEntries();
@@ -195,39 +215,54 @@ void DiscreteUpdateManager<T>::CalcForceElementsContribution(
 }
 
 template <typename T>
-const std::vector<internal::CouplerConstraintSpecs>&
+const internal::JointLockingCacheData<T>&
+DiscreteUpdateManager<T>::EvalJointLockingCache(
+    const systems::Context<T>& context) const {
+  return MultibodyPlantDiscreteUpdateManagerAttorney<T>::EvalJointLockingCache(
+      plant(), context);
+}
+
+template <typename T>
+VectorX<T> DiscreteUpdateManager<T>::AssembleActuationInput(
+    const systems::Context<T>& context) const {
+  return MultibodyPlantDiscreteUpdateManagerAttorney<T>::AssembleActuationInput(
+      plant(), context);
+}
+
+template <typename T>
+VectorX<T> DiscreteUpdateManager<T>::AssembleDesiredStateInput(
+    const systems::Context<T>& context) const {
+  return MultibodyPlantDiscreteUpdateManagerAttorney<
+      T>::AssembleDesiredStateInput(plant(), context);
+}
+
+template <typename T>
+const std::map<MultibodyConstraintId, internal::CouplerConstraintSpec>&
 DiscreteUpdateManager<T>::coupler_constraints_specs() const {
   return MultibodyPlantDiscreteUpdateManagerAttorney<
       T>::coupler_constraints_specs(*plant_);
 }
 
 template <typename T>
-const std::vector<int>& DiscreteUpdateManager<T>::EvalUnlockedVelocityIndices(
-    const systems::Context<T>& context) const {
-  return MultibodyPlantDiscreteUpdateManagerAttorney<
-      T>::EvalUnlockedVelocityIndices(plant(), context);
-}
-
-template <typename T>
-const std::vector<std::vector<int>>&
-DiscreteUpdateManager<T>::EvalUnlockedVelocityIndicesPerTree(
-    const systems::Context<T>& context) const {
-  return MultibodyPlantDiscreteUpdateManagerAttorney<
-      T>::EvalUnlockedVelocityIndicesPerTree(plant(), context);
-}
-
-template <typename T>
-const std::vector<internal::DistanceConstraintSpecs>&
+const std::map<MultibodyConstraintId, internal::DistanceConstraintSpec>&
 DiscreteUpdateManager<T>::distance_constraints_specs() const {
   return MultibodyPlantDiscreteUpdateManagerAttorney<
       T>::distance_constraints_specs(*plant_);
 }
 
 template <typename T>
-const std::vector<internal::BallConstraintSpecs>&
+const std::map<MultibodyConstraintId, internal::BallConstraintSpec>&
 DiscreteUpdateManager<T>::ball_constraints_specs() const {
   return MultibodyPlantDiscreteUpdateManagerAttorney<T>::ball_constraints_specs(
       *plant_);
+}
+
+template <typename T>
+const std::map<MultibodyConstraintId, bool>&
+DiscreteUpdateManager<T>::GetConstraintActiveStatus(
+    const systems::Context<T>& context) const {
+  return MultibodyPlantDiscreteUpdateManagerAttorney<
+      T>::GetConstraintActiveStatus(context, *plant_);
 }
 
 template <typename T>
@@ -307,6 +342,41 @@ void DiscreteUpdateManager<T>::CopyForcesFromInputPorts(
   forces->SetZero();
   MultibodyPlantDiscreteUpdateManagerAttorney<T>::AddInForcesFromInputPorts(
       plant(), context, forces);
+}
+
+template <typename T>
+void DiscreteUpdateManager<T>::CalcContactResults(
+    const systems::Context<T>& context,
+    ContactResults<T>* contact_results) const {
+  DRAKE_DEMAND(contact_results != nullptr);
+  plant().ValidateContext(context);
+  DoCalcContactResults(context, contact_results);
+}
+
+template <typename T>
+void DiscreteUpdateManager<T>::CalcDiscreteUpdateMultibodyForces(
+    const systems::Context<T>& context, MultibodyForces<T>* forces) const {
+  plant().ValidateContext(context);
+  DRAKE_DEMAND(forces != nullptr);
+  DRAKE_DEMAND(forces->CheckHasRightSizeForModel(plant()));
+  DoCalcDiscreteUpdateMultibodyForces(context, forces);
+}
+
+template <typename T>
+const MultibodyForces<T>&
+DiscreteUpdateManager<T>::EvalDiscreteUpdateMultibodyForces(
+    const systems::Context<T>& context) const {
+  return plant()
+      .get_cache_entry(cache_indexes_.discrete_update_multibody_forces)
+      .template Eval<MultibodyForces<T>>(context);
+}
+
+template <typename T>
+const ContactResults<T>& DiscreteUpdateManager<T>::EvalContactResults(
+    const systems::Context<T>& context) const {
+  return plant()
+      .get_cache_entry(cache_indexes_.contact_results)
+      .template Eval<ContactResults<T>>(context);
 }
 
 }  // namespace internal

@@ -126,11 +126,9 @@ class KukaIiwaArmTests : public ::testing::Test {
     // offset is zero, here we use an arbitrary set of values to verify later on
     // in the test that the manager created a constraint consistent with these
     // numbers.
-    const ConstraintIndex next_constraint_index(plant->num_constraints());
-    ConstraintIndex constraint_index =
-        plant->AddCouplerConstraint(left_finger_slider, right_finger_slider,
-                                    kCouplerGearRatio, kCouplerOffset);
-    EXPECT_EQ(constraint_index, next_constraint_index);
+    plant->AddCouplerConstraint(left_finger_slider, right_finger_slider,
+                                kCouplerGearRatio, kCouplerOffset);
+
     return models;
   }
 
@@ -547,9 +545,8 @@ TEST_F(KukaIiwaArmTests, CouplerConstraints) {
       plant_.GetJointByName("iiwa_joint_3", arm_gripper1[0]);
   const Joint<double>& arm2_joint6 =
       plant_.GetJointByName("iiwa_joint_6", arm_gripper2[0]);
-  ConstraintIndex constraint_index = plant_.AddCouplerConstraint(
-      arm1_joint3, arm2_joint6, kCouplerGearRatio, kCouplerOffset);
-  EXPECT_EQ(constraint_index, ConstraintIndex(2));
+  plant_.AddCouplerConstraint(arm1_joint3, arm2_joint6, kCouplerGearRatio,
+                              kCouplerOffset);
 
   plant_.Finalize();
 
@@ -677,8 +674,7 @@ TEST_F(KukaIiwaArmTests, CouplerConstraints) {
     EXPECT_EQ(params.impulse_lower_limits(), -kInfinity);
     EXPECT_EQ(params.impulse_upper_limits(), kInfinity);
     EXPECT_EQ(params.stiffnesses(), kInfinity);
-    EXPECT_EQ(params.relaxation_times(),
-              Vector1d::Constant(plant_.time_step()));
+    EXPECT_EQ(params.relaxation_times(), Vector1d::Zero());
     EXPECT_EQ(params.beta(), 0.1);
   }
 }

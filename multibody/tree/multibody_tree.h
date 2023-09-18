@@ -21,6 +21,7 @@
 #include "drake/common/pointer_cast.h"
 #include "drake/common/random.h"
 #include "drake/math/rigid_transform.h"
+#include "drake/multibody/topology/multibody_graph.h"
 #include "drake/multibody/tree/acceleration_kinematics_cache.h"
 #include "drake/multibody/tree/articulated_body_force_cache.h"
 #include "drake/multibody/tree/articulated_body_inertia_cache.h"
@@ -535,6 +536,19 @@ class MultibodyTree {
   //   already exists in the model. See HasModelInstanceNamed().
   // @throws std::exception if Finalize() was already called on `this` tree.
   ModelInstanceIndex AddModelInstance(const std::string& name);
+
+  // Renames an existing model instance.
+  //
+  // @param[in] model_instance
+  //   The instance to rename.
+  // @param[in] name
+  //   A string that uniquely identifies the instance within `this`
+  //   model.
+  // @throws std::exception if Finalize() was already called on `this` tree.
+  // @throws std::exception if `model_instance` is not a valid index.
+  // @throws std::exception if HasModelInstanceNamed(`name`) is true.
+  void RenameModelInstance(ModelInstanceIndex model_instance,
+                           const std::string& name);
 
   // @}
   // Closes Doxygen section "Methods to add new MultibodyTree elements."
@@ -1689,6 +1703,9 @@ class MultibodyTree {
       const systems::Context<T>& context) const;
 
   // See MultibodyPlant method.
+  bool IsVelocityEqualToQDot() const;
+
+  // See MultibodyPlant method.
   void MapVelocityToQDot(
       const systems::Context<T>& context,
       const Eigen::Ref<const VectorX<T>>& v,
@@ -1699,6 +1716,14 @@ class MultibodyTree {
       const systems::Context<T>& context,
       const Eigen::Ref<const VectorX<T>>& qdot,
       EigenPtr<VectorX<T>> v) const;
+
+  // See MultibodyPlant method.
+  Eigen::SparseMatrix<T> MakeVelocityToQDotMap(
+      const systems::Context<T>& context) const;
+
+  // See MultibodyPlant method.
+  Eigen::SparseMatrix<T> MakeQDotToVelocityMap(
+      const systems::Context<T>& context) const;
 
   /**
   @anchor internal_forward_dynamics
@@ -2264,6 +2289,18 @@ class MultibodyTree {
       tree_clone->CloneBodyAndAdd(body);
     }
 
+    // TODO(sherm1) Remove these unfortunate hacks needed to duplicate the
+    //  multibody graph. The upcoming LinkJointGraph is copyable. (Includes
+    //  Body here and Joint below.)
+
+    // Partially copy multibody_graph_. The looped calls to RegisterJointInGraph
+    // below copy the second half. Skip World since it was created by
+    // MultibodyTree's default constructor above.
+    for (BodyIndex index(1); index < num_bodies(); ++index) {
+      const Body<T>& body = get_body(index);
+      tree_clone->multibody_graph_.AddBody(body.name(), body.model_instance());
+    }
+
     // Frames are cloned in their index order, that is, in the exact same order
     // they were added to the original tree. Since the Frame API enforces the
     // creation of the parent frame first, this traversal guarantees that parent
@@ -2301,6 +2338,11 @@ class MultibodyTree {
 
     for (const auto& actuator : owned_actuators_) {
       tree_clone->CloneActuatorAndAdd(*actuator);
+    }
+
+    // Register the cloned Joints with the multibody_graph_.
+    for (JointIndex index(0); index < num_joints(); ++index) {
+      tree_clone->RegisterJointInGraph(tree_clone->get_joint(index));
     }
 
     // We can safely make a deep copy here since the original multibody tree is
@@ -2540,6 +2582,10 @@ class MultibodyTree {
   // properties will cause subsequent numerical problems.
   void ThrowDefaultMassInertiaError() const;
 
+  const internal::MultibodyGraph& multibody_graph() const {
+    return multibody_graph_;
+  }
+
  private:
   // Make MultibodyTree templated on every other scalar type a friend of
   // MultibodyTree<T> so that CloneToScalar<ToAnyOtherScalar>() can access
@@ -2620,6 +2666,15 @@ class MultibodyTree {
 
   [[noreturn]] void ThrowJointSubtypeMismatch(
       const Joint<T>&, std::string_view) const;
+
+  // If X_BF is nullopt, returns the body frame of `body`. Otherwise, adds a
+  // FixedOffsetFrame (named based on the joint_name and frame_suffix) to `body`
+  // and returns it.
+  const Frame<T>& AddOrGetJointFrame(
+      const Body<T>& body,
+      const std::optional<math::RigidTransform<double>>& X_BF,
+      ModelInstanceIndex joint_instance, std::string_view joint_name,
+      std::string_view frame_suffix);
 
   // Finalizes the MultibodyTreeTopology of this tree.
   void FinalizeTopology();
@@ -3004,6 +3059,18 @@ class MultibodyTree {
     name_to_index->emplace(std::move(key), index);
   }
 
+  // Registers a joint in the graph.
+  void RegisterJointInGraph(const Joint<T>& joint) {
+    const std::string type_name = joint.type_name();
+    if (!multibody_graph_.IsJointTypeRegistered(type_name)) {
+      multibody_graph_.RegisterJointType(type_name);
+    }
+    // Note changes in the graph.
+    multibody_graph_.AddJoint(joint.name(), joint.model_instance(), type_name,
+                              joint.parent_body().index(),
+                              joint.child_body().index());
+  }
+
   // If there exists a unique base body (a body whose parent is the world body)
   // in the model given by `model_instance`, return the index of that body.
   // Otherwise return std::nullopt. In particular, if the given `model_instance`
@@ -3019,6 +3086,10 @@ class MultibodyTree {
   // TODO(amcastro-tri): In future PR's adding MBT computational methods, write
   // a method that verifies the state of the topology with a signature similar
   // to RoadGeometry::CheckHasRightSizeForModel().
+
+  // A graph representing the body/joint topology of the multibody plant (Not
+  // to be confused with the spanning-tree model we will build for analysis.)
+  internal::MultibodyGraph multibody_graph_;
 
   const RigidBody<T>* world_body_{nullptr};
   std::vector<std::unique_ptr<Body<T>>> owned_bodies_;

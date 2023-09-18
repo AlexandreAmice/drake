@@ -1,3 +1,4 @@
+load("@drake//tools/skylark:drake_py.bzl", "drake_py_binary")
 load("//tools/skylark:py.bzl", "py_binary", "py_library")
 load("//tools/lint:lint.bzl", "add_lint_tests")
 load(
@@ -56,9 +57,23 @@ alias(
     actual = "//bindings/pydrake/visualization:model_visualizer",
 )
 
+drake_py_binary(
+    name = "model_visualizer_private",
+    testonly = True,
+    srcs = ["model_visualizer_private.py"],
+    data = ["//:some_test_models"],
+    visibility = ["//visibility:private"],
+    deps = ["//bindings/pydrake/visualization:model_visualizer"],
+)
+
 alias(
     name = "mesh_to_model",
     actual = "//bindings/pydrake/multibody:mesh_to_model",
+)
+
+alias(
+    name = "fix_inertia",
+    actual = "//bindings/pydrake/multibody:fix_inertia",
 )
 
 # === config_setting rules ===
@@ -83,6 +98,16 @@ config_setting(
 config_setting(
     name = "with_snopt",
     values = {"define": "WITH_SNOPT=ON"},
+)
+
+config_setting(
+    name = "using_sanitizer",
+    values = {"define": "USING_SANITIZER=ON"},
+)
+
+config_setting(
+    name = "using_memcheck",
+    values = {"define": "USING_MEMCHECK=ON"},
 )
 
 # CLP is an open-source solver, and is included in the Drake build by

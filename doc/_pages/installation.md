@@ -14,12 +14,13 @@ notebooks. See the [Tutorials](/index.html#tutorials) page for details.
 The following table shows the configurations and platforms that Drake
 officially supports:
 
-| Operating System ⁽¹⁾               | Architecture | Python ⁽²⁾ |
-|------------------------------------|--------------|------------|
-| Ubuntu 20.04 LTS (Focal Fossa)     | x86_64       | 3.8 ⁽³⁾    |
-| Ubuntu 22.04 LTS (Jammy Jellyfish) | x86_64       | 3.10 ⁽³⁾   |
-| macOS Monterey (12)                | x86_64       | 3.11       |
-| macOS Monterey (12)                | arm64        | 3.11       |
+| Operating System ⁽¹⁾               | Architecture | Python ⁽²⁾ | End of life ⁽⁴⁾ |
+|------------------------------------|--------------|------------|-----------------|
+| Ubuntu 20.04 LTS (Focal Fossa)     | x86_64       | 3.8 ⁽³⁾    | March 2024      |
+| Ubuntu 22.04 LTS (Jammy Jellyfish) | x86_64       | 3.10 ⁽³⁾   | March 2026      |
+| macOS Monterey (12)                | x86_64       | 3.11       | October 2023    |
+| macOS Monterey (12)                | arm64        | 3.11       | October 2023    |
+| macOS Ventura (13)                 | arm64        | 3.11       | October 2024    |
 
 "Official support" means that we have Continuous Integration test coverage to
 notice regressions, so if it doesn't work for you then please file a bug report.
@@ -34,16 +35,19 @@ require a working display server.  Most personal computers will have this
 already built in, but some cloud or docker environments may require extra
 setup steps.
 
-⁽²⁾ CPython is the only Python implementation supported. Drake does not support
-the Python environment supplied by Anaconda. Before installing or using Drake,
-please `conda deactivate` (repeatedly, until even the conda base environment has
-been deactivated) such that none of the paths reported `which -a python python3`
-refer to conda. Note that Miniconda seems to work fine; it's only Anaconda that
-has caused problems for some users.
+⁽²⁾ CPython is the only Python implementation supported.
+Drake is not tested regularly with Anaconda, so if you are using Anaconda you
+may experience compatibility hiccups; when asking for help, be sure to mention
+that Conda is involved.
 
 ⁽³⁾ The Python version shown in the table is supported for all installation
 channels. Additionally, on Ubuntu when installing via ``pip`` Python versions
 3.8 through 3.11 (inclusive) are supported.
+Refer to [OS Support](/stable.html#os-support) for details on our "end of life"
+timeline for changing which Python versions are supported.
+
+⁽⁴⁾ These end-of-life dates are estimates.
+Refer to [OS Support](/stable.html#os-support) for details.
 
 Additionally, if you are compiling your own C++ code against Drake's C++ code
 and are using Drake's pre-compiled binaries, then you must use the same
@@ -54,6 +58,7 @@ compiler as our releases:
 | Ubuntu 20.04 LTS (Focal Fossa)     | GCC 9                    | C++17 |
 | Ubuntu 22.04 LTS (Jammy Jellyfish) | GCC 11                   | C++20 |
 | macOS Monterey (12)                | Apple LLVM 14 (Xcode 14) | C++20 |
+| macOS Ventura (13)                 | Apple LLVM 14 (Xcode 14) | C++20 |
 
 ## Available Versions
 

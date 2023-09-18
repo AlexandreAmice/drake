@@ -107,6 +107,7 @@ drake_pybind_library(
         "//bindings/pydrake/common:deprecation_pybind",
         "//bindings/pydrake/common:serialize_pybind",
         "//bindings/pydrake/common:wrap_pybind",
+        "//systems/analysis:simulator_python_internal_header",
     ],
     cc_srcs = ["analysis_py.cc"],
     package_info = PACKAGE_INFO,
@@ -121,6 +122,7 @@ drake_pybind_library(
     cc_deps = [
         "//bindings/pydrake:documentation_pybind",
         "//bindings/pydrake:symbolic_types_pybind",
+        "//bindings/pydrake/common:deprecation_pybind",
         "//bindings/pydrake/common:wrap_pybind",
     ],
     cc_srcs = ["controllers_py.cc"],
@@ -201,7 +203,6 @@ drake_pybind_library(
     cc_deps = [
         ":lcm_pybind",
         "//bindings/pydrake:documentation_pybind",
-        "//bindings/pydrake/common:deprecation_pybind",
     ],
     cc_srcs = [
         "lcm_py.cc",
@@ -220,11 +221,12 @@ drake_pybind_library(
 
 drake_py_unittest(
     name = "lcm_test",
+    # See #19394, this test fails frequently on Mac ARM CI
+    flaky = True,
     deps = [
         ":analysis_py",
         ":lcm_py",
         ":primitives_py",
-        "//bindings/pydrake/common/test_utilities:deprecation_py",
     ],
 )
 
@@ -448,6 +450,7 @@ drake_py_unittest(
     ],
     deps = [
         ":controllers_py",
+        "//bindings/pydrake/common/test_utilities:deprecation_py",
         "//bindings/pydrake/examples",
         "//bindings/pydrake/multibody:parsing_py",
         "//bindings/pydrake/multibody:plant_py",
@@ -474,7 +477,6 @@ drake_py_unittest(
         ":primitives_py",
         ":test_util_py",
         "//bindings/pydrake:trajectories_py",
-        "//bindings/pydrake/common/test_utilities:deprecation_py",
         "//bindings/pydrake/common/test_utilities:numpy_compare_py",
     ],
 )

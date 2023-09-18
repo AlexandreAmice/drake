@@ -1,6 +1,3 @@
-#include "pybind11/pybind11.h"
-#include "pybind11/stl.h"
-
 #include "drake/bindings/pydrake/common/deprecation_pybind.h"
 #include "drake/bindings/pydrake/common/serialize_pybind.h"
 #include "drake/bindings/pydrake/documentation_pybind.h"
@@ -96,9 +93,6 @@ PYBIND11_MODULE(parsing, m) {
             cls_doc.plant.doc)
         .def("package_map", &Class::package_map, py_rvp::reference_internal,
             cls_doc.package_map.doc)
-        // TODO(rpoyner-tri): deprecate on or after 2023-01.
-        .def("AddAllModelsFromFile", &Class::AddAllModelsFromFile,
-            py::arg("file_name"), cls_doc.AddAllModelsFromFile.doc)
         .def(
             "AddModels",
             // Pybind11 won't implicitly convert strings to
@@ -120,8 +114,6 @@ PYBIND11_MODULE(parsing, m) {
         .def("AddModels", &Class::AddModelsFromString, py::kw_only(),
             py::arg("file_contents"), py::arg("file_type"),
             cls_doc.AddModelsFromString.doc)
-        .def("AddModelFromFile", &Class::AddModelFromFile, py::arg("file_name"),
-            py::arg("model_name") = "", cls_doc.AddModelFromFile.doc)
         .def("SetStrictParsing", &Class::SetStrictParsing,
             cls_doc.SetStrictParsing.doc)
         .def("SetAutoRenaming", &Class::SetAutoRenaming, py::arg("value"),
@@ -132,12 +124,14 @@ PYBIND11_MODULE(parsing, m) {
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
     cls  // BR
-        .def("AddModelFromString",
-            WrapDeprecated(cls_doc.AddModelFromString.doc_deprecated,
-                &Class::AddModelFromString),
-            py::arg("file_contents"), py::arg("file_type"),
-            py::arg("model_name") = "",
-            cls_doc.AddModelFromString.doc_deprecated);
+        .def("AddAllModelsFromFile",
+            WrapDeprecated(cls_doc.AddAllModelsFromFile.doc_deprecated,
+                &Class::AddAllModelsFromFile),
+            py::arg("file_name"))
+        .def("AddModelFromFile",
+            WrapDeprecated(cls_doc.AddModelFromFile.doc_deprecated,
+                &Class::AddModelFromFile),
+            py::arg("file_name"), py::arg("model_name") = "");
 #pragma GCC diagnostic pop
   }
 
@@ -268,15 +262,6 @@ PYBIND11_MODULE(parsing, m) {
       py::return_value_policy::reference,
       py::keep_alive<0, 1>(),  // `return` keeps `plant` alive.
       doc.parsing.GetScopedFrameByName.doc);
-
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-  m.def("GetScopedFrameName",
-      WrapDeprecated(doc.parsing.GetScopedFrameName.doc_deprecated,
-          &parsing::GetScopedFrameName),
-      py::arg("plant"), py::arg("frame"),
-      doc.parsing.GetScopedFrameName.doc_deprecated);
-#pragma GCC diagnostic push
 }
 
 }  // namespace pydrake

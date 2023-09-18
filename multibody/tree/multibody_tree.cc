@@ -73,6 +73,7 @@ MultibodyTree<T>::MultibodyTree() {
   // `world_model_instance()` hardcodes the returned index.  Make sure it's
   // correct.
   DRAKE_DEMAND(world_instance == world_model_instance());
+
   world_body_ = &AddRigidBody("world", world_model_instance(),
                               SpatialInertia<double>());
 
@@ -320,55 +321,26 @@ int MultibodyTree<T>::NumBodiesWithName(std::string_view name) const {
   return static_cast<int>(body_name_to_index_.count(name));
 }
 
-namespace {
-// In case the given (name, model_instance) uses the the deprecated name for
-// the world body, logs a warning and returns the non-deprecated name. Remove
-// this deprecation shim on or after 2023-06-01.
-std::string_view MaybeRewriteWorldBodyName(
-    std::string_view name, ModelInstanceIndex model_instance) {
-  if (model_instance == world_model_instance() && name == "WorldBody") {
-    static const logging::Warn log_once(
-        "MultibodyPlant's world body is named 'world' now, not 'WorldBody'. "
-        "Please update your hard-coded string literals to match. "
-        "The old name will no longer work on or after 2023-06-01.");
-    return "world";
-  }
-  return name;
-}
-}  // namespace
-
 template <typename T>
 bool MultibodyTree<T>::HasBodyNamed(std::string_view name) const {
-  const std::string_view rewritten_name = MaybeRewriteWorldBodyName(
-      name, world_model_instance());
-  return HasElementNamed(*this, rewritten_name, std::nullopt,
-    body_name_to_index_);
+  return HasElementNamed(*this, name, std::nullopt, body_name_to_index_);
 }
 
 template <typename T>
 bool MultibodyTree<T>::HasBodyNamed(
     std::string_view name, ModelInstanceIndex model_instance) const {
-  const std::string_view rewritten_name = MaybeRewriteWorldBodyName(
-      name, model_instance);
-  return HasElementNamed(*this, rewritten_name, model_instance,
-    body_name_to_index_);
+  return HasElementNamed(*this, name, model_instance, body_name_to_index_);
 }
 
 template <typename T>
 bool MultibodyTree<T>::HasFrameNamed(std::string_view name) const {
-  const std::string_view rewritten_name = MaybeRewriteWorldBodyName(
-      name, world_model_instance());
-  return HasElementNamed(*this, rewritten_name, std::nullopt,
-     frame_name_to_index_);
+  return HasElementNamed(*this, name, std::nullopt, frame_name_to_index_);
 }
 
 template <typename T>
 bool MultibodyTree<T>::HasFrameNamed(
     std::string_view name, ModelInstanceIndex model_instance) const {
-  const std::string_view rewritten_name = MaybeRewriteWorldBodyName(
-      name, model_instance);
-  return HasElementNamed(*this, rewritten_name, model_instance,
-      frame_name_to_index_);
+  return HasElementNamed(*this, name, model_instance, frame_name_to_index_);
 }
 
 template <typename T>
@@ -400,19 +372,13 @@ bool MultibodyTree<T>::HasModelInstanceNamed(std::string_view name) const {
 
 template <typename T>
 const Body<T>& MultibodyTree<T>::GetBodyByName(std::string_view name) const {
-  const std::string_view rewritten_name = MaybeRewriteWorldBodyName(
-      name, world_model_instance());
-  return GetElementByName(*this, rewritten_name, std::nullopt,
-      body_name_to_index_);
+  return GetElementByName(*this, name, std::nullopt, body_name_to_index_);
 }
 
 template <typename T>
 const Body<T>& MultibodyTree<T>::GetBodyByName(
     std::string_view name, ModelInstanceIndex model_instance) const {
-  const std::string_view rewritten_name =
-      MaybeRewriteWorldBodyName(name, model_instance);
-  return GetElementByName(*this, rewritten_name, model_instance,
-      body_name_to_index_);
+  return GetElementByName(*this, name, model_instance, body_name_to_index_);
 }
 
 template <typename T>
@@ -470,19 +436,13 @@ std::vector<FrameIndex> MultibodyTree<T>::GetFrameIndices(
 
 template <typename T>
 const Frame<T>& MultibodyTree<T>::GetFrameByName(std::string_view name) const {
-  const std::string_view rewritten_name = MaybeRewriteWorldBodyName(
-      name, world_model_instance());
-  return GetElementByName(*this, rewritten_name, std::nullopt,
-      frame_name_to_index_);
+  return GetElementByName(*this, name, std::nullopt, frame_name_to_index_);
 }
 
 template <typename T>
 const Frame<T>& MultibodyTree<T>::GetFrameByName(
     std::string_view name, ModelInstanceIndex model_instance) const {
-  const std::string_view rewritten_name = MaybeRewriteWorldBodyName(
-      name, model_instance);
-  return GetElementByName(*this, rewritten_name, model_instance,
-      frame_name_to_index_);
+  return GetElementByName(*this, name, model_instance, frame_name_to_index_);
 }
 
 template <typename T>
@@ -718,6 +678,21 @@ MultibodyTree<T>::GetFreeBodyMobilizerOrThrow(
 }
 
 template <typename T>
+const Frame<T>& MultibodyTree<T>::AddOrGetJointFrame(
+    const Body<T>& body,
+    const std::optional<math::RigidTransform<double>>& X_BF,
+    ModelInstanceIndex joint_instance, std::string_view joint_name,
+    std::string_view frame_suffix) {
+  if (X_BF.has_value()) {
+    return this->AddFrame<FixedOffsetFrame>(
+        fmt::format("{}_{}", joint_name, frame_suffix), body.body_frame(),
+        *X_BF, joint_instance);
+  } else {
+    return body.body_frame();
+  }
+}
+
+template <typename T>
 void MultibodyTree<T>::FinalizeTopology() {
   // If the topology is valid it means that this MultibodyTree was already
   // finalized. Re-compilation is not allowed.
@@ -804,6 +779,16 @@ void MultibodyTree<T>::Finalize() {
   CreateJointImplementations();
   FinalizeTopology();
   FinalizeInternals();
+
+  // Add free joints created by tree's finalize to the multibody graph.
+  // Until the call to Finalize(), all joints are added through calls to
+  // MultibodyPlant APIs and therefore registered in the graph. This accounts
+  // for the QuaternionFloatingJoint added for each free body that was not
+  // explicitly given a parent joint. It is important that this loop happens
+  // AFTER finalizing the tree.
+  for (JointIndex i{multibody_graph_.num_joints()}; i < num_joints(); ++i) {
+    RegisterJointInGraph(get_joint(i));
+  }
 }
 
 template <typename T>
@@ -1182,6 +1167,8 @@ void MultibodyTree<T>::CalcSpatialInertiasInWorld(
   const PositionKinematicsCache<T>& pc = this->EvalPositionKinematics(context);
 
   // Skip the world.
+  // TODO(joemasterjohn): Consider an optimization to avoid calculating spatial
+  // inertias for locked floating bodies.
   for (BodyIndex body_index(1); body_index < num_bodies(); ++body_index) {
     const Body<T>& body = get_body(body_index);
     const RigidTransform<T>& X_WB = pc.get_X_WB(body.node_index());
@@ -1253,6 +1240,8 @@ void MultibodyTree<T>::CalcSpatialAccelerationBias(
   // For the world body we opted for leaving Ab_WB initialized to NaN so that
   // an accidental usage (most likely indicating unnecessary math) in code would
   // immediately trigger a trail of NaNs that we can track to the source.
+  // TODO(joemasterjohn): Consider an optimization where we avoid computing
+  // `Ab_WB` for locked floating bodies.
   (*Ab_WB_all)[world_index()].SetNaN();
   for (BodyNodeIndex body_node_index(1); body_node_index < num_bodies();
        ++body_node_index) {
@@ -1276,6 +1265,8 @@ void MultibodyTree<T>::CalcArticulatedBodyForceBias(
   // For the world body we opted for leaving Zb_Bo_W initialized to NaN so that
   // an accidental usage (most likely indicating unnecessary math) in code would
   // immediately trigger a trail of NaNs that we can track to the source.
+  // TODO(joemasterjohn): Consider an optimization to avoid computing `Zb_Bo_W`
+  // for locked floating bodies.
   (*Zb_Bo_W_all)[world_index()].SetNaN();
   for (BodyNodeIndex body_node_index(1); body_node_index < num_bodies();
        ++body_node_index) {
@@ -1555,6 +1546,19 @@ void MultibodyTree<T>::AddJointDampingForces(
 }
 
 template <typename T>
+bool MultibodyTree<T>::IsVelocityEqualToQDot() const {
+  if (num_positions() != num_velocities()) {
+    return false;
+  }
+  for (const auto& mobilizer : owned_mobilizers_) {
+    if (!mobilizer->is_velocity_equal_to_qdot()) {
+      return false;
+    }
+  }
+  return true;
+}
+
+template <typename T>
 void MultibodyTree<T>::MapQDotToVelocity(
     const systems::Context<T>& context,
     const Eigen::Ref<const VectorX<T>>& qdot,
@@ -1591,6 +1595,70 @@ void MultibodyTree<T>::MapVelocityToQDot(
     mobilizer->MapVelocityToQDot(context, v_mobilizer, &qdot_mobilizer);
     mobilizer->get_mutable_positions_from_array(qdot) = qdot_mobilizer;
   }
+}
+
+template <typename T>
+Eigen::SparseMatrix<T> MultibodyTree<T>::MakeVelocityToQDotMap(
+    const systems::Context<T>& context) const {
+  Eigen::SparseMatrix<T> N(num_positions(), num_velocities());
+  if (IsVelocityEqualToQDot()) {
+    N.setIdentity();
+    return N;
+  }
+
+  // TODO(russt): Consider updating Mobilizer::CalcNMatrix to populate the
+  // SparseMatrix directly. But SparseMatrix does not support block writing
+  // operations, so we will likely need to pass the entire matrix, and each
+  // mobilizer will need to populate according to position_start_in_q() and
+  // velocity_start_in_v().
+  std::vector<Eigen::Triplet<T>> triplet_list;
+  // Note: We don't reserve storage for the triplet_list, because we don't have
+  // a useful estimate of the size in general.
+  Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic, 0, 7, 6> N_mobilizer;
+  for (const auto& mobilizer : owned_mobilizers_) {
+    N_mobilizer.resize(mobilizer->num_positions(), mobilizer->num_velocities());
+    mobilizer->CalcNMatrix(context, &N_mobilizer);
+    for (int i = 0; i < mobilizer->num_positions(); ++i) {
+      for (int j = 0; j < mobilizer->num_velocities(); ++j) {
+        if (N_mobilizer(i, j) != 0) {
+          triplet_list.push_back(Eigen::Triplet<T>(
+              mobilizer->position_start_in_q() + i,
+              mobilizer->velocity_start_in_v() + j, N_mobilizer(i, j)));
+        }
+      }
+    }
+  }
+  N.setFromTriplets(triplet_list.begin(), triplet_list.end());
+  return N;
+}
+
+template <typename T>
+Eigen::SparseMatrix<T> MultibodyTree<T>::MakeQDotToVelocityMap(
+      const systems::Context<T>& context) const {
+  Eigen::SparseMatrix<T> Nplus(num_velocities(), num_positions());
+  if (IsVelocityEqualToQDot()) {
+    Nplus.setIdentity();
+    return Nplus;
+  }
+
+  std::vector<Eigen::Triplet<T>> triplet_list;
+  Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic, 0, 6, 7> Nplus_mobilizer;
+  for (const auto& mobilizer : owned_mobilizers_) {
+    Nplus_mobilizer.resize(mobilizer->num_velocities(),
+                           mobilizer->num_positions());
+    mobilizer->CalcNplusMatrix(context, &Nplus_mobilizer);
+    for (int i = 0; i < mobilizer->num_velocities(); ++i) {
+      for (int j = 0; j < mobilizer->num_positions(); ++j) {
+        if (Nplus_mobilizer(i, j) != 0) {
+          triplet_list.push_back(Eigen::Triplet<T>(
+              mobilizer->velocity_start_in_v() + i,
+              mobilizer->position_start_in_q() + j, Nplus_mobilizer(i, j)));
+        }
+      }
+    }
+  }
+  Nplus.setFromTriplets(triplet_list.begin(), triplet_list.end());
+  return Nplus;
 }
 
 template <typename T>
@@ -2215,8 +2283,9 @@ void MultibodyTree<T>::CalcAcrossNodeJacobianWrtVExpressedInWorld(
   // Quick return on nv = 0. Nothing to compute.
   if (num_velocities() == 0) return;
 
-  for (BodyNodeIndex node_index(1);
-       node_index < num_bodies(); ++node_index) {
+  // TODO(joemasterjohn): Consider and optimization where we avoid computing
+  // `H_PB_W` for locked floating bodies.
+  for (BodyNodeIndex node_index(1); node_index < num_bodies(); ++node_index) {
     const BodyNode<T>& node = *body_nodes_[node_index];
 
     // The body-node hinge matrix is H_PB_W ∈ ℝ⁶ˣⁿᵐ, with nm ∈ [0; 6] the number

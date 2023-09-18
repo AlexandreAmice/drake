@@ -1,6 +1,7 @@
 load("@drake//tools/workspace:mirrors.bzl", "DEFAULT_MIRRORS")
 load("@drake//tools/workspace:os.bzl", "os_repository")
 load("@drake//tools/workspace/abseil_cpp_internal:repository.bzl", "abseil_cpp_internal_repository")  # noqa
+load("@drake//tools/workspace/bazelisk:repository.bzl", "bazelisk_repository")
 load("@drake//tools/workspace/bazel_skylib:repository.bzl", "bazel_skylib_repository")  # noqa
 load("@drake//tools/workspace/blas:repository.bzl", "blas_repository")
 load("@drake//tools/workspace/buildifier:repository.bzl", "buildifier_repository")  # noqa
@@ -8,11 +9,15 @@ load("@drake//tools/workspace/cc:repository.bzl", "cc_repository")
 load("@drake//tools/workspace/ccd_internal:repository.bzl", "ccd_internal_repository")  # noqa
 load("@drake//tools/workspace/clang_cindex_python3_internal:repository.bzl", "clang_cindex_python3_internal_repository")  # noqa
 load("@drake//tools/workspace/clp:repository.bzl", "clp_repository")
+load("@drake//tools/workspace/clp_internal:repository.bzl", "clp_internal_repository")  # noqa
+load("@drake//tools/workspace/coinutils_internal:repository.bzl", "coinutils_internal_repository")  # noqa
 load("@drake//tools/workspace/com_jidesoft_jide_oss:repository.bzl", "com_jidesoft_jide_oss_repository")  # noqa
 load("@drake//tools/workspace/common_robotics_utilities:repository.bzl", "common_robotics_utilities_repository")  # noqa
 load("@drake//tools/workspace/commons_io:repository.bzl", "commons_io_repository")  # noqa
 load("@drake//tools/workspace/conex:repository.bzl", "conex_repository")
+load("@drake//tools/workspace/conex_internal:repository.bzl", "conex_internal_repository")  # noqa
 load("@drake//tools/workspace/csdp:repository.bzl", "csdp_repository")
+load("@drake//tools/workspace/csdp_internal:repository.bzl", "csdp_internal_repository")  # noqa
 load("@drake//tools/workspace/curl_internal:repository.bzl", "curl_internal_repository")  # noqa
 load("@drake//tools/workspace/double_conversion:repository.bzl", "double_conversion_repository")  # noqa
 load("@drake//tools/workspace/doxygen:repository.bzl", "doxygen_repository")
@@ -33,10 +38,13 @@ load("@drake//tools/workspace/googlebenchmark:repository.bzl", "googlebenchmark_
 load("@drake//tools/workspace/gtest:repository.bzl", "gtest_repository")
 load("@drake//tools/workspace/gurobi:repository.bzl", "gurobi_repository")
 load("@drake//tools/workspace/gym_py:repository.bzl", "gym_py_repository")
+load("@drake//tools/workspace/gymnasium_py:repository.bzl", "gymnasium_py_repository")  # noqa
 load("@drake//tools/workspace/gz_math_internal:repository.bzl", "gz_math_internal_repository")  # noqa
 load("@drake//tools/workspace/gz_utils_internal:repository.bzl", "gz_utils_internal_repository")  # noqa
 load("@drake//tools/workspace/intel_realsense_ros_internal:repository.bzl", "intel_realsense_ros_internal_repository")  # noqa
 load("@drake//tools/workspace/ipopt:repository.bzl", "ipopt_repository")
+load("@drake//tools/workspace/ipopt_internal_fromsource:repository.bzl", "ipopt_internal_fromsource_repository")  # noqa
+load("@drake//tools/workspace/ipopt_internal_pkgconfig:repository.bzl", "ipopt_internal_pkgconfig_repository")  # noqa
 load("@drake//tools/workspace/lapack:repository.bzl", "lapack_repository")
 load("@drake//tools/workspace/lcm:repository.bzl", "lcm_repository")
 load("@drake//tools/workspace/libblas:repository.bzl", "libblas_repository")
@@ -51,10 +59,12 @@ load("@drake//tools/workspace/libtiff:repository.bzl", "libtiff_repository")
 load("@drake//tools/workspace/meshcat:repository.bzl", "meshcat_repository")
 load("@drake//tools/workspace/mosek:repository.bzl", "mosek_repository")
 load("@drake//tools/workspace/msgpack_internal:repository.bzl", "msgpack_internal_repository")  # noqa
+load("@drake//tools/workspace/mumps_internal:repository.bzl", "mumps_internal_repository")  # noqa
 load("@drake//tools/workspace/mypy_extensions_internal:repository.bzl", "mypy_extensions_internal_repository")  # noqa
 load("@drake//tools/workspace/mypy_internal:repository.bzl", "mypy_internal_repository")  # noqa
 load("@drake//tools/workspace/nanoflann_internal:repository.bzl", "nanoflann_internal_repository")  # noqa
 load("@drake//tools/workspace/net_sf_jchart2d:repository.bzl", "net_sf_jchart2d_repository")  # noqa
+load("@drake//tools/workspace/nlohmann_internal:repository.bzl", "nlohmann_internal_repository")  # noqa
 load("@drake//tools/workspace/nlopt_internal:repository.bzl", "nlopt_internal_repository")  # noqa
 load("@drake//tools/workspace/openblas:repository.bzl", "openblas_repository")
 load("@drake//tools/workspace/opencl:repository.bzl", "opencl_repository")
@@ -64,6 +74,7 @@ load("@drake//tools/workspace/org_apache_xmlgraphics_commons:repository.bzl", "o
 load("@drake//tools/workspace/osqp_internal:repository.bzl", "osqp_internal_repository")  # noqa
 load("@drake//tools/workspace/petsc:repository.bzl", "petsc_repository")
 load("@drake//tools/workspace/picosha2:repository.bzl", "picosha2_repository")
+load("@drake//tools/workspace/picosha2_internal:repository.bzl", "picosha2_internal_repository")  # noqa
 load("@drake//tools/workspace/platforms:repository.bzl", "platforms_repository")  # noqa
 load("@drake//tools/workspace/pybind11:repository.bzl", "pybind11_repository")
 load("@drake//tools/workspace/pycodestyle:repository.bzl", "pycodestyle_repository")  # noqa
@@ -83,14 +94,18 @@ load("@drake//tools/workspace/stduuid_internal:repository.bzl", "stduuid_interna
 load("@drake//tools/workspace/styleguide:repository.bzl", "styleguide_repository")  # noqa
 load("@drake//tools/workspace/suitesparse_internal:repository.bzl", "suitesparse_internal_repository")  # noqa
 load("@drake//tools/workspace/tinyobjloader:repository.bzl", "tinyobjloader_repository")  # noqa
+load("@drake//tools/workspace/tinyobjloader_internal:repository.bzl", "tinyobjloader_internal_repository")  # noqa
 load("@drake//tools/workspace/tinyxml2_internal:repository.bzl", "tinyxml2_internal_repository")  # noqa
 load("@drake//tools/workspace/tomli_internal:repository.bzl", "tomli_internal_repository")  # noqa
 load("@drake//tools/workspace/typing_extensions_internal:repository.bzl", "typing_extensions_internal_repository")  # noqa
 load("@drake//tools/workspace/uritemplate_py_internal:repository.bzl", "uritemplate_py_internal_repository")  # noqa
 load("@drake//tools/workspace/usockets:repository.bzl", "usockets_repository")  # noqa
+load("@drake//tools/workspace/usockets_internal:repository.bzl", "usockets_internal_repository")  # noqa
 load("@drake//tools/workspace/uwebsockets:repository.bzl", "uwebsockets_repository")  # noqa
+load("@drake//tools/workspace/uwebsockets_internal:repository.bzl", "uwebsockets_internal_repository")  # noqa
 load("@drake//tools/workspace/voxelized_geometry_tools:repository.bzl", "voxelized_geometry_tools_repository")  # noqa
 load("@drake//tools/workspace/vtk:repository.bzl", "vtk_repository")
+load("@drake//tools/workspace/vtk_internal:repository.bzl", "vtk_internal_repository")  # noqa
 load("@drake//tools/workspace/x11:repository.bzl", "x11_repository")
 load("@drake//tools/workspace/xmlrunner_py:repository.bzl", "xmlrunner_py_repository")  # noqa
 load("@drake//tools/workspace/yaml_cpp_internal:repository.bzl", "yaml_cpp_internal_repository")  # noqa
@@ -108,6 +123,8 @@ def add_default_repositories(excludes = [], mirrors = DEFAULT_MIRRORS):
     """
     if "abseil_cpp_internal" not in excludes:
         abseil_cpp_internal_repository(name = "abseil_cpp_internal", mirrors = mirrors)  # noqa
+    if "bazelisk" not in excludes:
+        bazelisk_repository(name = "bazelisk", mirrors = mirrors)
     if "bazel_skylib" not in excludes:
         bazel_skylib_repository(name = "bazel_skylib", mirrors = mirrors)
     if "blas" not in excludes:
@@ -121,7 +138,13 @@ def add_default_repositories(excludes = [], mirrors = DEFAULT_MIRRORS):
     if "clang_cindex_python3_internal" not in excludes:
         clang_cindex_python3_internal_repository(name = "clang_cindex_python3_internal", mirrors = mirrors)  # noqa
     if "clp" not in excludes:
+        # The @clp external is deprecated in Drake's WORKSPACE and will be
+        # removed on or after 2023-12-01.
         clp_repository(name = "clp")
+    if "clp_internal" not in excludes:
+        clp_internal_repository(name = "clp_internal", mirrors = mirrors)
+    if "coinutils_internal" not in excludes:
+        coinutils_internal_repository(name = "coinutils_internal", mirrors = mirrors)  # noqa
     if "com_jidesoft_jide_oss" not in excludes:
         com_jidesoft_jide_oss_repository(name = "com_jidesoft_jide_oss", mirrors = mirrors)  # noqa
     if "common_robotics_utilities" not in excludes:
@@ -129,12 +152,22 @@ def add_default_repositories(excludes = [], mirrors = DEFAULT_MIRRORS):
     if "commons_io" not in excludes:
         commons_io_repository(name = "commons_io", mirrors = mirrors)
     if "conex" not in excludes:
+        # The @conex external is deprecated in Drake's WORKSPACE and will be
+        # removed on or after 2023-11-01.
         conex_repository(name = "conex", mirrors = mirrors)
+    if "conex_internal" not in excludes:
+        conex_internal_repository(name = "conex_internal", mirrors = mirrors)
     if "csdp" not in excludes:
+        # The @csdp external is deprecated in Drake's WORKSPACE and will be
+        # removed on or after 2023-11-01.
         csdp_repository(name = "csdp", mirrors = mirrors)
+    if "csdp_internal" not in excludes:
+        csdp_internal_repository(name = "csdp_internal", mirrors = mirrors)
     if "curl_internal" not in excludes:
         curl_internal_repository(name = "curl_internal", mirrors = mirrors)
     if "double_conversion" not in excludes:
+        # The @double_conversion external is deprecated in Drake's WORKSPACE
+        # and will be removed on or after 2024-01-01.
         double_conversion_repository(name = "double_conversion")
     if "doxygen" not in excludes:
         doxygen_repository(name = "doxygen", mirrors = mirrors)
@@ -161,6 +194,8 @@ def add_default_repositories(excludes = [], mirrors = DEFAULT_MIRRORS):
     if "github3_py_internal" not in excludes:
         github3_py_internal_repository(name = "github3_py_internal", mirrors = mirrors)  # noqa
     if "glew" not in excludes:
+        # The @glew external is deprecated in Drake's WORKSPACE and will be
+        # removed on or after 2024-01-01.
         glew_repository(name = "glew")
     if "glib" not in excludes:
         glib_repository(name = "glib")
@@ -177,11 +212,20 @@ def add_default_repositories(excludes = [], mirrors = DEFAULT_MIRRORS):
     if "gz_utils_internal" not in excludes:
         gz_utils_internal_repository(name = "gz_utils_internal", mirrors = mirrors)  # noqa
     if "gym_py" not in excludes:
+        # The @gym_py external is deprecated and will be removed from Drake's
+        # WORKSPACE on or after 2023-12-01; see @gymnasium_py for an available
+        # newer replacement.
         gym_py_repository(name = "gym_py", mirrors = mirrors)
+    if "gymnasium_py" not in excludes:
+        gymnasium_py_repository(name = "gymnasium_py", mirrors = mirrors)
     if "intel_realsense_ros_internal" not in excludes:
         intel_realsense_ros_internal_repository(name = "intel_realsense_ros_internal", mirrors = mirrors)  # noqa
     if "ipopt" not in excludes:
         ipopt_repository(name = "ipopt")
+    if "ipopt_internal_fromsource" not in excludes:
+        ipopt_internal_fromsource_repository(name = "ipopt_internal_fromsource", mirrors = mirrors)  # noqa
+    if "ipopt_internal_pkgconfig" not in excludes:
+        ipopt_internal_pkgconfig_repository(name = "ipopt_internal_pkgconfig")
     if "lapack" not in excludes:
         lapack_repository(name = "lapack")
     if "lcm" not in excludes:
@@ -195,8 +239,12 @@ def add_default_repositories(excludes = [], mirrors = DEFAULT_MIRRORS):
     if "liblapack" not in excludes:
         liblapack_repository(name = "liblapack")
     if "liblz4" not in excludes:
+        # The @liblz4 external is deprecated in Drake's WORKSPACE and will be
+        # removed on or after 2024-01-01.
         liblz4_repository(name = "liblz4")
     if "liblzma" not in excludes:
+        # The @liblzma external is deprecated in Drake's WORKSPACE and will be
+        # removed on or after 2024-01-01.
         liblzma_repository(name = "liblzma")
     if "libpfm" not in excludes:
         libpfm_repository(name = "libpfm")
@@ -210,6 +258,8 @@ def add_default_repositories(excludes = [], mirrors = DEFAULT_MIRRORS):
         mosek_repository(name = "mosek")
     if "msgpack_internal" not in excludes:
         msgpack_internal_repository(name = "msgpack_internal", mirrors = mirrors)  # noqa
+    if "mumps_internal" not in excludes:
+        mumps_internal_repository(name = "mumps_internal")
     if "mypy_extensions_internal" not in excludes:
         mypy_extensions_internal_repository(name = "mypy_extensions_internal", mirrors = mirrors)  # noqa
     if "mypy_internal" not in excludes:
@@ -218,6 +268,8 @@ def add_default_repositories(excludes = [], mirrors = DEFAULT_MIRRORS):
         nanoflann_internal_repository(name = "nanoflann_internal", mirrors = mirrors)  # noqa
     if "net_sf_jchart2d" not in excludes:
         net_sf_jchart2d_repository(name = "net_sf_jchart2d", mirrors = mirrors)
+    if "nlohmann_internal" not in excludes:
+        nlohmann_internal_repository(name = "nlohmann_internal", mirrors = mirrors)  # noqa
     if "nlopt_internal" not in excludes:
         nlopt_internal_repository(name = "nlopt_internal", mirrors = mirrors)
     if "openblas" not in excludes:
@@ -227,15 +279,23 @@ def add_default_repositories(excludes = [], mirrors = DEFAULT_MIRRORS):
     if "opengl" not in excludes:
         opengl_repository(name = "opengl")
     if "optitrack_driver" not in excludes:
+        # The @optitrack_driver external is deprecated and will be removed on
+        # or after 2023-11-01.
         optitrack_driver_repository(name = "optitrack_driver", mirrors = mirrors)  # noqa
     if "org_apache_xmlgraphics_commons" not in excludes:
         org_apache_xmlgraphics_commons_repository(name = "org_apache_xmlgraphics_commons", mirrors = mirrors)  # noqa
     if "osqp_internal" not in excludes:
         osqp_internal_repository(name = "osqp_internal", mirrors = mirrors)
     if "petsc" not in excludes:
+        # The @petsc external is deprecated in Drake's WORKSPACE and will be
+        # removed on or after 2023-11-01.
         petsc_repository(name = "petsc", mirrors = mirrors)
     if "picosha2" not in excludes:
+        # The @picosha2 external is deprecated in Drake's WORKSPACE and will
+        # be removed on or after 2023-11-01.
         picosha2_repository(name = "picosha2", mirrors = mirrors)
+    if "picosha2_internal" not in excludes:
+        picosha2_internal_repository(name = "picosha2_internal", mirrors = mirrors)  # noqa
     if "platforms" not in excludes:
         platforms_repository(name = "platforms", mirrors = mirrors)
     if "pybind11" not in excludes:
@@ -251,6 +311,8 @@ def add_default_repositories(excludes = [], mirrors = DEFAULT_MIRRORS):
     if "ros_xacro_internal" not in excludes:
         ros_xacro_internal_repository(name = "ros_xacro_internal", mirrors = mirrors)  # noqa
     if "rules_pkg" not in excludes:
+        # The @rules_pkg external is deprecated in Drake's WORKSPACE and will
+        # be removed on or after 2023-11-01.
         rules_pkg_repository(name = "rules_pkg", mirrors = mirrors)
     if "rules_python" not in excludes:
         rules_python_repository(name = "rules_python", mirrors = mirrors)
@@ -273,7 +335,11 @@ def add_default_repositories(excludes = [], mirrors = DEFAULT_MIRRORS):
     if "suitesparse_internal" not in excludes:
         suitesparse_internal_repository(name = "suitesparse_internal", mirrors = mirrors)  # noqa
     if "tinyobjloader" not in excludes:
+        # The @tinyobjloader external is deprecated in Drake's WORKSPACE and
+        # will be removed on or after 2023-11-01.
         tinyobjloader_repository(name = "tinyobjloader", mirrors = mirrors)
+    if "tinyobjloader_internal" not in excludes:
+        tinyobjloader_internal_repository(name = "tinyobjloader_internal", mirrors = mirrors)  # noqa
     if "tinyxml2_internal" not in excludes:
         tinyxml2_internal_repository(name = "tinyxml2_internal", mirrors = mirrors)  # noqa
     if "tomli_internal" not in excludes:
@@ -283,13 +349,25 @@ def add_default_repositories(excludes = [], mirrors = DEFAULT_MIRRORS):
     if "uritemplate_py_internal" not in excludes:
         uritemplate_py_internal_repository(name = "uritemplate_py_internal", mirrors = mirrors)  # noqa
     if "usockets" not in excludes:
+        # The @usockets external is deprecated in Drake's WORKSPACE and will be
+        # removed on or after 2023-11-01.
         usockets_repository(name = "usockets", mirrors = mirrors)
+    if "usockets_internal" not in excludes:
+        usockets_internal_repository(name = "usockets_internal", mirrors = mirrors)  # noqa
     if "uwebsockets" not in excludes:
+        # The @uwebsockets external is deprecated in Drake's WORKSPACE and will
+        # be removed on or after 2023-11-01.
         uwebsockets_repository(name = "uwebsockets", mirrors = mirrors)
+    if "uwebsockets_internal" not in excludes:
+        uwebsockets_internal_repository(name = "uwebsockets_internal", mirrors = mirrors)  # noqa
     if "voxelized_geometry_tools" not in excludes:
         voxelized_geometry_tools_repository(name = "voxelized_geometry_tools", mirrors = mirrors)  # noqa
     if "vtk" not in excludes:
+        # The @vtk external is deprecated in Drake's WORKSPACE and will be
+        # removed on or after 2024-01-01.
         vtk_repository(name = "vtk", mirrors = mirrors)
+    if "vtk_internal" not in excludes:
+        vtk_internal_repository(name = "vtk_internal", mirrors = mirrors)
     if "x11" not in excludes:
         x11_repository(name = "x11")
     if "xmlrunner_py" not in excludes:

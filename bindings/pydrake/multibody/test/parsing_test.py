@@ -8,7 +8,6 @@ from pydrake.multibody.parsing import (
     AddModelInstance,
     AddWeld,
     GetScopedFrameByName,
-    GetScopedFrameName,
     LoadModelDirectives,
     LoadModelDirectivesFromString,
     ModelDirective,
@@ -102,6 +101,21 @@ class TestParsing(unittest.TestCase):
             "drake/multibody/benchmarks/acrobot/acrobot.sdf")
         urdf_file = FindResourceOrThrow(
             "drake/multibody/benchmarks/acrobot/acrobot.urdf")
+        for dut, file_name in (
+                (Parser.AddModels, sdf_file),
+                (Parser.AddModels, urdf_file),
+                ):
+            plant = MultibodyPlant(time_step=0.01)
+            parser = Parser(plant=plant)
+            result = dut(parser, file_name=file_name)
+            self.assertIsInstance(result, list)
+            self.assertIsInstance(result[0], ModelInstanceIndex)
+
+    def test_parser_file_deprecated(self):
+        sdf_file = FindResourceOrThrow(
+            "drake/multibody/benchmarks/acrobot/acrobot.sdf")
+        urdf_file = FindResourceOrThrow(
+            "drake/multibody/benchmarks/acrobot/acrobot.urdf")
         for dut, file_name, model_name, result_dim in (
                 (Parser.AddModelFromFile, sdf_file, None, int),
                 (Parser.AddModelFromFile, sdf_file, "", int),
@@ -111,16 +125,16 @@ class TestParsing(unittest.TestCase):
                 (Parser.AddModelFromFile, urdf_file, "a", int),
                 (Parser.AddAllModelsFromFile, sdf_file, None, list),
                 (Parser.AddAllModelsFromFile, urdf_file, None, list),
-                (Parser.AddModels, sdf_file, None, list),
-                (Parser.AddModels, urdf_file, None, list),
                 ):
             plant = MultibodyPlant(time_step=0.01)
             parser = Parser(plant=plant)
-            if model_name is None:
-                result = dut(parser, file_name=file_name)
-            else:
-                result = dut(parser, file_name=file_name,
-                             model_name=model_name)
+
+            with catch_drake_warnings(expected_count=1):
+                if model_name is None:
+                    result = dut(parser, file_name=file_name)
+                else:
+                    result = dut(parser, file_name=file_name,
+                                 model_name=model_name)
             if result_dim is int:
                 self.assertIsInstance(result, ModelInstanceIndex)
             else:
@@ -134,13 +148,6 @@ class TestParsing(unittest.TestCase):
             "drake/multibody/benchmarks/acrobot/acrobot.sdf")
         with open(sdf_file, "r") as f:
             sdf_contents = f.read()
-        plant = MultibodyPlant(time_step=0.01)
-        parser = Parser(plant=plant)
-        self.assertEqual(parser.plant(), plant)
-        with catch_drake_warnings(expected_count=1):
-            result = parser.AddModelFromString(
-                file_contents=sdf_contents, file_type="sdf")
-        self.assertIsInstance(result, ModelInstanceIndex)
 
         plant = MultibodyPlant(time_step=0.01)
         parser = Parser(plant=plant)
@@ -234,9 +241,7 @@ class TestParsing(unittest.TestCase):
 
     def test_scoped_frame_names(self):
         plant = MultibodyPlant(time_step=0.01)
-        frame = GetScopedFrameByName(plant, "world")
-        with catch_drake_warnings(expected_count=1):
-            self.assertIsNotNone(GetScopedFrameName(plant, frame))
+        GetScopedFrameByName(plant, "world")
 
     def _make_plant_parser_directives(self):
         """Returns a tuple (plant, parser, directives) for later testing."""

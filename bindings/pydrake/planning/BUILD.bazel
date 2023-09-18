@@ -27,7 +27,6 @@ drake_pybind_library(
         "//bindings/pydrake:documentation_pybind",
         "//bindings/pydrake/common:cpp_template_pybind",
         "//bindings/pydrake/common:default_scalars_pybind",
-        "//bindings/pydrake/common:deprecation_pybind",
         "//bindings/pydrake/common:wrap_pybind",
         "//bindings/pydrake/geometry:optimization_pybind",
     ],
@@ -39,6 +38,7 @@ drake_pybind_library(
         "planning_py_collision_checker_interface_types.cc",
         "planning_py_robot_diagram.cc",
         "planning_py_trajectory_optimization.cc",
+        "planning_py_visibility_graph.cc",
     ],
     package_info = PACKAGE_INFO,
     py_deps = [
@@ -66,10 +66,11 @@ drake_py_unittest(
         "//multibody:models",
         "//planning/test_utilities:collision_ground_plane.sdf",
     ],
+    num_threads = 2,
     deps = [
         ":planning",
-        "//bindings/pydrake/common/test_utilities:deprecation_py",
         "//bindings/pydrake/common/test_utilities:numpy_compare_py",
+        "//bindings/pydrake/common/test_utilities:scipy_stub_py",
     ],
 )
 
@@ -80,7 +81,6 @@ drake_py_unittest(
     ],
     deps = [
         ":planning",
-        "//bindings/pydrake/common/test_utilities:deprecation_py",
         "//bindings/pydrake/common/test_utilities:numpy_compare_py",
     ],
 )

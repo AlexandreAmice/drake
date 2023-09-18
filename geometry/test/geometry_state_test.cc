@@ -9,6 +9,7 @@
 #include <utility>
 #include <vector>
 
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 #include "drake/common/eigen_types.h"
@@ -552,6 +553,15 @@ class GeometryStateTestBase {
     return source_id_;
   }
 
+  template <typename PropertyType>
+  void AssignRoleToSingleSourceTree(const PropertyType& properties) {
+    ASSERT_TRUE(source_id_.is_valid());
+    for (GeometryId id : geometries_) {
+      geometry_state_.AssignRole(source_id_, id, properties);
+    }
+    geometry_state_.AssignRole(source_id_, anchored_geometry_, properties);
+  }
+
   // This function sets up a dummy GeometryState that contains both rigid
   // (non-deformable) and deformable geometries to facilitate testing.
   SourceId SetUpWithRigidAndDeformableGeometries() {
@@ -677,15 +687,6 @@ class GeometryStateTestBase {
     // get thrown out.
     properties.AddProperty("test", "value", 17);
     AssignRoleToSingleSourceTree(properties);
-  }
-
-  template <typename PropertyType>
-  void AssignRoleToSingleSourceTree(const PropertyType& properties) {
-    ASSERT_TRUE(source_id_.is_valid());
-    for (GeometryId id : geometries_) {
-      geometry_state_.AssignRole(source_id_, id, properties);
-    }
-    geometry_state_.AssignRole(source_id_, anchored_geometry_, properties);
   }
 };
 
@@ -855,6 +856,15 @@ TEST_F(GeometryStateTest, SourceRegistrationWithNames) {
   EXPECT_TRUE(geometry_state_.SourceIsRegistered(s_id));
   EXPECT_EQ(geometry_state_.GetName(s_id), name);
 
+  // The first source id is the internal source.
+  ASSERT_EQ(geometry_state_.GetAllSourceIds().size(), 2);
+  const SourceId world_source = geometry_state_.GetAllSourceIds().front();
+  EXPECT_THAT(geometry_state_.FramesForSource(world_source),
+              testing::ElementsAre(gs_tester_.get_world_frame()));
+
+  // The second source id is the one we added.
+  EXPECT_EQ(geometry_state_.GetAllSourceIds().back(), s_id);
+
   // Case: User-specified name duplicates previously registered name.
   DRAKE_EXPECT_THROWS_MESSAGE(
       geometry_state_.RegisterNewSource(name),
@@ -909,6 +919,39 @@ TEST_F(GeometryStateTest, GetOwningSourceName) {
   DRAKE_EXPECT_THROWS_MESSAGE(
       geometry_state_.GetOwningSourceName(GeometryId::get_new_id()),
       "Geometry id .* does not map to a registered geometry");
+}
+
+TEST_F(GeometryStateTest, RenameFrame) {
+  SetUpSingleSourceTree();
+  DRAKE_EXPECT_THROWS_MESSAGE(
+      geometry_state_.RenameFrame(FrameId::get_new_id(), "invalid"),
+      ".*Cannot rename.*invalid frame id:.*");
+  DRAKE_EXPECT_THROWS_MESSAGE(
+      geometry_state_.RenameFrame(frames_[0], "f1"),
+      ".*already existing.*");
+
+  // Renaming a frame to its existing name does not cause errors.
+  std::string original_name0(geometry_state_.GetName(frames_[0]));
+  geometry_state_.RenameFrame(frames_[0], original_name0);
+  EXPECT_EQ(geometry_state_.GetName(frames_[0]), original_name0);
+
+  geometry_state_.RenameFrame(frames_[0], "something");
+  EXPECT_EQ(geometry_state_.GetName(frames_[0]), "something");
+}
+
+TEST_F(GeometryStateTest, RenameGeometry) {
+  SetUpSingleSourceTree();
+  DRAKE_EXPECT_THROWS_MESSAGE(
+      geometry_state_.RenameGeometry(GeometryId::get_new_id(), "invalid"),
+      ".*Cannot rename.*invalid geometry id:.*");
+
+  // Renaming a geometry to its existing name does not cause errors.
+  std::string original_name0(geometry_state_.GetName(geometries_[0]));
+  geometry_state_.RenameGeometry(geometries_[0], original_name0);
+  EXPECT_EQ(geometry_state_.GetName(geometries_[0]), original_name0);
+
+  geometry_state_.RenameGeometry(geometries_[0], "something");
+  EXPECT_EQ(geometry_state_.GetName(geometries_[0]), "something");
 }
 
 // Compares the transmogrified geometry state (embedded in its tester) against
@@ -2542,6 +2585,73 @@ TEST_F(GeometryStateTest, NonProximityRoleInCollisionFilter) {
   EXPECT_EQ(static_cast<int>(pairs.size()), expected_collisions);
 }
 
+// Tests two aspects of GeometryState collision filter behavior:
+//
+//   1. No collision filters are applied to a deformable geometry (it and the
+//      anchored geometry are both registered to the world frame) automatically.
+//   2. GeometryState::CollectIds() respects the scope parameter in applying
+//      collision filters.
+//
+// This is tested by calling ComputeDeformableContact(). In its initial state,
+// we should report contact between a massive deformable geometry and *all*
+// rigid geometries. Then applying a collision filter between the deformable
+// geometry and one of the rigid geometries will reduce the number of contacts
+// by one.
+TEST_F(GeometryStateTest, CollisionFilterRespectsScope) {
+  SourceId s_id = SetUpSingleSourceTree();
+
+  // Give all rigid geometries resolution hint so that they can collide with
+  // deformable geometries.
+  ProximityProperties rigid_properties;
+  rigid_properties.AddProperty(internal::kHydroGroup, internal::kRezHint, 10.0);
+  AssignRoleToSingleSourceTree(rigid_properties);
+
+  // Pose all of the frames to the specified poses in their parent frame.
+  FramePoseVector<double> poses;
+  for (int f = 0; f < static_cast<int>(frames_.size()); ++f) {
+    poses.set_value(frames_[f], X_PFs_[f]);
+  }
+  gs_tester_.SetFramePoses(source_id_, poses,
+                           &gs_tester_.mutable_kinematics_data());
+  gs_tester_.FinalizePoseUpdate();
+
+  // Register a giant deformable geometry that's guaranteed to be in collision
+  // with every single rigid geometry.
+  const Sphere sphere(200.0);
+  constexpr double kRezHint = 100.0;
+  auto instance = make_unique<GeometryInstance>(
+      RigidTransformd::Identity(), make_unique<Sphere>(sphere), "deformable");
+  instance->set_proximity_properties(ProximityProperties());
+  GeometryId deformable_id = geometry_state_.RegisterDeformableGeometry(
+      s_id, InternalFrame::world_frame_id(), std::move(instance), kRezHint);
+  internal::DeformableContact<double> contacts;
+  geometry_state_.ComputeDeformableContact(&contacts);
+  EXPECT_EQ(contacts.contact_surfaces().size(),
+            single_tree_total_geometry_count());
+
+  // Attempting to filter collisions with scope omitting deformable geometries
+  // should have no effect on the number of collisions.
+  geometry_state_.collision_filter_manager().Apply(
+      CollisionFilterDeclaration(CollisionFilterScope::kOmitDeformable)
+          .ExcludeBetween(GeometrySet{deformable_id},
+                          GeometrySet(geometries_)));
+  geometry_state_.ComputeDeformableContact(&contacts);
+  EXPECT_EQ(contacts.contact_surfaces().size(),
+            single_tree_total_geometry_count());
+
+  // Filter with the kAll flag as the scope should have an effect. The collision
+  // between the deformable geometry and one dynamic rigid geometry and one
+  // anchored rigid geometry are filtered, so the number of collisions should
+  // reduce by 2.
+  geometry_state_.collision_filter_manager().Apply(
+      CollisionFilterDeclaration(CollisionFilterScope::kAll)
+          .ExcludeBetween(GeometrySet{deformable_id},
+                          GeometrySet({geometries_[0], anchored_geometry_})));
+  geometry_state_.ComputeDeformableContact(&contacts);
+  EXPECT_EQ(contacts.contact_surfaces().size(),
+            single_tree_total_geometry_count() - 2);
+}
+
 // Test that the appropriate error messages are dispatched.
 TEST_F(GeometryStateTest, CollisionFilteredExceptions) {
   // Initialize tree *without* any proximity roles assigned.
@@ -2623,6 +2733,13 @@ TEST_F(GeometryStateTest, GetGeometryIdFromName) {
 
   // Failure cases.
 
+  // Look up with the wrong name.
+  DRAKE_EXPECT_THROWS_MESSAGE(
+      geometry_state_.GetGeometryIdByName(frames_[0], Role::kProximity, "bad"),
+      "The frame 'f0' .\\d+. has no geometry with the role 'proximity' and the "
+      "canonical name 'bad'. The names associated with this frame/role are "
+      "\\{\\d+_g1, \\d+_g0\\}.");
+
   // Bad frame id.
   DRAKE_EXPECT_THROWS_MESSAGE(
       geometry_state_.GetGeometryIdByName(FrameId::get_new_id(),
@@ -2634,14 +2751,16 @@ TEST_F(GeometryStateTest, GetGeometryIdFromName) {
   DRAKE_EXPECT_THROWS_MESSAGE(
       geometry_state_.GetGeometryIdByName(world_id, Role::kUnassigned, "bad"),
       "The frame 'world' .\\d+. has no geometry with the role 'unassigned' "
-      "and the canonical name '.+'");
+      "and the canonical name '.+'. The names associated with this frame/role "
+      "are \\{\\}.");
 
   // Bad *dynamic* geometry name.
   DRAKE_EXPECT_THROWS_MESSAGE(
       geometry_state_.GetGeometryIdByName(frames_[0], Role::kUnassigned,
                                           "bad_name"),
       "The frame '.+?' .\\d+. has no geometry with the role 'unassigned' and "
-      "the canonical name '.+'");
+      "the canonical name '.+'. The names associated with this frame/role are "
+      "\\{\\}.");
 
   // Multiple unassigned geometries with the same name.
 
@@ -4383,12 +4502,152 @@ TEST_F(GeometryStateNoRendererTest, PerceptionRoleWithoutRenderer) {
       0);
 }
 
-// TODO(SeanCurtis-TRI): The `Render*Image` interface is insufficiently tested.
-//  GeometryState is a thin wrapper on the render engine, but GeometryState is
-//  responsible for:
-//    1. Confirming the parent frame is valid.
-//    2. Updating the camera pose.
-//    3. Calling the appropriate render engine.
+// GeometryState has three responsibilities when it comes to rendering:
+//
+//   1. Compute the correct camera pose in the world frame.
+//   2. Handle finding render engines by name (including *not* finding them).
+//   3. Call the appropriate RenderEngine API for the image type.
+//
+// For each of the Render*Image APIs, this establishes those three
+// responsibilities are met.
+class GeometryStateRenderTest : public ::testing::Test {
+ protected:
+  void SetUp() final {
+    const SourceId s_id = geometry_state_.RegisterNewSource("render_test");
+
+    // Add an arbitrarily posed frame (90° rotation around x-axis with non-zero
+    // offset) to serve as the parent frame for the camera.
+    X_WP_ = RigidTransformd(AngleAxis<double>(M_PI_2, Vector3d::UnitX()),
+                            Vector3d{1, 2, 3});
+    parent_id_ =
+        geometry_state_.RegisterFrame(s_id, GeometryFrame("parent_frame"));
+
+    // Equally arbitrary non-identity poses for the camera body in the parent
+    // frame and camera sensor in the camera body frame.
+    X_PC_ = RigidTransformd(AngleAxis<double>(M_PI_2, Vector3d::UnitY()),
+                            Vector3d{2, 3, 4});
+    X_CS_ = RigidTransformd(AngleAxis<double>(M_PI_2, Vector3d::UnitZ()),
+                            Vector3d{3, 4, 5});
+    // The expected pose of the camera *sensor* as passed to the render engine.
+    X_WS_ = X_WP_ * X_PC_ * X_CS_;
+
+    // Now add two render engines.
+    auto engine1 = std::make_unique<DummyRenderEngine>();
+    engine1_ = engine1.get();
+    geometry_state_.AddRenderer("engine1", std::move(engine1));
+    geometry_state_.AddRenderer("engine2",
+                                std::make_unique<DummyRenderEngine>());
+    // Make sure the geometry data knows the parent frame's pose.
+    GeometryStateTester<double> tester;
+    tester.set_state(&geometry_state_);
+    FramePoseVector<double> poses;
+    poses.set_value(parent_id_, X_WP_);
+    tester.SetFramePoses(s_id, poses, &tester.mutable_kinematics_data());
+  }
+
+  static int width() { return 4; }
+  static int height() { return 3; }
+  render::RenderCameraCore camera_core(std::string_view engine_name) const {
+    return render::RenderCameraCore(std::string(engine_name),
+                                    {width(), height(), M_PI / 4}, {0.25, 10},
+                                    X_CS_);
+  }
+
+  render::ColorRenderCamera color_camera(std::string_view engine_name) const {
+    return render::ColorRenderCamera(camera_core(engine_name));
+  }
+
+  render::DepthRenderCamera depth_camera(std::string_view engine_name) const {
+    return render::DepthRenderCamera(camera_core(engine_name), {1.0, 5.0});
+  }
+
+  GeometryState<double> geometry_state_;
+  FrameId parent_id_{};
+  // The pose of the *parent* frame P in world.
+  RigidTransformd X_WP_;
+  // The pose of the *camera* body frame C in the parent frame.
+  RigidTransformd X_PC_;
+  // The pose of the *sensor* frame S in the camera body frame.
+  RigidTransformd X_CS_;
+  // The concatenated pose of the sensor frame in the world.  See Setup().
+  RigidTransformd X_WS_;
+  DummyRenderEngine* engine1_{};
+};
+
+TEST_F(GeometryStateRenderTest, RenderColorImage) {
+  // The image doesn't matter; it will *not* get written to. It just needs to be
+  // compatible with the camera.
+  systems::sensors::ImageRgba8U image(width(), height());
+
+  // Case: valid render sets the viewport and calls the right API. We don't test
+  //  to confirm that the image is passed along, that would be screamingly
+  //  apparent.
+  geometry_state_.RenderColorImage(color_camera("engine1"), parent_id_,
+                                    X_PC_, &image);
+  EXPECT_TRUE(CompareMatrices(engine1_->last_updated_X_WC().GetAsMatrix4(),
+                              X_WS_.GetAsMatrix4(), 1e-15));
+  EXPECT_EQ(engine1_->num_color_renders(), 1);
+  EXPECT_EQ(engine1_->num_depth_renders(), 0);
+  EXPECT_EQ(engine1_->num_label_renders(), 0);
+
+  // Passing another *valid* name doesn't throw (it finds the *other* engine).
+  // But passing an invalid name throws.
+  EXPECT_NO_THROW(geometry_state_.RenderColorImage(
+      color_camera("engine2"), parent_id_, X_PC_, &image));
+  EXPECT_THROW(geometry_state_.RenderColorImage(color_camera("not_an_engine"),
+                                                parent_id_, X_PC_, &image),
+               std::exception);
+}
+
+TEST_F(GeometryStateRenderTest, RenderDepthImage) {
+  // The image doesn't matter; it will *not* get written to. It just needs to be
+  // compatible with the camera.
+  systems::sensors::ImageDepth32F image(width(), height());
+
+  // Case: valid render sets the viewport and calls the right API. We don't test
+  //  to confirm that the image is passed along, that would be screamingly
+  //  apparent.
+  geometry_state_.RenderDepthImage(depth_camera("engine1"), parent_id_, X_PC_,
+                                   &image);
+  EXPECT_TRUE(CompareMatrices(engine1_->last_updated_X_WC().GetAsMatrix4(),
+                              X_WS_.GetAsMatrix4(), 1e-15));
+  EXPECT_EQ(engine1_->num_color_renders(), 0);
+  EXPECT_EQ(engine1_->num_depth_renders(), 1);
+  EXPECT_EQ(engine1_->num_label_renders(), 0);
+
+  // Passing another *valid* name doesn't throw (it finds the *other* engine).
+  // But passing an invalid name throws.
+  EXPECT_NO_THROW(geometry_state_.RenderDepthImage(depth_camera("engine2"),
+                                                   parent_id_, X_PC_, &image));
+  EXPECT_THROW(geometry_state_.RenderDepthImage(depth_camera("not_an_engine"),
+                                                parent_id_, X_PC_, &image),
+               std::exception);
+}
+
+TEST_F(GeometryStateRenderTest, RenderLabelImage) {
+  // The image doesn't matter; it will *not* get written to. It just needs to be
+  // compatible with the camera.
+  systems::sensors::ImageLabel16I image(width(), height());
+
+  // Case: valid render sets the viewport and calls the right API. We don't test
+  //  to confirm that the image is passed along, that would be screamingly
+  //  apparent.
+  geometry_state_.RenderLabelImage(color_camera("engine1"), parent_id_, X_PC_,
+                                   &image);
+  EXPECT_TRUE(CompareMatrices(engine1_->last_updated_X_WC().GetAsMatrix4(),
+                              X_WS_.GetAsMatrix4(), 1e-15));
+  EXPECT_EQ(engine1_->num_color_renders(), 0);
+  EXPECT_EQ(engine1_->num_depth_renders(), 0);
+  EXPECT_EQ(engine1_->num_label_renders(), 1);
+
+  // Passing another *valid* name doesn't throw (it finds the *other* engine).
+  // But passing an invalid name throws.
+  EXPECT_NO_THROW(geometry_state_.RenderLabelImage(color_camera("engine2"),
+                                                   parent_id_, X_PC_, &image));
+  EXPECT_THROW(geometry_state_.RenderLabelImage(color_camera("not_an_engine"),
+                                                parent_id_, X_PC_, &image),
+               std::exception);
+}
 
 }  // namespace
 }  // namespace geometry

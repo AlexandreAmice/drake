@@ -2,6 +2,7 @@
 
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 
 #include "drake/geometry/geometry_roles.h"
@@ -67,6 +68,13 @@ class MeshcatVisualizer final : public systems::LeafSystem<T> {
    */
   template <typename U>
   explicit MeshcatVisualizer(const MeshcatVisualizer<U>& other);
+
+  /** Resets the realtime rate calculator. Calculation will resume on the next
+   periodic publish event. This is useful for correcting the realtime rate after
+   simulation is resumed from a paused state, etc. */
+  void ResetRealtimeRateCalculator() const {
+    realtime_rate_calculator_.Reset();
+  }
 
   /** Calls Meshcat::Delete(std::string path), with the path set to
    MeshcatVisualizerParams::prefix.  Since this visualizer will only ever add
@@ -170,8 +178,11 @@ class MeshcatVisualizer final : public systems::LeafSystem<T> {
   void SetTransforms(const systems::Context<T>& context,
                      const QueryObject<T>& query_object) const;
 
-  /* Makes calls to Meshcat::SetProperty to update color alphas. */
-  void SetColorAlphas() const;
+  /* Makes calls to Meshcat::SetProperty to update geometry alphas. During
+   initialization, it is necessary to explicitly configure each geometry
+   individually due to race conditions between declaring the geometry and
+   configuring it. Once the geometry is loaded, they can be updated en masse. */
+  void SetAlphas(bool initializing) const;
 
   /* Handles the initialization event. */
   systems::EventStatus OnInitialization(const systems::Context<T>&) const;
@@ -193,7 +204,7 @@ class MeshcatVisualizer final : public systems::LeafSystem<T> {
    before SetTransforms. This is intended to track the information in meshcat_,
    and is therefore also a mutable member variable (instead of declared state).
    */
-  mutable GeometryVersion version_;
+  mutable std::optional<GeometryVersion> version_;
 
   /* A store of the dynamic frames and their path. It is coupled with the
    version_.  This is only for efficiency; it does not represent undeclared
@@ -204,25 +215,12 @@ class MeshcatVisualizer final : public systems::LeafSystem<T> {
    new geometry version appears that does not contain them. */
   mutable std::map<GeometryId, std::string> geometries_{};
 
-  /* A store of the original colors for the objects in geometries_. */
-  mutable std::map<GeometryId, Rgba> colors_{};
-
   /* The last alpha value applied to the objects in geometries_; used to avoid
-   * unnecessary updates to geometry colors. */
+   unnecessary updates to geometry opacities. */
   mutable double alpha_value_{1.0};
 
   /* The parameters for the visualizer.  */
   MeshcatVisualizerParams params_;
-
-  /* TODO(russt): Consider moving the MeshcatAnimation into the Context.
-  Full-fledged support for multi-threaded recording requires some additional
-  design thinking and may require either moving the prefix into the Context as
-  well (e.g. multiple copies of the MeshcatVisualizer publish to the same
-  Meshcat, but on different prefixes) or support for SetObject in
-  MeshcatAnimation (each animation keeps track of the objects, instead of the
-  shared Meshcat instance keeping track).  We may also want to allow users to
-  disable the default publishing behavior (to record without visualizing
-  immediately). */
 
   /* TODO(#16486): ideally this mutable state will go away once it is safe to
   run Meshcat multithreaded */

@@ -18,11 +18,8 @@
 namespace drake {
 namespace visualization {
 
-/** Adds LCM visualization publishers to communicate to drake_visualizer
-and/or meldis.
-
-@experimental The exact function signature is subject to change as we polish
-this new feature.
+/** Adds LCM visualization publishers to communicate to Meshcat, Meldis, and/or
+the legacy ``drake_visualizer`` application of days past.
 
 <dl><dt>Example</dt><dd>
 @code
@@ -37,7 +34,7 @@ plant.Finalize();
 
 // Add the visualization.
 const VisualizationConfig vis_config = ...;
-ApplyVisualizationConfig(config, &builder);
+ApplyVisualizationConfig(vis_config, &builder);
 
 // Simulate.
 Simulator<double> simulator(builder.Build());
@@ -101,35 +98,9 @@ void ApplyVisualizationConfig(
     std::shared_ptr<geometry::Meshcat> meshcat = nullptr,
     lcm::DrakeLcmInterface* lcm = nullptr);
 
-#ifndef DRAKE_DOXYGEN_CXX
-// Deprecation shim to help interpret a scene_graph nullptr literal as mutable,
-// to avoid ambiguous overloaded function calls for users.
-// TODO(jwnimmer-tri) Remove this on 2023-09-01 upon completion of deprecation.
-inline void ApplyVisualizationConfig(
-    const VisualizationConfig& config, systems::DiagramBuilder<double>* builder,
-    const systems::lcm::LcmBuses* lcm_buses,
-    const multibody::MultibodyPlant<double>* plant,
-    std::nullptr_t /* scene_graph */,
-    std::shared_ptr<geometry::Meshcat> meshcat = nullptr,
-    lcm::DrakeLcmInterface* lcm = nullptr) {
-  ApplyVisualizationConfig(config, builder, lcm_buses, plant,
-                           static_cast<geometry::SceneGraph<double>*>(nullptr),
-                           std::move(meshcat), lcm);
-}
-#endif
-
-DRAKE_DEPRECATED("2023-09-01", "Pass a non-const SceneGraph pointer")
-void ApplyVisualizationConfig(
-    const VisualizationConfig& config, systems::DiagramBuilder<double>* builder,
-    const systems::lcm::LcmBuses* lcm_buses,
-    const multibody::MultibodyPlant<double>* plant,
-    const geometry::SceneGraph<double>* scene_graph,
-    std::shared_ptr<geometry::Meshcat> meshcat = nullptr,
-    lcm::DrakeLcmInterface* lcm = nullptr);
-
-/** Adds LCM visualization publishers to communicate to Meshcat,
-drake_visualizer and/or meldis, using all of the default configuration
-settings.
+/** Adds LCM visualization publishers to communicate to Meshcat, Meldis, and/or
+the legacy ``drake_visualizer`` application of days past, using all of the
+default configuration settings.
 
 @param meshcat An optional existing Meshcat instance. (If nullptr, then a
 meshcat instance will be created.)

@@ -15,11 +15,12 @@
 #include <utility>
 #include <vector>
 
-#include <drake_vendor/fcl/fcl.h>
+#include <fcl/fcl.h>
 #include <gtest/gtest.h>
 
 #include "drake/common/default_scalars.h"
 #include "drake/common/drake_export.h"
+#include "drake/common/fmt_ostream.h"
 #include "drake/common/unused.h"
 #include "drake/geometry/proximity/collision_filter.h"
 #include "drake/geometry/shape_specification.h"
@@ -43,8 +44,7 @@ class DistanceCallback {
    responsible for calling ClearResults() if it wants the results of this
    invocation to be distinct from other invocations. */
   virtual bool Invoke(
-      fcl::CollisionObjectd*, fcl::CollisionObjectd*,
-      const CollisionFilter*,
+      fcl::CollisionObjectd*, fcl::CollisionObjectd*, const CollisionFilter*,
       const std::unordered_map<GeometryId, math::RigidTransform<T>>*) = 0;
 
   /* Forces all results to be cleared. */
@@ -294,8 +294,7 @@ class CharacterizeResultTest : public ::testing::Test {
    "unsupported operation" type exception message. */
   void RunCallback(
       const QueryInstance& query, fcl::CollisionObjectd* obj_A,
-      fcl::CollisionObjectd* obj_B,
-      const CollisionFilter* collision_filter,
+      fcl::CollisionObjectd* obj_B, const CollisionFilter* collision_filter,
       const std::unordered_map<GeometryId, math::RigidTransform<T>>* X_WGs)
       const;
 
@@ -441,7 +440,13 @@ class CharacterizeResultTest : public ::testing::Test {
 }  // namespace geometry
 }  // namespace drake
 
+namespace fmt {
+template <>
+struct formatter<drake::geometry::internal::GeometryType>
+    : drake::ostream_formatter {};
+}  // namespace fmt
+
 DRAKE_DECLARE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_NONSYMBOLIC_SCALARS(
-  class ::drake::geometry::internal::CharacterizeResultTest)
+    class ::drake::geometry::internal::CharacterizeResultTest)
 DRAKE_DECLARE_CLASS_TEMPLATE_INSTANTIATIONS_ON_DEFAULT_NONSYMBOLIC_SCALARS(
-  class ::drake::geometry::internal::ShapeConfigurations)
+    class ::drake::geometry::internal::ShapeConfigurations)

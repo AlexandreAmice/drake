@@ -10,8 +10,9 @@ listens for command messages.
 It is intended to operate in the "no ground truth" regime, i.e, the only LCM
 messages it knows about are the ones used by the actual hardware. The one
 messaging difference from real life is that we emit visualization messages (for
-meldis or drake-visualizer) so that you can watch a simulation on your screen
-while some (separate) controller operates the robot, without extra hassle.
+Meldis, or the legacy ``drake-visualizer`` application of days past) so that
+you can watch a simulation on your screen while some (separate) controller
+operates the robot, without extra hassle.
 
 Drake maintainers should keep this file in sync with both hardware_sim.cc and
 scenario.h.
@@ -25,10 +26,12 @@ import typing
 from pydrake.common import RandomGenerator
 from pydrake.common.yaml import yaml_load_typed
 from pydrake.lcm import DrakeLcmParams
-from pydrake.manipulation import ApplyDriverConfigs
-from pydrake.manipulation.kuka_iiwa import IiwaDriver
-from pydrake.manipulation.schunk_wsg import SchunkWsgDriver
-from pydrake.manipulation.util import ZeroForceDriver
+from pydrake.manipulation import (
+    ApplyDriverConfigs,
+    IiwaDriver,
+    SchunkWsgDriver,
+    ZeroForceDriver,
+)
 from pydrake.multibody.plant import (
     AddMultibodyPlant,
     MultibodyPlantConfig,
@@ -76,7 +79,7 @@ class Scenario:
         accuracy=1.0e-2,
         target_realtime_rate=1.0)
 
-    # Plant configuration (timestep and contact parameters).
+    # Plant configuration (time step and contact parameters).
     plant_config: MultibodyPlantConfig = MultibodyPlantConfig()
 
     # All of the fully deterministic elements of the simulation.
@@ -120,7 +123,7 @@ def _load_scenario(*, filename, scenario_name, scenario_text):
     return result
 
 
-def run(*, scenario):
+def run(*, scenario, graphviz=None):
     """Runs a simulation of the given scenario.
     """
     builder = DiagramBuilder()
@@ -171,6 +174,11 @@ def run(*, scenario):
     random = RandomGenerator(scenario.random_seed)
     diagram.SetRandomContext(simulator.get_mutable_context(), random)
 
+    # Visualize the diagram, when requested.
+    if graphviz is not None:
+        with open(graphviz, "w", encoding="utf-8") as f:
+            f.write(diagram.GetGraphvizString())
+
     # Simulate.
     simulator.AdvanceTo(scenario.simulation_duration)
 
@@ -190,12 +198,16 @@ def main():
         "--scenario_text", default="{}",
         help="Additional YAML scenario text to load, in order to override "
              "values in the scenario_file, e.g., timeouts")
+    parser.add_argument(
+        "--graphviz", metavar="FILENAME",
+        help="Dump the Simulator's Diagram to this file in Graphviz format "
+             "as a debugging aid")
     args = parser.parse_args()
     scenario = _load_scenario(
         filename=args.scenario_file,
         scenario_name=args.scenario_name,
         scenario_text=args.scenario_text)
-    run(scenario=scenario)
+    run(scenario=scenario, graphviz=args.graphviz)
 
 
 if __name__ == "__main__":

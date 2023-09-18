@@ -21,13 +21,15 @@
 
 #include "drake/common/drake_throw.h"
 #include "drake/common/fmt_eigen.h"
-#include "drake/multibody/parsing/scoped_names.h"
+#include "drake/planning/linear_distance_and_interpolation_provider.h"
 
 namespace drake {
 namespace planning {
 
+using common_robotics_utilities::openmp_helpers::GetContextOmpThreadNum;
 using geometry::GeometryId;
 using geometry::QueryObject;
+using geometry::SceneGraphInspector;
 using geometry::Shape;
 using math::RigidTransform;
 using multibody::Body;
@@ -39,6 +41,75 @@ using multibody::ModelInstanceIndex;
 using multibody::MultibodyPlant;
 using multibody::world_model_instance;
 using systems::Context;
+
+namespace {
+// TODO(calderpg-tri, jwnimmer-tri) Remove unnecessary helpers once standalone
+// distance and interpolation functions are no longer supported.
+void SanityCheckConfigurationDistanceFunction(
+    const ConfigurationDistanceFunction& distance_function,
+    const Eigen::VectorXd& default_configuration) {
+  const double test_distance =
+      distance_function(default_configuration, default_configuration);
+  DRAKE_THROW_UNLESS(test_distance == 0.0);
+}
+
+void SanityCheckConfigurationInterpolationFunction(
+    const ConfigurationInterpolationFunction& interpolation_function,
+    const Eigen::VectorXd& default_configuration) {
+  const Eigen::VectorXd test_interpolated_q =
+      interpolation_function(default_configuration, default_configuration, 0.0);
+  DRAKE_THROW_UNLESS(test_interpolated_q.size() ==
+                     default_configuration.size());
+  for (int index = 0; index < test_interpolated_q.size(); ++index) {
+    DRAKE_THROW_UNLESS(test_interpolated_q(index) ==
+                       default_configuration(index));
+  }
+}
+
+class LegacyDistanceAndInterpolationProvider final
+    : public DistanceAndInterpolationProvider {
+ public:
+  DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(LegacyDistanceAndInterpolationProvider);
+
+  LegacyDistanceAndInterpolationProvider(
+      const ConfigurationDistanceFunction& distance_function,
+      const ConfigurationInterpolationFunction& interpolation_function)
+      : distance_function_(distance_function),
+        interpolation_function_(interpolation_function) {
+    DRAKE_THROW_UNLESS(distance_function_ != nullptr);
+    DRAKE_THROW_UNLESS(interpolation_function_ != nullptr);
+  }
+
+  std::shared_ptr<const LegacyDistanceAndInterpolationProvider>
+  WithConfigurationDistanceFunction(
+      const ConfigurationDistanceFunction& distance_function) const {
+    return std::make_shared<LegacyDistanceAndInterpolationProvider>(
+        distance_function, interpolation_function_);
+  }
+
+  std::shared_ptr<const LegacyDistanceAndInterpolationProvider>
+  WithConfigurationInterpolationFunction(
+      const ConfigurationInterpolationFunction& interpolation_function) const {
+    return std::make_shared<LegacyDistanceAndInterpolationProvider>(
+        distance_function_, interpolation_function);
+  }
+
+ private:
+  double DoComputeConfigurationDistance(const Eigen::VectorXd& from,
+                                        const Eigen::VectorXd& to) const final {
+    return distance_function_(from, to);
+  }
+
+  Eigen::VectorXd DoInterpolateBetweenConfigurations(
+      const Eigen::VectorXd& from, const Eigen::VectorXd& to,
+      double ratio) const final {
+    return interpolation_function_(from, to, ratio);
+  }
+
+ private:
+  const ConfigurationDistanceFunction distance_function_;
+  const ConfigurationInterpolationFunction interpolation_function_;
+};
 
 // Default interpolator; it uses SLERP for quaternion-valued groups of dofs and
 // LERP for everything else. See the documentation in CollisionChecker's
@@ -67,21 +138,9 @@ MakeDefaultConfigurationInterpolationFunction(
 
 std::vector<int> GetQuaternionDofStartIndices(
     const MultibodyPlant<double>& plant) {
-  // TODO(SeanCurtis-TRI) Body::has_quaternion_dofs() is actually a misnomer for
-  // is_quaternion_floating(). The name implies general quaternion awareness but
-  // its documentation doesn't guarantee that. We should re-express this in
-  // terms of joints so that we can catch quaternions in any kind of joint.
-  std::vector<int> quaternion_dof_start_indices;
-  for (BodyIndex body_index(0); body_index < plant.num_bodies(); ++body_index) {
-    const auto& body = plant.get_body(body_index);
-    if (body.has_quaternion_dofs()) {
-      quaternion_dof_start_indices.push_back(body.floating_positions_start());
-    }
-  }
-  return quaternion_dof_start_indices;
+  return LinearDistanceAndInterpolationProvider(plant)
+      .quaternion_dof_start_indices();
 }
-
-namespace {
 
 // Returns the set of indices in `q` that kinematically affect the robot model
 // but that are not a part of the robot dofs (e.g., a floating or mobile base).
@@ -165,9 +224,11 @@ bool CollisionChecker::IsPartOfRobot(BodyIndex body_index) const {
   return IsPartOfRobot(get_body(body_index));
 }
 
-const CollisionCheckerContext& CollisionChecker::model_context() const {
-  return owned_contexts_.get_model_context(
-      common_robotics_utilities::openmp_helpers::GetContextOmpThreadNum());
+const CollisionCheckerContext& CollisionChecker::model_context(
+    const std::optional<int> context_number) const {
+  const int context_index =
+      context_number.has_value() ? *context_number : GetContextOmpThreadNum();
+  return owned_contexts_.get_model_context(context_index);
 }
 
 std::shared_ptr<CollisionCheckerContext>
@@ -262,7 +323,7 @@ void CollisionChecker::RemoveAllAddedCollisionShapes(
   auto iter = geometry_groups_.find(group_name);
   if (iter != geometry_groups_.end()) {
     drake::log()->debug("Removing geometries from group [{}].", group_name);
-    DoRemoveAddedGeometries(iter->second);
+    RemoveAddedGeometries(iter->second);
     geometry_groups_.erase(iter);
   }
 }
@@ -270,7 +331,7 @@ void CollisionChecker::RemoveAllAddedCollisionShapes(
 void CollisionChecker::RemoveAllAddedCollisionShapes() {
   drake::log()->debug("Removing all added geometries");
   for (const auto& [group_name, group_ids] : geometry_groups_) {
-    DoRemoveAddedGeometries(group_ids);
+    RemoveAddedGeometries(group_ids);
   }
   geometry_groups_.clear();
 }
@@ -416,12 +477,15 @@ void CollisionChecker::SetCollisionFilterMatrix(
                     filtered_collisions_.rows(), filtered_collisions_.cols(),
                     filter_matrix.rows(), filter_matrix.cols()));
   }
-  // Now test for consistency.
-  ValidateFilteredCollisionMatrix(filter_matrix, __func__);
-  filtered_collisions_ = filter_matrix;
-  log()->debug("Set collision filter matrix to:\n{}",
-               fmt_eigen(filtered_collisions_));
-  UpdateMaxCollisionPadding();
+  // Only perform additional work if the provided filter matrix is different
+  // from the current matrix.
+  if (filtered_collisions_ != filter_matrix) {
+    // Now test for consistency.
+    ValidateFilteredCollisionMatrix(filter_matrix, __func__);
+    filtered_collisions_ = filter_matrix;
+    // Allow derived checkers to perform any post-filter-change work.
+    UpdateCollisionFilters();
+  }
 }
 
 bool CollisionChecker::IsCollisionFilteredBetween(BodyIndex bodyA_index,
@@ -446,27 +510,43 @@ void CollisionChecker::SetCollisionFilteredBetween(BodyIndex bodyA_index,
                     "be used on pairs of environment bodies: ({}, {})",
                     bodyA_index, bodyB_index));
   }
-  const int encoded = filter_collision ? 1 : 0;
-  // The tests above should mean that we're not trying to write to an entry that
-  // is locked in a filtered state (-1); just in case, we'll add one more test.
-  DRAKE_ASSERT(filtered_collisions_(int{bodyA_index}, int{bodyB_index}) != -1);
-  filtered_collisions_(int{bodyA_index}, int{bodyB_index}) = encoded;
-  filtered_collisions_(int{bodyB_index}, int{bodyA_index}) = encoded;
+  const int current_value =
+      filtered_collisions_(int{bodyA_index}, int{bodyB_index});
+  const int new_value = filter_collision ? 1 : 0;
+  // Only perform additional work if the specified filter will change the filter
+  // matrix.
+  if (new_value != current_value) {
+    // The tests above should mean that we're not trying to write to an entry
+    // that is locked in a filtered state (-1); just in case, we'll add one more
+    // explicit test.
+    DRAKE_ASSERT(current_value != -1);
+    filtered_collisions_(int{bodyA_index}, int{bodyB_index}) = new_value;
+    filtered_collisions_(int{bodyB_index}, int{bodyA_index}) = new_value;
+    // Allow derived checkers to perform any post-filter-change work.
+    UpdateCollisionFilters();
+  }
 }
 
 void CollisionChecker::SetCollisionFilteredWithAllBodies(BodyIndex body_index) {
   DRAKE_THROW_UNLESS(body_index >= 0 &&
                      body_index < filtered_collisions_.rows());
   DRAKE_THROW_UNLESS(IsPartOfRobot(body_index));
+  const Eigen::MatrixXi prior_filter_matrix = filtered_collisions_;
   filtered_collisions_.row(body_index).setConstant(1);
   filtered_collisions_.col(body_index).setConstant(1);
   // Maintain the invariant that the diagonal is always -1.
   filtered_collisions_(int{body_index}, int{body_index}) = -1;
+  // Only perform additional work if the filter matrix has changed.
+  if (prior_filter_matrix != filtered_collisions_) {
+    // Allow derived checkers to perform any post-filter-change work.
+    UpdateCollisionFilters();
+  }
 }
 
 bool CollisionChecker::CheckConfigCollisionFree(
-    const Eigen::VectorXd& q) const {
-  return CheckContextConfigCollisionFree(&mutable_model_context(), q);
+    const Eigen::VectorXd& q, const std::optional<int> context_number) const {
+  return CheckContextConfigCollisionFree(&mutable_model_context(context_number),
+                                         q);
 }
 
 bool CollisionChecker::CheckContextConfigCollisionFree(
@@ -477,14 +557,20 @@ bool CollisionChecker::CheckContextConfigCollisionFree(
 }
 
 std::vector<uint8_t> CollisionChecker::CheckConfigsCollisionFree(
-    const std::vector<Eigen::VectorXd>& configs, const bool parallelize) const {
+    const std::vector<Eigen::VectorXd>& configs,
+    const Parallelism parallelize) const {
   // Note: vector<uint8_t> is used since vector<bool> is not thread safe.
   std::vector<uint8_t> collision_checks(configs.size(), 0);
 
-  const bool check_in_parallel = CanEvaluateInParallel() && parallelize;
-  CRU_OMP_PARALLEL_FOR_IF(check_in_parallel)
+  const int number_of_threads = GetNumberOfThreads(parallelize);
+  drake::log()->debug("CheckConfigsCollisionFree uses {} thread(s)",
+                      number_of_threads);
+
+#if defined(_OPENMP)
+#pragma omp parallel for num_threads(number_of_threads) schedule(static)
+#endif
   for (size_t idx = 0; idx < configs.size(); ++idx) {
-    if (CheckConfigCollisionFree(configs.at(idx))) {
+    if (CheckConfigCollisionFree(configs.at(idx), GetContextOmpThreadNum())) {
       collision_checks.at(idx) = 1;
     } else {
       collision_checks.at(idx) = 0;
@@ -494,13 +580,42 @@ std::vector<uint8_t> CollisionChecker::CheckConfigsCollisionFree(
   return collision_checks;
 }
 
+void CollisionChecker::SetDistanceAndInterpolationProvider(
+    std::shared_ptr<const DistanceAndInterpolationProvider> provider) {
+  DRAKE_THROW_UNLESS(provider != nullptr);
+
+  const Eigen::VectorXd& default_q = GetDefaultConfiguration();
+
+  const double test_distance =
+      provider->ComputeConfigurationDistance(default_q, default_q);
+  DRAKE_THROW_UNLESS(test_distance == 0.0);
+
+  const Eigen::VectorXd test_interpolated_q =
+      provider->InterpolateBetweenConfigurations(default_q, default_q, 0.0);
+  DRAKE_THROW_UNLESS(test_interpolated_q.size() == default_q.size());
+  for (int index = 0; index < test_interpolated_q.size(); ++index) {
+    DRAKE_THROW_UNLESS(test_interpolated_q(index) == default_q(index));
+  }
+
+  distance_and_interpolation_provider_ = std::move(provider);
+}
+
 void CollisionChecker::SetConfigurationDistanceFunction(
     const ConfigurationDistanceFunction& distance_function) {
+  auto legacy =
+      std::dynamic_pointer_cast<const LegacyDistanceAndInterpolationProvider>(
+          distance_and_interpolation_provider_);
+  if (legacy == nullptr) {
+    throw std::logic_error(
+        "CollisionChecker::SetConfigurationDistanceFunction() "
+        "is not supported after a DistanceAndInterpolationProvider "
+        "has already been set.");
+  }
   DRAKE_THROW_UNLESS(distance_function != nullptr);
-  const double test_distance =
-      distance_function(GetZeroConfiguration(), GetZeroConfiguration());
-  DRAKE_THROW_UNLESS(test_distance == 0.0);
-  configuration_distance_function_ = distance_function;
+  SanityCheckConfigurationDistanceFunction(distance_function,
+                                           GetDefaultConfiguration());
+  distance_and_interpolation_provider_ =
+      legacy->WithConfigurationDistanceFunction(distance_function);
 }
 
 ConfigurationDistanceFunction
@@ -512,21 +627,25 @@ CollisionChecker::MakeStandaloneConfigurationDistanceFunction() const {
 
 void CollisionChecker::SetConfigurationInterpolationFunction(
     const ConfigurationInterpolationFunction& interpolation_function) {
+  auto legacy =
+      std::dynamic_pointer_cast<const LegacyDistanceAndInterpolationProvider>(
+          distance_and_interpolation_provider_);
+  if (legacy == nullptr) {
+    throw std::logic_error(
+        "CollisionChecker::SetConfigurationInterpolationFunction() "
+        "is not supported after a DistanceAndInterpolationProvider "
+        "has already been set.");
+  }
   if (interpolation_function == nullptr) {
     SetConfigurationInterpolationFunction(
         MakeDefaultConfigurationInterpolationFunction(
             GetQuaternionDofStartIndices(plant())));
     return;
   }
-  const Eigen::VectorXd test_interpolated_q = interpolation_function(
-      GetZeroConfiguration(), GetZeroConfiguration(), 0.0);
-  DRAKE_THROW_UNLESS(test_interpolated_q.size() ==
-                     GetZeroConfiguration().size());
-  for (int index = 0; index < test_interpolated_q.size(); ++index) {
-    DRAKE_THROW_UNLESS(test_interpolated_q(index) ==
-                       GetZeroConfiguration()(index));
-  }
-  configuration_interpolation_function_ = interpolation_function;
+  SanityCheckConfigurationInterpolationFunction(interpolation_function,
+                                                GetDefaultConfiguration());
+  distance_and_interpolation_provider_ =
+      legacy->WithConfigurationInterpolationFunction(interpolation_function);
 }
 
 ConfigurationInterpolationFunction
@@ -537,9 +656,11 @@ CollisionChecker::MakeStandaloneConfigurationInterpolationFunction() const {
   };
 }
 
-bool CollisionChecker::CheckEdgeCollisionFree(const Eigen::VectorXd& q1,
-                                              const Eigen::VectorXd& q2) const {
-  return CheckContextEdgeCollisionFree(&mutable_model_context(), q1, q2);
+bool CollisionChecker::CheckEdgeCollisionFree(
+    const Eigen::VectorXd& q1, const Eigen::VectorXd& q2,
+    const std::optional<int> context_number) const {
+  return CheckContextEdgeCollisionFree(&mutable_model_context(context_number),
+                                       q1, q2);
 }
 
 bool CollisionChecker::CheckContextEdgeCollisionFree(
@@ -575,9 +696,14 @@ bool CollisionChecker::CheckContextEdgeCollisionFree(
 }
 
 bool CollisionChecker::CheckEdgeCollisionFreeParallel(
-    const Eigen::VectorXd& q1, const Eigen::VectorXd& q2) const {
+    const Eigen::VectorXd& q1, const Eigen::VectorXd& q2,
+    const Parallelism parallelize) const {
+  const int number_of_threads = GetNumberOfThreads(parallelize);
+  drake::log()->debug("CheckEdgeCollisionFreeParallel uses {} thread(s)",
+                      number_of_threads);
+
   // Only perform parallel operations if `omp parallel for` will use >1 thread.
-  if (CanEvaluateInParallel()) {
+  if (number_of_threads > 1) {
     // Fail fast if q2 is in collision. This method is used by motion planners
     // that extend/connect towards some target configuration, and thus require a
     // number of edge collision checks in which q1 is often known to be
@@ -595,8 +721,9 @@ bool CollisionChecker::CheckEdgeCollisionFreeParallel(
     const int num_steps =
         static_cast<int>(std::max(1.0, std::ceil(distance / edge_step_size())));
     std::atomic<bool> edge_valid(true);
+
 #if defined(_OPENMP)
-#pragma omp parallel for
+#pragma omp parallel for num_threads(number_of_threads) schedule(static)
 #endif
     for (int step = 0; step < num_steps; ++step) {
       if (edge_valid.load()) {
@@ -604,7 +731,7 @@ bool CollisionChecker::CheckEdgeCollisionFreeParallel(
             static_cast<double>(step) / static_cast<double>(num_steps);
         const Eigen::VectorXd qinterp =
             InterpolateBetweenConfigurations(q1, q2, ratio);
-        if (!CheckConfigCollisionFree(qinterp)) {
+        if (!CheckConfigCollisionFree(qinterp, GetContextOmpThreadNum())) {
           edge_valid.store(false);
         }
       }
@@ -618,15 +745,21 @@ bool CollisionChecker::CheckEdgeCollisionFreeParallel(
 
 std::vector<uint8_t> CollisionChecker::CheckEdgesCollisionFree(
     const std::vector<std::pair<Eigen::VectorXd, Eigen::VectorXd>>& edges,
-    const bool parallelize) const {
+    const Parallelism parallelize) const {
   // Note: vector<uint8_t> is used since vector<bool> is not thread safe.
   std::vector<uint8_t> collision_checks(edges.size(), 0);
 
-  const bool check_in_parallel = CanEvaluateInParallel() && parallelize;
-  CRU_OMP_PARALLEL_FOR_IF(check_in_parallel)
+  const int number_of_threads = GetNumberOfThreads(parallelize);
+  drake::log()->debug("CheckEdgesCollisionFree uses {} thread(s)",
+                      number_of_threads);
+
+#if defined(_OPENMP)
+#pragma omp parallel for num_threads(number_of_threads) schedule(static)
+#endif
   for (size_t idx = 0; idx < edges.size(); ++idx) {
     const std::pair<Eigen::VectorXd, Eigen::VectorXd>& edge = edges.at(idx);
-    if (CheckEdgeCollisionFree(edge.first, edge.second)) {
+    if (CheckEdgeCollisionFree(edge.first, edge.second,
+                               GetContextOmpThreadNum())) {
       collision_checks.at(idx) = 1;
     } else {
       collision_checks.at(idx) = 0;
@@ -637,8 +770,10 @@ std::vector<uint8_t> CollisionChecker::CheckEdgesCollisionFree(
 }
 
 EdgeMeasure CollisionChecker::MeasureEdgeCollisionFree(
-    const Eigen::VectorXd& q1, const Eigen::VectorXd& q2) const {
-  return MeasureContextEdgeCollisionFree(&mutable_model_context(), q1, q2);
+    const Eigen::VectorXd& q1, const Eigen::VectorXd& q2,
+    const std::optional<int> context_number) const {
+  return MeasureContextEdgeCollisionFree(&mutable_model_context(context_number),
+                                         q1, q2);
 }
 
 EdgeMeasure CollisionChecker::MeasureContextEdgeCollisionFree(
@@ -663,9 +798,14 @@ EdgeMeasure CollisionChecker::MeasureContextEdgeCollisionFree(
 }
 
 EdgeMeasure CollisionChecker::MeasureEdgeCollisionFreeParallel(
-    const Eigen::VectorXd& q1, const Eigen::VectorXd& q2) const {
-  // Only perform parallel operations if omp parallel for will use >1 thread.
-  if (CanEvaluateInParallel()) {
+    const Eigen::VectorXd& q1, const Eigen::VectorXd& q2,
+    const Parallelism parallelize) const {
+  const int number_of_threads = GetNumberOfThreads(parallelize);
+  drake::log()->debug("MeasureEdgeCollisionFreeParallel uses {} thread(s)",
+                      number_of_threads);
+
+  // Only perform parallel operations if `omp parallel for` will use >1 thread.
+  if (number_of_threads > 1) {
     const double distance = ComputeConfigurationDistance(q1, q2);
     const int num_steps =
         static_cast<int>(std::max(1.0, std::ceil(distance / edge_step_size())));
@@ -675,8 +815,9 @@ EdgeMeasure CollisionChecker::MeasureEdgeCollisionFreeParallel(
     // Start by assuming the whole edge is fine; we'll whittle away at it.
     alpha.store(1.0);
     std::mutex alpha_mutex;
+
 #if defined(_OPENMP)
-#pragma omp parallel for
+#pragma omp parallel for num_threads(number_of_threads) schedule(static)
 #endif
     for (int step = 0; step <= num_steps; ++step) {
       const double ratio = step / static_cast<double>(num_steps);
@@ -685,7 +826,7 @@ EdgeMeasure CollisionChecker::MeasureEdgeCollisionFreeParallel(
       if (possible_alpha < alpha.load()) {
         const Eigen::VectorXd qinterp =
             InterpolateBetweenConfigurations(q1, q2, ratio);
-        if (!CheckConfigCollisionFree(qinterp)) {
+        if (!CheckConfigCollisionFree(qinterp, GetContextOmpThreadNum())) {
           std::lock_guard<std::mutex> update_lock(alpha_mutex);
           // Between the initial decision to interpolate and check collisions
           // and now, another thread may have proven a *lower* alpha is invalid;
@@ -705,24 +846,30 @@ EdgeMeasure CollisionChecker::MeasureEdgeCollisionFreeParallel(
 
 std::vector<EdgeMeasure> CollisionChecker::MeasureEdgesCollisionFree(
     const std::vector<std::pair<Eigen::VectorXd, Eigen::VectorXd>>& edges,
-    const bool parallelize) const {
+    const Parallelism parallelize) const {
   std::vector<EdgeMeasure> collision_checks(edges.size(),
                                             EdgeMeasure(0.0, -1.0));
 
-  const bool check_in_parallel = CanEvaluateInParallel() && parallelize;
-  CRU_OMP_PARALLEL_FOR_IF(check_in_parallel)
+  const int number_of_threads = GetNumberOfThreads(parallelize);
+  drake::log()->debug("MeasureEdgesCollisionFree uses {} thread(s)",
+                      number_of_threads);
+
+#if defined(_OPENMP)
+#pragma omp parallel for num_threads(number_of_threads) schedule(static)
+#endif
   for (size_t idx = 0; idx < edges.size(); ++idx) {
     const std::pair<Eigen::VectorXd, Eigen::VectorXd>& edge = edges.at(idx);
-    collision_checks.at(idx) =
-        MeasureEdgeCollisionFree(edge.first, edge.second);
+    collision_checks.at(idx) = MeasureEdgeCollisionFree(
+        edge.first, edge.second, GetContextOmpThreadNum());
   }
 
   return collision_checks;
 }
 
 RobotClearance CollisionChecker::CalcRobotClearance(
-    const Eigen::VectorXd& q, const double influence_distance) const {
-  return CalcContextRobotClearance(&mutable_model_context(), q,
+    const Eigen::VectorXd& q, const double influence_distance,
+    const std::optional<int> context_number) const {
+  return CalcContextRobotClearance(&mutable_model_context(context_number), q,
                                    influence_distance);
 }
 
@@ -740,8 +887,9 @@ RobotClearance CollisionChecker::CalcContextRobotClearance(
   return result;
 }
 
-int CollisionChecker::MaxNumDistances() const {
-  return MaxContextNumDistances(model_context());
+int CollisionChecker::MaxNumDistances(
+    const std::optional<int> context_number) const {
+  return MaxContextNumDistances(model_context(context_number));
 }
 
 int CollisionChecker::MaxContextNumDistances(
@@ -750,8 +898,9 @@ int CollisionChecker::MaxContextNumDistances(
 }
 
 std::vector<RobotCollisionType> CollisionChecker::ClassifyBodyCollisions(
-    const Eigen::VectorXd& q) const {
-  return ClassifyContextBodyCollisions(&mutable_model_context(), q);
+    const Eigen::VectorXd& q, const std::optional<int> context_number) const {
+  return ClassifyContextBodyCollisions(&mutable_model_context(context_number),
+                                       q);
 }
 
 std::vector<RobotCollisionType> CollisionChecker::ClassifyContextBodyCollisions(
@@ -781,22 +930,62 @@ CollisionChecker::CollisionChecker(CollisionCheckerParams params,
       uncontrolled_dofs_that_kinematically_affect_the_robot_(
           CalcUncontrolledDofsThatKinematicallyAffectTheRobot(
               setup_model_->plant(), robot_model_instances_)),
-      supports_parallel_checking_(supports_parallel_checking) {
+      supports_parallel_checking_(supports_parallel_checking),
+      implicit_context_parallelism_(params.implicit_context_parallelism) {
+  // Sanity check the supported implicit context parallelism.
+  if (!SupportsParallelChecking() &&
+      implicit_context_parallelism_.num_threads() > 1) {
+    throw std::runtime_error(
+        "implicit context parallelism > 1 cannot be used with a collision "
+        "checker that does not support parallel operations");
+  }
+
   // Initialize the zero configuration.
   zero_configuration_ = Eigen::VectorXd::Zero(plant().num_positions());
+  // Initialize the default configuration.
+  default_configuration_ =
+      plant().GetPositions(*plant().CreateDefaultContext());
+
   // Initialize the collision padding matrix.
   collision_padding_ =
       Eigen::MatrixXd::Zero(plant().num_bodies(), plant().num_bodies());
-  // Set parameters with safety checks.
-  SetConfigurationDistanceFunction(
-      std::move(params.configuration_distance_function));
-  set_edge_step_size(params.edge_step_size);
   SetPaddingAllRobotEnvironmentPairs(params.env_collision_padding);
   SetPaddingAllRobotRobotPairs(params.self_collision_padding);
-  // Generate the default interpolation function.
-  SetConfigurationInterpolationFunction(
-      MakeDefaultConfigurationInterpolationFunction(
-          GetQuaternionDofStartIndices(plant())));
+
+  // Set distance and interpolation provider/functions.
+  const bool params_has_provider =
+      params.distance_and_interpolation_provider != nullptr;
+  const bool params_has_distance_function =
+      params.configuration_distance_function != nullptr;
+
+  if (params_has_provider && params_has_distance_function) {
+    throw std::runtime_error(
+        "CollisionCheckerParams may contain either "
+        "distance_and_interpolation_provider != nullptr "
+        "or distance_function != nullptr, not both");
+  }
+
+  if (params_has_provider) {
+    SetDistanceAndInterpolationProvider(
+        std::move(params.distance_and_interpolation_provider));
+  } else if (params_has_distance_function) {
+    SanityCheckConfigurationDistanceFunction(
+        params.configuration_distance_function, GetDefaultConfiguration());
+    // Generate the default interpolation function.
+    const ConfigurationInterpolationFunction default_interpolation_fn =
+        MakeDefaultConfigurationInterpolationFunction(
+            GetQuaternionDofStartIndices(plant()));
+    distance_and_interpolation_provider_ =
+        std::make_unique<LegacyDistanceAndInterpolationProvider>(
+            params.configuration_distance_function, default_interpolation_fn);
+  } else {
+    SetDistanceAndInterpolationProvider(
+        std::make_unique<LinearDistanceAndInterpolationProvider>(plant()));
+  }
+
+  // Set edge step size.
+  set_edge_step_size(params.edge_step_size);
+
   // Generate the filtered collision matrix.
   nominal_filtered_collisions_ = GenerateFilteredCollisionMatrix();
   filtered_collisions_ = nominal_filtered_collisions_;
@@ -809,27 +998,15 @@ void CollisionChecker::AllocateContexts() {
   DRAKE_THROW_UNLESS(IsInitialSetup());
   // Move to a const model.
   model_ = std::move(setup_model_);
-  // Make a diagram & plant context for each thread.
-  const int num_omp_threads =
-      common_robotics_utilities::openmp_helpers::GetNumOmpThreads();
-  const int max_num_omp_threads =
-      common_robotics_utilities::openmp_helpers::GetMaxNumOmpThreads();
-  const int omp_thread_limit =
-      common_robotics_utilities::openmp_helpers::GetOmpThreadLimit();
-  const bool omp_enabled_in_build =
-      common_robotics_utilities::openmp_helpers::IsOmpEnabledInBuild();
-  const int num_threads = std::max(num_omp_threads, max_num_omp_threads);
-  log()->info(
-      "Allocating contexts to support {} parallel queries given "
-      "omp_num_threads {} omp_max_threads {} and omp_thread_limit {} "
-      "OpenMP enabled in build? {}",
-      num_threads, num_omp_threads, max_num_omp_threads, omp_thread_limit,
-      omp_enabled_in_build);
+  // Make enough contexts to support the specified implicit context parallelism.
+  log()->info("Allocating contexts to support implicit context parallelism {}",
+              implicit_context_parallelism_.num_threads());
   // Make the prototype context.
   const std::unique_ptr<CollisionCheckerContext> prototype_context =
       CreatePrototypeContext();
   DRAKE_THROW_UNLESS(prototype_context != nullptr);
-  owned_contexts_.AllocateOwnedContexts(*prototype_context, num_threads);
+  owned_contexts_.AllocateOwnedContexts(
+      *prototype_context, implicit_context_parallelism_.num_threads());
 }
 
 void CollisionChecker::OwnedContextKeeper::AllocateOwnedContexts(
@@ -847,17 +1024,21 @@ void CollisionChecker::OwnedContextKeeper::AllocateOwnedContexts(
 }
 
 bool CollisionChecker::CanEvaluateInParallel() const {
-  return SupportsParallelChecking() &&
-         common_robotics_utilities::openmp_helpers::GetNumOmpThreads() > 1;
+  // TODO(calderpg-tri) Remove OpenMP dependence once alternative parallel-for
+  // loop backends are supported.
+  return SupportsParallelChecking() && num_allocated_contexts() > 1 &&
+         common_robotics_utilities::openmp_helpers::IsOmpEnabledInBuild();
 }
 
 std::string CollisionChecker::CriticizePaddingMatrix() const {
   return CriticizePaddingMatrix(collision_padding_, __func__);
 }
 
-CollisionCheckerContext& CollisionChecker::mutable_model_context() const {
-  return owned_contexts_.get_mutable_model_context(
-      common_robotics_utilities::openmp_helpers::GetContextOmpThreadNum());
+CollisionCheckerContext& CollisionChecker::mutable_model_context(
+    const std::optional<int> context_number) const {
+  const int context_index =
+      context_number.has_value() ? *context_number : GetContextOmpThreadNum();
+  return owned_contexts_.get_mutable_model_context(context_index);
 }
 
 void CollisionChecker::ValidateFilteredCollisionMatrix(
@@ -963,7 +1144,7 @@ Eigen::MatrixXi CollisionChecker::GenerateFilteredCollisionMatrix() const {
 
       const Body<double>& body_j = get_body(BodyIndex(j));
 
-      // Check if collisions between the geometries_i are already filtered.
+      // Check if collisions between the geometries are already filtered.
       bool collisions_filtered = false;
       const std::vector<GeometryId>& geometries_j =
           plant().GetCollisionGeometriesForBody(body_j);
@@ -1103,6 +1284,16 @@ std::string CollisionChecker::CriticizePaddingMatrix(
     }
   }
   return {};
+}
+
+int CollisionChecker::GetNumberOfThreads(const Parallelism parallelize) const {
+  const bool check_in_parallel =
+      CanEvaluateInParallel() && parallelize.num_threads() > 1;
+  if (check_in_parallel) {
+    return std::min(num_allocated_contexts(), parallelize.num_threads());
+  } else {
+    return 1;
+  }
 }
 
 CollisionChecker::OwnedContextKeeper::~OwnedContextKeeper() = default;

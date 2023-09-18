@@ -4,6 +4,7 @@ import unittest
 import numpy as np
 
 from pydrake.common import FindResourceOrThrow
+from pydrake.common.test_utilities.deprecation import catch_drake_warnings
 from pydrake.examples import PendulumPlant
 from pydrake.multibody.tree import MultibodyForces
 from pydrake.multibody.plant import MultibodyPlant
@@ -51,7 +52,7 @@ class TestControllers(unittest.TestCase):
 
         input_limit = 2.
         input_mesh = [set(np.linspace(-input_limit, input_limit, 5))]
-        timestep = 0.01
+        time_step = 0.01
 
         num_callbacks = [0]
 
@@ -75,7 +76,7 @@ class TestControllers(unittest.TestCase):
         policy, cost_to_go = FittedValueIteration(simulator,
                                                   quadratic_regulator_cost,
                                                   state_grid, input_mesh,
-                                                  timestep, options)
+                                                  time_step, options)
 
         self.assertGreater(num_callbacks[0], 0)
 
@@ -97,13 +98,13 @@ class TestControllers(unittest.TestCase):
         state_samples = np.array([[-4., -3., -2., -1., 0., 1., 2., 3., 4.]])
         input_samples = np.array([[-1., 0., 1.]])
 
-        timestep = 1.0
+        time_step = 1.0
         options = DynamicProgrammingOptions()
         options.discount_factor = 1.
 
         J = LinearProgrammingApproximateDynamicProgramming(
             simulator, cost_function, cost_to_go_function, 1,
-            state_samples, input_samples, timestep, options)
+            state_samples, input_samples, time_step, options)
 
         self.assertAlmostEqual(J[0], 1., delta=1e-6)
 
@@ -145,8 +146,11 @@ class TestControllers(unittest.TestCase):
                               InputPort)
         self.assertIsInstance(controller.get_input_port_desired_acceleration(),
                               InputPort)
-        self.assertIsInstance(controller.get_output_port_force(),
+        self.assertIsInstance(controller.get_output_port_generalized_force(),
                               OutputPort)
+        with catch_drake_warnings(expected_count=1):
+            self.assertIsInstance(controller.get_output_port_force(),
+                                  OutputPort)
         self.assertFalse(controller.is_pure_gravity_compensation())
 
         controller = InverseDynamics(
@@ -154,8 +158,11 @@ class TestControllers(unittest.TestCase):
             mode=InverseDynamics.InverseDynamicsMode.kGravityCompensation)
         self.assertIsInstance(controller.get_input_port_estimated_state(),
                               InputPort)
-        self.assertIsInstance(controller.get_output_port_force(),
+        self.assertIsInstance(controller.get_output_port_generalized_force(),
                               OutputPort)
+        with catch_drake_warnings(expected_count=1):
+            self.assertIsInstance(controller.get_output_port_force(),
+                                  OutputPort)
         self.assertTrue(controller.is_pure_gravity_compensation())
 
     def test_inverse_dynamics_controller(self):
@@ -385,6 +392,7 @@ class TestControllers(unittest.TestCase):
         options = FiniteHorizonLinearQuadraticRegulatorOptions()
         options.Qf = Q
         options.use_square_root_method = False
+        options.simulator_config.max_step_size = 0.2
         self.assertIsNone(options.N)
         self.assertIsNone(options.x0)
         self.assertIsNone(options.u0)
@@ -399,7 +407,8 @@ class TestControllers(unittest.TestCase):
             r"N=None, ",
             r"input_port_index=",
             r"InputPortSelection.kUseFirstInputIfItExists, ",
-            r"use_square_root_method=False\)"]))
+            r"use_square_root_method=False, ",
+            r"simulator_config=SimulatorConfig\(.*\)\)"]))
 
         context = double_integrator.CreateDefaultContext()
         double_integrator.get_input_port(0).FixValue(context, 0.0)

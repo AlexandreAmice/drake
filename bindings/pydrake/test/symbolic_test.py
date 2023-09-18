@@ -678,6 +678,8 @@ class TestSymbolicExpression(unittest.TestCase):
     def test_equalto(self):
         self.assertTrue((x + y).EqualTo(x + y))
         self.assertFalse((x + y).EqualTo(x - y))
+        self.assertTrue(sym.Formula(True).EqualTo(True))
+        self.assertTrue(sym.Formula(boolean).EqualTo(boolean))
 
     def test_get_kind(self):
         self.assertEqual((x + y).get_kind(), sym.ExpressionKind.Add)
@@ -757,16 +759,22 @@ class TestSymbolicExpression(unittest.TestCase):
         e_xv = np.array([e_x, e_x])
         e_yv = np.array([e_y, e_y])
         # N.B. In some versions of NumPy, `!=` for dtype=object implies ID
-        # comparison (e.g. `is`).
+        # comparison (e.g. `is`). Depending on the verison of numpy, we might
+        # see either a DeprecationWarning from numpy or the __nonzero__ error
+        # from our code. Once we're at numpy >= 1.25 as our minimum version
+        # (approximately 2026-05-01) we can probably simplify these checks.
         # - All false.
-        with self.assertRaises(DeprecationWarning):
+        with self.assertRaisesRegex((DeprecationWarning, RuntimeError),
+                                    "(elementwise comparison|__nonzero__)"):
             value = (e_xv == e_yv)
         # - True + False.
-        with self.assertRaises(DeprecationWarning):
+        with self.assertRaisesRegex((DeprecationWarning, RuntimeError),
+                                    "(elementwise comparison|__nonzero__)"):
             e_xyv = np.array([e_x, e_y])
             value = (e_xv == e_xyv)
         # - All true.
-        with self.assertRaises(DeprecationWarning):
+        with self.assertRaisesRegex((DeprecationWarning, RuntimeError),
+                                    "(elementwise comparison|__nonzero__)"):
             value = (e_xv == e_xv)
 
     def test_functions_with_float(self):
@@ -926,6 +934,8 @@ class TestSymbolicExpression(unittest.TestCase):
 
 class TestSymbolicFormula(unittest.TestCase):
     def test_constructor(self):
+        sym.Formula()
+        sym.Formula(value=True)
         sym.Formula(var=boolean)
 
     def test_factory_functions(self):
@@ -1113,6 +1123,30 @@ class TestSymbolicMonomial(unittest.TestCase):
         self.assertEqual(len(p2.monomial_to_coefficient_map()), 1)
         numpy_compare.assert_equal(
             p2.monomial_to_coefficient_map()[m1], sym.Expression(3))
+
+    def test_multiplication_expr(self):
+        m = sym.Monomial(x, 2)
+        e = sym.Expression(y)
+        numpy_compare.assert_equal(m * e, sym.Polynomial(m).ToExpression() * e)
+        numpy_compare.assert_equal(e * m, e * sym.Polynomial(m).ToExpression())
+
+    def test_addition_expr(self):
+        m = sym.Monomial(x, 2)
+        e = sym.Expression(y)
+        numpy_compare.assert_equal(m + e, sym.Polynomial(m).ToExpression() + e)
+        numpy_compare.assert_equal(e + m, e + sym.Polynomial(m).ToExpression())
+
+    def test_subtraction_expr(self):
+        m = sym.Monomial(x, 2)
+        e = sym.Expression(y)
+        numpy_compare.assert_equal(m - e, sym.Polynomial(m).ToExpression() - e)
+        numpy_compare.assert_equal(e - m, e - sym.Polynomial(m).ToExpression())
+
+    def test_division_expr(self):
+        m = sym.Monomial(x, 2)
+        e = sym.Expression(y)
+        numpy_compare.assert_equal(m / e, sym.Polynomial(m).ToExpression() / e)
+        numpy_compare.assert_equal(e / m, e / sym.Polynomial(m).ToExpression())
 
     def test_multiplication_assignment1(self):
         m = sym.Monomial(x, 2)
@@ -1337,7 +1371,7 @@ class TestSymbolicPolynomial(unittest.TestCase):
             p_expand.monomial_to_coefficient_map()[
                 sym.Monomial(x)].EqualTo(a+2))
 
-    def test_substitute_and_exand(self):
+    def test_substitute_and_expand(self):
         a = sym.Variable("a")
         x = sym.Variable("x")
 
@@ -1391,6 +1425,13 @@ class TestSymbolicPolynomial(unittest.TestCase):
         self.assertTrue(p.IsEven())
         self.assertTrue(p.IsOdd())
 
+    def test_roots(self):
+        p = sym.Polynomial(x**4 - 1)
+        roots = p.Roots()
+        numpy_compare.assert_allclose(np.sort_complex(roots), [-1, -1j, 1j, 1],
+                                      rtol=1e-14,
+                                      atol=1e-14)
+
     def test_comparison(self):
         p = sym.Polynomial()
         numpy_compare.assert_equal(p, p)
@@ -1430,6 +1471,8 @@ class TestSymbolicPolynomial(unittest.TestCase):
         numpy_compare.assert_equal(0 + p, p)
         numpy_compare.assert_equal(x + p, sym.Polynomial(x) + p)
         numpy_compare.assert_equal(p + x, p + sym.Polynomial(x))
+        numpy_compare.assert_equal(p + e_x, p.ToExpression() + e_x)
+        numpy_compare.assert_equal(e_x + p, e_x + p.ToExpression())
 
     def test_subtraction(self):
         p = sym.Polynomial(0.0, [x])
@@ -1441,6 +1484,8 @@ class TestSymbolicPolynomial(unittest.TestCase):
         numpy_compare.assert_equal(0 - p, -p)
         numpy_compare.assert_equal(x - p, sym.Polynomial(x))
         numpy_compare.assert_equal(p - x, sym.Polynomial(-x))
+        numpy_compare.assert_equal(p - e_x, p.ToExpression() - e_x)
+        numpy_compare.assert_equal(e_x - p, e_x - p.ToExpression())
 
     def test_multiplication(self):
         p = sym.Polynomial(0.0, [x])
@@ -1454,11 +1499,16 @@ class TestSymbolicPolynomial(unittest.TestCase):
                                    sym.Polynomial(x * x))
         numpy_compare.assert_equal(x * sym.Polynomial(x),
                                    sym.Polynomial(x * x))
+        numpy_compare.assert_equal(p * e_x, p.ToExpression() * e_x)
+        numpy_compare.assert_equal(e_x * p, e_x * p.ToExpression())
 
     def test_division(self):
         p = sym.Polynomial(x * x + x)
         numpy_compare.assert_equal(p / 2,
                                    sym.Polynomial(1 / 2 * x * x + 1 / 2 * x))
+        numpy_compare.assert_equal(2 / p, 2 / p.ToExpression())
+        numpy_compare.assert_equal(p / e_x, p.ToExpression() / e_x)
+        numpy_compare.assert_equal(e_x / p, e_x / p.ToExpression())
 
     def test_addition_assignment(self):
         p = sym.Polynomial()

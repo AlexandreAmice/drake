@@ -6,24 +6,31 @@
 #include <stdexcept>
 #include <utility>
 
-#include <vtkCamera.h>
-#include <vtkCylinderSource.h>
-#include <vtkImageCast.h>
-#include <vtkOpenGLPolyDataMapper.h>
-#include <vtkOpenGLShaderProperty.h>
-#include <vtkOpenGLTexture.h>
-#include <vtkPNGReader.h>
-#include <vtkPlaneSource.h>
-#include <vtkProperty.h>
-#include <vtkTexturedSphereSource.h>
-#include <vtkTransform.h>
-#include <vtkTransformPolyDataFilter.h>
+// To ease build system upkeep, we annotate VTK includes with their deps.
+#include <vtkActor.h>                    // vtkRenderingCore
+#include <vtkCamera.h>                   // vtkRenderingCore
+#include <vtkCylinderSource.h>           // vtkFiltersSources
+#include <vtkGLTFImporter.h>             // vtkIOImport
+#include <vtkImageCast.h>                // vtkImagingCore
+#include <vtkImageFlip.h>                // vtkImagingCore
+#include <vtkOpenGLPolyDataMapper.h>     // vtkRenderingOpenGL2
+#include <vtkOpenGLShaderProperty.h>     // vtkRenderingOpenGL2
+#include <vtkOpenGLTexture.h>            // vtkRenderingOpenGL2
+#include <vtkPNGReader.h>                // vtkIOImage
+#include <vtkPlaneSource.h>              // vtkFiltersSources
+#include <vtkProperty.h>                 // vtkRenderingCore
+#include <vtkTexture.h>                  // vtkRenderingCore
+#include <vtkTexturedSphereSource.h>     // vtkFiltersSources
+#include <vtkTransform.h>                // vtkCommonTransforms
+#include <vtkTransformPolyDataFilter.h>  // vtkFiltersGeneral
 
+#include "drake/common/diagnostic_policy.h"
 #include "drake/common/text_logging.h"
 #include "drake/geometry/render/render_mesh.h"
 #include "drake/geometry/render/shaders/depth_shaders.h"
 #include "drake/geometry/render_vtk/internal_render_engine_vtk_base.h"
 #include "drake/geometry/render_vtk/internal_vtk_util.h"
+#include "drake/math/rotation_matrix.h"
 #include "drake/systems/sensors/color_palette.h"
 
 namespace drake {
@@ -32,14 +39,17 @@ namespace render_vtk {
 namespace internal {
 
 using Eigen::Vector2d;
+using Eigen::Vector3d;
 using Eigen::Vector4d;
 using geometry::internal::DefineMaterial;
 using geometry::internal::LoadRenderMeshFromObj;
 using geometry::internal::RenderMaterial;
 using geometry::internal::RenderMesh;
 using math::RigidTransformd;
+using math::RotationMatrixd;
 using render::ColorRenderCamera;
 using render::DepthRenderCamera;
+using render::LightParameter;
 using render::RenderCameraCore;
 using render::RenderEngine;
 using render::RenderLabel;
@@ -81,30 +91,30 @@ float CheckRangeAndConvertToMeters(float z_buffer_value, double z_near,
   return static_cast<float>(z_buffer_value * (z_far - z_near) + z_near);
 }
 
-// TODO(SeanCurtis-TRI): Add X_PG pose to this data.
-// A package of data required to register a visual geometry.
-struct RegistrationData {
-  const PerceptionProperties& properties;
-  const RigidTransformd& X_WG;
-  const GeometryId id;
-};
-
 }  // namespace
 
-ShaderCallback::ShaderCallback() :
-    // These values are arbitrary "reasonable" values, but we expect them to
-    // *both* be overwritten upon every usage.
-    z_near_(0.01),
-    z_far_(100.0) {}
+ShaderCallback::ShaderCallback()
+    :  // These values are arbitrary "reasonable" values, but we expect them to
+       // *both* be overwritten upon every usage.
+      z_near_(0.01),
+      z_far_(100.0) {}
 
 vtkNew<ShaderCallback> RenderEngineVtk::uniform_setting_callback_;
 
 RenderEngineVtk::RenderEngineVtk(const RenderEngineVtkParams& parameters)
-    : RenderEngine(parameters.default_label ? *parameters.default_label
-                                            : RenderLabel::kUnspecified),
+    : RenderEngine(  // TODO(jwnimmer-tri) Upon deprecation removal of the
+                     // default_label on 2023-12-01, we should hard-code the
+                     // kDontCare here, instead of using value_or().
+          parameters.default_label.value_or(RenderLabel::kDontCare)),
+      parameters_(parameters),
       pipelines_{{make_unique<RenderingPipeline>(),
                   make_unique<RenderingPipeline>(),
                   make_unique<RenderingPipeline>()}} {
+  if (parameters.default_label.has_value()) {
+    static const logging::Warn log_once(
+        "RenderEngineVtk(): the default_label configuration option is "
+        "deprecated and will be removed from Drake on or after 2023-12-01.");
+  }
   if (parameters.default_diffuse) {
     default_diffuse_.set(*parameters.default_diffuse);
   }
@@ -125,22 +135,20 @@ void RenderEngineVtk::UpdateViewpoint(const RigidTransformd& X_WC) {
 }
 
 void RenderEngineVtk::ImplementGeometry(const Box& box, void* user_data) {
-  const RegistrationData* data = static_cast<RegistrationData*>(user_data);
-  ImplementGeometry(CreateVtkBox(box, data->properties).GetPointer(),
-                    DefineMaterial(data->properties, default_diffuse_),
-                    user_data);
+  const RegistrationData& data = *static_cast<RegistrationData*>(user_data);
+  ImplementPolyData(CreateVtkBox(box, data.properties).GetPointer(),
+                    DefineMaterial(data.properties, default_diffuse_), data);
 }
 
 void RenderEngineVtk::ImplementGeometry(const Capsule& capsule,
                                         void* user_data) {
-  const RegistrationData* data = static_cast<RegistrationData*>(user_data);
-  ImplementGeometry(CreateVtkCapsule(capsule).GetPointer(),
-                    DefineMaterial(data->properties, default_diffuse_),
-                    user_data);
+  const RegistrationData& data = *static_cast<RegistrationData*>(user_data);
+  ImplementPolyData(CreateVtkCapsule(capsule).GetPointer(),
+                    DefineMaterial(data.properties, default_diffuse_), data);
 }
 
 void RenderEngineVtk::ImplementGeometry(const Convex& convex, void* user_data) {
-  ImplementObj(convex.filename(), convex.scale(), user_data);
+  ImplementMesh(convex.filename(), convex.scale(), user_data);
 }
 
 void RenderEngineVtk::ImplementGeometry(const Cylinder& cylinder,
@@ -154,73 +162,80 @@ void RenderEngineVtk::ImplementGeometry(const Cylinder& cylinder,
   vtkNew<vtkTransformPolyDataFilter> transform_filter;
   TransformToDrakeCylinder(transform, transform_filter, vtk_cylinder);
 
-  const RegistrationData* data = static_cast<RegistrationData*>(user_data);
-  ImplementGeometry(transform_filter.GetPointer(),
-                    DefineMaterial(data->properties, default_diffuse_),
-                    user_data);
+  const RegistrationData& data = *static_cast<RegistrationData*>(user_data);
+  ImplementPolyData(transform_filter.GetPointer(),
+                    DefineMaterial(data.properties, default_diffuse_), data);
 }
 
 void RenderEngineVtk::ImplementGeometry(const Ellipsoid& ellipsoid,
                                         void* user_data) {
-  const RegistrationData* data = static_cast<RegistrationData*>(user_data);
-  ImplementGeometry(CreateVtkEllipsoid(ellipsoid).GetPointer(),
-                    DefineMaterial(data->properties, default_diffuse_),
-                    user_data);
+  const RegistrationData& data = *static_cast<RegistrationData*>(user_data);
+  ImplementPolyData(CreateVtkEllipsoid(ellipsoid).GetPointer(),
+                    DefineMaterial(data.properties, default_diffuse_), data);
 }
 
-void RenderEngineVtk::ImplementGeometry(const HalfSpace&,
-                                        void* user_data) {
+void RenderEngineVtk::ImplementGeometry(const HalfSpace&, void* user_data) {
   vtkSmartPointer<vtkPlaneSource> vtk_plane = CreateSquarePlane(kTerrainSize);
 
-  const RegistrationData* data = static_cast<RegistrationData*>(user_data);
-  ImplementGeometry(vtk_plane.GetPointer(),
-                    DefineMaterial(data->properties, default_diffuse_),
-                    user_data);
+  const RegistrationData& data = *static_cast<RegistrationData*>(user_data);
+  ImplementPolyData(vtk_plane.GetPointer(),
+                    DefineMaterial(data.properties, default_diffuse_), data);
 }
 
 void RenderEngineVtk::ImplementGeometry(const Mesh& mesh, void* user_data) {
-  ImplementObj(mesh.filename(), mesh.scale(), user_data);
+  ImplementMesh(mesh.filename(), mesh.scale(), user_data);
 }
 
 void RenderEngineVtk::ImplementGeometry(const Sphere& sphere, void* user_data) {
   vtkNew<vtkTexturedSphereSource> vtk_sphere;
   SetSphereOptions(vtk_sphere.GetPointer(), sphere.radius());
-  const RegistrationData* data = static_cast<RegistrationData*>(user_data);
-  ImplementGeometry(vtk_sphere.GetPointer(),
-                    DefineMaterial(data->properties, default_diffuse_),
-                    user_data);
+  const RegistrationData& data = *static_cast<RegistrationData*>(user_data);
+  ImplementPolyData(vtk_sphere.GetPointer(),
+                    DefineMaterial(data.properties, default_diffuse_), data);
 }
 
-bool RenderEngineVtk::DoRegisterVisual(
-    GeometryId id, const Shape& shape, const PerceptionProperties& properties,
-    const RigidTransformd& X_WG) {
+bool RenderEngineVtk::DoRegisterVisual(GeometryId id, const Shape& shape,
+                                       const PerceptionProperties& properties,
+                                       const RigidTransformd& X_WG) {
   // Note: the user_data interface on reification requires a non-const pointer.
   RegistrationData data{properties, X_WG, id};
   shape.Reify(this, &data);
-  return true;
+  return data.accepted;
 }
 
 void RenderEngineVtk::DoUpdateVisualPose(GeometryId id,
                                          const RigidTransformd& X_WG) {
   vtkSmartPointer<vtkTransform> vtk_X_WG = ConvertToVtkTransform(X_WG);
-  // TODO(SeanCurtis-TRI): Perhaps provide the ability to specify actors for
-  //  specific pipelines; i.e. only update the color actor or only the label
-  //  actor, etc.
-  for (const auto& actor : actors_.at(id)) {
-    actor->SetUserTransform(vtk_X_WG);
+  // TODO(SeanCurtis-TRI): Perhaps provide the ability to specify which pipeline
+  //  is being updated and only update the pose of the prop for that pipeline.
+  for (const auto& prop : props_.at(id)) {
+    for (const auto& part : prop.parts) {
+      if (part.T_GA != nullptr) {
+        // The goal is to update the actor's pose without allocating new
+        // transforms or matrices. Using part.actor->GetUserMatrix() as the
+        // result of the matrix product is unreliable. Instead, write to the
+        // matrix from the user transform.
+        vtkMatrix4x4* T_WA = part.actor->GetUserTransform()->GetMatrix();
+        vtkMatrix4x4::Multiply4x4(vtk_X_WG->GetMatrix(), part.T_GA, T_WA);
+        part.actor->Modified();
+      } else {
+        part.actor->SetUserTransform(vtk_X_WG);
+      }
+    }
   }
 }
 
 bool RenderEngineVtk::DoRemoveGeometry(GeometryId id) {
-  auto iter = actors_.find(id);
+  auto iter = props_.find(id);
 
-  if (iter != actors_.end()) {
-    std::array<vtkSmartPointer<vtkActor>, 3>& pipe_actors = iter->second;
+  if (iter != props_.end()) {
+    PropArray& pipe_props = iter->second;
     for (int i = 0; i < kNumPipelines; ++i) {
-      // If the label actor hasn't been added to its renderer, this is a no-op.
-      pipelines_[i]->renderer->RemoveActor(pipe_actors[i]);
+      for (const auto& part : pipe_props[i].parts) {
+        pipelines_[i]->renderer->RemoveActor(part.actor);
+      }
     }
-    actors_.erase(iter);
+    props_.erase(iter);
     return true;
   }
 
@@ -231,9 +246,8 @@ std::unique_ptr<RenderEngine> RenderEngineVtk::DoClone() const {
   return std::unique_ptr<RenderEngineVtk>(new RenderEngineVtk(*this));
 }
 
-void RenderEngineVtk::DoRenderColorImage(
-    const ColorRenderCamera& camera,
-    ImageRgba8U* color_image_out) const {
+void RenderEngineVtk::DoRenderColorImage(const ColorRenderCamera& camera,
+                                         ImageRgba8U* color_image_out) const {
   UpdateWindow(camera.core(), camera.show_window(),
                *pipelines_[ImageType::kColor], "Color Image");
   PerformVtkUpdate(*pipelines_[ImageType::kColor]);
@@ -243,9 +257,8 @@ void RenderEngineVtk::DoRenderColorImage(
   pipelines_[ImageType::kColor]->exporter->Export(color_image_out->at(0, 0));
 }
 
-void RenderEngineVtk::DoRenderDepthImage(
-    const DepthRenderCamera& camera,
-      ImageDepth32F* depth_image_out) const {
+void RenderEngineVtk::DoRenderDepthImage(const DepthRenderCamera& camera,
+                                         ImageDepth32F* depth_image_out) const {
   UpdateWindow(camera, *pipelines_[ImageType::kDepth]);
   PerformVtkUpdate(*pipelines_[ImageType::kDepth]);
 
@@ -276,16 +289,15 @@ void RenderEngineVtk::DoRenderDepthImage(
         // Dividing by 255 so that the range gets to be [0, 1].
         shader_value /= 255.f;
         // TODO(kunimatsu-tri) Calculate this in a vertex shader.
-        depth_image_out->at(u, v)[0] = CheckRangeAndConvertToMeters(
-            shader_value, min_depth, max_depth);
+        depth_image_out->at(u, v)[0] =
+            CheckRangeAndConvertToMeters(shader_value, min_depth, max_depth);
       }
     }
   }
 }
 
-void RenderEngineVtk::DoRenderLabelImage(
-    const ColorRenderCamera& camera,
-    ImageLabel16I* label_image_out) const {
+void RenderEngineVtk::DoRenderLabelImage(const ColorRenderCamera& camera,
+                                         ImageLabel16I* label_image_out) const {
   UpdateWindow(camera.core(), camera.show_window(),
                *pipelines_[ImageType::kLabel], "Label Image");
   PerformVtkUpdate(*pipelines_[ImageType::kLabel]);
@@ -311,6 +323,7 @@ void RenderEngineVtk::DoRenderLabelImage(
 
 RenderEngineVtk::RenderEngineVtk(const RenderEngineVtk& other)
     : RenderEngine(other),
+      parameters_(other.parameters_),
       pipelines_{{make_unique<RenderingPipeline>(),
                   make_unique<RenderingPipeline>(),
                   make_unique<RenderingPipeline>()}},
@@ -318,58 +331,21 @@ RenderEngineVtk::RenderEngineVtk(const RenderEngineVtk& other)
       default_clear_color_{other.default_clear_color_} {
   InitializePipelines();
 
-  // Utility function for creating a cloned actor which *shares* the same
-  // underlying polygonal data.
-  auto clone_actor_array = [this](
-      const std::array<vtkSmartPointer<vtkActor>, kNumPipelines>& source_actors,
-      std::array<vtkSmartPointer<vtkActor>, kNumPipelines>* clone_actors_ptr) {
-    DRAKE_DEMAND(clone_actors_ptr != nullptr);
-    std::array<vtkSmartPointer<vtkActor>, kNumPipelines>& clone_actors =
-        *clone_actors_ptr;
+  for (const auto& [id, source_props] : other.props_) {
+    PropArray target_props;
     for (int i = 0; i < kNumPipelines; ++i) {
-      // NOTE: source *should* be const; but none of the getters on the source
-      // are const-compatible.
-      DRAKE_DEMAND(source_actors[i]);
-      DRAKE_DEMAND(clone_actors[i]);
-      vtkActor& source = *source_actors[i];
-      vtkActor& clone = *clone_actors[i];
-
-      clone.SetShaderProperty(source.GetShaderProperty());
-
-      // NOTE: The clone renderer and original renderer *share* polygon data
-      // (via the shared mapper) and all textures. If the meshes or textures get
-      // modified _in place_ in a clone, the change would be visible to all
-      // copies of the renderer. If that proves to be problematic we'll have to
-      // make the copy "deeper" as appropriate.
-      if (source.GetTexture() == nullptr) {
-        clone.GetProperty()->SetColor(source.GetProperty()->GetColor());
-        clone.GetProperty()->SetOpacity(source.GetProperty()->GetOpacity());
-      } else {
-        clone.SetTexture(source.GetTexture());
+      auto& renderer = *pipelines_.at(i)->renderer;
+      const Prop& source_prop = source_props[i];
+      Prop& target_prop = target_props[i];
+      for (const auto& source_part : source_prop.parts) {
+        vtkNew<vtkActor> target_actor;
+        target_actor->ShallowCopy(source_part.actor);
+        renderer.AddActor(target_actor);
+        target_prop.parts.push_back(
+            Part{.actor = std::move(target_actor), .T_GA = source_part.T_GA});
       }
-      const auto& source_textures = source.GetProperty()->GetAllTextures();
-      for (auto& [name, texture] : source_textures) {
-        clone.GetProperty()->SetTexture(name.c_str(), texture);
-      }
-
-      clone.SetMapper(source.GetMapper());
-      clone.SetUserTransform(source.GetUserTransform());
-      // This is necessary because *terrain* has its lighting turned off. To
-      // blindly handle arbitrary actors being flagged as terrain, we need
-      // to treat all actors this way.
-      clone.GetProperty()->SetLighting(source.GetProperty()->GetLighting());
-
-      pipelines_.at(i)->renderer.Get()->AddActor(&clone);
     }
-  };
-
-  for (const auto& other_id_actor_pair : other.actors_) {
-    std::array<vtkSmartPointer<vtkActor>, kNumPipelines> actors{
-        vtkSmartPointer<vtkActor>::New(), vtkSmartPointer<vtkActor>::New(),
-        vtkSmartPointer<vtkActor>::New()};
-    clone_actor_array(other_id_actor_pair.second, &actors);
-    const GeometryId id = other_id_actor_pair.first;
-    actors_.insert({id, std::move(actors)});
+    props_.insert({id, std::move(target_props)});
   }
 
   // Copy camera properties
@@ -382,18 +358,214 @@ RenderEngineVtk::RenderEngineVtk(const RenderEngineVtk& other)
   }
 }
 
+void RenderEngineVtk::ImplementMesh(const std::string& file_name, double scale,
+                                    void* user_data) {
+  auto& data = *static_cast<RegistrationData*>(user_data);
+
+  const std::string extension = Mesh(file_name).extension();
+  if (extension == ".obj") {
+    data.accepted = ImplementObj(file_name, scale, data);
+  } else if (extension == ".gltf") {
+    data.accepted = ImplementGltf(file_name, scale, data);
+  } else {
+    static const logging::Warn one_time(
+        "RenderEngineVtk only supports Mesh/Convex specifications which use "
+        ".obj and .gltf files. Mesh specifications using other mesh types "
+        "(e.g., .stl, .dae, etc.) will be ignored.");
+    data.accepted = false;
+  }
+}
+
+bool RenderEngineVtk::ImplementObj(const std::string& file_name, double scale,
+                                   const RegistrationData& data) {
+  RenderMesh mesh_data =
+      LoadRenderMeshFromObj(file_name, data.properties, default_diffuse_,
+                            drake::internal::DiagnosticPolicy());
+  const RenderMaterial material = mesh_data.material;
+
+  vtkSmartPointer<vtkPolyDataAlgorithm> mesh_source =
+      CreateVtkMesh(std::move(mesh_data));
+
+  if (scale == 1) {
+    ImplementPolyData(mesh_source.GetPointer(), material, data);
+    return true;
+  }
+
+  vtkNew<vtkTransform> transform;
+  // TODO(SeanCurtis-TRI): Should I be allowing only isotropic scale.
+  transform->Scale(scale, scale, scale);
+  vtkNew<vtkTransformPolyDataFilter> transform_filter;
+  transform_filter->SetInputConnection(mesh_source->GetOutputPort());
+  transform_filter->SetTransform(transform.GetPointer());
+  transform_filter->Update();
+
+  ImplementPolyData(transform_filter.GetPointer(), material, data);
+  return true;
+}
+
+bool RenderEngineVtk::ImplementGltf(const std::string& file_name, double scale,
+                                    const RegistrationData& data) {
+  vtkNew<vtkGLTFImporter> importer;
+  importer->SetFileName(file_name.c_str());
+  importer->Update();
+
+  auto* renderer = importer->GetRenderer();
+  DRAKE_DEMAND(renderer != nullptr);
+
+  if (renderer->VisibleActorCount() == 0) {
+    log()->warn("No visible meshes found in glTF file: {}", file_name);
+    return false;
+  }
+
+  // The pose of the geometry in Drake's world. This is a component of the final
+  // UserMatrix value.
+  vtkSmartPointer<vtkTransform> vtk_X_WG = ConvertToVtkTransform(data.X_WG);
+
+  // The relative transform from the file's frame F to the geometry's frame G.
+  // This includes the rotation from y-up to z-up and the requested scale.
+  const RigidTransformd X_GF(RotationMatrixd::MakeXRotation(M_PI / 2));
+  vtkSmartPointer<vtkTransform> T_GF_transform =
+      ConvertToVtkTransform(X_GF, scale);
+  vtkMatrix4x4* T_GF = T_GF_transform->GetMatrix();
+
+  // Color.
+  if (data.properties.HasProperty("phong", "diffuse") ||
+      data.properties.HasProperty("phong", "diffuse_map")) {
+    log()->warn(
+        "Drake materials have been assigned to a glTF file. glTF defines its "
+        "own materials, so post hoc materials will be ignored and should be "
+        "removed from the model specification. glTF file: '{}'",
+        file_name);
+  }
+
+  const RenderLabel label = GetRenderLabelOrThrow(data.properties);
+  const ColorD label_color = RenderEngine::GetColorDFromLabel(label);
+
+  // The final assemblies associated with the GeometryId.
+  PropArray prop_array;
+
+  for (int i = 0; i < kNumPipelines; ++i) {
+    // VTK imports a collection of visible parts (nee vtkActors), regardless
+    // what the glTF hierarchy was, The actor poses are all measured and
+    // expressed w.r.t. the file's frame F.
+    //
+    // We'll store each actor from the glTF file in a single Part, storing the
+    // transform of the actor frame A to the *geometry* frame G (see below).
+    auto& prop = prop_array[i];
+    auto* actors = renderer->GetActors();
+    actors->InitTraversal();
+    // For each source_actor, create a color, depth, and label actor.
+    while (vtkActor* source_actor = actors->GetNextActor()) {
+      vtkSmartPointer<vtkActor> part_actor;
+      if (i == ImageType::kColor) {
+        // Color rendering can use the source_actor without changes.
+        part_actor = source_actor;
+      } else {
+        // Depth and label images require new actors, based on the source, but
+        // with changes to their materials (aka "mapper").
+        part_actor = vtkNew<vtkActor>();
+        vtkNew<vtkOpenGLPolyDataMapper> mapper;
+        part_actor->SetMapper(mapper);
+        mapper->SetInputConnection(
+            source_actor->GetMapper()->GetInputAlgorithm()->GetOutputPort());
+        if (i == ImageType::kLabel) {
+          // Label requires a mapper with the encoded RenderLabel color.
+          part_actor->GetProperty()->LightingOff();
+          part_actor->GetProperty()->SetColor(label_color.r, label_color.g,
+                                              label_color.b);
+        } else if (i == ImageType::kDepth) {
+          // Depth requires a mapper with the depth shader.
+          vtkOpenGLShaderProperty* shader_prop =
+              vtkOpenGLShaderProperty::SafeDownCast(
+                  part_actor->GetShaderProperty());
+          DRAKE_DEMAND(shader_prop != nullptr);
+          shader_prop->SetVertexShaderCode(render::shaders::kDepthVS);
+          shader_prop->SetFragmentShaderCode(render::shaders::kDepthFS);
+          mapper->AddObserver(vtkCommand::UpdateShaderEvent,
+                              uniform_setting_callback_.Get());
+        }
+      }
+      // vtkGLTFImporter uses the actor's UserTransform property to define the
+      // actor's transform in the file frame (T_FA). We also have to use the
+      // UserTransform to pose the geometry in Drake's world (T_WG). So, we will
+      // interpret UserTransform as T_WA = X_WG * T_GA = X_WG * T_GF * T_FA.
+      // We save T_GA with the actor in the part so we can keep computing T_WA
+      // as X_WG changes.
+      vtkNew<vtkMatrix4x4> T_GA;
+      vtkMatrix4x4* T_FA = source_actor->GetUserMatrix();
+      vtkMatrix4x4::Multiply4x4(T_GF, T_FA, T_GA);
+      vtkNew<vtkMatrix4x4> T_WA;
+      vtkMatrix4x4::Multiply4x4(vtk_X_WG->GetMatrix(), T_GA, T_WA);
+      part_actor->SetUserMatrix(T_WA);
+      pipelines_.at(i)->renderer->AddActor(part_actor);
+      prop.parts.push_back(
+          {.actor = std::move(part_actor), .T_GA = std::move(T_GA)});
+    }
+  }
+
+  props_.insert({data.id, std::move(prop_array)});
+
+  // We've successfully processed the .gltf. Report it as accepted.
+  return true;
+}
+
+namespace {
+
+vtkSmartPointer<vtkLight> MakeVtkLight(const LightParameter& light_param) {
+  vtkNew<vtkLight> light;
+  light->SetColor(light_param.color.rgba().data());
+  light->SetIntensity(light_param.intensity);
+  if (light_param.type == "directional") {
+    light->SetPositional(false);
+  } else {
+    light->SetPositional(true);
+    light->SetAttenuationValues(light_param.attenuation_values.data());
+    if (light_param.type == "point") {
+      light->SetConeAngle(90.0);
+    } else if (light_param.type == "spot") {
+      light->SetConeAngle(light_param.cone_angle);
+    } else {
+      throw std::runtime_error(
+          fmt::format("RenderEngineVtk given an invalid light type. Expected "
+                      "one of 'point', 'spot', or 'directional'. Given '{}'.",
+                      light_param.type));
+    }
+  }
+  if (light_param.frame == "camera") {
+    // LightParameter has the camera located at Co looking in the +Cz direction.
+    // VTK has camera positioned at p_DC = <0, 0, 1> in the device frame D,
+    // looking in the -Dz direction. So, we need to translate p_CL to p_DL by
+    // negating the z-value and offsetting it by p_DC. We need to treat the
+    // light direction similarly.
+    const Vector3d& p_CL_C = light_param.position;
+    const Vector3d p_CL_D(p_CL_C.x(), p_CL_C.y(), -p_CL_C.z() + 1);
+    light->SetPosition(p_CL_D.data());
+    const Vector3d& dir_LT_C = light_param.direction;
+    const Vector3d& dir_LT_D{dir_LT_C.x(), dir_LT_C.y(), -dir_LT_C.z()};
+    const Vector3d p_CT = p_CL_D + dir_LT_D;
+    // Setting the focal point on a point light is harmless.
+    light->SetFocalPoint(p_CT.data());
+    light->SetLightTypeToCameraLight();
+  } else if (light_param.frame == "world") {
+    light->SetPosition(light_param.position.data());
+    const Vector3d p_WT = light_param.position + light_param.direction;
+    light->SetFocalPoint(p_WT.data());
+    light->SetLightTypeToSceneLight();
+  } else {
+    throw std::runtime_error(
+        fmt::format("RenderEngineVtk given an invalid frame for a light. "
+                    "Expected one of 'world' or 'camera'. Given '{}'.",
+                    light_param.frame));
+  }
+
+  return light;
+}
+
+}  // namespace
+
 void RenderEngineVtk::InitializePipelines() {
   const vtkSmartPointer<vtkTransform> vtk_identity =
       ConvertToVtkTransform(RigidTransformd::Identity());
-
-  // TODO(SeanCurtis-TRI): Things like configuring lights should *not* be part
-  //  of initializing the pipelines. When we support light declaration, this
-  //  will get moved out.
-  light_->SetLightTypeToCameraLight();
-  light_->SetConeAngle(45.0);
-  light_->SetAttenuationValues(1.0, 0.0, 0.0);
-  light_->SetIntensity(1);
-  light_->SetTransformMatrix(vtk_identity->GetMatrix());
 
   // Generic configuration of pipelines.
   for (auto& pipeline : pipelines_) {
@@ -429,8 +601,6 @@ void RenderEngineVtk::InitializePipelines() {
     pipeline->filter->SetInputBufferTypeToRGBA();
     pipeline->exporter->SetInputData(pipeline->filter->GetOutput());
     pipeline->exporter->ImageLowerLeftOff();
-
-    pipeline->renderer->AddLight(light_);
   }
 
   // Pipeline-specific tweaks.
@@ -449,41 +619,15 @@ void RenderEngineVtk::InitializePipelines() {
   pipelines_[ImageType::kColor]->renderer->SetBackground(
       default_clear_color_.r, default_clear_color_.g, default_clear_color_.b);
   pipelines_[ImageType::kColor]->renderer->SetBackgroundAlpha(1.0);
-}
-
-void RenderEngineVtk::ImplementObj(const std::string& file_name, double scale,
-                                   void* user_data) {
-  auto* data = static_cast<RegistrationData*>(user_data);
-
-  RenderMesh mesh_data =
-      LoadRenderMeshFromObj(file_name, data->properties, default_diffuse_,
-                            drake::internal::DiagnosticPolicy());
-  const RenderMaterial material = mesh_data.material;
-
-  vtkSmartPointer<vtkPolyDataAlgorithm> mesh_source =
-      CreateVtkMesh(std::move(mesh_data));
-
-  if (scale == 1) {
-    ImplementGeometry(mesh_source.GetPointer(), material, user_data);
-    return;
+  for (const auto& light_param : active_lights()) {
+    pipelines_[ImageType::kColor]->renderer->AddLight(
+        MakeVtkLight(light_param));
   }
-
-  vtkNew<vtkTransform> transform;
-  // TODO(SeanCurtis-TRI): Should I be allowing only isotropic scale.
-  transform->Scale(scale, scale, scale);
-  vtkNew<vtkTransformPolyDataFilter> transform_filter;
-  transform_filter->SetInputConnection(mesh_source->GetOutputPort());
-  transform_filter->SetTransform(transform.GetPointer());
-  transform_filter->Update();
-
-  ImplementGeometry(transform_filter.GetPointer(), material, user_data);
 }
 
-void RenderEngineVtk::ImplementGeometry(vtkPolyDataAlgorithm* source,
+void RenderEngineVtk::ImplementPolyData(vtkPolyDataAlgorithm* source,
                                         const RenderMaterial& material,
-                                        void* user_data) {
-  DRAKE_DEMAND(user_data != nullptr);
-
+                                        const RegistrationData& data) {
   std::array<vtkSmartPointer<vtkActor>, kNumPipelines> actors{
       vtkSmartPointer<vtkActor>::New(), vtkSmartPointer<vtkActor>::New(),
       vtkSmartPointer<vtkActor>::New()};
@@ -497,23 +641,24 @@ void RenderEngineVtk::ImplementGeometry(vtkPolyDataAlgorithm* source,
   DRAKE_DEMAND(shader_prop != nullptr);
   shader_prop->SetVertexShaderCode(render::shaders::kDepthVS);
   shader_prop->SetFragmentShaderCode(render::shaders::kDepthFS);
-  mappers[ImageType::kDepth]->AddObserver(
-      vtkCommand::UpdateShaderEvent, uniform_setting_callback_.Get());
+  mappers[ImageType::kDepth]->AddObserver(vtkCommand::UpdateShaderEvent,
+                                          uniform_setting_callback_.Get());
 
   for (auto& mapper : mappers) {
     mapper->SetInputConnection(source->GetOutputPort());
   }
 
-  const RegistrationData& data = *static_cast<RegistrationData*>(user_data);
-
   vtkSmartPointer<vtkTransform> vtk_X_WG = ConvertToVtkTransform(data.X_WG);
 
   // Adds the actor into the specified pipeline.
-  auto connect_actor = [this, &actors, &mappers,
+  PropArray props;
+  auto connect_actor = [this, &actors, &mappers, &props,
                         &vtk_X_WG](ImageType image_type) {
-    actors[image_type]->SetMapper(mappers[image_type].Get());
-    actors[image_type]->SetUserTransform(vtk_X_WG);
-    pipelines_[image_type]->renderer->AddActor(actors[image_type].Get());
+    vtkSmartPointer<vtkActor>& actor = actors[image_type];
+    actor->SetMapper(mappers[image_type].Get());
+    actor->SetUserTransform(vtk_X_WG);
+    pipelines_[image_type]->renderer->AddActor(actor);
+    props[image_type].parts.push_back({.actor = actor, .T_GA = nullptr});
   };
 
   // Label actor.
@@ -522,7 +667,7 @@ void RenderEngineVtk::ImplementGeometry(vtkPolyDataAlgorithm* source,
     // NOTE: We only configure the label actor if it doesn't have to "do not
     // render" label applied. We *have* created an actor and connected it to
     // a mapper; but otherwise, we leave it disconnected.
-    auto& label_actor = actors[ImageType::kLabel];
+    vtkActor* label_actor = actors[ImageType::kLabel].Get();
     // This is to disable shadows and to get an object painted with a single
     // color.
     label_actor->GetProperty()->LightingOff();
@@ -532,8 +677,7 @@ void RenderEngineVtk::ImplementGeometry(vtkPolyDataAlgorithm* source,
   }
 
   // Color actor.
-  auto& color_actor = actors[ImageType::kColor];
-
+  vtkActor* color_actor = actors[ImageType::kColor].Get();
   if (!material.diffuse_map.empty()) {
     vtkNew<vtkPNGReader> texture_reader;
     texture_reader->SetFileName(material.diffuse_map.c_str());
@@ -575,7 +719,7 @@ void RenderEngineVtk::ImplementGeometry(vtkPolyDataAlgorithm* source,
   connect_actor(ImageType::kDepth);
 
   // Take ownership of the actors.
-  actors_.insert({data.id, std::move(actors)});
+  props_.insert({data.id, std::move(props)});
 }
 
 RenderEngineVtk::RenderingPipeline& RenderEngineVtk::get_mutable_pipeline(
@@ -586,8 +730,11 @@ RenderEngineVtk::RenderingPipeline& RenderEngineVtk::get_mutable_pipeline(
   return *pipelines_[image_type];
 }
 
-void RenderEngineVtk::SetDefaultLightPosition(const Vector3<double>& X_DL) {
-  light_->SetPosition(X_DL[0], X_DL[1], X_DL[2]);
+void RenderEngineVtk::SetDefaultLightPosition(const Vector3<double>&) {
+  log()->warn(
+      "RenderEngineVtk::SetDefaultLightPosition() no longer affects lighting. "
+      "Instead, configure the lights at construction via "
+      "RenderEngineVtkParams.");
 }
 
 void RenderEngineVtk::PerformVtkUpdate(const RenderingPipeline& p) {

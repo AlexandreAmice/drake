@@ -143,17 +143,15 @@ class QueryObject;
  registered with %SceneGraph as producers (a.k.a. _geometry sources_). They
  do this by acquiring a SourceId (via SceneGraph::RegisterSource()). The
  SourceId serves as a unique handle through which the producer's identity is
- validated and its ownership of its registered geometry is maintained.
+ validated.
 
  _Registering Geometry_
 
  %SceneGraph cannot know what geometry _should_ be part of the shared world.
  Other systems are responsible for introducing geometry into the world. This
  process (defining geometry and informing %SceneGraph) is called
- _registering_ the geometry. The source that registers the geometry "owns" the
- geometry; the source's unique SourceId is required to perform any operations
- on the geometry registered with that SourceId. Geometry can be registered as
- _anchored_ or _dynamic_.
+ _registering_ the geometry. Geometry can be registered as  _anchored_ or
+ _dynamic_, and is always registered to (associated with) a SourceId.
 
  Dynamic geometry can move; more specifically, its kinematics (e.g., pose)
  depends on a system's Context. Particularly, a non-deformable dynamic geometry
@@ -245,6 +243,7 @@ class QueryObject;
  that affects geometry with one of those roles will modify the corresponding
  version. For example:
 
+ In C++:
  @code
  // Does *not* modify any version; no roles have been assigned.
  const GeometryId geometry_id = scene_graph.RegisterGeometry(
@@ -262,6 +261,27 @@ class QueryObject;
  // registered with any renderer.
  scene_graph.RemoveGeometry(source_id, geometry_id);
  @endcode
+
+ In Python:
+ @python_details_begin
+ @code{.py}
+ # Does *not* modify any version; no roles have been assigned.
+ geometry_id = scene_graph.RegisterGeometry(
+     source_id, frame_id, GeometryInstance(...))
+ # Modifies the proximity version.
+ scene_graph.AssignRole(source_id, geometry_id, ProximityProperties())
+ # Modifies the illustration version.
+ scene_graph.AssignRole(source_id, geometry_id, IllustrationProperties())
+ # Modifies the perception version if there exists a renderer that accepts the
+ # geometry.
+ scene_graph.AssignRole(source_id, geometry_id, PerceptionProperties())
+ # Modifies the illustration version.
+ scene_graph.RemoveRole(source_id, geometry_id, Role.kIllustration)
+ # Modifies proximity version and perception version if the geometry is
+ # registered with any renderer.
+ scene_graph.RemoveGeometry(source_id, geometry_id)
+ @endcode
+ @python_details_end
 
  Each copy of geometry data maintains its own set of versions.
  %SceneGraph's model has its own version, and that version is the same as the
@@ -396,19 +416,12 @@ class SceneGraph final : public systems::LeafSystem<T> {
      geometries can be registered via calls to the (experimental)
      RegisterDeformableGeometry() methods.
 
-   %SceneGraph has a concept of "ownership" that is separate from the C++
-   notion of ownership. In this case, %SceneGraph protects geometry and frames
-   registered by one source from being modified by another source. All methods
-   that change the world are associated with the SourceId of the geometry source
-   requesting the change. One source cannot "hang" geometry onto a frame (or
-   geometry) that belongs to another source. However, all sources have read
-   access to all geometries in the world. For example, queries will return
-   GeometryId values that span all sources and the properties of the associated
-   geometries can be queried by arbitrary sources.
-
-   That said, if one source _chooses_ to share its SourceId externally, then
-   arbitrary code can use that SourceId to modify the geometry resources that
-   are associated with that SourceId.
+   %SceneGraph has a concept of "ownership" that is separate from the C++ notion
+   of ownership. All methods that *change* the world require passing the
+   SourceId that was originally used to register that geometry. However,
+   read-only operations on geometries do not require the SourceId, e.g., queries
+   will return GeometryId values that span all sources and the properties of the
+   associated geometries can be queried by arbitrary sources.
 
    @note There are no Context-modifying variants for source or frame
    registration yet, as these methods modify the port semantics.  */
@@ -455,6 +468,21 @@ class SceneGraph final : public systems::LeafSystem<T> {
   FrameId RegisterFrame(SourceId source_id, FrameId parent_id,
                         const GeometryFrame& frame);
 
+  /** Renames the frame to `name`.
+
+   This method modifies the underlying model and requires a new Context to be
+   allocated. It does not modify the model versions (see @ref
+   scene_graph_versioning).
+
+   @param frame_id  The id of the frame to rename.
+   @param name  The new name.
+   @throws std::exception if a) the `frame_id` does not map to a valid frame,
+                          or b) there is already a frame named `name` from
+                          the same source. */
+  void RenameFrame(FrameId frame_id, const std::string& name);
+
+  // TODO(jwnimmer-tri) Deprecate and remove `source_id` argument, instead using
+  // the source_id associated with the given `frame_id`.
   /** Registers a new rigid geometry G for this source. This hangs geometry G on
    a previously registered frame F (indicated by `frame_id`). The pose of the
    geometry is defined in a fixed pose relative to F (i.e., `X_FG`).
@@ -481,6 +509,8 @@ class SceneGraph final : public systems::LeafSystem<T> {
   GeometryId RegisterGeometry(SourceId source_id, FrameId frame_id,
                               std::unique_ptr<GeometryInstance> geometry);
 
+  // TODO(jwnimmer-tri) Deprecate and remove `source_id` argument, instead using
+  // the source_id associated with the given `frame_id`.
   /** systems::Context-modifying variant of RegisterGeometry(). Rather than
    modifying %SceneGraph's model, it modifies the copy of the model stored in
    the provided context.  */
@@ -488,6 +518,7 @@ class SceneGraph final : public systems::LeafSystem<T> {
                               FrameId frame_id,
                               std::unique_ptr<GeometryInstance> geometry) const;
 
+  // TODO(jwnimmer-tri) Deprecate and remove `source_id` argument.
   /** Registers a new _anchored_ geometry G for this source. This hangs geometry
    G from the world frame (W). Its pose is defined in that frame (i.e., `X_WG`).
    Returns the corresponding unique geometry id.
@@ -510,6 +541,7 @@ class SceneGraph final : public systems::LeafSystem<T> {
   GeometryId RegisterAnchoredGeometry(
       SourceId source_id, std::unique_ptr<GeometryInstance> geometry);
 
+  // TODO(jwnimmer-tri) Deprecate and remove `source_id` argument.
   // TODO(xuchenhan-tri): Consider allowing registering deformable geometries to
   // non-world frames.
   /** Registers a new deformable geometry G for this source. This registers
@@ -547,6 +579,7 @@ class SceneGraph final : public systems::LeafSystem<T> {
       SourceId source_id, FrameId frame_id,
       std::unique_ptr<GeometryInstance> geometry, double resolution_hint);
 
+  // TODO(jwnimmer-tri) Deprecate and remove `source_id` argument.
   /** systems::Context-modifying variant of RegisterDeformableGeometry(). Rather
    than modifying %SceneGraph's model, it modifies the copy of the model stored
    in the provided context.
@@ -555,6 +588,21 @@ class SceneGraph final : public systems::LeafSystem<T> {
       systems::Context<T>* context, SourceId source_id, FrameId frame_id,
       std::unique_ptr<GeometryInstance> geometry, double resolution_hint) const;
 
+  /** Renames the geometry to `name`.
+
+   This method modifies the underlying model and requires a new Context to be
+   allocated. It does not modify the model versions (see @ref
+   scene_graph_versioning).
+
+   @param geometry_id  The id of the geometry to rename.
+   @param name  The new name.
+   @throws std::exception if a) the `geometry_id` does not map to a valid
+                          geometry, or b) `name` is not unique within any
+                          assigned role of the geometry in its associated
+                          frame. */
+  void RenameGeometry(GeometryId geometry_id, const std::string& name);
+
+  // TODO(jwnimmer-tri) Deprecate and remove `source_id` argument.
   /** Changes the `shape` of the geometry indicated by the given `geometry_id`.
 
    The geometry is otherwise unchanged -- same geometry_id, same assigned roles,
@@ -584,6 +632,7 @@ class SceneGraph final : public systems::LeafSystem<T> {
       SourceId source_id, GeometryId geometry_id, const Shape& shape,
       std::optional<math::RigidTransform<double>> X_FG = std::nullopt);
 
+  // TODO(jwnimmer-tri) Deprecate and remove `source_id` argument.
   /** systems::Context-modifying variant of ChangeShape(). Rather than modifying
    %SceneGraph's model, it modifies the copy of the model stored in the provided
    context.
@@ -593,6 +642,7 @@ class SceneGraph final : public systems::LeafSystem<T> {
       const Shape& shape,
       std::optional<math::RigidTransform<double>> X_FG = std::nullopt);
 
+  // TODO(jwnimmer-tri) Deprecate and remove `source_id` argument.
   /** Removes the given geometry G (indicated by `geometry_id`) from the given
    source's registered geometries. All registered geometries hanging from
    this geometry will also be removed.
@@ -613,6 +663,7 @@ class SceneGraph final : public systems::LeafSystem<T> {
                            not belong to the indicated source.  */
   void RemoveGeometry(SourceId source_id, GeometryId geometry_id);
 
+  // TODO(jwnimmer-tri) Deprecate and remove `source_id` argument.
   /** systems::Context-modifying variant of RemoveGeometry(). Rather than
    modifying %SceneGraph's model, it modifies the copy of the model stored in
    the provided context.  */
@@ -754,6 +805,7 @@ class SceneGraph final : public systems::LeafSystem<T> {
    These methods include the model- and context-modifying variants.    */
   //@{
 
+  // TODO(jwnimmer-tri) Deprecate and remove `source_id` argument.
   /** Assigns the proximity role to the geometry indicated by `geometry_id`.
    Modifies the proximity version (see @ref scene_graph_versioning).
    @pydrake_mkdoc_identifier{proximity_direct}
@@ -762,6 +814,7 @@ class SceneGraph final : public systems::LeafSystem<T> {
                   ProximityProperties properties,
                   RoleAssign assign = RoleAssign::kNew);
 
+  // TODO(jwnimmer-tri) Deprecate and remove `source_id` argument.
   /** systems::Context-modifying variant of
    @ref AssignRole(SourceId,GeometryId,ProximityProperties) "AssignRole()" for
    proximity properties. Rather than modifying %SceneGraph's model, it modifies
@@ -772,6 +825,7 @@ class SceneGraph final : public systems::LeafSystem<T> {
                   GeometryId geometry_id, ProximityProperties properties,
                   RoleAssign assign = RoleAssign::kNew) const;
 
+  // TODO(jwnimmer-tri) Deprecate and remove `source_id` argument.
   /** Assigns the perception role to the geometry indicated by `geometry_id`.
 
    By default, a geometry with a perception role will be reified by all
@@ -789,6 +843,7 @@ class SceneGraph final : public systems::LeafSystem<T> {
                   PerceptionProperties properties,
                   RoleAssign assign = RoleAssign::kNew);
 
+  // TODO(jwnimmer-tri) Deprecate and remove `source_id` argument.
   /** systems::Context-modifying variant of
    @ref AssignRole(SourceId,GeometryId,PerceptionProperties) "AssignRole()" for
    perception properties. Rather than modifying %SceneGraph's model, it modifies
@@ -799,6 +854,7 @@ class SceneGraph final : public systems::LeafSystem<T> {
                   GeometryId geometry_id, PerceptionProperties properties,
                   RoleAssign assign = RoleAssign::kNew) const;
 
+  // TODO(jwnimmer-tri) Deprecate and remove `source_id` argument.
   /** Assigns the illustration role to the geometry indicated by `geometry_id`.
    Modifies the illustration version (see @ref scene_graph_versioning).
 
@@ -814,6 +870,7 @@ class SceneGraph final : public systems::LeafSystem<T> {
                   IllustrationProperties properties,
                   RoleAssign assign = RoleAssign::kNew);
 
+  // TODO(jwnimmer-tri) Deprecate and remove `source_id` argument.
   /** systems::Context-modifying variant of
    @ref AssignRole(SourceId,GeometryId,IllustrationProperties) "AssignRole()"
    for illustration properties. Rather than modifying %SceneGraph's model, it
@@ -829,14 +886,16 @@ class SceneGraph final : public systems::LeafSystem<T> {
    @warning Due to a bug (see issue
    <a href="https://github.com/RobotLocomotion/drake/issues/13597">#13597</a>),
    changing the illustration roles or properties in a systems::Context will not
-   have any apparent effect in, at least, drake_visualizer. Please change the
-   illustration role in the model prior to allocating the context.
+   have any apparent effect in, at least, the legacy `drake_visualizer`
+   application of days past. Please change the illustration role in the model
+   prior to allocating the context.
    @pydrake_mkdoc_identifier{illustration_context}
    */
   void AssignRole(systems::Context<T>* context, SourceId source_id,
                   GeometryId geometry_id, IllustrationProperties properties,
                   RoleAssign assign = RoleAssign::kNew) const;
 
+  // TODO(jwnimmer-tri) Deprecate and remove `source_id` argument.
   /** Removes the indicated `role` from any geometry directly registered to the
    frame indicated by `frame_id` (if the geometry has the role).
    Potentially modifies the proximity, perception, or illustration version based
@@ -852,6 +911,7 @@ class SceneGraph final : public systems::LeafSystem<T> {
    @pydrake_mkdoc_identifier{frame_direct}  */
   int RemoveRole(SourceId source_id, FrameId frame_id, Role role);
 
+  // TODO(jwnimmer-tri) Deprecate and remove `source_id` argument.
   /** systems::Context-modifying variant of
    @ref RemoveRole(SourceId,FrameId,Role) "RemoveRole()" for frames.
    Rather than modifying %SceneGraph's model, it modifies the copy of the model
@@ -860,6 +920,7 @@ class SceneGraph final : public systems::LeafSystem<T> {
   int RemoveRole(systems::Context<T>* context, SourceId source_id,
                  FrameId frame_id, Role role) const;
 
+  // TODO(jwnimmer-tri) Deprecate and remove `source_id` argument.
   /** Removes the indicated `role` from the geometry indicated by `geometry_id`.
    Potentially modifies the proximity, perception, or illustration version based
    on the role being removed from the geometry (see @ref
@@ -875,6 +936,7 @@ class SceneGraph final : public systems::LeafSystem<T> {
    @pydrake_mkdoc_identifier{geometry_direct}  */
   int RemoveRole(SourceId source_id, GeometryId geometry_id, Role role);
 
+  // TODO(jwnimmer-tri) Deprecate and remove `source_id` argument.
   /** systems::Context-modifying variant of
    @ref RemoveRole(SourceId,GeometryId,Role) "RemoveRole()" for individual
    geometries. Rather than modifying %SceneGraph's model, it modifies the copy
@@ -901,6 +963,13 @@ class SceneGraph final : public systems::LeafSystem<T> {
    collision filters can be configured in %SceneGraph's *model* or in the copy
    stored in a particular Context. These methods provide access to the manager
    for the data stored in either location.
+
+   %SceneGraph implicitly filters collisions between rigid geometries affixed to
+   the same frame. This allows representation of complex shapes by providing a
+   union of simpler shapes without producing spurious collisions between those
+   overlapping shapes. %SceneGraph doesn't create *any* collision filters for
+   deformable geometries automatically. Users can add filters to deformable
+   geometries as they require after registration.
 
    Generally, it should be considered a bad practice to hang onto the instance
    of CollisionFilterManager returned by collision_filter_manager(). It is not

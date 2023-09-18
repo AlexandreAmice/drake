@@ -7,7 +7,6 @@ import unittest
 import numpy as np
 
 from pydrake.common.test_utilities import numpy_compare
-from pydrake.common.test_utilities.deprecation import catch_drake_warnings
 from pydrake.common.test_utilities.pickle_compare import assert_pickle
 from pydrake.common.value import AbstractValue, Value
 from pydrake.common.yaml import yaml_load_typed
@@ -87,8 +86,6 @@ class TestGeometryCore(unittest.TestCase):
                               mut.PerceptionProperties)
         self.assertIsInstance(geometry.perception_properties(),
                               mut.PerceptionProperties)
-        with catch_drake_warnings(expected_count=1):
-            self.assertIsInstance(geometry.release_shape(), mut.Shape)
 
     def test_geometry_properties_api(self):
         # Test perception/ illustration properties (specifically Rgba).
@@ -345,6 +342,10 @@ class TestGeometryCore(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, ".*3 or 4.*"):
             color.rgba = [1.0] * 5
 
+        # Modulation.
+        self.assertIsInstance(color * mut.Rgba(0.5, 0.5, 0.5), mut.Rgba)
+        self.assertIsInstance(color.scale_rgb(0.5), mut.Rgba)
+
         # Confirm value instantiation.
         Value[mut.Rgba]
 
@@ -426,10 +427,11 @@ class TestGeometryCore(unittest.TestCase):
         assert_pickle(
             self, capsule, lambda shape: [shape.radius(), shape.length()])
 
-        junk_path = "arbitrary/path"
+        junk_path = "arbitrary/path.ext"
         convex = mut.Convex(filename=junk_path, scale=1.0)
         assert_shape_api(convex)
         self.assertIn(junk_path, convex.filename())
+        self.assertEqual(".ext", convex.extension())
         self.assertEqual(convex.scale(), 1.0)
         assert_pickle(
             self, convex, lambda shape: [shape.filename(), shape.scale()])
@@ -457,6 +459,7 @@ class TestGeometryCore(unittest.TestCase):
         mesh = mut.Mesh(filename=junk_path, scale=1.0)
         assert_shape_api(mesh)
         self.assertIn(junk_path, mesh.filename())
+        self.assertEqual(".ext", mesh.extension())
         self.assertEqual(mesh.scale(), 1.0)
         assert_pickle(
             self, mesh, lambda shape: [shape.filename(), shape.scale()])

@@ -506,6 +506,9 @@ GTEST_TEST(MultibodyPlant, EmptyWorldElements) {
   EXPECT_EQ(plant.num_joints(), 0);
   EXPECT_EQ(plant.num_actuators(), 0);
   EXPECT_EQ(plant.num_constraints(), 0);
+  EXPECT_EQ(plant.num_coupler_constraints(), 0);
+  EXPECT_EQ(plant.num_distance_constraints(), 0);
+  EXPECT_EQ(plant.num_ball_constraints(), 0);
   EXPECT_EQ(plant.num_force_elements(), 1);
 }
 
@@ -601,7 +604,7 @@ GTEST_TEST(ActuationPortsTest, CheckActuation) {
   DRAKE_EXPECT_THROWS_MESSAGE(
       plant.CalcTimeDerivatives(*context, continuous_state.get()),
       "Actuation input port for model instance .* must "
-          "be connected.");
+      "be connected or PD gains must be specified for each actuator.");
 
   // Verify that derivatives can be computed after fixing the acrobot actuation
   // input port.
@@ -1708,14 +1711,14 @@ GTEST_TEST(MultibodyPlantTest, ReversedWeldError) {
   // reflect that.
   DRAKE_EXPECT_THROWS_MESSAGE(
       plant.Finalize(),
-      "This multibody tree already has a mobilizer connecting "
-      "inboard frame \\(index=0\\) and outboard frame \\(index=\\d*\\). "
-      "More than one mobilizer between two frames is not allowed.");
+      ".*already has a joint.*extra_welds_to_world.*joint.*not allowed.*");
 }
 
-// Utility to verify that the only ports of MultibodyPlant that are feedthrough
-// are acceleration and reaction force ports.
-bool OnlyAccelerationAndReactionPortsFeedthrough(
+// Utility to verify the subset of output ports we expect to be direct a
+// feedthrough of the inputs.
+// @returns `true` iff only if a closed subset of the ports is direct
+// feedthrough.
+bool VerifyFeedthroughPorts(
     const MultibodyPlant<double>& plant) {
   // Create a set of the indices of all ports that can be feedthrough.
   std::set<int> ok_to_feedthrough;
@@ -1727,6 +1730,10 @@ bool OnlyAccelerationAndReactionPortsFeedthrough(
         plant.get_generalized_acceleration_output_port(i).get_index());
   ok_to_feedthrough.insert(
       plant.get_body_spatial_accelerations_output_port().get_index());
+  if (plant.is_discrete()) {
+    ok_to_feedthrough.insert(
+        plant.get_contact_results_output_port().get_index());
+  }
 
   // Now find all the feedthrough ports and make sure they are on the
   // list of expected feedthrough ports.
@@ -1821,7 +1828,7 @@ GTEST_TEST(MultibodyPlantTest, CollisionGeometryRegistration) {
 
   // Only accelerations and joint reaction forces feedthrough, even with the
   // new ports related to SceneGraph interaction.
-  EXPECT_TRUE(OnlyAccelerationAndReactionPortsFeedthrough(plant));
+  EXPECT_TRUE(VerifyFeedthroughPorts(plant));
 
   EXPECT_EQ(plant.num_visual_geometries(), 0);
   EXPECT_EQ(plant.num_collision_geometries(), 3);
@@ -2175,16 +2182,22 @@ GTEST_TEST(MultibodyPlantTest, MapVelocityToQDotAndBackFixedWorld) {
   plant.Finalize();
   unique_ptr<Context<double>> context = plant.CreateDefaultContext();
 
+  EXPECT_TRUE(plant.IsVelocityEqualToQDot());
+
   // Make sure that the mapping functions do not throw.
   BasicVector<double> qdot(0), v(0);
   ASSERT_NO_THROW(plant.MapVelocityToQDot(*context, v, &qdot));
   ASSERT_NO_THROW(plant.MapQDotToVelocity(*context, qdot, &v));
+  ASSERT_NO_THROW(plant.MakeVelocityToQDotMap(*context));
+  ASSERT_NO_THROW(plant.MakeQDotToVelocityMap(*context));
 }
 
 GTEST_TEST(MultibodyPlantTest, MapVelocityToQDotAndBackContinuous) {
   MultibodyPlant<double> plant(0.0);
   unique_ptr<Context<double>> context;
   InitializePlantAndContextForVelocityToQDotMapping(&plant, &context);
+
+  EXPECT_FALSE(plant.IsVelocityEqualToQDot());
 
   // Use of MultibodyPlant's mapping to convert generalized velocities to time
   // derivatives of generalized coordinates.
@@ -2203,6 +2216,11 @@ GTEST_TEST(MultibodyPlantTest, MapVelocityToQDotAndBackContinuous) {
   const double kTolerance = 5 * std::numeric_limits<double>::epsilon();
   EXPECT_TRUE(
       CompareMatrices(v_back.CopyToVector(), v.CopyToVector(), kTolerance));
+
+  Eigen::SparseMatrix<double> N = plant.MakeVelocityToQDotMap(*context);
+  EXPECT_TRUE(CompareMatrices(qdot.value(), N * v.value(), kTolerance));
+  Eigen::SparseMatrix<double> Nplus = plant.MakeQDotToVelocityMap(*context);
+  EXPECT_TRUE(CompareMatrices(v.value(), Nplus * qdot.value(), kTolerance));
 }
 
 GTEST_TEST(MultibodyPlantTest, MapVelocityToQDotAndBackDiscrete) {
@@ -2210,6 +2228,8 @@ GTEST_TEST(MultibodyPlantTest, MapVelocityToQDotAndBackDiscrete) {
   MultibodyPlant<double> plant(time_step);
   unique_ptr<Context<double>> context;
   InitializePlantAndContextForVelocityToQDotMapping(&plant, &context);
+
+  EXPECT_FALSE(plant.IsVelocityEqualToQDot());
 
   // Use of MultibodyPlant's mapping to convert generalized velocities to time
   // derivatives of generalized coordinates.
@@ -2754,7 +2774,7 @@ class KukaArmTest : public ::testing::TestWithParam<double> {
 
     // Only accelerations and joint reaction forces feedthrough, for either
     // continuous or discrete plants.
-    EXPECT_TRUE(OnlyAccelerationAndReactionPortsFeedthrough(*plant_));
+    EXPECT_TRUE(VerifyFeedthroughPorts(*plant_));
 
     EXPECT_EQ(plant_->num_positions(), 7);
     EXPECT_EQ(plant_->num_velocities(), 7);
@@ -3397,6 +3417,21 @@ GTEST_TEST(StateSelection, FloatingBodies) {
       plant.SetFreeBodyPoseInAnchoredFrame(
           context.get(), end_effector_frame, mug, X_OM),
       "Frame 'iiwa_link_7' must be anchored to the world frame.");
+
+  // Check qdot to v mappings.
+  VectorXd q = Eigen::VectorXd::LinSpaced(plant.num_positions(), -1, 1);
+  VectorXd v = Eigen::VectorXd::LinSpaced(plant.num_velocities(), -2, 2);
+  VectorXd qdot(plant.num_positions());
+  VectorXd v_back(plant.num_velocities());
+  plant.SetPositions(context.get(), q);
+  plant.MapVelocityToQDot(*context, v, &qdot);
+  plant.MapQDotToVelocity(*context, qdot, &v_back);
+  EXPECT_TRUE(CompareMatrices(v, v_back, kTolerance));
+  const Eigen::SparseMatrix<double> N = plant.MakeVelocityToQDotMap(*context);
+  const Eigen::SparseMatrix<double> Nplus =
+      plant.MakeQDotToVelocityMap(*context);
+  EXPECT_TRUE(CompareMatrices(qdot, N*v, kTolerance));
+  EXPECT_TRUE(CompareMatrices(v, Nplus*qdot, kTolerance));
 }
 
 GTEST_TEST(SetRandomTest, FloatingBodies) {
@@ -3809,6 +3844,56 @@ GTEST_TEST(MultibodyPlantTest, AutoDiffAcrobotParameters) {
                               MatrixCompareType::relative));
 }
 
+GTEST_TEST(MultibodyPlantTests, ConstraintActiveStatus) {
+  // Set up a plant with 3 constraints with arbitrary parameters.
+  MultibodyPlant<double> plant(0.01);
+  plant.set_discrete_contact_solver(DiscreteContactSolver::kSap);
+  const Body<double>& body_A =
+      plant.AddRigidBody("body_A", SpatialInertia<double>{});
+  const Body<double>& body_B =
+      plant.AddRigidBody("body_B", SpatialInertia<double>{});
+  const RevoluteJoint<double>& world_A =
+      plant.AddJoint<RevoluteJoint>("world_A", plant.world_body(), std::nullopt,
+                                    body_A, std::nullopt, Vector3d::UnitZ());
+  const RevoluteJoint<double>& A_B = plant.AddJoint<RevoluteJoint>(
+      "A_B", body_A, std::nullopt, body_B, std::nullopt, Vector3d::UnitZ());
+  MultibodyConstraintId coupler_id =
+      plant.AddCouplerConstraint(world_A, A_B, 2.3);
+  MultibodyConstraintId distance_id = plant.AddDistanceConstraint(
+      body_A, Vector3d(1.0, 2.0, 3.0), body_B, Vector3d(4.0, 5.0, 6.0), 2.0);
+  MultibodyConstraintId ball_id = plant.AddBallConstraint(
+      body_A, Vector3d(-1.0, -2.0, -3.0), body_B, Vector3d(-4.0, -5.0, -6.0));
+
+  plant.Finalize();
+
+  std::unique_ptr<Context<double>> context = plant.CreateDefaultContext();
+
+  // Verify all constraints are active in a default context.
+  EXPECT_TRUE(plant.GetConstraintActiveStatus(*context, coupler_id));
+  EXPECT_TRUE(plant.GetConstraintActiveStatus(*context, distance_id));
+  EXPECT_TRUE(plant.GetConstraintActiveStatus(*context, ball_id));
+
+  // Set all constraints to inactive.
+  plant.SetConstraintActiveStatus(context.get(), coupler_id, false);
+  plant.SetConstraintActiveStatus(context.get(), distance_id, false);
+  plant.SetConstraintActiveStatus(context.get(), ball_id, false);
+
+  // Verify all constraints are inactive in the context.
+  EXPECT_FALSE(plant.GetConstraintActiveStatus(*context, coupler_id));
+  EXPECT_FALSE(plant.GetConstraintActiveStatus(*context, distance_id));
+  EXPECT_FALSE(plant.GetConstraintActiveStatus(*context, ball_id));
+
+  // Set all constraints to back to active.
+  plant.SetConstraintActiveStatus(context.get(), coupler_id, true);
+  plant.SetConstraintActiveStatus(context.get(), distance_id, true);
+  plant.SetConstraintActiveStatus(context.get(), ball_id, true);
+
+  // Verify all constraints are active in the context.
+  EXPECT_TRUE(plant.GetConstraintActiveStatus(*context, coupler_id));
+  EXPECT_TRUE(plant.GetConstraintActiveStatus(*context, distance_id));
+  EXPECT_TRUE(plant.GetConstraintActiveStatus(*context, ball_id));
+}
+
 GTEST_TEST(MultibodyPlantTests, FixedOffsetFrameFunctions) {
   MultibodyPlant<double> plant(0.0);
   const Body<double>& body_B = plant.AddRigidBody("body_B",
@@ -4150,6 +4235,10 @@ GTEST_TEST(MultibodyPlantTest, SetDefaultPositions) {
   DRAKE_EXPECT_THROWS_MESSAGE(
       plant->SetDefaultPositions(iiwa0_instance, q.head<7>()),
       ".*you must call Finalize.* first.");
+  DRAKE_EXPECT_THROWS_MESSAGE(plant->GetDefaultPositions(),
+                              ".*you must call Finalize.* first.");
+  DRAKE_EXPECT_THROWS_MESSAGE(plant->GetDefaultPositions(iiwa0_instance),
+                              ".*you must call Finalize.* first.");
   plant->Finalize();
 
   // Throws if the q is the wrong size.
@@ -4159,9 +4248,18 @@ GTEST_TEST(MultibodyPlantTest, SetDefaultPositions) {
       plant->SetDefaultPositions(iiwa1_instance, q.head<3>()),
       ".*q_instance.size.* == num_positions.*");
 
-  plant->SetDefaultPositions(q);
-
   const double kTol = 1e-15;
+
+  EXPECT_FALSE(CompareMatrices(plant->GetDefaultPositions(), q, kTol));
+  EXPECT_TRUE(CompareMatrices(
+        plant->GetDefaultPositions(),
+        plant->GetPositions(*plant->CreateDefaultContext())));
+  plant->SetDefaultPositions(q);
+  EXPECT_TRUE(CompareMatrices(plant->GetDefaultPositions(), q, kTol));
+  EXPECT_TRUE(CompareMatrices(
+        plant->GetDefaultPositions(),
+        plant->GetPositions(*plant->CreateDefaultContext())));
+
   auto context = plant->CreateDefaultContext();
   EXPECT_TRUE(CompareMatrices(plant->GetPositions(*context), q, kTol));
   EXPECT_TRUE(CompareMatrices(plant->GetPositions(*context, iiwa0_instance),
@@ -4174,8 +4272,27 @@ GTEST_TEST(MultibodyPlantTest, SetDefaultPositions) {
       7 + 7 + 7, 3.0, 4.0);  // 7 joints each + 7 floating base positions.
   q.segment(7, 4).normalize();  // normalize the quaternion indices.
 
+  EXPECT_FALSE(
+      CompareMatrices(
+          plant->GetDefaultPositions(iiwa0_instance), q.head<7>(), kTol));
   plant->SetDefaultPositions(iiwa0_instance, q.head<7>());
+  EXPECT_TRUE(
+      CompareMatrices(
+          plant->GetDefaultPositions(iiwa0_instance), q.head<7>(), kTol));
+  EXPECT_TRUE(CompareMatrices(
+        plant->GetDefaultPositions(),
+        plant->GetPositions(*plant->CreateDefaultContext())));
+
+  EXPECT_FALSE(
+      CompareMatrices(
+          plant->GetDefaultPositions(iiwa1_instance), q.tail<14>(), kTol));
   plant->SetDefaultPositions(iiwa1_instance, q.tail<14>());
+  EXPECT_TRUE(
+      CompareMatrices(
+          plant->GetDefaultPositions(iiwa1_instance), q.tail<14>(), kTol));
+  EXPECT_TRUE(CompareMatrices(
+        plant->GetDefaultPositions(),
+        plant->GetPositions(*plant->CreateDefaultContext())));
 
   plant->SetDefaultContext(context.get());
   EXPECT_TRUE(CompareMatrices(plant->GetPositions(*context), q, kTol));
@@ -4183,6 +4300,9 @@ GTEST_TEST(MultibodyPlantTest, SetDefaultPositions) {
                               q.head<7>()));
   EXPECT_TRUE(CompareMatrices(plant->GetPositions(*context, iiwa1_instance),
                               q.tail<14>(), kTol));
+  EXPECT_TRUE(CompareMatrices(
+        plant->GetDefaultPositions(),
+        plant->GetPositions(*plant->CreateDefaultContext())));
 }
 
 GTEST_TEST(MultibodyPlantTest, GetNames) {
@@ -4539,6 +4659,78 @@ GTEST_TEST(MultibodyPlantTest, GetMutableSceneGraphPreFinalize) {
   plant.Finalize();
   DRAKE_EXPECT_THROWS_MESSAGE(plant.GetMutableSceneGraphPreFinalize(),
                               ".*!is_finalized.*");
+}
+
+GTEST_TEST(MultibodyPlantTest, RenameModelInstance) {
+  // Much of the functionality is tested as part of *Tree. Here we test the
+  // additional semantics of *Plant.
+  MultibodyPlant<double> plant(0.0);
+  SceneGraph<double> scene_graph;
+  plant.RegisterAsSourceForSceneGraph(&scene_graph);
+
+  DRAKE_EXPECT_THROWS_MESSAGE(
+      plant.RenameModelInstance(ModelInstanceIndex(99), "invalid"),
+      ".*no model instance id 99.*");
+
+  // These renames are allowed; it is up to applications to decide if they are
+  // a good idea in a given situation.
+  EXPECT_NO_THROW(plant.RenameModelInstance(world_model_instance(), "Mars"));
+  EXPECT_NO_THROW(plant.RenameModelInstance(default_model_instance(), "hmm"));
+
+  std::string robot = R"""(
+<robot name="a">
+  <link name="b">
+    <collision>
+      <geometry>
+        <sphere radius="0.25"/>
+      </geometry>
+    </collision>
+  </link>
+</robot>
+)""";
+
+  Parser parser(&plant);
+  auto models = parser.AddModelsFromString(robot, "urdf");
+  ASSERT_EQ(models.size(), 1);
+  auto& body = plant.GetBodyByName("b");
+  auto frame_id = plant.GetBodyFrameIdOrThrow(body.index());
+  auto& inspector = scene_graph.model_inspector();
+  ASSERT_EQ(inspector.GetName(frame_id), "a::b");
+  auto geoms = inspector.GetGeometries(frame_id);
+  ASSERT_EQ(geoms.size(), 1);
+  ASSERT_EQ(inspector.GetName(geoms[0]), "a::Sphere");
+
+  plant.RenameModelInstance(models[0], "zzz");
+  // Renaming affects scoped geometry names.
+  EXPECT_EQ(inspector.GetName(frame_id), "zzz::b");
+  EXPECT_EQ(inspector.GetName(geoms[0]), "zzz::Sphere");
+  // Renaming allows reload.
+  EXPECT_NO_THROW(parser.AddModelsFromString(robot, "urdf"));
+
+  // New names must be unique.
+  DRAKE_EXPECT_THROWS_MESSAGE(
+      plant.RenameModelInstance(models[0], "a"),
+      ".*must be unique.*");
+
+  // Renaming will silently skip frames and geometries that don't match the
+  // typical scoped-name pattern.
+
+  // Oddly renamed frames can evade renaming.
+  scene_graph.RenameFrame(frame_id, "something_random");
+  plant.RenameModelInstance(models[0], "xoxo");
+  EXPECT_EQ(inspector.GetName(frame_id), "something_random");
+  EXPECT_EQ(inspector.GetName(geoms[0]), "xoxo::Sphere");
+
+  // As can peculiarly renamed geometries.
+  scene_graph.RenameGeometry(geoms[0], "anything_else");
+  plant.RenameModelInstance(models[0], "bbbb");
+  EXPECT_EQ(inspector.GetName(frame_id), "something_random");
+  EXPECT_EQ(inspector.GetName(geoms[0]), "anything_else");
+
+  plant.Finalize();
+  DRAKE_EXPECT_THROWS_MESSAGE(
+      plant.RenameModelInstance(models[0], "too_late"),
+      ".*finalized.*");
 }
 
 }  // namespace

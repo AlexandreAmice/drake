@@ -6,20 +6,23 @@
 #include <unordered_map>
 #include <vector>
 
-#include <vtkActor.h>
-#include <vtkAutoInit.h>
-#include <vtkCommand.h>
-#include <vtkImageExport.h>
-#include <vtkLight.h>
-#include <vtkNew.h>
-#include <vtkPolyDataAlgorithm.h>
-#include <vtkRenderWindow.h>
-#include <vtkRenderer.h>
-#include <vtkShaderProgram.h>
-#include <vtkSmartPointer.h>
-#include <vtkWindowToImageFilter.h>
+// To ease build system upkeep, we annotate VTK includes with their deps.
+#include <vtkActor.h>                // vtkRenderingCore
+#include <vtkAutoInit.h>             // vtkCommonCore
+#include <vtkCommand.h>              // vtkCommonCore
+#include <vtkImageExport.h>          // vtkIOImage
+#include <vtkLight.h>                // vtkRenderingCore
+#include <vtkNew.h>                  // vtkCommonCore
+#include <vtkPolyDataAlgorithm.h>    // vtkCommonExecutionModel
+#include <vtkRenderWindow.h>         // vtkRenderingCore
+#include <vtkRenderer.h>             // vtkRenderingCore
+#include <vtkShaderProgram.h>        // vtkRenderingOpenGL2
+#include <vtkSmartPointer.h>         // vtkCommonCore
+#include <vtkWindowToImageFilter.h>  // vtkRenderingCore
 
 #include "drake/common/drake_copyable.h"
+#include "drake/common/drake_export.h"
+#include "drake/common/reset_on_copy.h"
 #include "drake/geometry/render/render_engine.h"
 #include "drake/geometry/render/render_label.h"
 #include "drake/geometry/render/render_material.h"
@@ -38,17 +41,18 @@ namespace internal {
 
 #ifndef DRAKE_DOXYGEN_CXX
 struct ModuleInitVtkRenderingOpenGL2 {
-  ModuleInitVtkRenderingOpenGL2(){
+  ModuleInitVtkRenderingOpenGL2() {
     VTK_AUTOINIT_CONSTRUCT(vtkRenderingOpenGL2)
   }
 };
+#endif
 
 // A callback class for setting uniform variables used in shader programs,
 // namely z_near and z_far, when vtkCommand::UpdateShaderEvent is caught.
 // See also shaders::kDepthFS, this is where the variables are used.
 // For the detail of VTK's callback mechanism, please refer to:
 // https://www.vtk.org/doc/nightly/html/classvtkCommand.html#details
-class ShaderCallback : public vtkCommand {
+class DRAKE_NO_EXPORT ShaderCallback : public vtkCommand {
  public:
   DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(ShaderCallback);
 
@@ -64,13 +68,9 @@ class ShaderCallback : public vtkCommand {
     program->SetUniformf("z_far", z_far_);
   }
 
-  void set_z_near(float z_near) {
-    z_near_ = z_near;
-  }
+  void set_z_near(float z_near) { z_near_ = z_near; }
 
-  void set_z_far(float z_far) {
-    z_far_ = z_far;
-  }
+  void set_z_far(float z_far) { z_far_ = z_far; }
 
  private:
   float z_near_{0.f};
@@ -85,25 +85,21 @@ enum ImageType {
   kDepth = 2,
 };
 
-#endif  // !DRAKE_DOXYGEN_CXX
-
-/** See documentation of MakeRenderEngineVtk().  */
-class RenderEngineVtk : public render::RenderEngine,
-                        private ModuleInitVtkRenderingOpenGL2 {
+/* See documentation of MakeRenderEngineVtk().  */
+class DRAKE_NO_EXPORT RenderEngineVtk : public render::RenderEngine,
+                                        private ModuleInitVtkRenderingOpenGL2 {
  public:
-  /** @name Does not allow copy, move, or assignment  */
+  /* @name Does not allow copy, move, or assignment  */
   //@{
-#ifdef DRAKE_DOXYGEN_CXX
+
   // Note: the copy constructor operator is actually protected to serve as the
   // basis for implementing the DoClone() method.
-  RenderEngineVtk(const RenderEngineVtk&) = delete;
-#endif
   RenderEngineVtk& operator=(const RenderEngineVtk&) = delete;
   RenderEngineVtk(RenderEngineVtk&&) = delete;
   RenderEngineVtk& operator=(RenderEngineVtk&&) = delete;
   //@}}
 
-  /** Constructs the render engine from the given `parameters`.
+  /* Constructs the render engine from the given `parameters`.
 
    When one of the optional parameters is omitted, the constructed value will be
    as documented elsewhere in @ref render_engine_vtk_properties "this class".
@@ -111,10 +107,10 @@ class RenderEngineVtk : public render::RenderEngine,
   explicit RenderEngineVtk(
       const RenderEngineVtkParams& parameters = RenderEngineVtkParams());
 
-  /** @see RenderEngine::UpdateViewpoint().  */
+  /* @see RenderEngine::UpdateViewpoint().  */
   void UpdateViewpoint(const math::RigidTransformd& X_WR) override;
 
-  /** @name    Shape reification  */
+  /* @name    Shape reification  */
   //@{
   using RenderEngine::ImplementGeometry;
   void ImplementGeometry(const Box& box, void* user_data) override;
@@ -127,34 +123,22 @@ class RenderEngineVtk : public render::RenderEngine,
   void ImplementGeometry(const Sphere& sphere, void* user_data) override;
   //@}
 
-  /** @name    Access the default properties
+  /* @name    Access the default properties
 
    Provides access to the default values this instance of the render engine is
    using. These values must be set at construction.  */
   //@{
 
-  Eigen::Vector4d default_diffuse() const {
-    return default_diffuse_.rgba();
-  }
+  Eigen::Vector4d default_diffuse() const { return default_diffuse_.rgba(); }
 
   using render::RenderEngine::default_render_label;
   //@}
 
  protected:
-  /** Returns all actors registered with the engine, keyed by the SceneGraph
-   GeometryId. Each GeometryId maps to a triple of actors: color, depth, and
-   label. */
-  const std::unordered_map<GeometryId,
-                           std::array<vtkSmartPointer<vtkActor>, 3>>&
-  actors() const {
-    return actors_;
-  }
-
-  /** Copy constructor for the purpose of cloning. */
+  /* Copy constructor for the purpose of cloning. */
   RenderEngineVtk(const RenderEngineVtk& other);
 
-  /** The rendering pipeline for a single image type (color, depth, or label).
-   */
+  /* The rendering pipeline for a single image type (color, depth, or label). */
   struct RenderingPipeline {
     vtkNew<vtkRenderer> renderer;
     vtkNew<vtkRenderWindow> window;
@@ -162,28 +146,36 @@ class RenderEngineVtk : public render::RenderEngine,
     vtkNew<vtkImageExport> exporter;
   };
 
-  /** Configures the VTK model to reflect the given `camera`, this includes
+  /* Configures the VTK model to reflect the given `camera`, this includes
    render size camera intrinsics, visible windows, etc. If `show_window` is set
    to true, a named VTK window will be displayed. */
   void UpdateWindow(const render::RenderCameraCore& camera, bool show_window,
                     const RenderingPipeline& p, const char* name) const;
 
-  /** Variant of configuring the VTK model (see previous function) that *also*
+  /* Variant of configuring the VTK model (see previous function) that *also*
    configures the depth range. */
   void UpdateWindow(const render::DepthRenderCamera& camera,
                     const RenderingPipeline& p) const;
 
-  /** Updates VTK rendering related objects including vtkRenderWindow,
+  /* Updates VTK rendering related objects including vtkRenderWindow,
    vtkWindowToImageFilter and vtkImageExporter, so that VTK reflects
    vtkActors' pose update for rendering. */
   static void PerformVtkUpdate(const RenderingPipeline& p);
 
-  /** Provides access to the private data member pipelines_ by returning a
+  /* Provides access to the private data member pipelines_ by returning a
    mutable RenderingPipeline reference. Only image types in ImageType enum are
    valid. */
   RenderingPipeline& get_mutable_pipeline(ImageType image_type) const;
 
- private:
+  /* A package of data required to register a visual geometry. This is passed as
+   the void* user_data in the `ShapeReifier::ImplementGeometry()` methods. */
+  struct RegistrationData {
+    const PerceptionProperties& properties;
+    const math::RigidTransformd& X_WG;
+    const GeometryId id;
+    bool accepted{true};
+  };
+
   // @see RenderEngine::DoRegisterVisual().
   bool DoRegisterVisual(GeometryId id, const Shape& shape,
                         const PerceptionProperties& properties,
@@ -214,27 +206,82 @@ class RenderEngineVtk : public render::RenderEngine,
       const render::ColorRenderCamera& camera,
       systems::sensors::ImageLabel16I* label_image_out) const override;
 
+  // Common interface for loading a mesh-type geometry (i.e., Mesh or Convex).
+  // Examines the extension and delegates to the appropriate
+  // ImplementExtension() variant to handle that file type, warning otherwise.
+  void ImplementMesh(const std::string& file_name, double scale,
+                     void* user_data);
+
+  // Adds an .obj to the scene for the id currently being reified (data->id).
+  // Returns true if added, false if ignored (for whatever reason).
+  bool ImplementObj(const std::string& file_name, double scale,
+                    const RegistrationData& data);
+
+  // Adds a .gltf to the scene for the id currently being reified (data->id).
+  // Returns true if added, false if ignored (for whatever reason).
+  bool ImplementGltf(const std::string& file_name, double scale,
+                     const RegistrationData& data);
+
+ private:
+  friend class RenderEngineVtkTester;
+
   // Initializes the VTK pipelines.
   void InitializePipelines();
 
-  // Common interface for loading an obj file -- used for both mesh and convex
-  // shapes.
-  void ImplementObj(const std::string& file_name, double scale,
-                    void* user_data);
-
   // Performs the common setup for all shape types.
-  void ImplementGeometry(vtkPolyDataAlgorithm* source,
+  void ImplementPolyData(vtkPolyDataAlgorithm* source,
                          const geometry::internal::RenderMaterial& material,
-                         void* user_data);
+                         const RegistrationData& data);
 
-  void SetDefaultLightPosition(const Vector3<double>& X_DL) override;
+  void SetDefaultLightPosition(const Vector3<double>& p_DL) override;
+
+  // A geometry is modeled with one or more "parts". A part maps to the actor
+  // representing it in VTK and an optional transform mapping the actor's frame
+  // A to the Drake geometry frame G. This mapping can include scaling terms.
+  // If T_GA = I, then `T_GA` is set to nullptr. Otherwise, posing the actor
+  // using geometry's world pose X_WG should set the transform to
+  // T_WA = X_WG * T_GA.
+  struct Part {
+    vtkSmartPointer<vtkActor> actor;
+    vtkSmartPointer<vtkMatrix4x4> T_GA;
+  };
+
+  // Some geometries are represented by multiple parts (such as when importing
+  // a complex glTF file). A "prop" is the collection of parts which constitute
+  // one visual geometry associated with a GeometryId.
+  //
+  // For simple Drake primitives, there will be a single "part".
+  //
+  // Note: this is conceptually similar to vtkAssembly. But do *not* use
+  // vtkAssembly. It is incredibly buggy and causes rendering problems. See:
+  // https://discourse.vtk.org/t/vtkgltfimporter-loads-textures-upside-down/12113
+  // https://discourse.vtk.org/t/bug-in-vtkgltfexporter/12052
+  struct Prop {
+    std::vector<Part> parts;
+  };
 
   // Three pipelines: rgb, depth, and label.
   static constexpr int kNumPipelines = 3;
 
-  std::array<std::unique_ptr<RenderingPipeline>, kNumPipelines> pipelines_;
+  // Each geometry is represented by one "prop" per pipeline.
+  using PropArray = std::array<Prop, kNumPipelines>;
 
-  vtkNew<vtkLight> light_;
+  // Handles the logic for using the lights defined in the construction
+  // parameters vs the built-in fallback light. The implementation should only
+  // access the lights via this method (and not via the parameters nor
+  // fallback_lights_).
+  const std::vector<render::LightParameter>& active_lights() const {
+    if (!parameters_.lights.empty()) {
+      return parameters_.lights;
+    }
+    DRAKE_DEMAND(!fallback_lights_.empty());
+    return fallback_lights_;
+  }
+
+  // The engine's configuration parameters.
+  const RenderEngineVtkParams parameters_;
+
+  std::array<std::unique_ptr<RenderingPipeline>, kNumPipelines> pipelines_;
 
   // By design, all of the geometry is shared across clones of the render
   // engine. This is predicated upon the idea that the geometry is *not*
@@ -258,10 +305,16 @@ class RenderEngineVtk : public render::RenderEngine,
   // The color to clear the color buffer to.
   systems::sensors::ColorD default_clear_color_;
 
-  // The collection of per-geometry actors (one actor per pipeline (color,
-  // depth, and label) keyed by the geometry's GeometryId.
-  std::unordered_map<GeometryId, std::array<vtkSmartPointer<vtkActor>, 3>>
-      actors_;
+  // The collection of per-geometry actors -- one actor per pipeline (color,
+  // depth, and label) -- keyed by the geometry's GeometryId.
+  std::unordered_map<GeometryId, PropArray> props_;
+
+  // Lights can be defined in the engine parameters. If no lights are defined,
+  // we use the fallback_lights. Otherwise, we use the parameter lights.
+  // Note: We are initializing this vector with a *single* light by using the
+  // LightParameter default constructor; it has been specifically designed to
+  // serve as the default light.
+  std::vector<render::LightParameter> fallback_lights_{{}};
 };
 
 }  // namespace internal

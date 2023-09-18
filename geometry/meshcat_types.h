@@ -8,7 +8,7 @@
 #include <variant>
 #include <vector>
 
-#include <drake_vendor/msgpack.hpp>
+#include <msgpack.hpp>
 
 #include "drake/common/nice_type_name.h"
 #include "drake/geometry/meshcat.h"
@@ -378,6 +378,12 @@ struct SetCameraData {
   std::string path;
   LumpedCameraData<CameraData> object;
   MSGPACK_DEFINE_MAP(type, path, object);
+};
+
+struct SetCameraTargetData {
+  std::string type{"set_target"};
+  std::vector<double> value;
+  MSGPACK_DEFINE_MAP(type, value);
 };
 
 struct SetTransformData {

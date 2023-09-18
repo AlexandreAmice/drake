@@ -18,7 +18,9 @@
 
 #include "drake/common/eigen_types.h"
 #include "drake/common/fmt_eigen.h"
+#include "drake/common/ssize.h"
 #include "drake/common/symbolic/decompose.h"
+#include "drake/common/symbolic/latex.h"
 #include "drake/common/symbolic/monomial_util.h"
 #include "drake/math/matrix_util.h"
 #include "drake/solvers/binding.h"
@@ -69,6 +71,54 @@ string MathematicalProgram::to_string() const {
   return os.str();
 }
 
+std::string MathematicalProgram::ToLatex(int precision) {
+  if (num_vars() == 0) {
+    return "\\text{This MathematicalProgram has no decision variables.}";
+  }
+
+  std::stringstream ss;
+  ss << "\\begin{align*}\n";
+  if (GetAllCosts().empty()) {
+    ss << "\\text{find}_{";
+  } else {
+    ss << "\\min_{";
+  }
+  // TODO(russt): summarize vectors and matrices here by name, instead of every
+  // element.
+  bool first = true;
+  for (int i = 0; i < num_vars(); ++i) {
+    if (!first) {
+      ss << ", ";
+    }
+    first = false;
+    ss << symbolic::ToLatex(
+        decision_variables()[i]);  // precision is not needed.
+  }
+  ss << "} \\quad & ";
+
+  first = true;
+  for (const auto& b : GetAllCosts()) {
+    if (!first) ss << "\\\\\n &  + ";
+    first = false;
+    ss << b.ToLatex(precision);
+  }
+  std::vector<Binding<Constraint>> constraints = GetAllConstraints();
+  for (int i = 0; i < ssize(constraints); ++i) {
+    if (i == 0) {
+      ss << "\\\\\n \\text{subject to}\\quad";
+    }
+    ss << " & " << constraints[i].ToLatex(precision);
+    if (i == ssize(constraints) - 1) {
+      ss << ".";
+    } else {
+      ss << ",";
+    }
+    ss << "\\\\\n";
+  }
+  ss << "\\end{align*}\n";
+  return ss.str();
+}
+
 MatrixXDecisionVariable MathematicalProgram::NewVariables(
     VarType type, int rows, int cols, bool is_symmetric,
     const vector<string>& names) {
@@ -117,10 +167,6 @@ void MathematicalProgram::AddDecisionVariables(
   for (int i = 0; i < decision_variables.rows(); ++i) {
     for (int j = 0; j < decision_variables.cols(); ++j) {
       const auto& var = decision_variables(i, j);
-      if (var.is_dummy()) {
-        throw std::runtime_error(fmt::format(
-            "decision_variables({}, {}) should not be a dummy variable", i, j));
-      }
       if (decision_variable_index_.find(var.get_id()) !=
           decision_variable_index_.end()) {
         continue;
@@ -350,10 +396,6 @@ MatrixXIndeterminate MathematicalProgram::NewIndeterminates(
 
 int MathematicalProgram::AddIndeterminate(
     const symbolic::Variable& new_indeterminate) {
-  if (new_indeterminate.is_dummy()) {
-    throw std::runtime_error(
-        fmt::format("{} should not be a dummy variable.", new_indeterminate));
-  }
   if (decision_variable_index_.find(new_indeterminate.get_id()) !=
       decision_variable_index_.end()) {
     throw std::runtime_error(

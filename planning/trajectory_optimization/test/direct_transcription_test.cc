@@ -45,35 +45,34 @@ namespace {
 template <typename T>
 class CubicPolynomialSystem final : public systems::LeafSystem<T> {
  public:
-  explicit CubicPolynomialSystem(double timestep)
+  explicit CubicPolynomialSystem(double time_step)
       : systems::LeafSystem<T>(
             systems::SystemTypeTag<
                 trajectory_optimization::CubicPolynomialSystem>{}),
-        timestep_(timestep) {
+        time_step_(time_step) {
     // Zero inputs, zero outputs.
     this->DeclareDiscreteState(1);  // One state variable.
-    this->DeclarePeriodicDiscreteUpdateNoHandler(timestep);
+    this->DeclarePeriodicDiscreteUpdateEvent(
+        time_step, 0.0, &CubicPolynomialSystem<T>::CalcDiscreteUpdate);
   }
 
   // Scalar-converting copy constructor.
   template <typename U>
   explicit CubicPolynomialSystem(const CubicPolynomialSystem<U>& system)
-      : CubicPolynomialSystem(system.timestep()) {}
+      : CubicPolynomialSystem(system.time_step()) {}
 
-  double timestep() const { return timestep_; }
+  double time_step() const { return time_step_; }
 
  private:
   // x[n+1] = x³[n]
-  void DoCalcDiscreteVariableUpdates(
-      const Context<T>& context,
-      const std::vector<const DiscreteUpdateEvent<T>*>&,
-      DiscreteValues<T>* discrete_state) const final {
+  void CalcDiscreteUpdate(const Context<T>& context,
+                          DiscreteValues<T>* discrete_state) const {
     using std::pow;
     (*discrete_state)[0] =
         pow(context.get_discrete_state(0).GetAtIndex(0), 3.0);
   }
 
-  const double timestep_{0.0};
+  const double time_step_{0.0};
 };
 
 template <typename T>
@@ -86,7 +85,8 @@ class LinearSystemWParams final : public systems::LeafSystem<T> {
     // Zero inputs, zero outputs.
     this->DeclareDiscreteState(1);                     // One state variable.
     this->DeclareNumericParameter(BasicVector<T>(1));  // One parameter.
-    this->DeclarePeriodicDiscreteUpdateNoHandler(1.0);
+    this->DeclarePeriodicDiscreteUpdateEvent(
+        1.0, 0.0, &LinearSystemWParams<T>::CalcDiscreteUpdate);
   }
 
   // Scalar-converting copy constructor.
@@ -96,10 +96,8 @@ class LinearSystemWParams final : public systems::LeafSystem<T> {
 
  private:
   // x[n+1] = p0 * x[n]
-  void DoCalcDiscreteVariableUpdates(
-      const Context<T>& context,
-      const std::vector<const DiscreteUpdateEvent<T>*>&,
-      DiscreteValues<T>* discrete_state) const final {
+  void CalcDiscreteUpdate(const Context<T>& context,
+                          DiscreteValues<T>* discrete_state) const {
     (*discrete_state)[0] = context.get_numeric_parameter(0).GetAtIndex(0) *
                            context.get_discrete_state(0).GetAtIndex(0);
   }
@@ -137,7 +135,7 @@ GTEST_TEST(DirectTranscriptionTest, DiscreteTimeConstraintTest) {
   DirectTranscription dirtran(&system, *context, kNumSampleTimes);
   auto& prog = dirtran.prog();
 
-  EXPECT_EQ(dirtran.fixed_timestep(), kTimeStep);
+  EXPECT_EQ(dirtran.fixed_time_step(), kTimeStep);
 
   // Sets all decision variables to trivial known values (1,2,3,...).
   prog.SetInitialGuessForAllVariables(
@@ -182,7 +180,7 @@ GTEST_TEST(DirectTranscriptionTest, ContinuousTimeConstraintTest) {
                               TimeStep{kTimeStep});
   auto& prog = dirtran.prog();
 
-  EXPECT_EQ(dirtran.fixed_timestep(), kTimeStep);
+  EXPECT_EQ(dirtran.fixed_time_step(), kTimeStep);
 
   // Sets all decision variables to trivial known values (1,2,3,...).
   prog.SetInitialGuessForAllVariables(
@@ -217,7 +215,7 @@ GTEST_TEST(DirectTranscriptionTest, DiscreteTimeSymbolicConstraintTest) {
   DirectTranscription dirtran(system.get(), *context, kNumSampleTimes);
   auto& prog = dirtran.prog();
 
-  EXPECT_EQ(dirtran.fixed_timestep(), kTimeStep);
+  EXPECT_EQ(dirtran.fixed_time_step(), kTimeStep);
 
   // Sets all decision variables to trivial known values (1,2,3,...).
   prog.SetInitialGuessForAllVariables(
@@ -260,7 +258,7 @@ GTEST_TEST(DirectTranscriptionTest, ContinuousTimeSymbolicConstraintTest) {
                               TimeStep{kTimeStep});
   auto& prog = dirtran.prog();
 
-  EXPECT_EQ(dirtran.fixed_timestep(), kTimeStep);
+  EXPECT_EQ(dirtran.fixed_time_step(), kTimeStep);
 
   // Sets all decision variables to trivial known values (1,2,3,...).
   prog.SetInitialGuessForAllVariables(
@@ -395,7 +393,7 @@ GTEST_TEST(DirectTranscriptionTest, DiscreteTimeLinearSystemTest) {
   DirectTranscription dirtran(&system, *context, kNumSampleTimes);
   auto& prog = dirtran.prog();
 
-  EXPECT_EQ(dirtran.fixed_timestep(), kTimeStep);
+  EXPECT_EQ(dirtran.fixed_time_step(), kTimeStep);
 
   // Sets all decision variables to trivial known values (1,2,3,...).
   prog.SetInitialGuessForAllVariables(
@@ -467,7 +465,7 @@ GTEST_TEST(DirectTranscriptionTest, TimeVaryingLinearSystemTest) {
   DirectTranscription dirtran(&system, *context, kNumSampleTimes);
   auto& prog = dirtran.prog();
 
-  EXPECT_EQ(dirtran.fixed_timestep(), kTimeStep);
+  EXPECT_EQ(dirtran.fixed_time_step(), kTimeStep);
 
   // Sets all decision variables to trivial known values (1,2,3,...).
   prog.SetInitialGuessForAllVariables(

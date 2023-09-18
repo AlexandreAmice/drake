@@ -10,15 +10,15 @@
 #include <variant>
 #include <vector>
 
-#include <drake_vendor/sdf/Error.hh>
-#include <drake_vendor/sdf/Frame.hh>
-#include <drake_vendor/sdf/Joint.hh>
-#include <drake_vendor/sdf/JointAxis.hh>
-#include <drake_vendor/sdf/Link.hh>
-#include <drake_vendor/sdf/Model.hh>
-#include <drake_vendor/sdf/ParserConfig.hh>
-#include <drake_vendor/sdf/Root.hh>
-#include <drake_vendor/sdf/World.hh>
+#include <sdf/Error.hh>
+#include <sdf/Frame.hh>
+#include <sdf/Joint.hh>
+#include <sdf/JointAxis.hh>
+#include <sdf/Link.hh>
+#include <sdf/Model.hh>
+#include <sdf/ParserConfig.hh>
+#include <sdf/Root.hh>
+#include <sdf/World.hh>
 
 #include "drake/geometry/geometry_instance.h"
 #include "drake/math/rigid_transform.h"
@@ -159,24 +159,6 @@ std::string GetRelativeBodyName(
   }
 }
 
-// Given a gz::math::Inertial object, extract a RotationalInertia object
-// for the rotational inertia of body B, about its center of mass Bcm and,
-// expressed in the inertial frame Bi (as specified in <inertial> in the SDF
-// file.)
-RotationalInertia<double> ExtractRotationalInertiaAboutBcmExpressedInBi(
-    const gz::math::Inertiald &inertial) {
-  // TODO(amcastro-tri): Verify that gz::math::Inertial::MOI() ALWAYS is
-  // expresed in the body frame B, regardless of how a user might have
-  // specified frames in the sdf file. That is, that it always returns R_BBcm_B.
-  // TODO(amcastro-tri): Verify that gz::math::Inertial::MassMatrix()
-  // ALWAYS is in the inertial frame Bi, regardless of how a user might have
-  // specified frames in the sdf file. That is, that it always returns
-  // M_BBcm_Bi.
-  const gz::math::Matrix3d I = inertial.MassMatrix().Moi();
-  return RotationalInertia<double>(I(0, 0), I(1, 1), I(2, 2),
-                                   I(1, 0), I(2, 0), I(2, 1));
-}
-
 // This takes an `sdf::SemanticPose`, which defines a pose relative to a frame,
 // and resolves its value with respect to another frame.
 math::RigidTransformd ResolveRigidTransform(
@@ -220,17 +202,10 @@ std::string ResolveJointChildLinkName(
 // frame origin Bo and, expressed in body frame B, from a gz::Inertial
 // object.
 SpatialInertia<double> ExtractSpatialInertiaAboutBoExpressedInB(
+    const SDFormatDiagnostic& diagnostic,
+    const sdf::ElementPtr link_element,
     const gz::math::Inertiald& Inertial_BBcm_Bi) {
   double mass = Inertial_BBcm_Bi.MassMatrix().Mass();
-
-  const RotationalInertia<double> I_BBcm_Bi =
-      ExtractRotationalInertiaAboutBcmExpressedInBi(Inertial_BBcm_Bi);
-
-  // If this is a massless body, return a zero SpatialInertia.
-  if (mass == 0. && I_BBcm_Bi.get_moments().isZero() &&
-      I_BBcm_Bi.get_products().isZero()) {
-    return SpatialInertia<double>(mass, {0., 0., 0.}, {0., 0., 0});
-  }
 
   // Pose of the "<inertial>" frame Bi in the body frame B.
   // TODO(amcastro-tri): Verify we don't get funny results when X_BBi is not
@@ -241,20 +216,18 @@ SpatialInertia<double> ExtractSpatialInertiaAboutBoExpressedInB(
   // give us X_BI. Verify this.
   const RigidTransformd X_BBi = ToRigidTransform(Inertial_BBcm_Bi.Pose());
 
-  // B and Bi are not necessarily aligned.
-  const RotationMatrixd R_BBi = X_BBi.rotation();
-
-  // Re-express in frame B as needed.
-  const RotationalInertia<double> I_BBcm_B = I_BBcm_Bi.ReExpress(R_BBi);
-
-  // Bi's origin is at the COM as documented in
-  // http://sdformat.org/spec?ver=1.6&elem=link#inertial_pose
-  const Vector3d p_BoBcm_B = X_BBi.translation();
-
-  // Return the spatial inertia M_BBo_B of body B, about its body frame origin
-  // Bo, and expressed in the body frame B.
-  return SpatialInertia<double>::MakeFromCentralInertia(
-      mass, p_BoBcm_B, I_BBcm_B);
+  // TODO(amcastro-tri): Verify that gz::math::Inertial::MOI() ALWAYS is
+  // expresed in the body frame B, regardless of how a user might have
+  // specified frames in the sdf file. That is, that it always returns R_BBcm_B.
+  // TODO(amcastro-tri): Verify that gz::math::Inertial::MassMatrix()
+  // ALWAYS is in the inertial frame Bi, regardless of how a user might have
+  // specified frames in the sdf file. That is, that it always returns
+  // M_BBcm_Bi.
+  const gz::math::Matrix3d I = Inertial_BBcm_Bi.MassMatrix().Moi();
+  return ParseSpatialInertia(diagnostic.MakePolicyForNode(*link_element),
+                             X_BBi, mass,
+                             {.ixx = I(0, 0), .iyy = I(1, 1), .izz = I(2, 2),
+                              .ixy = I(1, 0), .ixz = I(2, 0), .iyz = I(2, 1)});
 }
 
 // Helper method to retrieve a Body given the name of the link specification.
@@ -406,17 +379,21 @@ void AddJointActuatorFromSpecification(
                joint_spec.Type() == sdf::JointType::REVOLUTE ||
                joint_spec.Type() == sdf::JointType::CONTINUOUS);
 
-  // Ball joints cannot specify an axis (nor actuation) per SDFormat. However,
-  // Drake still permits the first axis in order to specify damping, but it
-  // should not have actuation, nor should there be a second axis.
+  // Ball joints do not have an axis (nor actuation). However, Drake still
+  // permits the declaration of a first axis in order to specify damping, but
+  // it should not have actuation, nor should there be a second axis.
   if (joint_spec.Type() == sdf::JointType::BALL) {
     if (joint_spec.Axis(0) != nullptr) {
+      std::string message = fmt::format(
+          "A ball joint axis will be ignored. Only the dynamic parameters"
+          " and limits will be considered.", joint_spec.Name());
+      diagnostic.Warning(joint_spec.Element(), std::move(message));
       if (GetEffortLimit(diagnostic, joint_spec, 0) != 0) {
-        std::string message = fmt::format(
+        std::string effort_message = fmt::format(
             "Actuation (via non-zero effort limits) for ball joint '{}' is"
             " not implemented yet and will be ignored.",
             joint_spec.Name());
-        diagnostic.Warning(joint_spec.Element(), std::move(message));
+        diagnostic.Warning(joint_spec.Element(), std::move(effort_message));
       }
     }
     if (joint_spec.Axis(1) != nullptr) {
@@ -924,7 +901,8 @@ std::optional<std::vector<LinkInfo>> AddLinksFromSpecification(
     const gz::math::Inertiald& Inertial_Bcm_Bi = link.Inertial();
 
     const SpatialInertia<double> M_BBo_B =
-        ExtractSpatialInertiaAboutBoExpressedInB(Inertial_Bcm_Bi);
+        ExtractSpatialInertiaAboutBoExpressedInB(
+            diagnostic, link_element, Inertial_Bcm_Bi);
 
     // Add a rigid body to model each link.
     const RigidBody<double>& body =
@@ -1126,6 +1104,32 @@ const Frame<double>* ParseFrame(const SDFormatDiagnostic& diagnostic,
   return &plant->GetFrameByName(frame_name, model_instance);
 }
 
+const Body<double>* ParseBody(const SDFormatDiagnostic& diagnostic,
+                              const sdf::ElementPtr node,
+                              ModelInstanceIndex model_instance,
+                              MultibodyPlant<double>* plant,
+                              const char* element_name) {
+  if (!node->HasElement(element_name)) {
+    std::string message =
+        fmt::format("<{}>: Unable to find the <{}> child tag.", node->GetName(),
+                    element_name);
+    diagnostic.Error(node, std::move(message));
+    return nullptr;
+  }
+
+  const std::string body_name = node->Get<std::string>(element_name);
+
+  if (!plant->HasBodyNamed(body_name, model_instance)) {
+    std::string message = fmt::format(
+        "<{}>: Body '{}' specified for <{}> does not exist in the model.",
+        node->GetName(), body_name, element_name);
+    diagnostic.Error(node, std::move(message));
+    return nullptr;
+  }
+
+  return &plant->GetBodyByName(body_name, model_instance);
+}
+
 // TODO(eric.cousineau): Update parsing pending resolution of
 // https://github.com/osrf/sdformat/issues/288
 // When diagnostic policy is not set to throw it returns false on errors.
@@ -1218,6 +1222,37 @@ const LinearBushingRollPitchYaw<double>* AddBushingFromSpecification(
   return ParseLinearBushingRollPitchYaw(read_vector, read_frame, plant);
 }
 
+std::optional<MultibodyConstraintId> AddBallConstraintFromSpecification(
+    const SDFormatDiagnostic& diagnostic, const sdf::ElementPtr node,
+    ModelInstanceIndex model_instance, MultibodyPlant<double>* plant) {
+  const std::set<std::string> supported_ball_constraint_elements{
+      "drake:ball_constraint_body_A",
+      "drake:ball_constraint_p_AP",
+      "drake:ball_constraint_body_B",
+      "drake:ball_constraint_p_BQ",
+  };
+  CheckSupportedElements(diagnostic, node, supported_ball_constraint_elements);
+
+  // Functor to read a vector valued child tag with tag name: `element_name`
+  // e.g. <element_name>0 0 0</element_name>
+  // Throws an error if the tag does not exist.
+  auto read_vector = [&diagnostic,
+                      node](const char* element_name) -> Eigen::Vector3d {
+    return ParseVector3(diagnostic, node, element_name);
+  };
+
+  // Functor to read a child tag with tag name: `element_name` that specifies a
+  // body name, e.g. <element_name>body_name</element_name>
+  // Throws an error if the tag does not exist or if the body does not exist in
+  // the plant.
+  auto read_body = [&diagnostic, node, model_instance, plant](
+                       const char* element_name) -> const Body<double>* {
+    return ParseBody(diagnostic, node, model_instance, plant, element_name);
+  };
+
+  return ParseBallConstraint(read_vector, read_body, plant);
+}
+
 // Helper to determine if two links are welded together.
 bool AreWelded(
     const MultibodyPlant<double>& plant, const Body<double>& a,
@@ -1304,6 +1339,7 @@ std::vector<ModelInstanceIndex> AddModelsFromSpecification(
   const std::set<std::string> supported_model_elements{
     "drake:joint",
     "drake:linear_bushing_rpy",
+    "drake:ball_constraint",
     "drake:collision_filter_group",
     "frame",
     "include",
@@ -1423,6 +1459,18 @@ std::vector<ModelInstanceIndex> AddModelsFromSpecification(
           diagnostic, bushing_node, model_instance, plant) == nullptr) {
         return {};
       }
+    }
+  }
+
+  drake::log()->trace("sdf_parser: Add BallConstraint");
+  if (model.Element()->HasElement("drake:ball_constraint")) {
+    for (sdf::ElementPtr constraint_node =
+             model.Element()->GetElement("drake:ball_constraint");
+         constraint_node;
+         constraint_node = constraint_node->GetNextElement(
+             "drake:ball_constraint")) {
+      AddBallConstraintFromSpecification(diagnostic, constraint_node,
+                                         model_instance, plant);
     }
   }
 

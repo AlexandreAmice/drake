@@ -196,6 +196,22 @@ class MathematicalProgram {
    */
   [[nodiscard]] std::string to_string() const;
 
+  /** Returns a string representation of this program in LaTeX.
+   *
+   * This can be particularly useful e.g. in a Jupyter (python) notebook:
+   * @code
+   * from IPython.display import Markdown, display
+   * display(Markdown(prog.ToLatex()))
+   * @endcode
+   *
+   * Note that by default, we do not require variables to have unique names.
+   * Providing useful variable names and calling Evaluator::set_description() to
+   * describe the costs and constraints can dramatically improve the readability
+   * of the output.  See the tutorial `debug_mathematical_program.ipynb`
+   * for more information.
+   */
+  std::string ToLatex(int precision = 3);
+
   /**
    * Adds continuous variables, appending them to an internal vector of any
    * existing vars.
@@ -420,7 +436,6 @@ class MathematicalProgram {
    * @param decision_variables The newly added decision_variables.
    * @pre `decision_variables` should not intersect with the existing
    * indeterminates in the optimization program.
-   * @pre Each entry in `decision_variables` should not be a dummy variable.
    * @throws std::exception if the preconditions are not satisfied.
    */
   void AddDecisionVariables(
@@ -821,7 +836,6 @@ class MathematicalProgram {
    * new_indeterminate.
    * @pre `new_indeterminate` should not intersect with the program's
    * decision variables.
-   * @pre new_indeterminate should not be dummy.
    * @pre new_indeterminate should be of CONTINUOUS type.
    */
   int AddIndeterminate(const symbolic::Variable& new_indeterminate);
@@ -833,7 +847,6 @@ class MathematicalProgram {
    * program's old indeterminates.
    * @pre `new_indeterminates` should not intersect with the program's old
    * decision variables.
-   * @pre Each entry in new_indeterminates should not be dummy.
    * @pre Each entry in new_indeterminates should be of CONTINUOUS type.
    */
   void AddIndeterminates(
@@ -846,7 +859,6 @@ class MathematicalProgram {
    * program's old indeterminates.
    * @pre `new_indeterminates` should not intersect with the program's old
    * decision variables.
-   * @pre Each entry in new_indeterminates should not be dummy.
    * @pre Each entry in new_indeterminates should be of CONTINUOUS type.
    */
   void AddIndeterminates(
@@ -1040,8 +1052,6 @@ class MathematicalProgram {
 
   /**
    * Add a quadratic cost term of the form 0.5*x'*Q*x + b'*x + c.
-   * Notice that in the optimization program, the constant term `c` in the cost
-   * is ignored.
    * @param e A quadratic symbolic expression.
    * @param is_convex Whether the cost is already known to be convex. If
    * is_convex=nullopt (the default), then Drake will determine if `e` is a
@@ -1195,14 +1205,7 @@ class MathematicalProgram {
 
   /**
    * Adds a cost in the symbolic form.
-   * Note that the constant part of the cost is ignored. So if you set
-   * `e = x + 2`, then only the cost on `x` is added, the constant term 2 is
-   * ignored.
-   * @param e The linear or quadratic expression of the cost.
-   * @pre `e` is linear or `e` is quadratic. Otherwise throws a runtime error.
    * @return The newly created cost, together with the bound variables.
-   *
-   * @exclude_from_pydrake_mkdoc{Not bound in pydrake.}
    */
   Binding<Cost> AddCost(const symbolic::Expression& e);
 
@@ -1225,14 +1228,20 @@ class MathematicalProgram {
    * matrix of symbolic::Variable but symbolic::Expression, because the
    * upper-diagonal entries of Z are not variable, but expression 0.
    * @pre X is a symmetric matrix.
-   * @note We implicitly require that `X` being positive semidefinite (psd) (as
-   * X is the diagonal entry of the big psd matrix above). If your `X` is not
-   * necessarily psd, then don't call this function.
    * @note The constraint log(Z(i, i)) >= t(i) is imposed as an exponential cone
    * constraint. Please make sure your have a solver that supports exponential
    * cone constraint (currently SCS does).
-   * Refer to https://docs.mosek.com/modeling-cookbook/sdo.html#log-determinant
-   * for more details.
+   * @note The constraint that
+   *
+   *     ⌈X         Z⌉ is positive semidifinite.
+   *     ⌊Zᵀ  diag(Z)⌋
+   *
+   * already implies that X is positive semidefinite. The user DO NOT need to
+   * separately impose the constraint that X being psd.
+   *
+   * Refer to
+   * https://docs.mosek.com/modeling-cookbook/sdo.html#log-determinant for more
+   * details.
    */
   std::tuple<Binding<LinearCost>, VectorX<symbolic::Variable>,
              MatrixX<symbolic::Expression>>
@@ -1267,7 +1276,8 @@ class MathematicalProgram {
   /**
    * An overloaded version of @ref maximize_geometric_mean.
    * @return cost The added cost (note that since MathematicalProgram only
-   * minimizes the cost, the returned cost evaluates to -c * power(∏ᵢx(i), 1/n).
+   * minimizes the cost, the returned cost evaluates to -power(∏ᵢz(i), 1/n)
+   * where z = A*x+b.
    * @pre A.rows() == b.rows(), A.rows() >= 2.
    */
   Binding<LinearCost> AddMaximizeGeometricMeanCost(
@@ -1314,9 +1324,9 @@ class MathematicalProgram {
    * @param ub A scalar, the upper bound.
    *
    * The resulting constraint may be a BoundingBoxConstraint, LinearConstraint,
-   * LinearEqualityConstraint, or ExpressionConstraint, depending on the
-   * arguments.  Constraints of the form x == 1 (which could be created as a
-   * BoundingBoxConstraint or LinearEqualityConstraint) will be
+   * LinearEqualityConstraint, QuadraticConstraint, or ExpressionConstraint,
+   * depending on the arguments.  Constraints of the form x == 1 (which could
+   * be created as a BoundingBoxConstraint or LinearEqualityConstraint) will be
    * constructed as a LinearEqualityConstraint.
    */
   Binding<Constraint> AddConstraint(const symbolic::Expression& e, double lb,
@@ -1896,6 +1906,11 @@ class MathematicalProgram {
    lb ≤ .5 xᵀQx + bᵀx ≤ ub
    where `x` might be a subset of the decision variables in this
    MathematicalProgram.
+   Notice that if your quadratic constraint is convex, and you intend to solve
+   the problem with a convex solver (like Mosek), then it is better to
+   reformulate it with a second order cone constraint. See
+   https://docs.mosek.com/10.0/capi/prob-def-quadratic.html#a-recommendation for
+   an explanation.
    @exclude_from_pydrake_mkdoc{Not bound in pydrake.}
    */
   Binding<QuadraticConstraint> AddConstraint(
@@ -1903,6 +1918,11 @@ class MathematicalProgram {
 
   /** Adds quadratic constraint
    lb ≤ .5 xᵀQx + bᵀx ≤ ub
+   Notice that if your quadratic constraint is convex, and you intend to solve
+   the problem with a convex solver (like Mosek), then it is better to
+   reformulate it with a second order cone constraint. See
+   https://docs.mosek.com/10.0/capi/prob-def-quadratic.html#a-recommendation for
+   an explanation.
    @param vars x in the documentation above.
    @param hessian_type Whether the Hessian is positive semidefinite, negative
    semidefinite or indefinite. Drake will check the type if
@@ -1920,6 +1940,11 @@ class MathematicalProgram {
 
   /** Adds quadratic constraint
    lb ≤ .5 xᵀQx + bᵀx ≤ ub
+   Notice that if your quadratic constraint is convex, and you intend to solve
+   the problem with a convex solver (like Mosek), then it is better to
+   reformulate it with a second order cone constraint. See
+   https://docs.mosek.com/10.0/capi/prob-def-quadratic.html#a-recommendation for
+   an explanation.
    @param vars x in the documentation above.
    @param hessian_type Whether the Hessian is positive semidefinite, negative
    semidefinite or indefinite. Drake will check the type if
@@ -1937,6 +1962,11 @@ class MathematicalProgram {
 
   /** Overloads AddQuadraticConstraint, impose lb <= e <= ub where `e` is a
    quadratic expression.
+   Notice that if your quadratic constraint is convex, and you intend to solve
+   the problem with a convex solver (like Mosek), then it is better to
+   reformulate it with a second order cone constraint. See
+   https://docs.mosek.com/10.0/capi/prob-def-quadratic.html#a-recommendation for
+   an explanation.
    */
   Binding<QuadraticConstraint> AddQuadraticConstraint(
       const symbolic::Expression& e, double lb, double ub,
@@ -2576,7 +2606,7 @@ class MathematicalProgram {
    * dominant.
    * @return M For i < j M[i][j] contains the slack variables, mentioned in
    * @ref addsdd "scaled diagonally dominant matrix constraint". For i >= j,
-   * M[i][j] contains dummy variables.
+   * M[i][j] contains default-constructed variables (with get_id() == 0).
    *
    * @pydrake_mkdoc_identifier{variable}
    */

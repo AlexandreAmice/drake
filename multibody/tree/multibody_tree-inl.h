@@ -54,6 +54,12 @@ const BodyType<T>& MultibodyTree<T>::AddBody(
   if (body == nullptr) {
     throw std::logic_error("Input body is a nullptr.");
   }
+
+  DRAKE_DEMAND(body->model_instance().is_valid());
+
+  // Make note in the graph.
+  multibody_graph_.AddBody(body->name(), body->model_instance());
+
   BodyIndex body_index(0);
   FrameIndex body_frame_index(0);
   std::tie(body_index, body_frame_index) = topology_.add_body();
@@ -61,7 +67,6 @@ const BodyType<T>& MultibodyTree<T>::AddBody(
   // owned_bodies_.push_back() below. Do not move them around!
   DRAKE_DEMAND(body_index == num_bodies());
   DRAKE_DEMAND(body_frame_index == num_frames());
-  DRAKE_DEMAND(body->model_instance().is_valid());
 
   // TODO(amcastro-tri): consider not depending on setting this pointer at
   // all. Consider also removing MultibodyElement altogether.
@@ -138,6 +143,12 @@ const FrameType<T>& MultibodyTree<T>::AddFrame(
   if (frame == nullptr) {
     throw std::logic_error("Input frame is a nullptr.");
   }
+  if (HasFrameNamed(frame->name(), frame->model_instance())) {
+    throw std::logic_error(fmt::format(
+        "Model instance '{}' already contains a frame named '{}'. "
+        "Frame names must be unique within a given model.",
+        instance_index_to_name_.at(frame->model_instance()), frame->name()));
+  }
   FrameIndex frame_index = topology_.add_frame(frame->body().index());
   // This test MUST be performed BEFORE frames_.push_back() and
   // owned_frames_.push_back() below. Do not move it around!
@@ -195,9 +206,9 @@ const MobilizerType<T>& MultibodyTree<T>::AddMobilizer(
   DRAKE_ASSERT(mobilizer_index == num_mobilizers());
 
   // TODO(sammy-tri) This effectively means that there's no way to
-  // programmatically add mobilizers from outside of MultibodyTree
-  // itself with multiple model instances.  I'm not convinced that
-  // this is a problem.
+  //  programmatically add mobilizers from outside of MultibodyTree
+  //  itself with multiple model instances.  I'm not convinced that
+  //  this is a problem.
   if (!mobilizer->model_instance().is_valid()) {
     mobilizer->set_model_instance(default_model_instance());
   }
@@ -305,6 +316,25 @@ const JointType<T>& MultibodyTree<T>::AddJoint(
   if (joint == nullptr) {
     throw std::logic_error("Input joint is a nullptr.");
   }
+
+  if (&joint->parent_body() == &joint->child_body()) {
+    throw std::logic_error(
+        fmt::format("AddJoint(): joint {} would connect body {} to itself.",
+                    joint->name(), joint->parent_body().name()));
+  }
+
+  if (&joint->parent_body().get_parent_tree() !=
+      &joint->child_body().get_parent_tree()) {
+    throw std::logic_error(
+        fmt::format("AddJoint(): can't add joint {} because bodies {} "
+                    "and {} are from different MultibodyPlants.",
+                    joint->name(), joint->parent_body().name(),
+                    joint->child_body().name()));
+  }
+
+  // This will check some additional error conditions.
+  RegisterJointInGraph(*joint);
+
   const JointIndex joint_index(owned_joints_.size());
   joint->set_parent_tree(this, joint_index);
   JointType<T>* raw_joint_ptr = joint.get();
@@ -324,29 +354,19 @@ const JointType<T>& MultibodyTree<T>::AddJoint(
     Args&&... args) {
   static_assert(std::is_base_of_v<Joint<T>, JointType<T>>,
                 "JointType<T> must be a sub-class of Joint<T>.");
-
-  const Frame<T>* frame_on_parent{nullptr};
-  if (X_PF) {
-    frame_on_parent = &this->AddFrame<FixedOffsetFrame>(
-       name + "_parent", parent, *X_PF);
-  } else {
-    frame_on_parent = &parent.body_frame();
-  }
-
-  const Frame<T>* frame_on_child{nullptr};
-  if (X_BM) {
-    frame_on_child = &this->AddFrame<FixedOffsetFrame>(
-        name + "_child", child, *X_BM);
-  } else {
-    frame_on_child = &child.body_frame();
-  }
-
-  const JointType<T>& joint = AddJoint(
-      std::make_unique<JointType<T>>(
-          name,
-          *frame_on_parent, *frame_on_child,
-          std::forward<Args>(args)...));
-  return joint;
+  // The Joint constructor promises that the Joint's model instance will be the
+  // same as the child body's model instance. We'll assume that for now, and
+  // then cross-check it at the bottom of this function. We need to use the same
+  // model instance when creating any offset frames needed for the joint.
+  const ModelInstanceIndex joint_instance = child.model_instance();
+  const Frame<T>& frame_on_parent =
+      this->AddOrGetJointFrame(parent, X_PF, joint_instance, name, "parent");
+  const Frame<T>& frame_on_child =
+      this->AddOrGetJointFrame(child, X_BM, joint_instance, name, "child");
+  const JointType<T>& result = AddJoint(std::make_unique<JointType<T>>(
+      name, frame_on_parent, frame_on_child, std::forward<Args>(args)...));
+  DRAKE_DEMAND(result.model_instance() == joint_instance);
+  return result;
 }
 
 template <typename T>
@@ -394,6 +414,28 @@ ModelInstanceIndex MultibodyTree<T>::AddModelInstance(const std::string& name) {
   this->SetElementIndex(name, index, &instance_name_to_index_);
   instance_index_to_name_[index] = name;
   return index;
+}
+
+template <typename T>
+void MultibodyTree<T>::RenameModelInstance(ModelInstanceIndex model_instance,
+                                           const std::string& name) {
+  const auto old_name = this->GetModelInstanceName(model_instance);
+  if (old_name == name) { return; }
+  if (HasModelInstanceNamed(name)) {
+    throw std::logic_error(
+        "This model already contains a model instance named '" + name +
+            "'. Model instance names must be unique within a given model.");
+  }
+
+  if (topology_is_valid()) {
+    throw std::logic_error("This MultibodyTree is finalized already. "
+                           "Therefore renaming model instances is not "
+                           "allowed. See documentation for Finalize() for "
+                           "details.");
+  }
+  instance_name_to_index_.erase(old_name);
+  this->SetElementIndex(name, model_instance, &instance_name_to_index_);
+  instance_index_to_name_.at(model_instance) = name;
 }
 
 template <typename T>

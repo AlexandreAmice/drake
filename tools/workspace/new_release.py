@@ -54,10 +54,12 @@ from drake.tools.workspace.metadata import read_repository_metadata
 _IGNORED_REPOSITORIES = [
     # We don't know how to check non-default branches yet.
     "clang_cindex_python3_internal",
-    "gym_py",  # Pinned at 0.21; see tools/workspace/gym_py/README.md.
+    # The @petsc external is deprecated in Drake's WORKSPACE and will be
+    # removed on or after 2023-11-01.
+    "petsc",
     "pybind11",
-    "usockets",  # Pinned due to upstream regression.
-    "uwebsockets",  # Pinned due to upstream regression.
+    "usockets_internal",  # Pinned due to upstream regression.
+    "uwebsockets_internal",  # Pinned due to upstream regression.
 ]
 
 # For these repositories, we only look at tags, not releases.  For the dict
@@ -84,7 +86,7 @@ _COHORTS = (
     # sdformat depends on both gz libraries; be sure to keep them aligned.
     {"sdformat_internal", "gz_math_internal", "gz_utils_internal"},
     # uwebsockets depends on usockets; be sure to keep them aligned.
-    {"uwebsockets", "usockets"},
+    {"uwebsockets_internal", "usockets_internal"},
 )
 
 

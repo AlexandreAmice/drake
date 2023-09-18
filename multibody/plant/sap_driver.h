@@ -12,7 +12,9 @@
 #include "drake/multibody/contact_solvers/contact_solver_results.h"
 #include "drake/multibody/contact_solvers/sap/sap_contact_problem.h"
 #include "drake/multibody/contact_solvers/sap/sap_solver.h"
+#include "drake/multibody/contact_solvers/sap/sap_solver_results.h"
 #include "drake/multibody/plant/contact_pair_kinematics.h"
+#include "drake/multibody/tree/multibody_forces.h"
 #include "drake/multibody/tree/multibody_tree_topology.h"
 #include "drake/systems/framework/context.h"
 
@@ -32,17 +34,30 @@ class CompliantContactManager;
 template <typename T>
 struct ContactProblemCache {
   DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(ContactProblemCache);
+  // Cache entry to an empty contact problem.
   explicit ContactProblemCache(double time_step) {
     sap_problem =
         std::make_unique<contact_solvers::internal::SapContactProblem<T>>(
-            time_step);
+            time_step, std::vector<MatrixX<T>>(), VectorX<T>());
+    // `sap_problem_locked` is a transformation of the problem stored in
+    // `sap_problem` that eliminates DoFs and constraints given by joint locking
+    // data from the plant. When joint locking is preset, the locked problem
+    // is solved and its results expanded into results for the original.
+    sap_problem_locked =
+        std::make_unique<contact_solvers::internal::SapContactProblem<T>>(
+            time_step, std::vector<MatrixX<T>>(), VectorX<T>());
   }
   copyable_unique_ptr<contact_solvers::internal::SapContactProblem<T>>
       sap_problem;
 
+  copyable_unique_ptr<contact_solvers::internal::SapContactProblem<T>>
+      sap_problem_locked;
+
   // TODO(amcastro-tri): consider removing R_WC from the contact problem cache
   // and instead cache ContactPairKinematics separately.
   std::vector<math::RotationMatrix<T>> R_WC;
+
+  contact_solvers::internal::ReducedMapping mapping;
 };
 
 // Performs the computations needed by CompliantContactManager for discrete
@@ -76,9 +91,18 @@ class SapDriver {
   // construction.
   void DeclareCacheEntries(CompliantContactManager<T>* mutable_manager);
 
+  // Computes the SAP solver results to advance the discrete dynamics from the
+  // state stored in `context`.
   void CalcContactSolverResults(
-      const systems::Context<T>&,
-      contact_solvers::internal::ContactSolverResults<T>*) const;
+      const systems::Context<T>& context,
+      contact_solvers::internal::ContactSolverResults<T>* results) const;
+
+  // Computes the aggregated multibody forces to step the discrete dynamics from
+  // the state in `context`. This includes force elements evaluated at
+  // `context`, implicit joint reflected inertia and damping and constraint
+  // forces.
+  void CalcDiscreteUpdateMultibodyForces(const systems::Context<T>& context,
+                                         MultibodyForces<T>* forces) const;
 
  private:
   // Provide private access for unit testing only.
@@ -155,6 +179,10 @@ class SapDriver {
       const systems::Context<T>& context,
       contact_solvers::internal::SapContactProblem<T>* problem) const;
 
+  void AddPdControllerConstraints(
+      const systems::Context<T>& context,
+      contact_solvers::internal::SapContactProblem<T>* problem) const;
+
   // This method takes SAP results for a given `problem` and loads forces due to
   // contact only into `contact_results`. `contact_results` is properly resized
   // on output.
@@ -169,7 +197,7 @@ class SapDriver {
       const systems::Context<T>& context,
       const contact_solvers::internal::SapContactProblem<T>& problem,
       int num_contacts,
-      const contact_solvers::internal::SapSolverResults<T>& sap_results,
+      const contact_solvers::internal::SapSolverResults<T>& sap_results_locked,
       contact_solvers::internal::ContactSolverResults<T>* contact_results)
       const;
 
@@ -216,6 +244,17 @@ class SapDriver {
   const ContactProblemCache<T>& EvalContactProblemCache(
       const systems::Context<T>& context) const;
 
+  // Computes the discrete update from the state stored in the context. The
+  // resulting next time step velocities and constraint impulses are stored in
+  // `sap_results`.
+  void CalcSapSolverResults(
+      const systems::Context<T>& context,
+      contact_solvers::internal::SapSolverResults<T>* sap_results) const;
+
+  // Eval version of  SapSolverResults().
+  const contact_solvers::internal::SapSolverResults<T>& EvalSapSolverResults(
+      const systems::Context<T>& context) const;
+
   // The driver only has mutable access at construction time, when it can
   // declare additional state, cache entries, ports, etc. After construction,
   // the driver only has const access to the manager.
@@ -223,6 +262,7 @@ class SapDriver {
   // Near rigid regime parameter for contact constraints.
   const double near_rigid_threshold_;
   systems::CacheIndex contact_problem_;
+  systems::CacheIndex sap_results_;
   // Vector of joint damping coefficients, of size plant().num_velocities().
   // This information is extracted during the call to ExtractModelInfo().
   VectorX<T> joint_damping_;

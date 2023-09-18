@@ -1,8 +1,3 @@
-#include "pybind11/eigen.h"
-#include "pybind11/functional.h"
-#include "pybind11/pybind11.h"
-#include "pybind11/stl.h"
-
 #include "drake/bindings/pydrake/documentation_pybind.h"
 #include "drake/bindings/pydrake/geometry/optimization_pybind.h"
 #include "drake/bindings/pydrake/pydrake_pybind.h"
@@ -41,14 +36,6 @@ void DefinePlanningTrajectoryOptimization(py::module m) {
   using solvers::MatrixXDecisionVariable;
   using solvers::VectorXDecisionVariable;
 
-  // TODO(jwnimmer-tri) We should probably do all importing in our
-  // planning_py.cc rather than in our helper functions. That will probably be
-  // easier to topo-sort.
-  py::module::import("pydrake.symbolic");
-  py::module::import("pydrake.systems.framework");
-  py::module::import("pydrake.systems.primitives");
-  py::module::import("pydrake.solvers");
-
   {
     using Class = MultipleShooting;
     constexpr auto& cls_doc = doc.MultipleShooting;
@@ -57,10 +44,10 @@ void DefinePlanningTrajectoryOptimization(py::module m) {
         .def("time", &Class::time, cls_doc.time.doc)
         .def("prog", overload_cast_explicit<MathematicalProgram&>(&Class::prog),
             py_rvp::reference_internal, cls_doc.prog.doc)
-        .def("timestep", &Class::timestep, py::arg("index"),
-            cls_doc.timestep.doc)
-        .def("fixed_timestep", &Class::fixed_timestep,
-            cls_doc.fixed_timestep.doc)
+        .def("time_step", &Class::time_step, py::arg("index"),
+            cls_doc.time_step.doc)
+        .def("fixed_time_step", &Class::fixed_time_step,
+            cls_doc.fixed_time_step.doc)
         // TODO(eric.cousineau): The original bindings returned references
         // instead of copies using VectorXBlock. Restore this once dtype=custom
         // is resolved.
@@ -217,7 +204,7 @@ void DefinePlanningTrajectoryOptimization(py::module m) {
                      systems::InputPortIndex>,
                  bool, solvers::MathematicalProgram*>(),
             py::arg("system"), py::arg("context"), py::arg("num_time_samples"),
-            py::arg("minimum_timestep"), py::arg("maximum_timestep"),
+            py::arg("minimum_time_step"), py::arg("maximum_time_step"),
             py::arg("input_port_index") =
                 systems::InputPortSelection::kUseFirstInputIfItExists,
             py::arg("assume_non_continuous_states_are_fixed") = false,
@@ -242,7 +229,7 @@ void DefinePlanningTrajectoryOptimization(py::module m) {
   }
 
   m.def("AddDirectCollocationConstraint", &AddDirectCollocationConstraint,
-      py::arg("constraint"), py::arg("timestep"), py::arg("state"),
+      py::arg("constraint"), py::arg("time_step"), py::arg("state"),
       py::arg("next_state"), py::arg("input"), py::arg("next_input"),
       py::arg("prog"), doc.AddDirectCollocationConstraint.doc);
 
@@ -273,7 +260,7 @@ void DefinePlanningTrajectoryOptimization(py::module m) {
                  std::variant<systems::InputPortSelection,
                      systems::InputPortIndex>>(),
             py::arg("system"), py::arg("context"), py::arg("num_time_samples"),
-            py::arg("fixed_timestep"),
+            py::arg("fixed_time_step"),
             py::arg("input_port_index") =
                 systems::InputPortSelection::kUseFirstInputIfItExists,
             cls_doc.ctor.doc_5args);
@@ -364,17 +351,14 @@ void DefinePlanningTrajectoryOptimization(py::module m) {
         .def(
             "regions",
             [](Class::Subgraph* self) {
-              py::list out;
-              py::object self_py = py::cast(self, py_rvp::reference);
+              std::vector<const geometry::optimization::ConvexSet*> regions;
               for (auto& region : self->regions()) {
-                const geometry::optimization::ConvexSet* region_raw =
-                    region.get();
-                py::object region_py = py::cast(region_raw, py_rvp::reference);
-                // Keep alive, ownership: `region` keeps `self` alive.
-                py_keep_alive(region_py, self_py);
-                out.append(region_py);
+                regions.push_back(region.get());
               }
-              return out;
+              py::object self_py = py::cast(self, py_rvp::reference);
+              // Keep alive, ownership: each item in `regions` keeps `self`
+              // alive.
+              return py::cast(regions, py_rvp::reference_internal, self_py);
             },
             subgraph_doc.regions.doc)
         .def("AddTimeCost", &Class::Subgraph::AddTimeCost,
@@ -395,7 +379,10 @@ void DefinePlanningTrajectoryOptimization(py::module m) {
     const auto& subgraph_edges_doc =
         doc.GcsTrajectoryOptimization.EdgesBetweenSubgraphs;
     py::class_<Class::EdgesBetweenSubgraphs>(
-        gcs_traj_opt, "EdgesBetweenSubgraphs", subgraph_edges_doc.doc);
+        gcs_traj_opt, "EdgesBetweenSubgraphs", subgraph_edges_doc.doc)
+        .def("AddVelocityBounds",
+            &Class::EdgesBetweenSubgraphs::AddVelocityBounds, py::arg("lb"),
+            py::arg("ub"), subgraph_edges_doc.AddVelocityBounds.doc);
 
     gcs_traj_opt  // BR
         .def(py::init<int>(), py::arg("num_positions"), cls_doc.ctor.doc)
@@ -449,7 +436,9 @@ void DefinePlanningTrajectoryOptimization(py::module m) {
             py::arg("target"),
             py::arg("options") =
                 geometry::optimization::GraphOfConvexSetsOptions(),
-            cls_doc.SolvePath.doc);
+            cls_doc.SolvePath.doc)
+        .def("graph_of_convex_sets", &Class::graph_of_convex_sets,
+            py_rvp::reference_internal, cls_doc.graph_of_convex_sets.doc);
   }
 }
 

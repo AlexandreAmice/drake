@@ -7,6 +7,10 @@
 
 #include <fmt/format.h>
 
+#include "drake/common/diagnostic_policy.h"
+#include "drake/common/pointer_cast.h"
+#include "drake/common/scope_exit.h"
+#include "drake/common/ssize.h"
 #include "drake/common/text_logging.h"
 #include "drake/common/unused.h"
 
@@ -17,20 +21,24 @@ namespace internal {
 
 using Eigen::Vector2d;
 using Eigen::Vector3d;
-using geometry::internal::RenderMesh;
 using geometry::internal::LoadRenderMeshFromObj;
+using geometry::internal::MakeMeshFallbackMaterial;
+using geometry::internal::RenderMaterial;
+using geometry::internal::RenderMesh;
 using math::RigidTransformd;
+using render::ColorRenderCamera;
+using render::DepthRenderCamera;
+using render::LightParameter;
+using render::RenderCameraCore;
+using render::RenderEngine;
+using render::RenderLabel;
 using std::make_shared;
 using std::make_unique;
+using std::shared_ptr;
 using std::string;
 using std::unique_ptr;
 using std::unordered_map;
 using std::vector;
-using render::ColorRenderCamera;
-using render::DepthRenderCamera;
-using render::RenderCameraCore;
-using render::RenderEngine;
-using render::RenderLabel;
 using systems::sensors::ColorD;
 using systems::sensors::ColorI;
 using systems::sensors::ImageDepth32F;
@@ -40,6 +48,8 @@ using systems::sensors::ImageTraits;
 using systems::sensors::PixelType;
 
 namespace {
+
+namespace fs = std::filesystem;
 
 constexpr char kInternalGroup[] = "render_engine_gl_internal";
 constexpr char kHasTexCoordProperty[] = "has_tex_coord";
@@ -51,18 +61,297 @@ struct RegistrationData {
   const PerceptionProperties& properties;
 };
 
+// A shader program that handles lighting computations. All shaders for color
+// images should derive from *this* class. Depth and label do not need lighting.
+class LightingShader : public ShaderProgram {
+ public:
+  DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(LightingShader)
+  LightingShader() : ShaderProgram() {}
+
+  void SetAllLights(const std::vector<LightParameter>& lights) const {
+    DRAKE_DEMAND(lights.size() <= kMaxNumLights);
+    for (int i = 0; i < ssize(lights); ++i) {
+      SetLightParameters(i, lights[i]);
+    }
+    // Set the remaining lights off (invalid light type 0).
+    for (int i = ssize(lights); i < kMaxNumLights; ++i) {
+      glUniform1i(GetLightFieldLocation(i, "type"), 0);
+    }
+  }
+
+  static constexpr int kMaxNumLights{5};
+
+ protected:
+  // Derived classes have the chance to configure additional uniforms.
+  virtual void DoConfigureMoreUniforms() {}
+
+  // This provides GLSL code necessary for performing lighting calculations:
+  //   - Transforms the vertex into device *and* world coordinates.
+  //   - Transforms the normal into world coordinates to be interpolated
+  //     across the triangle (for lighting calculations).
+  // Derived classes are responsible for introducing their own inputs, uniforms
+  // (etc.) and defining the main() function. That main function should do
+  // whatever work is unique to the shader and invoke PrepareLighting() so that
+  // the transformed vertex is evaluated.
+  static constexpr char kVertexShader[] = R"""(
+#version 330
+layout(location = 0) in vec3 p_MV;
+layout(location = 1) in vec3 n_M;
+uniform mat4 T_CM;  // The "model view matrix" (in OpenGl terms).
+uniform mat4 T_DC;  // The "projection matrix" (in OpenGl terms).
+uniform mat4 T_WM;  // The pose of the geometry (model) in the world.
+uniform mat3 T_WM_normals;  // Rotation * inverse_scale to transform normals.
+// TODO(SeanCurtis-TRI): Rather than propagating normal and position vertex in
+// the *world* frame, compute them in camera frame. It saves one transform per
+// vertex (for which there are a lot) and replaces it with CPU-side
+// transformations of the lights into the camera frame. It also reduces the
+// number of uniforms; T_WM is no longer necessary.
+out vec3 n_W;
+out vec3 p_WV; // Vertex position in world space.
+
+void PrepareLighting() {
+  // gl_Position is p_DV; the vertex position in device coordinates.
+  gl_Position = T_DC * T_CM * vec4(p_MV, 1);
+
+  n_W = normalize(T_WM_normals * n_M);
+  p_WV = (T_WM * vec4(p_MV, 1)).xyz;
+}
+)""";
+
+  // This provides GLSL code necessary for performing lighting calculations.
+  // There is no main() method. Derived classes are responsible for introducing
+  // their own inputs, uniforms (etc.) and defining the main() function. The
+  // main function should compute the diffuse value at the fragment and call
+  // GetIlluminatedColor() to get the illuminated result.
+  static constexpr char kFragmentShader[] = R"""(
+#version 330
+uniform mat4 X_WC;  // Transform light position from camera to world.
+in vec3 n_W;
+in vec3 p_WV;
+
+// TODO(SeanCurtis-TRI): Rather than hard-code this in this compile-time string,
+// set this to the actual number of lights reported. We can still have the
+// render engine subject to a hard light limit, but we can make sure the shader
+// only has defined lights. This should roll into changes in how derived
+// classes access these GLSL functions.
+const int MAX_LIGHT_NUM = 5;
+
+// TODO(SeanCurtis-TRI): We should packing these uniforms more tightly. vec3s
+//   are stored as vec4 anyways, so we might as well reduce the uniform calls
+//   and squeeze the size.
+//
+//   Type is the fourth field of light color.
+//   intensity is the fourth field of atten_coeff.
+//   cos_half_angle is the fourth field of direction.
+struct Light {
+    // 0 for no light
+    // 1 for Point Light
+    // 2 for Spot Light
+    // 3 for Directional Light
+    int type;
+    vec3 color;
+    // Only used for Point and Spot lights. position.xyz expresses the position
+    // of the light in *some* frame. The fourth value determines the frame:
+    // 0 := p_WL, 1 := p_CL.
+    vec4 position;
+    // Attenuation Coefficients (Constant, Linear, Quadratic),
+    // Only used for Point and Spot lights
+    vec3 atten_coeff;
+    float intensity;
+    // Ony used for Spot Lights
+    float cos_half_angle;
+    // Used for Spot lights and directional lights. dir expresses the
+    // direction the light is pointing in *some* frame. position.w determines
+    // the frame: 0 := dir_WL, 1 := dir_CL.
+    vec3 dir;
+};
+
+uniform Light lights[MAX_LIGHT_NUM];
+
+vec3 GetLightPositionInWorld(Light light) {
+  vec3 v_W = light.position.xyz;  // Interpreting v as v_W.
+  if (light.position.w == 1) {
+    v_W = (X_WC * vec4(light.position.xyz, 1.0)).xyz;  // Interpreting v as v_C.
+  }
+  return v_W;
+}
+
+vec3 GetLightDirectionInWorld(Light light) {
+  vec3 v_W = light.dir;  // Interpreting v as v_W.
+  if (light.position.w == 1) {
+    v_W = mat3(X_WC) * light.dir;  // Interpreting v as v_C.
+  }
+  return v_W;
+}
+
+float GetPointExposure(Light light, vec3 dir_FL_W, vec3 nhat_W) {
+  return max(dot(nhat_W, dir_FL_W), 0.0);
+}
+
+float GetSpotExposure(Light light, vec3 dir_FL_W, vec3 nhat_W) {
+  // TODO: Add a penumbra to the light.
+  vec3 dir_L_W = GetLightDirectionInWorld(light);
+  // If the angle θ between the light vector and the direction from fragment
+  // to light is greater than the light's half cone angle θₗ it is not
+  // illuminated. Alternatively, no light if cos(θ) < cos(θₗ).
+  float cos_theta = max(dot(dir_FL_W, -dir_L_W), 0.0);
+  if (cos_theta < light.cos_half_angle) {
+      return 0.0;
+  }
+  return GetPointExposure(light, dir_FL_W, nhat_W);
+}
+
+float GetDirectionalExposure(Light light, vec3 nhat_W) {
+  vec3 dir_L_W = GetLightDirectionInWorld(light);
+  return max(dot(nhat_W, normalize(-dir_L_W)), 0.0);
+}
+
+vec3 GetLightIllumination(Light light, vec3 nhat_W) {
+  // Position vector from fragment to light.
+  vec3 p_WL = GetLightPositionInWorld(light);
+  // p_WV is interpolated to be p_WF (position of the fragment).
+  vec3 p_FL_W = p_WL - p_WV;
+  float dist_FL = length(p_FL_W);
+  vec3 dir_FL_W = vec3(0, 0, 0);
+  if (dist_FL > 0) {
+    dir_FL_W = p_FL_W / dist_FL;
+  }
+
+  // "Exposure" is the fraction of the light's full luminance that shines on
+  // the given fragment.
+  float exposure;
+  if (light.type == 1) {
+    exposure = GetPointExposure(light, dir_FL_W, nhat_W);
+  } else if (light.type == 2) {
+    exposure = GetSpotExposure(light, dir_FL_W, nhat_W);
+  } else if (light.type == 3) {
+    exposure = GetDirectionalExposure(light, nhat_W);
+  } else {
+      // Invalid light; no exposure.
+      return vec3(0.0, 0.0, 0.0);
+  }
+
+  // Attenuation.
+  float inv_attenuation = light.atten_coeff[0] +
+                          (light.atten_coeff[1] +
+                           light.atten_coeff[2] * dist_FL) * dist_FL;
+
+  return light.color * exposure * light.intensity / inv_attenuation;
+}
+
+vec4 GetIlluminatedColor(vec4 diffuse) {
+  // NOTE: Depending on triangle size and variance of normal direction over
+  // that triangle, n_W may not be unit length; to play it safe, we blindly
+  // normalize it. Consider *not* normalizing it if it improves performance
+  // without degrading visual quality.
+  vec3 nhat_W = normalize(n_W);
+
+  vec3 illum = vec3(0.0, 0.0, 0.0);
+  for (int i = 0; i < MAX_LIGHT_NUM; i++) {
+    illum += GetLightIllumination(lights[i], nhat_W);
+  }
+  return vec4(illum * diffuse.rgb, diffuse.a);
+}
+
+)""";
+
+ private:
+  GLint GetLightFieldLocation(int index, std::string field_name) const {
+    DRAKE_ASSERT(index >= 0 && index < kMaxNumLights);
+    return GetUniformLocation(fmt::format("lights[{}].{}", index, field_name));
+  }
+
+  void DoConfigureUniforms() final {
+    T_WM_normals_loc_ = GetUniformLocation("T_WM_normals");
+    T_WM_loc_ = GetUniformLocation("T_WM");
+    X_WC_loc_ = GetUniformLocation("X_WC");
+    DoConfigureMoreUniforms();
+  }
+
+  void DoSetModelViewMatrix(const Eigen::Matrix4f& X_CW,
+                            const Eigen::Matrix4f& T_WM,
+                            const Eigen::Matrix4f& X_WG,
+                            const Vector3d& scale) const override {
+    // For lighting, we need the normal and position of a fragment in the world
+    // frame. The pose of the fragment (from its corresponding vertices) comes
+    // simply from T_WM. But the normals require a different transform:
+    //
+    //   1. No translation.
+    //   2. Same rotation as vertex positions.
+    //   3. *Inverse* scale as vertex positions.
+    //
+    // If the scale isn't identity, the normal may not be unit length. We rely
+    // on the shader to normalize the scaled normals.
+    // This is the quantity historically referred to as gl_NormalMatrix
+    // (available to glsl in the "compatibility profile"). See
+    // https://www.cs.upc.edu/~robert/teaching/idi/GLSLangSpec.4.50.pdf.
+    const Eigen::DiagonalMatrix<float, 3, 3> S_GM_normal(
+        Vector3<float>(1.0 / scale(0), 1.0 / scale(1), 1.0 / scale(2)));
+    const Eigen::Matrix3f X_WM_Normal = X_WG.block<3, 3>(0, 0) * S_GM_normal;
+    glUniformMatrix3fv(T_WM_normals_loc_, 1, GL_FALSE, X_WM_Normal.data());
+    glUniformMatrix4fv(T_WM_loc_, 1, GL_FALSE, T_WM.data());
+
+    Eigen::Matrix4f X_WC = Eigen::Matrix4f::Identity();
+    X_WC.block<3, 3>(0, 0) = X_CW.block<3, 3>(0, 0).transpose();
+    X_WC.block<3, 1>(0, 3) = X_WC.block<3, 3>(0, 0) * (-X_CW.block<3, 1>(0, 3));
+    glUniformMatrix4fv(X_WC_loc_, 1, GL_FALSE, X_WC.data());
+  }
+
+  void SetLightParameters(int index, const LightParameter& light) const {
+    glUniform1i(GetLightFieldLocation(index, "type"),
+                static_cast<int>(render::light_type_from_string(light.type)));
+    Eigen::Vector3f color = light.color.rgba().head<3>().cast<float>();
+    glUniform3fv(GetLightFieldLocation(index, "color"), 1, color.data());
+    Eigen::Vector4f position;
+    position.head<3>() = light.position.cast<float>();
+    const render::LightFrame frame =
+        render::light_frame_from_string(light.frame);
+    position(3) = frame == render::LightFrame::kWorld ? 0.0f : 1.0f;
+    glUniform4fv(GetLightFieldLocation(index, "position"), 1, position.data());
+    Eigen::Vector3f atten_coeff = light.attenuation_values.cast<float>();
+    glUniform3fv(GetLightFieldLocation(index, "atten_coeff"), 1,
+                 atten_coeff.data());
+    glUniform1f(GetLightFieldLocation(index, "intensity"),
+                static_cast<float>(light.intensity));
+
+    if (light.type == "spot") {
+      // Note: Using the cosine here to speed up the shader so it doesn't have
+      // to use cos or acos internally.
+      glUniform1f(GetLightFieldLocation(index, "cos_half_angle"),
+                  static_cast<float>(cos(light.cone_angle * (M_PI / 180.0))));
+    }
+
+    if (light.type != "point") {
+      Eigen::Vector3f direction = light.direction.cast<float>();
+      glUniform3fv(GetLightFieldLocation(index, "dir"), 1, direction.data());
+    }
+  }
+
+  // The location of the "T_WM_normals" uniform in the shader. This transforms
+  // the *normals* to the world frame.
+  GLint T_WM_normals_loc_{};
+
+  // The location of the "T_WM" uniform in the shader.
+  GLint T_WM_loc_{};
+
+  // The transform between world and camera frame (used for transforming light
+  // positions defined in the camera frame).
+  GLint X_WC_loc_{};
+};
+
 /* The built-in shader for Rgba diffuse colored objects. This shader supports
  all geometries because it provides a default diffuse color if none is given. */
-class DefaultRgbaColorShader final : public ShaderProgram {
+class DefaultRgbaColorShader final : public LightingShader {
  public:
   DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(DefaultRgbaColorShader)
 
   explicit DefaultRgbaColorShader(const Rgba& default_diffuse)
-      : ShaderProgram(), default_diffuse_(default_diffuse) {
-    LoadFromSources(kVertexShader, kFragmentShader);
-    diffuse_color_loc_ = GetUniformLocation("diffuse_color");
-    normal_mat_loc_ = GetUniformLocation("normal_mat");
-    light_dir_loc_ = GetUniformLocation("light_dir_C");
+      : LightingShader(), default_diffuse_(default_diffuse) {
+    // TODO(SeanCurtis-TRI): See if I can't come up with a more elegant way for
+    // derived classes to exercise LightShader's GLSL functionality.
+    LoadFromSources(
+        fmt::format("{}{}", LightingShader::kVertexShader, kVertexShader),
+        fmt::format("{}{}", LightingShader::kFragmentShader, kFragmentShader));
   }
 
   void SetInstanceParameters(const ShaderProgramData& data) const final {
@@ -70,11 +359,11 @@ class DefaultRgbaColorShader final : public ShaderProgram {
                  data.value().get_value<Vector4<float>>().data());
   }
 
-  void SetLightDirection(const Vector3<float>& light_dir_C) const final {
-    glUniform3fv(light_dir_loc_, 1, light_dir_C.data());
+ private:
+  void DoConfigureMoreUniforms() final {
+    diffuse_color_loc_ = GetUniformLocation("diffuse_color");
   }
 
- private:
   std::unique_ptr<ShaderProgram> DoClone() const final {
     return make_unique<DefaultRgbaColorShader>(*this);
   }
@@ -87,23 +376,6 @@ class DefaultRgbaColorShader final : public ShaderProgram {
     return ShaderProgramData{shader_id(), AbstractValue::Make(v4)};
   }
 
-  void DoModelViewMatrix(const Eigen::Matrix4f& X_CglM,
-                         const Vector3d& scale) const override {
-    // When rendering *illuminated* objects, we have to account for the surface
-    // normals. In principle, we only need to *rotate* the normals from the
-    // model frame to the camera frame. However, if the geometry has undergone
-    // non-uniform scaling, we must *first* scale the normals by the inverse
-    // scale. So, the normal_mat below handles the scaling and the rotation. It
-    // relies on the shader to handle normalization of the scaled normals.
-    // This is the quantity historically referred to as gl_NormalMatrix
-    // (available to glsl in the "compatibility profile"). See
-    // https://www.cs.upc.edu/~robert/teaching/idi/GLSLangSpec.4.50.pdf.
-    const Eigen::DiagonalMatrix<float, 3, 3> inv_scale(
-        Vector3<float>(1.0 / scale(0), 1.0 / scale(1), 1.0 / scale(2)));
-    const Eigen::Matrix3f normal_mat = X_CglM.block<3, 3>(0, 0) * inv_scale;
-    glUniformMatrix3fv(normal_mat_loc_, 1, GL_FALSE, normal_mat.data());
-  }
-
   // The default diffuse value to apply if missing the ("phong", "diffuse")
   // property.
   Rgba default_diffuse_;
@@ -111,68 +383,44 @@ class DefaultRgbaColorShader final : public ShaderProgram {
   // The location of the "diffuse_color" uniform in the shader.
   GLint diffuse_color_loc_{};
 
-  // The location of the "normal_mat" uniform in the shader.
-  GLint normal_mat_loc_{};
-
-  // The location of the "light_dir_C" uniform in the shader.
-  GLint light_dir_loc_{};
-
-  // The vertex shader:
-  //   - Transforms the vertex into device *and* camera coordinates.
-  //   - Transforms the normal into camera coordinates to be interpolated
-  //     across the triangle.
+  // For diffuse color, we only need to transform the vertex data and use the
+  // diffuse color in the fragment shader. So, we'll simply invoke the lighting
+  // function.
   static constexpr char kVertexShader[] = R"""(
-#version 330
-layout(location = 0) in vec3 p_MV;
-layout(location = 1) in vec3 n_M;
-uniform mat4 T_CM;  // The "model view matrix" (in OpenGl terms).
-uniform mat4 T_DC;  // The "projection matrix" (in OpenGl terms).
-uniform mat3 normal_mat;
-varying vec3 n_C;
 void main() {
-  // p_DV; the vertex position in device coordinates.
-  gl_Position = T_DC * T_CM * vec4(p_MV, 1);
-
-  // R_CM = normal_mat (although R may also include scaling).
-  n_C = normal_mat * n_M;
+  PrepareLighting();
 })""";
 
-  // For each fragment from a geometry, compute the per-fragment, illuminated
-  // color.
+  // Simply illuminate the diffuse color at the fragment and output it.
   static constexpr char kFragmentShader[] = R"""(
-#version 330
 uniform vec4 diffuse_color;
-uniform vec3 light_dir_C;
-varying vec3 n_C;
 out vec4 color;
+
 void main() {
-  // NOTE: Depending on triangle size and variance of normal direction over
-  // that triangle, n_C may not be unit length; to play it safe, we blindly
-  // normalize it. Consider *not* normalizing it if it improves performance
-  // without degrading visual quality.
-  vec3 nhat_C = normalize(n_C);
-  vec3 alt_diffuse = diffuse_color.rgb / 200 + vec3(0, 0, 1);
-  color = vec4(diffuse_color.rgb * max(dot(nhat_C, light_dir_C), 0.0),
-               diffuse_color.a);
+  color = GetIlluminatedColor(diffuse_color);
 })""";
 };
 
 /* The built-in shader for texture diffuse colored objects. This shader supports
  all geometries with a ("phong", "diffuse_map") property. */
-class DefaultTextureColorShader final : public ShaderProgram {
+class DefaultTextureColorShader final : public LightingShader {
  public:
   DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(DefaultTextureColorShader)
 
   /* Constructs the texture shader with the given library. The library will be
-   used to access OpenGl textures.  */
-  explicit DefaultTextureColorShader(TextureLibrary* library)
-      : ShaderProgram(), library_(library) {
-    DRAKE_DEMAND(library != nullptr);
-    LoadFromSources(kVertexShader, kFragmentShader);
-    diffuse_map_loc_ = GetUniformLocation("diffuse_map");
-    diffuse_scale_loc_ = GetUniformLocation("diffuse_map_scale");
-    normal_mat_loc_ = GetUniformLocation("normal_mat");
-    light_dir_loc_ = GetUniformLocation("light_dir_C");
+   used to access OpenGl textures.
+
+   When the RenderEngineGl is cloned, instances of this shader program are
+   likewise cloned, each with a shared ptr to the *same* texture library. This
+   is alright, because the owning RenderEngineGl instances share that library
+   as well -- so the shader program instances are consistent with the render
+   engine instances. */
+  explicit DefaultTextureColorShader(shared_ptr<TextureLibrary> library)
+      : LightingShader(), library_(std::move(library)) {
+    DRAKE_DEMAND(library_ != nullptr);
+    LoadFromSources(
+        fmt::format("{}{}", LightingShader::kVertexShader, kVertexShader),
+        fmt::format("{}{}", LightingShader::kFragmentShader, kFragmentShader));
   }
 
   void SetInstanceParameters(const ShaderProgramData& data) const final {
@@ -183,11 +431,12 @@ class DefaultTextureColorShader final : public ShaderProgram {
     glUniform2fv(diffuse_scale_loc_, 1, my_data.texture_scale.data());
   }
 
-  void SetLightDirection(const Vector3<float>& light_dir_C) const final {
-    glUniform3fv(light_dir_loc_, 1, light_dir_C.data());
+ private:
+  void DoConfigureMoreUniforms() final {
+    diffuse_map_loc_ = GetUniformLocation("diffuse_map");
+    diffuse_scale_loc_ = GetUniformLocation("diffuse_map_scale");
   }
 
- private:
   std::unique_ptr<ShaderProgram> DoClone() const final {
     return make_unique<DefaultTextureColorShader>(*this);
   }
@@ -197,8 +446,8 @@ class DefaultTextureColorShader final : public ShaderProgram {
     Vector2<float> texture_scale;
   };
 
-  std::optional<ShaderProgramData>
-  DoCreateProgramData(const PerceptionProperties& properties) const final {
+  std::optional<ShaderProgramData> DoCreateProgramData(
+      const PerceptionProperties& properties) const final {
     if (!properties.HasProperty("phong", "diffuse_map")) return std::nullopt;
 
     const string& file_name =
@@ -215,33 +464,18 @@ class DefaultTextureColorShader final : public ShaderProgram {
       throw std::runtime_error(fmt::format(
           "A mesh with no texture coordinates has erroneously defined the "
           "property ('phong', 'diffuse_map') as {}. To use a diffuse texture "
-          "map, the mesh must have texture coordinates.", file_name));
+          "map, the mesh must have texture coordinates.",
+          file_name));
     }
 
     const auto& scale = properties.GetPropertyOrDefault(
         "phong", "diffuse_scale", Vector2d(1, 1));
-    return ShaderProgramData{shader_id(), AbstractValue::Make(
-      InstanceData{*texture_id, scale.cast<float>()})};
+    return ShaderProgramData{
+        shader_id(),
+        AbstractValue::Make(InstanceData{*texture_id, scale.cast<float>()})};
   }
 
-  void DoModelViewMatrix(const Eigen::Matrix4f& X_CglM,
-                         const Vector3d& scale) const override {
-    // TODO(SeanCurtis-TRI) Refactor the phong lighting intelligence across
-    //  the color shaders so I don't get code duplication.
-
-    // When rendering *illuminated* objects, we have to account for the surface
-    // normals. In principle, we only need to *rotate* the normals from the
-    // model frame to the camera frame. However, if the geometry has undergone
-    // non-uniform scaling, we must *first* scale the normals by the inverse
-    // scale. So, the normal_mat below handles the scaling and the rotation. It
-    // relies on the shader to handle normalization of the scaled normals.
-    const Eigen::DiagonalMatrix<float, 3, 3> inv_scale(
-        Vector3<float>(1.0 / scale(0), 1.0 / scale(1), 1.0 / scale(2)));
-    const Eigen::Matrix3f normal_mat = X_CglM.block<3, 3>(0, 0) * inv_scale;
-    glUniformMatrix3fv(normal_mat_loc_, 1, GL_FALSE, normal_mat.data());
-  }
-
-  TextureLibrary* library_{};
+  std::shared_ptr<TextureLibrary> library_{};
 
   // The location of the "diffuse_map" uniform in the shader.
   GLint diffuse_map_loc_{};
@@ -249,59 +483,34 @@ class DefaultTextureColorShader final : public ShaderProgram {
   // The location of the "diffuse_scale" uniform in the shader.
   GLint diffuse_scale_loc_{};
 
-  // The location of the "normal_mat" uniform in the shader.
-  GLint normal_mat_loc_{};
-
-  // The location of the "light_dir_C" uniform in the shader.
-  GLint light_dir_loc_{};
-
-  // The vertex shader:
-  //   - Transforms the vertex into device *and* camera coordinates.
-  //   - Transforms the normal into camera coordinates to be interpolated
-  //     across the triangle.
+  // For diffuse *map*, we need to propagate texture coordinates along with
+  // transforming the vertex data. So, invoke the lighting function and output
+  // texture coordinates.
   static constexpr char kVertexShader[] = R"""(
-#version 330
-layout(location = 0) in vec3 p_MV;
-layout(location = 1) in vec3 n_M;
 layout(location = 2) in vec2 tex_coord_in;
-uniform mat4 T_CM;  // The "model view matrix" (in OpenGl terms).
-uniform mat4 T_DC;  // The "projection matrix" (in OpenGl terms).
-uniform mat3 normal_mat;
-varying vec4 p_CV;
-varying vec3 n_C;
-varying vec2 tex_coord;
+out vec2 tex_coord;
 void main() {
-  p_CV = T_CM * vec4(p_MV, 1);
-  gl_Position = T_DC * p_CV;
-
-  n_C = normal_mat * n_M;
+  PrepareLighting();
   // TODO(SeanCurtis-TRI): Support transforms for texture coordinates.
   tex_coord = tex_coord_in;
 })""";
 
-  // For each fragment from a geometry, compute the per-fragment, illuminated
-  // color.
+  // We define the diffuse color by looking up the diffuse_map and then simply
+  // illuminate it.
   static constexpr char kFragmentShader[] = R"""(
-#version 330
 uniform sampler2D diffuse_map;
 uniform vec2 diffuse_map_scale;
-varying vec4 p_CV;
-varying vec3 n_C;
-varying vec2 tex_coord;
-uniform vec3 light_dir_C;
+in vec2 tex_coord;
 out vec4 color;
+
 void main() {
-  // NOTE: Depending on triangle size and variance of normal direction over
-  // that triangle, n_C may not be unit length; consider normalizing it.
-  vec3 nhat_C = normalize(n_C);
   // Note: We're clipping the texture coordinates *here* using fract() rather
   //  than setting the texture to GL_REPEAT. Setting it GL_REPEAT can lead to
   //  unsightly visual artifacts when a texture is supposed to exactly align
   //  with a triangle edge, but there are floating point errors in interpolation
   //  which cause the texture to be sampled on the other side.
   vec4 map_rgba = texture(diffuse_map, fract(tex_coord * diffuse_map_scale));
-  color.rgb = map_rgba.rgb * max(dot(nhat_C, light_dir_C), 0.0);
-  color.a = map_rgba.a;
+  color = GetIlluminatedColor(map_rgba);
 })""";
 };
 
@@ -313,17 +522,19 @@ class DefaultDepthShader final : public ShaderProgram {
 
   DefaultDepthShader() : ShaderProgram() {
     LoadFromSources(kVertexShader, kFragmentShader);
-    depth_z_near_loc_ = GetUniformLocation("depth_z_near");
-    depth_z_far_loc_ = GetUniformLocation("depth_z_far");
   }
 
-  void SetDepthCameraParameters(
-      const DepthRenderCamera& camera) const final {
+  void SetDepthCameraParameters(const DepthRenderCamera& camera) const final {
     glUniform1f(depth_z_near_loc_, camera.depth_range().min_depth());
     glUniform1f(depth_z_far_loc_, camera.depth_range().max_depth());
   }
 
  private:
+  void DoConfigureUniforms() final {
+    depth_z_near_loc_ = GetUniformLocation("depth_z_near");
+    depth_z_far_loc_ = GetUniformLocation("depth_z_far");
+  }
+
   std::unique_ptr<ShaderProgram> DoClone() const final {
     return make_unique<DefaultDepthShader>(*this);
   }
@@ -408,7 +619,6 @@ class DefaultLabelShader final : public ShaderProgram {
       std::function<Vector4<float>(const PerceptionProperties&)> label_encoder)
       : ShaderProgram(), label_encoder_(std::move(label_encoder)) {
     LoadFromSources(kVertexShader, kFragmentShader);
-    encoded_label_loc_ = GetUniformLocation("encoded_label");
   }
 
   void SetInstanceParameters(const ShaderProgramData& data) const final {
@@ -417,6 +627,10 @@ class DefaultLabelShader final : public ShaderProgram {
   }
 
  private:
+  void DoConfigureUniforms() final {
+    encoded_label_loc_ = GetUniformLocation("encoded_label");
+  }
+
   std::unique_ptr<ShaderProgram> DoClone() const final {
     return make_unique<DefaultLabelShader>(*this);
   }
@@ -457,32 +671,71 @@ void main() {
 })""";
 };
 
+// Given a filename (e.g., of a mesh), this produces a string that we use in
+// our maps to guarantee we only load the file once.
+std::string GetPathKey(const std::string& filename) {
+  std::error_code path_error;
+  const fs::path path = fs::canonical(filename, path_error);
+  if (path_error) {
+    throw std::runtime_error(
+        fmt::format("RenderEngineGl: unable to access the file {}; {}",
+                    filename, path_error.message()));
+  }
+  return path.string();
+}
+
+// We want to make sure the lights are as clean as possible. So, we'll
+// re-normalize unit vectors (where possible). We're not testing for "bad"
+// values because those values which *might* be considered "bad" can be used
+// by users for debugging.
+RenderEngineGlParams CleanupLights(RenderEngineGlParams params) {
+  if (ssize(params.lights) > LightingShader::kMaxNumLights) {
+    throw std::runtime_error(
+        fmt::format("RenderEngineGl supports up to five lights; {} specified.",
+                    ssize(params.lights)));
+  }
+  for (auto& light : params.lights) {
+    if (light.type != "point") {
+      const double dir_magnitude = light.direction.norm();
+      if (dir_magnitude > 0) {
+        // Zero vectors will remain zero, blacking the light out. But we want
+        // all other vectors as close to unit length as possible.
+        light.direction /= dir_magnitude;
+      }
+    }
+  }
+  return params;
+}
+
 }  // namespace
 
 RenderEngineGl::RenderEngineGl(RenderEngineGlParams params)
     : RenderEngine(params.default_label),
-      opengl_context_(make_shared<OpenGlContext>()),
-      texture_library_(make_shared<TextureLibrary>(opengl_context_.get())),
-      parameters_(std::move(params)) {
+      opengl_context_(make_unique<OpenGlContext>()),
+      texture_library_(make_shared<TextureLibrary>()),
+      parameters_(CleanupLights(std::move(params))) {
+  if (params.default_label != RenderLabel::kDontCare) {
+    static const logging::Warn log_once(
+        "RenderEngineGl(): the default_label configuration option is "
+        "deprecated and will be removed from Drake on or after 2023-12-01.");
+  }
+
+  // The default light parameters have been crafted to create the default
+  // "headlamp" camera.
+  fallback_lights_.push_back({});
   // Configuration of basic OpenGl state.
   opengl_context_->MakeCurrent();
-  glClipControl(GL_UPPER_LEFT, GL_NEGATIVE_ONE_TO_ONE);
-  glClearDepth(1.0);
-  glEnable(GL_DEPTH_TEST);
-  // Generally, there should be no blending for depth and label images. We'll
-  // selectively enable blending for color images.
-  glDisable(GL_BLEND);
-  // We blend the rgb values (the first two parameters), but simply accumulate
-  // transparency (the last two parameters).
-  glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE);
+
+  InitGlState();
 
   // Color shaders. See documentation on GetShaderProgram. We want color from
   // texture to be "more preferred" than color from rgba, so we add the
   // texture color shader *after* the rgba color shader.
   AddShader(make_unique<DefaultRgbaColorShader>(params.default_diffuse),
             RenderType::kColor);
-  AddShader(make_unique<DefaultTextureColorShader>(texture_library_.get()),
+  AddShader(make_unique<DefaultTextureColorShader>(texture_library_),
             RenderType::kColor);
+  ConfigureLights();
 
   // Depth shaders -- a single shader that accepts all geometry.
   AddShader(make_unique<DefaultDepthShader>(), RenderType::kDepth);
@@ -499,16 +752,37 @@ RenderEngineGl::RenderEngineGl(RenderEngineGlParams params)
   AddShader(make_unique<DefaultLabelShader>(label_encoder), RenderType::kLabel);
 }
 
-RenderEngineGl::~RenderEngineGl() = default;
+// There are various per-RenderEngineGl-instance OpenGl objects created. These
+// are enumerated in DoClone(): vertex array objects, ShaderPrograms, etc. They
+// need to be deleted by hand because they require the context to be bound.
+RenderEngineGl::~RenderEngineGl() {
+  ScopeExit unbind([]() {
+    OpenGlContext::ClearCurrent();
+  });
+
+  opengl_context_->MakeCurrent();
+
+  // Delete vertex array objects.
+  for (auto& geometry : geometries_) {
+    glDeleteVertexArrays(1, &geometry.vertex_array);
+  }
+
+  // Delete programs.
+  for (auto& shader_type : shader_programs_) {
+    for (auto& [_, program_ptr] : shader_type) {
+      program_ptr->Free();
+    }
+  }
+}
 
 void RenderEngineGl::UpdateViewpoint(const RigidTransformd& X_WR) {
   X_CW_ = X_WR.inverse();
 }
 
 void RenderEngineGl::ImplementGeometry(const Box& box, void* user_data) {
-  OpenGlGeometry geometry = GetBox();
-  ImplementGeometry(geometry, user_data,
-                    Vector3d(box.width(), box.depth(), box.height()));
+  const int geometry = GetBox();
+  AddGeometryInstance(geometry, user_data,
+                      Vector3d(box.width(), box.depth(), box.height()));
 }
 
 void RenderEngineGl::ImplementGeometry(const Capsule& capsule,
@@ -517,76 +791,97 @@ void RenderEngineGl::ImplementGeometry(const Capsule& capsule,
   RenderMesh mesh_data =
       MakeCapsule(resolution, capsule.radius(), capsule.length());
 
-  OpenGlGeometry geometry = CreateGlGeometry(mesh_data);
-  capsules_.push_back(geometry);
+  const int geometry = CreateGlGeometry(mesh_data);
 
-  ImplementGeometry(geometry, user_data, Vector3d::Ones());
+  AddGeometryInstance(geometry, user_data, Vector3d::Ones());
 }
 
 void RenderEngineGl::ImplementGeometry(const Convex& convex, void* user_data) {
-  OpenGlGeometry geometry = GetMesh(convex.filename());
-  ImplementMesh(geometry, user_data, Vector3d(1, 1, 1) * convex.scale(),
-                convex.filename());
+  RegistrationData* data = static_cast<RegistrationData*>(user_data);
+  const int geometry = GetMesh(convex.filename(), data);
+  if (data->accepted) {
+    ImplementMesh(geometry, user_data, Vector3d(1, 1, 1) * convex.scale(),
+                  convex.filename());
+  }
 }
 
 void RenderEngineGl::ImplementGeometry(const Cylinder& cylinder,
                                        void* user_data) {
-  OpenGlGeometry geometry = GetCylinder();
+  const int geometry = GetCylinder();
   const double r = cylinder.radius();
   const double l = cylinder.length();
-  ImplementGeometry(geometry, user_data, Vector3d(r, r, l));
+  AddGeometryInstance(geometry, user_data, Vector3d(r, r, l));
 }
 
 void RenderEngineGl::ImplementGeometry(const Ellipsoid& ellipsoid,
                                        void* user_data) {
-  OpenGlGeometry geometry = GetSphere();
-  ImplementGeometry(geometry, user_data,
-                    Vector3d(ellipsoid.a(), ellipsoid.b(), ellipsoid.c()));
+  const int geometry = GetSphere();
+  AddGeometryInstance(geometry, user_data,
+                      Vector3d(ellipsoid.a(), ellipsoid.b(), ellipsoid.c()));
 }
 
 void RenderEngineGl::ImplementGeometry(const HalfSpace&, void* user_data) {
-  OpenGlGeometry geometry = GetHalfSpace();
-  ImplementGeometry(geometry, user_data, Vector3d(1, 1, 1));
+  const int geometry = GetHalfSpace();
+  AddGeometryInstance(geometry, user_data, Vector3d(1, 1, 1));
 }
 
 void RenderEngineGl::ImplementGeometry(const Mesh& mesh, void* user_data) {
-  OpenGlGeometry geometry = GetMesh(mesh.filename());
-  ImplementMesh(geometry, user_data, Vector3d(1, 1, 1) * mesh.scale(),
-                mesh.filename());
+  RegistrationData* data = static_cast<RegistrationData*>(user_data);
+  const int geometry = GetMesh(mesh.filename(), data);
+  if (data->accepted) {
+    ImplementMesh(geometry, user_data, Vector3d(1, 1, 1) * mesh.scale(),
+                  mesh.filename());
+  }
 }
 
 void RenderEngineGl::ImplementGeometry(const Sphere& sphere, void* user_data) {
-  OpenGlGeometry geometry = GetSphere();
+  const int geometry = GetSphere();
   const double r = sphere.radius();
-  ImplementGeometry(geometry, user_data, Vector3d(r, r, r));
+  AddGeometryInstance(geometry, user_data, Vector3d(r, r, r));
 }
 
-void RenderEngineGl::ImplementMesh(const OpenGlGeometry& geometry,
-                                   void* user_data,
+void RenderEngineGl::InitGlState() {
+  DRAKE_ASSERT(opengl_context_->IsCurrent());
+
+  glEnable(GL_CULL_FACE);
+  glCullFace(GL_BACK);
+  glClipControl(GL_UPPER_LEFT, GL_NEGATIVE_ONE_TO_ONE);
+  glClearDepth(1.0);
+  glEnable(GL_DEPTH_TEST);
+  // Generally, there should be no blending for depth and label images. We'll
+  // selectively enable blending for color images.
+  glDisable(GL_BLEND);
+  // We blend the rgb values (the first two parameters), but simply accumulate
+  // transparency (the last two parameters).
+  glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE);
+}
+
+void RenderEngineGl::ImplementMesh(int geometry_index, void* user_data,
                                    const Vector3<double>& scale,
-                                   const std::string& file_name) {
+                                   const std::string& filename_in) {
   const RegistrationData& data = *static_cast<RegistrationData*>(user_data);
   PerceptionProperties temp_props(data.properties);
 
-  temp_props.AddProperty(
-      kInternalGroup, kHasTexCoordProperty, geometry.has_tex_coord);
+  const OpenGlGeometry& geometry = geometries_[geometry_index];
+  temp_props.AddProperty(kInternalGroup, kHasTexCoordProperty,
+                         geometry.has_tex_coord);
 
-  // In order to maintain compatibility with RenderEngineVtk, we need to provide
-  // functionality in which a mesh of the name foo.obj can be matched to a
-  // potential png called foo.png. We rely on the fact that passing in a diffuse
-  // map that doesn't refer to a real file will silently fall back to rgba
-  // diffuse. So, we'll create a copy of the user data, set the diffuse_map
-  // property to appropriately named image and let it percolate through. We
-  // can't and don't want to change the underlying properties because they are
-  // visible to the user.
-  if (!temp_props.HasProperty("phong", "diffuse_map")) {
-    std::filesystem::path file_path(file_name);
-    const string png_name = file_path.replace_extension(".png").string();
-    temp_props.AddProperty("phong", "diffuse_map", png_name);
+  const std::string file_key = GetPathKey(filename_in);
+  RenderMaterial material;
+  // If there is a material associated with the mesh, we will use it. Otherwise,
+  // we recreate the fallback material based on user data and defaults.
+  if (meshes_[file_key].mesh_material.has_value()) {
+    material = meshes_[file_key].mesh_material.value();
+  } else {
+    material = MakeMeshFallbackMaterial(data.properties, filename_in,
+                                        parameters_.default_diffuse,
+                                        drake::internal::DiagnosticPolicy());
   }
-
+  temp_props.UpdateProperty("phong", "diffuse_map",
+                            material.diffuse_map.string());
+  temp_props.UpdateProperty("phong", "diffuse", material.diffuse);
   RegistrationData temp_data{data.id, data.X_WG, temp_props};
-  ImplementGeometry(geometry, &temp_data, scale);
+  AddGeometryInstance(geometry_index, &temp_data, scale);
 }
 
 bool RenderEngineGl::DoRegisterVisual(GeometryId id, const Shape& shape,
@@ -595,7 +890,7 @@ bool RenderEngineGl::DoRegisterVisual(GeometryId id, const Shape& shape,
   opengl_context_->MakeCurrent();
   RegistrationData data{id, RigidTransformd{X_WG}, properties};
   shape.Reify(this, &data);
-  return true;
+  return data.accepted;
 }
 
 void RenderEngineGl::DoUpdateVisualPose(GeometryId id,
@@ -607,8 +902,7 @@ bool RenderEngineGl::DoRemoveGeometry(GeometryId id) {
   auto iter = visuals_.find(id);
   if (iter != visuals_.end()) {
     // Remove from the shader families to which it belongs!
-    auto remove_from_family = [this](GeometryId g_id,
-                                     const auto& shader_data,
+    auto remove_from_family = [this](GeometryId g_id, const auto& shader_data,
                                      RenderType render_type) {
       const ShaderId s_id = shader_data[render_type].shader_id();
       auto& geometries = shader_families_[render_type].at(s_id);
@@ -633,13 +927,40 @@ bool RenderEngineGl::DoRemoveGeometry(GeometryId id) {
 }
 
 unique_ptr<RenderEngine> RenderEngineGl::DoClone() const {
-  return unique_ptr<RenderEngineGl>(new RenderEngineGl(*this));
+  // The clone still requires some last-minute patching before it can work
+  // correctly.
+  auto clone = unique_ptr<RenderEngineGl>(new RenderEngineGl(*this));
+
+  ScopeExit unbind([]() {
+    OpenGlContext::ClearCurrent();
+  });
+  clone->opengl_context_->MakeCurrent();
+
+  clone->InitGlState();
+
+  // Update the vertex array objects on the shared vertex buffers.
+  clone->UpdateVertexArrays();
+
+  // We need to separate the ShaderProgram uniform namespaces so that setting
+  // a uniform value in one thread doesn't affect the others. This uses the
+  // inelegant expedient of creating a *new* shader program (in the OpenGl
+  // sense) using the same compiled shaders as the original. If the OpenGl
+  // context were bound during duplication, this could be done as part of the
+  // copying of a ShaderProgram. For now, it has to be done as clean up here.
+  for (auto& shader_type : clone->shader_programs_) {
+    for (auto& [_, program_ptr] : shader_type) {
+      program_ptr->Relink();
+    }
+  }
+
+  // Update the shader OpenGL state to properly configure the lighting.
+  clone->ConfigureLights();
+
+  return clone;
 }
 
 void RenderEngineGl::RenderAt(const ShaderProgram& shader_program,
                               RenderType render_type) const {
-  // TODO(SeanCurtis-TRI) Consider storing a float-version of X_CW so it's only
-  //  created once per camera declaration (and not once per shader).
   const Eigen::Matrix4f& X_CW = X_CW_.GetAsMatrix4().matrix().cast<float>();
   // We rely on the calling method to clear all appropriate buffers; this method
   // may be called multiple times per image (based on the number of shaders
@@ -648,7 +969,8 @@ void RenderEngineGl::RenderAt(const ShaderProgram& shader_program,
   for (const GeometryId& g_id :
        shader_families_.at(render_type).at(shader_program.shader_id())) {
     const OpenGlInstance& instance = visuals_.at(g_id);
-    glBindVertexArray(instance.geometry.vertex_array);
+    const OpenGlGeometry& geometry = geometries_[instance.geometry];
+    glBindVertexArray(geometry.vertex_array);
 
     shader_program.SetInstanceParameters(instance.shader_data[render_type]);
     // TODO(SeanCurtis-TRI): Consider storing the float-valued pose in the
@@ -656,11 +978,10 @@ void RenderEngineGl::RenderAt(const ShaderProgram& shader_program,
     //  Generally, this wouldn't expect much savings; an instance is only
     //  rendered once per image type. So, for three image types, I'd cast three
     //  times. Stored, I'd cast once.
-    shader_program.SetModelViewMatrix(
-        X_CW * instance.X_WG.GetAsMatrix4().cast<float>(), instance.scale);
+    shader_program.SetModelViewMatrix(X_CW, instance.X_WG, instance.scale);
 
-    glDrawElements(GL_TRIANGLES, instance.geometry.index_buffer_size,
-                   GL_UNSIGNED_INT, 0);
+    glDrawElements(GL_TRIANGLES, geometry.index_buffer_size, GL_UNSIGNED_INT,
+                   0);
   }
   // Unbind the vertex array back to the default of 0.
   glBindVertexArray(0);
@@ -669,7 +990,6 @@ void RenderEngineGl::RenderAt(const ShaderProgram& shader_program,
 void RenderEngineGl::DoRenderColorImage(const ColorRenderCamera& camera,
                                         ImageRgba8U* color_image_out) const {
   opengl_context_->MakeCurrent();
-
   // TODO(SeanCurtis-TRI): For transparency to work properly, I need to
   //  segregate objects with transparency from those without. The transparent
   //  geometries then need to be sorted from farthest to nearest the camera and
@@ -679,14 +999,10 @@ void RenderEngineGl::DoRenderColorImage(const ColorRenderCamera& camera,
 
   const RenderTarget render_target =
       GetRenderTarget(camera.core(), RenderType::kColor);
-  // TODO(SeanCurtis-TRI) Consider converting Rgba to float[4] as a method on
-  //  Rgba.
-  const Rgba& clear = parameters_.default_clear_color;
-  float clear_color[4] = {
-      static_cast<float>(clear.r()), static_cast<float>(clear.g()),
-      static_cast<float>(clear.b()), static_cast<float>(clear.a())};
+  const Vector4<float> clear_color =
+      parameters_.default_clear_color.rgba().cast<float>();
   glClearNamedFramebufferfv(render_target.frame_buffer, GL_COLOR, 0,
-                            &clear_color[0]);
+                            clear_color.data());
   glClear(GL_DEPTH_BUFFER_BIT);
   // We only want blending for color; not for label or depth.
   glEnable(GL_BLEND);
@@ -696,18 +1012,11 @@ void RenderEngineGl::DoRenderColorImage(const ColorRenderCamera& camera,
   const Eigen::Matrix4f T_DC =
       camera.core().CalcProjectionMatrix().cast<float>();
 
-  for (const auto& [shader_id, shader_ptr] :
-       shader_programs_[RenderType::kColor]) {
-    unused(shader_id);
-    const ShaderProgram& shader_program = *shader_ptr;
-    shader_program.Use();
-
-    shader_program.SetLightDirection(light_dir_C_);
-    shader_program.SetProjectionMatrix(T_DC);
-
-    // Now I need to render the geometries.
-    RenderAt(shader_program, RenderType::kColor);
-    shader_program.Unuse();
+  for (const auto& [_, shader_program] : shader_programs_[RenderType::kColor]) {
+    shader_program->Use();
+    shader_program->SetProjectionMatrix(T_DC);
+    RenderAt(*shader_program, RenderType::kColor);
+    shader_program->Unuse();
   }
   glDisable(GL_BLEND);
 
@@ -739,8 +1048,8 @@ void RenderEngineGl::DoRenderDepthImage(const DepthRenderCamera& camera,
   const Eigen::Matrix4f T_DC =
       camera.core().CalcProjectionMatrix().cast<float>();
 
-  for (const auto& id_shader_pair : shader_programs_[RenderType::kDepth]) {
-    const ShaderProgram& shader_program = *(id_shader_pair.second);
+  for (const auto& [_, shader_ptr] : shader_programs_[RenderType::kDepth]) {
+    const ShaderProgram& shader_program = *shader_ptr;
     shader_program.Use();
 
     shader_program.SetProjectionMatrix(T_DC);
@@ -776,8 +1085,8 @@ void RenderEngineGl::DoRenderLabelImage(const ColorRenderCamera& camera,
   const Eigen::Matrix4f T_DC =
       camera.core().CalcProjectionMatrix().cast<float>();
 
-  for (const auto& id_shader_pair : shader_programs_[RenderType::kLabel]) {
-    const ShaderProgram& shader_program = *(id_shader_pair.second);
+  for (const auto& [_, shader_ptr] : shader_programs_[RenderType::kLabel]) {
+    const ShaderProgram& shader_program = *shader_ptr;
     shader_program.Use();
 
     shader_program.SetProjectionMatrix(T_DC);
@@ -798,8 +1107,8 @@ void RenderEngineGl::DoRenderLabelImage(const ColorRenderCamera& camera,
   GetLabelImage(label_image_out, render_target);
 }
 
-void RenderEngineGl::ImplementGeometry(const OpenGlGeometry& geometry,
-                                       void* user_data, const Vector3d& scale) {
+void RenderEngineGl::AddGeometryInstance(int geometry_index, void* user_data,
+                                         const Vector3d& scale) {
   const RegistrationData& data = *static_cast<RegistrationData*>(user_data);
   std::optional<ShaderProgramData> color_data =
       GetShaderProgram(data.properties, RenderType::kColor);
@@ -811,7 +1120,7 @@ void RenderEngineGl::ImplementGeometry(const OpenGlGeometry& geometry,
                label_data.has_value());
 
   visuals_.emplace(data.id,
-                   OpenGlInstance(geometry, data.X_WG, scale, *color_data,
+                   OpenGlInstance(geometry_index, data.X_WG, scale, *color_data,
                                   *depth_data, *label_data));
 
   shader_families_[RenderType::kColor][color_data->shader_id()].push_back(
@@ -822,8 +1131,8 @@ void RenderEngineGl::ImplementGeometry(const OpenGlGeometry& geometry,
       data.id);
 }
 
-OpenGlGeometry RenderEngineGl::GetSphere() {
-  if (!sphere_.is_defined()) {
+int RenderEngineGl::GetSphere() {
+  if (sphere_ < 0) {
     const int kLatitudeBands = 50;
     const int kLongitudeBands = 50;
 
@@ -833,13 +1142,14 @@ OpenGlGeometry RenderEngineGl::GetSphere() {
     sphere_ = CreateGlGeometry(mesh_data);
   }
 
-  sphere_.throw_if_undefined("Built-in sphere has some invalid objects");
+  geometries_[sphere_].throw_if_undefined(
+      "Built-in sphere has some invalid objects");
 
   return sphere_;
 }
 
-OpenGlGeometry RenderEngineGl::GetCylinder() {
-  if (!cylinder_.is_defined()) {
+int RenderEngineGl::GetCylinder() {
+  if (cylinder_ < 0) {
     const int kLongitudeBands = 50;
 
     // For long skinny cylinders, it would be better to offer some subdivisions
@@ -848,13 +1158,14 @@ OpenGlGeometry RenderEngineGl::GetCylinder() {
     cylinder_ = CreateGlGeometry(mesh_data);
   }
 
-  cylinder_.throw_if_undefined("Built-in cylinder has some invalid objects");
+  geometries_[cylinder_].throw_if_undefined(
+      "Built-in cylinder has some invalid objects");
 
   return cylinder_;
 }
 
-OpenGlGeometry RenderEngineGl::GetHalfSpace() {
-  if (!half_space_.is_defined()) {
+int RenderEngineGl::GetHalfSpace() {
+  if (half_space_ < 0) {
     // This matches the RenderEngineVtk half space size. Keep them matching
     // so that the common "horizon" unit test passes.
     const GLfloat kMeasure = 100.f;
@@ -865,41 +1176,60 @@ OpenGlGeometry RenderEngineGl::GetHalfSpace() {
     half_space_ = CreateGlGeometry(mesh_data);
   }
 
-  half_space_.throw_if_undefined(
+  geometries_[half_space_].throw_if_undefined(
       "Built-in half space has some invalid objects");
 
   return half_space_;
 }
 
-OpenGlGeometry RenderEngineGl::GetBox() {
-  if (!box_.is_defined()) {
+int RenderEngineGl::GetBox() {
+  if (box_ < 0) {
     RenderMesh mesh_data = MakeUnitBox();
     box_ = CreateGlGeometry(mesh_data);
   }
 
-  box_.throw_if_undefined("Built-in box has some invalid objects");
+  geometries_[box_].throw_if_undefined("Built-in box has some invalid objects");
 
   return box_;
 }
 
-OpenGlGeometry RenderEngineGl::GetMesh(const string& filename) {
-  OpenGlGeometry mesh;
-  if (meshes_.count(filename) == 0) {
-    // TODO(SeanCurtis-TRI): We're ignoring the declared perception properties
-    //  for the mesh. We need to pass it in and return a mesh *and* the
-    //  resulting material properties.
-    RenderMesh mesh_data = LoadRenderMeshFromObj(
-        filename, PerceptionProperties(), parameters_.default_diffuse);
-    mesh = CreateGlGeometry(mesh_data);
-    meshes_.insert({filename, mesh});
-  } else {
-    mesh = meshes_[filename];
+int RenderEngineGl::GetMesh(const string& filename_in, RegistrationData* data) {
+  int mesh_index = -1;
+
+  // We're checking the input filename in case the user specified name has the
+  // desired extension but is a symlink to some arbitrarily named cached file.
+  if (Mesh(filename_in).extension() != ".obj") {
+    static const logging::Warn one_time(
+        "RenderEngineGl only supports Mesh/Convex specifications which use "
+        ".obj files. Mesh specifications using other mesh types (e.g., "
+        ".gltf, .stl, .dae, etc.) will be ignored.");
+    data->accepted = false;
+    return -1;
   }
 
-  mesh.throw_if_undefined(
-      fmt::format("Error creating object for mesh {}", filename).c_str());
+  const std::string file_key = GetPathKey(filename_in);
+  if (meshes_.count(file_key) == 0) {
+    const RenderMesh mesh_data = LoadRenderMeshFromObj(
+        filename_in, PerceptionProperties(), parameters_.default_diffuse,
+        drake::internal::DiagnosticPolicy());
+    mesh_index = CreateGlGeometry(mesh_data);
+    const RenderMaterial material = mesh_data.material;
 
-  return mesh;
+    meshes_.insert({file_key, {.mesh_index = mesh_index}});
+    // We will also update RenderGlMesh's `mesh_material` if the material is
+    // defined by the mesh itself. By that, the material will be used every time
+    // the mesh is instantiated.
+    if (material.from_mesh_file) {
+      meshes_[file_key].mesh_material = material;
+    }
+  } else {
+    mesh_index = meshes_[file_key].mesh_index;
+  }
+
+  geometries_[mesh_index].throw_if_undefined(
+      fmt::format("Error creating object for mesh {}", filename_in).c_str());
+
+  return mesh_index;
 }
 
 std::tuple<GLint, GLenum, GLenum> RenderEngineGl::get_texture_format(
@@ -1001,15 +1331,17 @@ RenderTarget RenderEngineGl::GetRenderTarget(const RenderCameraCore& camera,
   } else {
     target = iter->second;
   }
+  DRAKE_ASSERT(glIsFramebuffer(target.frame_buffer));
   glBindFramebuffer(GL_FRAMEBUFFER, target.frame_buffer);
   glViewport(0, 0, intrinsics.width(), intrinsics.height());
   return target;
 }
 
-OpenGlGeometry RenderEngineGl::CreateGlGeometry(const RenderMesh& mesh_data) {
+int RenderEngineGl::CreateGlGeometry(const RenderMesh& mesh_data) {
+  // Confirm that the context is allocated.
+  DRAKE_ASSERT(opengl_context_->IsCurrent());
+
   OpenGlGeometry geometry;
-  // Create the vertex array object (VAO).
-  glCreateVertexArrays(1, &geometry.vertex_array);
 
   // Create the vertex buffer object (VBO).
   glCreateBuffers(1, &geometry.vertex_buffer);
@@ -1025,8 +1357,8 @@ OpenGlGeometry RenderEngineGl::CreateGlGeometry(const RenderMesh& mesh_data) {
   const int kFloatsPerPosition = 3;
   const int kFloatsPerNormal = 3;
   const int kFloatsPerUv = 2;
-  vertex_data.reserve(
-      v_count * (kFloatsPerPosition + kFloatsPerNormal + kFloatsPerUv));
+  vertex_data.reserve(v_count *
+                      (kFloatsPerPosition + kFloatsPerNormal + kFloatsPerUv));
   // N.B. we are implicitly converting from double to float by inserting them
   // into the vector.
   vertex_data.insert(vertex_data.end(), mesh_data.positions.data(),
@@ -1036,39 +1368,8 @@ OpenGlGeometry RenderEngineGl::CreateGlGeometry(const RenderMesh& mesh_data) {
   vertex_data.insert(vertex_data.end(), mesh_data.uvs.data(),
                      mesh_data.uvs.data() + v_count * kFloatsPerUv);
   glNamedBufferStorage(geometry.vertex_buffer,
-                       vertex_data.size() * sizeof(GLfloat),
-                       vertex_data.data(), 0);
-
-  std::size_t vbo_offset = 0;
-
-  const int position_attrib = 0;
-  glVertexArrayVertexBuffer(geometry.vertex_array, position_attrib,
-                            geometry.vertex_buffer, vbo_offset,
-                            kFloatsPerPosition * sizeof(GLfloat));
-  glVertexArrayAttribFormat(geometry.vertex_array, position_attrib,
-                            kFloatsPerPosition, GL_FLOAT, GL_FALSE, 0);
-  glEnableVertexArrayAttrib(geometry.vertex_array, position_attrib);
-  vbo_offset += v_count * kFloatsPerPosition * sizeof(GLfloat);
-
-  const int normal_attrib = 1;
-  glVertexArrayVertexBuffer(
-      geometry.vertex_array, normal_attrib, geometry.vertex_buffer,
-      vbo_offset, kFloatsPerNormal * sizeof(GLfloat));
-  glVertexArrayAttribFormat(geometry.vertex_array, normal_attrib,
-                            kFloatsPerNormal, GL_FLOAT, GL_FALSE, 0);
-  glEnableVertexArrayAttrib(geometry.vertex_array, normal_attrib);
-  vbo_offset += v_count * kFloatsPerNormal * sizeof(GLfloat);
-
-  const int uv_attrib = 2;
-  glVertexArrayVertexBuffer(
-      geometry.vertex_array, uv_attrib, geometry.vertex_buffer,
-      vbo_offset, kFloatsPerUv * sizeof(GLfloat));
-  glVertexArrayAttribFormat(geometry.vertex_array, uv_attrib,
-                            kFloatsPerUv, GL_FLOAT,
-                            GL_FALSE, 0);
-  glEnableVertexArrayAttrib(geometry.vertex_array, uv_attrib);
-  vbo_offset += v_count * kFloatsPerUv * sizeof(GLfloat);
-  DRAKE_DEMAND(vbo_offset == vertex_data.size() * sizeof(GLfloat));
+                       vertex_data.size() * sizeof(GLfloat), vertex_data.data(),
+                       0);
 
   // Create the index buffer object (IBO).
   using indices_uint_t = decltype(mesh_data.indices)::Scalar;
@@ -1078,19 +1379,81 @@ OpenGlGeometry RenderEngineGl::CreateGlGeometry(const RenderMesh& mesh_data) {
   glNamedBufferStorage(geometry.index_buffer,
                        mesh_data.indices.size() * sizeof(GLuint),
                        mesh_data.indices.data(), 0);
-  // Bind IBO with the VAO.
-  glVertexArrayElementBuffer(geometry.vertex_array, geometry.index_buffer);
 
   geometry.index_buffer_size = mesh_data.indices.size();
 
   geometry.has_tex_coord = mesh_data.has_tex_coord;
+
+  geometry.v_count = v_count;
+  CreateVertexArray(&geometry);
 
   // Note: We won't need to call the corresponding glDeleteVertexArrays or
   // glDeleteBuffers. The meshes we store are "canonical" meshes. Even if a
   // particular GeometryId is removed, it was only referencing its corresponding
   // canonical mesh. We keep all canonical meshes alive for the lifetime of the
   // OpenGL context for convenient reuse.
-  return geometry;
+  const int index = ssize(geometries_);
+  geometries_.push_back(geometry);
+  return index;
+}
+
+void RenderEngineGl::CreateVertexArray(OpenGlGeometry* geometry) const {
+  // Confirm that the context is allocated.
+  DRAKE_ASSERT(opengl_context_->IsCurrent());
+
+  glCreateVertexArrays(1, &geometry->vertex_array);
+
+  // 3 floats each for position and normal, 2 for texture coordinates.
+  const int kFloatsPerPosition = 3;
+  const int kFloatsPerNormal = 3;
+  const int kFloatsPerUv = 2;
+
+  std::size_t vbo_offset = 0;
+
+  const int position_attrib = 0;
+  glVertexArrayVertexBuffer(geometry->vertex_array, position_attrib,
+                            geometry->vertex_buffer, vbo_offset,
+                            kFloatsPerPosition * sizeof(GLfloat));
+  glVertexArrayAttribFormat(geometry->vertex_array, position_attrib,
+                            kFloatsPerPosition, GL_FLOAT, GL_FALSE, 0);
+  glEnableVertexArrayAttrib(geometry->vertex_array, position_attrib);
+  vbo_offset += geometry->v_count * kFloatsPerPosition * sizeof(GLfloat);
+
+  const int normal_attrib = 1;
+  glVertexArrayVertexBuffer(geometry->vertex_array, normal_attrib,
+                            geometry->vertex_buffer, vbo_offset,
+                            kFloatsPerNormal * sizeof(GLfloat));
+  glVertexArrayAttribFormat(geometry->vertex_array, normal_attrib,
+                            kFloatsPerNormal, GL_FLOAT, GL_FALSE, 0);
+  glEnableVertexArrayAttrib(geometry->vertex_array, normal_attrib);
+  vbo_offset += geometry->v_count * kFloatsPerNormal * sizeof(GLfloat);
+
+  const int uv_attrib = 2;
+  glVertexArrayVertexBuffer(geometry->vertex_array, uv_attrib,
+                            geometry->vertex_buffer, vbo_offset,
+                            kFloatsPerUv * sizeof(GLfloat));
+  glVertexArrayAttribFormat(geometry->vertex_array, uv_attrib, kFloatsPerUv,
+                            GL_FLOAT, GL_FALSE, 0);
+  glEnableVertexArrayAttrib(geometry->vertex_array, uv_attrib);
+  vbo_offset += geometry->v_count * kFloatsPerUv * sizeof(GLfloat);
+
+  const float float_count =
+      geometry->v_count *
+      (kFloatsPerPosition + kFloatsPerNormal + kFloatsPerUv);
+  DRAKE_DEMAND(vbo_offset == float_count * sizeof(GLfloat));
+
+  // Bind index buffer object (IBO) with the vertex array object (VAO).
+  glVertexArrayElementBuffer(geometry->vertex_array, geometry->index_buffer);
+}
+
+void RenderEngineGl::UpdateVertexArrays() {
+  DRAKE_ASSERT(opengl_context_->IsCurrent());
+  // Creating the vertex arrays requires the context to be bound.
+  for (auto& geometry : geometries_) {
+    // The only geometries in geometries_ should be fully defined.
+    DRAKE_ASSERT(geometry.is_defined());
+    this->CreateVertexArray(&geometry);
+  }
 }
 
 void RenderEngineGl::SetWindowVisibility(const RenderCameraCore& camera,
@@ -1129,12 +1492,13 @@ ShaderProgramData RenderEngineGl::GetShaderProgram(
   std::optional<ShaderProgramData> data{std::nullopt};
   for (const auto& id_shader_pair : shader_programs_[render_type]) {
     const ShaderProgram& program = *(id_shader_pair.second);
+
+    // We prioritize the shader by id; higher ids will always win.
+    if (data.has_value() && program.shader_id() < data->shader_id()) continue;
+
     std::optional<ShaderProgramData> candidate_data =
         program.CreateProgramData(properties);
     if (candidate_data.has_value()) {
-      if (data.has_value()) {
-        if (candidate_data->shader_id() < data->shader_id()) continue;
-      }
       data = std::move(candidate_data);
     }
   }
@@ -1142,6 +1506,27 @@ ShaderProgramData RenderEngineGl::GetShaderProgram(
   // geometry.
   DRAKE_DEMAND(data.has_value());
   return *data;
+}
+
+void RenderEngineGl::SetDefaultLightPosition(const Vector3<double>& p_DL) {
+  DRAKE_DEMAND(fallback_lights_.size() == 1);
+  // This is a stopgap solution until we can completely eliminate this method.
+  // p_DC = (0, 0, 1). position = p_CL, so P_CL = p_DL - p_DC.
+  fallback_lights_[0].position = p_DL - Vector3<double>{0, 0, 1};
+}
+
+void RenderEngineGl::ConfigureLights() {
+  // Set the lights *once* for all color shaders. Currently, lighting can only
+  // be figured upon construction.
+  for (const auto& [_, shader_ptr] : shader_programs_[RenderType::kColor]) {
+    const auto* lighting_program =
+        dynamic_pointer_cast_or_throw<const LightingShader>(shader_ptr.get());
+    // All color image shaders should inherit form LightingShader.
+    DRAKE_DEMAND(lighting_program != nullptr);
+    lighting_program->Use();
+    lighting_program->SetAllLights(active_lights());
+    lighting_program->Unuse();
+  }
 }
 
 }  // namespace internal

@@ -64,6 +64,13 @@ class SystemBase : public internal::SystemMessageInterface {
   // intent that the label could be used programmatically.
   const std::string& get_name() const { return name_; }
 
+  /** Returns a name for this %System based on a stringification of its type
+  name and memory address.  This is intended for use in diagnostic output
+  and should not be used for behavioral logic, because the stringification
+  of the type name may produce differing results across platforms and
+  because the address can vary from run to run. */
+  std::string GetMemoryObjectName() const;
+
   /** Returns a human-readable name for this system, for use in messages and
   logging. This will be the same as returned by get_name(), unless that would
   be an empty string. In that case we return a non-unique placeholder name,
@@ -618,7 +625,8 @@ class SystemBase : public internal::SystemMessageInterface {
   /** Checks whether the given context was created for this system.
   @note This method is sufficiently fast for performance sensitive code.
   @throws std::exception if the System Ids don't match.
-  @throws std::exception if `context` is null. */
+  @throws std::exception if `context` is null.
+  @exclude_from_pydrake_mkdoc{This overload is not bound.} */
   void ValidateContext(const ContextBase* context) const {
     DRAKE_THROW_UNLESS(context != nullptr);
     ValidateContext(*context);
@@ -1171,10 +1179,6 @@ class SystemBase : public internal::SystemMessageInterface {
   /** (Internal) Gets the id used to tag context data as being created by this
   system. See @ref system_compatibility. */
   internal::SystemId get_system_id() const { return system_id_; }
-
-  /** (Internal) Assigns a new id used to tag context data as being created by
-  this system. See @ref system_compatibility. */
-  void ResetSystemId();
 
  private:
   void CreateSourceTrackers(ContextBase*) const;

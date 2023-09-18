@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include "drake/common/drake_deprecated.h"
 #include "drake/math/rigid_transform.h"
 #include "drake/systems/framework/leaf_system.h"
 
@@ -23,7 +24,12 @@ output_ports:
 - <em style="color:gray">...</em>
 @endsystem
 */
-class OptitrackReceiver : public systems::LeafSystem<double> {
+class DRAKE_DEPRECATED(
+    "2023-11-01",
+    "The OptitrackReceiver will be removed from Drake. If you still need to "
+    "use this class, feel free to copy its source code to your own project "
+    "and customize it to your needs.")  // BR
+    OptitrackReceiver : public LeafSystem<double> {
  public:
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(OptitrackReceiver)
 
@@ -33,9 +39,8 @@ class OptitrackReceiver : public systems::LeafSystem<double> {
   @param X_WO Pose of the optitrack frame O in the world frame W.
     Defaults to the Identity transform.
   */
-  explicit OptitrackReceiver(
-      const std::map<int, std::string>& frame_map,
-      const math::RigidTransformd& X_WO = {});
+  explicit OptitrackReceiver(const std::map<int, std::string>& frame_map,
+                             const math::RigidTransformd& X_WO = {});
 
  private:
   void CalcOutput(const Context<double>&, int, math::RigidTransformd*) const;

@@ -526,6 +526,9 @@ TEST_P(YamlReadArchiveTest, Variant) {
     EXPECT_EQ(x.value, expected) << doc;
   };
 
+  test("doc:\n  value: \"\"", "");
+  test("doc:\n  value: foo", "foo");
+  test("doc:\n  value: \"foo\"", "foo");
   test("doc:\n  value: !!str foo", "foo");
   test("doc:\n  value: !!float 1.0", 1.0);
   test("doc:\n  value: !DoubleStruct { value: 1.0 }", DoubleStruct{1.0});
@@ -1090,6 +1093,19 @@ doc:
       " \\(with size 2 and keys \\{inner_struct, outer_value\\}\\)"
       " has non-Mapping \\(Sequence\\) entry for"
       " [^ ]*InnerStruct inner_struct\\.");
+}
+
+// The user input a top-level array instead of a mapping.
+TEST_P(YamlReadArchiveTest, VisitRootStructFoundArray) {
+  const std::string doc = R"""(
+- foo
+- bar
+)""";
+  const internal::Node root =
+      YamlReadArchive::LoadStringAsNode(doc, std::nullopt);
+  DRAKE_EXPECT_THROWS_MESSAGE(
+      AcceptIntoDummy<OuterStruct>(root),
+      ".*top level element should be a Mapping.*not a Sequence.*");
 }
 
 std::vector<LoadYamlOptions> MakeAllPossibleOptions() {

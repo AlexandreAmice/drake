@@ -17,20 +17,20 @@ namespace solvers {
 /// details.
 struct GurobiSolverDetails {
   /// The gurobi optimization time. Please refer to
-  /// https://www.gurobi.com/documentation/9.5/refman/runtime.html
+  /// https://www.gurobi.com/documentation/10.0/refman/runtime.html
   double optimizer_time{};
 
   /// The error message returned from Gurobi call. Please refer to
-  /// https://www.gurobi.com/documentation/9.5/refman/error_codes.html
+  /// https://www.gurobi.com/documentation/10.0/refman/error_codes.html
   int error_code{};
 
   /// The status code when the optimize call has returned. Please refer to
-  /// https://www.gurobi.com/documentation/9.5/refman/optimization_status_codes.html
+  /// https://www.gurobi.com/documentation/10.0/refman/optimization_status_codes.html
   int optimization_status{};
 
   /// The best known bound on the optimal objective. This is used in mixed
   /// integer optimization. Please refer to
-  /// https://www.gurobi.com/documentation/9.5/refman/objbound.html
+  /// https://www.gurobi.com/documentation/10.0/refman/objbound.html
   double objective_bound{NAN};
 };
 
@@ -47,16 +47,16 @@ struct GurobiSolverDetails {
 /// value, then the solver is enabled; otherwise, the solver is not enabled.
 ///
 /// Gurobi solver supports options/parameters listed in
-/// https://www.gurobi.com/documentation/9.1/refman/parameters.html. On top of
+/// https://www.gurobi.com/documentation/10.0/refman/parameters.html. On top of
 /// these options, we provide the following additional options
 /// 1. "GRBwrite", set to a file name so that Gurobi solver will write the
 ///    optimization model to this file, check
-///    https://www.gurobi.com/documentation/9.1/refman/py_model_write.html for
+///    https://www.gurobi.com/documentation/10.0/refman/py_model_write.html for
 ///    more details, such as all supported file extensions. Set this option to
 ///    "" if you don't want to write to file. Default is not to write to a file.
 /// 2. "GRBcomputeIIS", set to 1 to compute an Irreducible Inconsistent
 ///    Subsystem (IIS) when the problem is infeasible. Refer to
-///    https://www.gurobi.com/documentation/9.1/refman/py_model_computeiis.html
+///    https://www.gurobi.com/documentation/10.0/refman/py_model_computeiis.html
 ///    for more details. Often this method is called together with
 ///    setting GRBwrite to "FILENAME.ilp" to write IIS to a file with extension
 ///    "ilp". Default is not to compute IIS.
@@ -96,7 +96,7 @@ class GurobiSolver final : public SolverBase {
   /// Users can supply a callback to be called when the Gurobi solver
   /// finds an intermediate solution node, which may not be feasible.
   /// See Gurobi reference manual for more detail on callbacks:
-  /// https://www.gurobi.com/documentation/9.5/refman/callback_codes.html.
+  /// https://www.gurobi.com/documentation/current/refman/cb_codes.html
   /// The user may supply a partial solution in the VectorXd and
   /// VectorXDecisionVariable arguments that will be passed to Gurobi
   /// as a candidate feasible solution.
@@ -131,7 +131,7 @@ class GurobiSolver final : public SolverBase {
   /// Users can supply a callback to be called when the Gurobi solver
   /// finds a feasible solution.
   /// See Gurobi reference manual for more detail on callbacks:
-  /// https://www.gurobi.com/documentation/9.5/refman/callback_codes.html.
+  /// https://www.gurobi.com/documentation/current/refman/cb_codes.html
   /// See gurobi_solver_test.cc for an example of using std::bind
   /// to create a callback of this signature, while allowing
   /// additional data to be passed through.
@@ -163,13 +163,22 @@ class GurobiSolver final : public SolverBase {
 
   /**
    * This acquires a Gurobi license environment shared among all GurobiSolver
-   * instances; the environment will stay valid as long as at least one
-   * shared_ptr returned by this function is alive.
-   * Call this ONLY if you must use different MathematicalProgram
-   * instances at different instances in time, and repeatedly acquiring the
-   * license is costly (e.g., requires contacting a license server).
-   * @return A shared pointer to a license environment that will stay valid
-   * as long as any shared_ptr returned by this function is alive. If Gurobi
+   * instances. The environment will stay valid as long as at least one
+   * shared_ptr returned by this function is alive. GurobiSolver calls this
+   * method on each Solve().
+   *
+   * If the license file contains the string `HOSTID`, then we treat this as
+   * confirmation that the license is attached to the local host, and maintain
+   * an internal copy of the shared_ptr for the lifetime of the process.
+   * Otherwise the default behavior is to only hold the license while at least
+   * one GurobiSolver instance is alive.
+   *
+   * Call this method directly and maintain the shared_ptr ONLY if you must use
+   * different MathematicalProgram instances at different instances in time,
+   * and repeatedly acquiring the license is costly (e.g., requires contacting
+   * a license server).
+   * @return A shared pointer to a license environment that will stay valid as
+   * long as any shared_ptr returned by this function is alive. If Gurobi is
    * not available in your build, this will return a null (empty) shared_ptr.
    * @throws std::exception if Gurobi is available but a license cannot be
    * obtained.

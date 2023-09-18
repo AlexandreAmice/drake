@@ -16,20 +16,20 @@ from pydrake.planning import (
 )
 from pydrake.geometry.optimization import (
     GraphOfConvexSetsOptions,
+    GraphOfConvexSets,
     HPolyhedron,
     Point,
     VPolytope,
-)
-from pydrake.trajectories import (
-    BsplineTrajectory,
-    CompositeTrajectory,
-    PiecewisePolynomial,
 )
 import pydrake.solvers as mp
 from pydrake.symbolic import Variable
 from pydrake.systems.framework import InputPortSelection
 from pydrake.systems.primitives import LinearSystem
-from pydrake.trajectories import PiecewisePolynomial, BsplineTrajectory
+from pydrake.trajectories import (
+    BsplineTrajectory,
+    CompositeTrajectory,
+    PiecewisePolynomial,
+)
 from pydrake.symbolic import Variable
 from pydrake.systems.framework import InputPortSelection
 from pydrake.systems.primitives import LinearSystem
@@ -50,8 +50,8 @@ class TestTrajectoryOptimization(unittest.TestCase):
             plant,
             context,
             num_time_samples=num_time_samples,
-            minimum_timestep=0.2,
-            maximum_timestep=0.5,
+            minimum_time_step=0.2,
+            maximum_time_step=0.5,
             input_port_index=InputPortSelection.kUseFirstInputIfItExists,
             assume_non_continuous_states_are_fixed=False)
         prog = dircol.prog()
@@ -61,7 +61,7 @@ class TestTrajectoryOptimization(unittest.TestCase):
         # as a consistent optimization.  The goal is to check the bindings,
         # not the implementation.
         t = dircol.time()
-        dt = dircol.timestep(index=0)
+        dt = dircol.time_step(index=0)
         x = dircol.state()
         x2 = dircol.state(index=2)
         x0 = dircol.initial_state()
@@ -121,11 +121,11 @@ class TestTrajectoryOptimization(unittest.TestCase):
         dircol.GetInputSamples(result=result)
         dircol.GetStateSamples(result=result)
         dircol.GetSequentialVariableSamples(result=result, name="test")
-        dircol.ReconstructInputTrajectory(result=result)
-        dircol.ReconstructStateTrajectory(result=result)
+        u_traj = dircol.ReconstructInputTrajectory(result=result)
+        x_traj = dircol.ReconstructStateTrajectory(result=result)
 
         constraint = DirectCollocationConstraint(plant, context)
-        AddDirectCollocationConstraint(constraint, dircol.timestep(0),
+        AddDirectCollocationConstraint(constraint, dircol.time_step(0),
                                        dircol.state(0), dircol.state(1),
                                        dircol.input(0), dircol.input(1),
                                        prog)
@@ -161,8 +161,8 @@ class TestTrajectoryOptimization(unittest.TestCase):
             plant,
             context,
             num_time_samples=num_time_samples,
-            minimum_timestep=0.2,
-            maximum_timestep=0.5,
+            minimum_time_step=0.2,
+            maximum_time_step=0.5,
             input_port_index=InputPortSelection.kUseFirstInputIfItExists,
             assume_non_continuous_states_are_fixed=False,
             prog=prog)
@@ -182,7 +182,7 @@ class TestTrajectoryOptimization(unittest.TestCase):
         # as a consistent optimization.  The goal is to check the bindings,
         # not the implementation.
         t = dirtran.time()
-        dt = dirtran.fixed_timestep()
+        dt = dirtran.fixed_time_step()
         x = dirtran.state()
         x2 = dirtran.state(2)
         x0 = dirtran.initial_state()
@@ -213,7 +213,7 @@ class TestTrajectoryOptimization(unittest.TestCase):
         context = plant.CreateDefaultContext()
         dirtran = DirectTranscription(
             plant, context, num_time_samples=21,
-            fixed_timestep=DirectTranscription.TimeStep(0.1))
+            fixed_time_step=DirectTranscription.TimeStep(0.1))
 
     def test_kinematic_trajectory_optimization(self):
         trajopt = KinematicTrajectoryOptimization(num_positions=2,
@@ -255,6 +255,29 @@ class TestTrajectoryOptimization(unittest.TestCase):
         q = trajopt.ReconstructTrajectory(result=result)
         self.assertIsInstance(q, BsplineTrajectory)
         trajopt.SetInitialGuess(trajectory=q)
+
+    def test_gcs_trajectory_optimization_basic(self):
+        """This based on the C++ GcsTrajectoryOptimizationTest.Basic test. It's
+        a simple test of the bindings that does not require MOSEK. It uses a
+        single region (the unit box), and plans a line segment inside that box.
+        """
+        gcs = GcsTrajectoryOptimization(num_positions=2)
+        start = [-0.5, -0.5]
+        end = [0.5, 0.5]
+        source = gcs.AddRegions(regions=[Point(start)], order=0)
+        target = gcs.AddRegions(regions=[Point(end)], order=0)
+        regions = gcs.AddRegions(regions=[HPolyhedron.MakeUnitBox(2)],
+                                 order=1, h_min=1.0)
+        gcs.AddEdges(source, regions)
+        gcs.AddEdges(regions, target)
+        traj, result = gcs.SolvePath(source, target)
+        self.assertTrue(result.is_success())
+        self.assertEqual(traj.rows(), 2)
+        self.assertEqual(traj.cols(), 1)
+        traj_start = traj.value(traj.start_time()).squeeze()
+        traj_end = traj.value(traj.end_time()).squeeze()
+        np.testing.assert_allclose(traj_start, start, atol=1e-6)
+        np.testing.assert_allclose(traj_end, end, atol=1e-6)
 
     def test_gcs_trajectory_optimization_2d(self):
         """The following 2D environment has been presented in the GCS paper.
@@ -408,20 +431,32 @@ class TestTrajectoryOptimization(unittest.TestCase):
         subspace_region = HPolyhedron(VPolytope(vertices[7]))
         subspace_point = Point([2.3, 3.5])
 
-        self.assertIsInstance(
-            gcs.AddEdges(from_subgraph=main1,
-                         to_subgraph=main2,
-                         subspace=subspace_point),
-            GcsTrajectoryOptimization.EdgesBetweenSubgraphs)
-        self.assertIsInstance(
-            gcs.AddEdges(main1, main2, subspace=subspace_region),
-            GcsTrajectoryOptimization.EdgesBetweenSubgraphs)
+        main1_to_main2_pt = gcs.AddEdges(main1, main2, subspace=subspace_point)
+        self.assertIsInstance(main1_to_main2_pt,
+                              GcsTrajectoryOptimization.EdgesBetweenSubgraphs)
+
+        main1_to_main2_region = gcs.AddEdges(main1,
+                                             main2,
+                                             subspace=subspace_region)
+        self.assertIsInstance(main1_to_main2_region,
+                              GcsTrajectoryOptimization.EdgesBetweenSubgraphs)
+
+        # Add half of the maximum velocity constraint at the subspace point
+        # and region.
+        main1_to_main2_pt.AddVelocityBounds(lb=-max_vel / 2, ub=max_vel / 2)
+        main1_to_main2_region.AddVelocityBounds(lb=-max_vel / 2,
+                                                ub=max_vel / 2)
 
         # We connect the start and goal regions to the rest of the graph.
         self.assertIsInstance(gcs.AddEdges(source, main1),
                               GcsTrajectoryOptimization.EdgesBetweenSubgraphs)
-        self.assertIsInstance(gcs.AddEdges(main2, target),
+        main2_to_target = gcs.AddEdges(main2, target)
+        self.assertIsInstance(main2_to_target,
                               GcsTrajectoryOptimization.EdgesBetweenSubgraphs)
+
+        # Add final zero velocity constraints.
+        main2_to_target.AddVelocityBounds(lb=np.zeros(dimension),
+                                          ub=np.zeros(dimension))
 
         # This weight matrix penalizes movement in the y direction three
         # times more than in the x direction only for the main2 subgraph.
@@ -437,6 +472,8 @@ class TestTrajectoryOptimization(unittest.TestCase):
 
         # Add tighter velocity bounds to the main2 subgraph.
         main2.AddVelocityBounds(lb=-0.5*max_vel, ub=0.5*max_vel)
+
+        self.assertIsInstance(gcs.graph_of_convex_sets(), GraphOfConvexSets)
 
         options = GraphOfConvexSetsOptions()
         options.convex_relaxation = True

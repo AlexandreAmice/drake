@@ -13,18 +13,23 @@ You can also visualize the LCM test data like so:
 import pydrake.visualization as mut
 
 import functools
-import numpy as np
+import hashlib
+import os
+from pathlib import Path
+import sys
 import unittest
+
+import numpy as np
+import umsgpack
 
 from drake import (
     lcmt_point_cloud,
+    lcmt_viewer_draw,
     lcmt_viewer_geometry_data,
     lcmt_viewer_link_data,
+    lcmt_viewer_load_robot,
 )
 
-from pydrake.common import (
-    FindResourceOrThrow,
-)
 from pydrake.geometry import (
     DrakeVisualizer,
     DrakeVisualizerParams,
@@ -49,6 +54,9 @@ from pydrake.perception import (
     PointCloud,
     PointCloudToLcm,
 )
+from pydrake.systems.analysis import (
+    Simulator,
+)
 from pydrake.systems.framework import (
     DiagramBuilder,
 )
@@ -57,13 +65,26 @@ from pydrake.systems.lcm import (
 )
 
 
+# https://bugs.launchpad.net/ubuntu/+source/u-msgpack-python/+bug/1979549
+#
+# Jammy shipped with python3-u-msgpack 2.3.0, which tries to use
+# `collections.Hashable`, which was removed in Python 3.10. Work around this by
+# monkey-patching `Hashable` into `umsgpack.collections`.
+#
+# TODO(mwoehlke-kitware): Remove this when Jammy's python3-u-msgpack has been
+# updated to 2.5.2 or later.
+if sys.version_info[:2] >= (3, 10) and not hasattr(umsgpack, 'Hashable'):
+    import collections
+    setattr(umsgpack.collections, 'Hashable', collections.abc.Hashable)
+
+
 class TestMeldis(unittest.TestCase):
 
     def _make_diagram(self, *, resource, visualizer_params, lcm):
         builder = DiagramBuilder()
         plant, scene_graph = AddMultibodyPlantSceneGraph(builder, 0.0)
         parser = Parser(plant=plant)
-        parser.AddModels(FindResourceOrThrow(resource))
+        parser.AddModels(url=f"package://{resource}")
         plant.Finalize()
         DrakeVisualizer.AddToBuilder(builder=builder, scene_graph=scene_graph,
                                      params=visualizer_params, lcm=lcm)
@@ -150,23 +171,32 @@ class TestMeldis(unittest.TestCase):
         self.assertEqual(meshcat.HasPath("/DRAKE_VIEWER"), True)
         self.assertEqual(meshcat.HasPath(link_path), True)
 
-    def test_viewer_applet_robot_meshes(self):
-        """Checks _ViewerApplet support for meshes.
+    def _check_viewer_applet_on_model(self, resource):
+        """Checks that _ViewerApplet doesn't crash on the given model file.
         """
-        # Create the device under test.
         dut = mut.Meldis()
         lcm = dut._lcm
-
-        # Process the load + draw messages.
         diagram = self._make_diagram(
-            resource="drake/manipulation/models/iiwa_description/urdf/"
-                     "iiwa14_no_collision.urdf",
+            resource=resource,
             visualizer_params=DrakeVisualizerParams(),
             lcm=lcm)
         diagram.ForcedPublish(diagram.CreateDefaultContext())
         lcm.HandleSubscriptions(timeout_millis=0)
         dut._invoke_subscriptions()
         self.assertEqual(dut.meshcat.HasPath("/DRAKE_VIEWER"), True)
+
+    def test_viewer_applet_plain_meshes(self):
+        """Checks _ViewerApplet support for untextured meshes.
+        """
+        self._check_viewer_applet_on_model(
+            "drake/manipulation/models/iiwa_description/urdf/"
+            "iiwa14_no_collision.urdf")
+
+    def test_viewer_applet_textured_meshes(self):
+        """Checks _ViewerApplet support for textured meshes.
+        """
+        self._check_viewer_applet_on_model(
+            "drake/manipulation/models/ycb/sdf/004_sugar_box.sdf")
 
     def test_viewer_applet_reload_optimization(self):
         """Checks that loading the identical scene twice is efficient.
@@ -224,6 +254,167 @@ class TestMeldis(unittest.TestCase):
             # The link always exists after a DRAW.
             self.assertTrue(meshcat.HasPath(link_path))
 
+    def test_geometry_file_hasher(self):
+        """Checks _GeometryFileHasher's detection of changes to files.
+        """
+        # A tiny wrapper function to make it easy to compute the hash.
+        def dut(data):
+            hasher = mut._meldis._GeometryFileHasher()
+            hasher.on_viewer_load_robot(data)
+            return hasher.value()
+
+        # Empty message => empty hash.
+        message = lcmt_viewer_load_robot()
+        empty_hash = hashlib.sha256().hexdigest()
+        self.assertEqual(dut(message), empty_hash)
+
+        # Message with non-mesh primitive => empty hash.
+        sphere = lcmt_viewer_geometry_data()
+        sphere.type = lcmt_viewer_geometry_data.SPHERE
+        link = lcmt_viewer_link_data()
+        link.geom = [sphere]
+        link.num_geom = len(link.geom)
+        message.link = [link]
+        message.num_links = len(message.link)
+        self.assertEqual(dut(message), empty_hash)
+
+        # Message with inline mesh => empty hash.
+        mesh = lcmt_viewer_geometry_data()
+        mesh.type = lcmt_viewer_geometry_data.MESH
+        mesh.float_data = [0.0, 0.0]
+        mesh.num_float_data = len(mesh.float_data)
+        link.geom = [mesh]
+        link.num_geom = len(link.geom)
+        message.link = [link]
+        message.num_links = len(message.link)
+        self.assertEqual(dut(message), empty_hash)
+
+        # Message with invalid mesh filename => empty hash.
+        # (Invalid mesh filenames are not an error.)
+        mesh = lcmt_viewer_geometry_data()
+        mesh.type = lcmt_viewer_geometry_data.MESH
+        mesh.string_data = "no-such-file"
+        link.geom = [mesh]
+        link.num_geom = len(link.geom)
+        message.link = [link]
+        message.num_links = len(message.link)
+        self.assertEqual(dut(message), empty_hash)
+
+        # Switch to a valid mesh filename => non-empty hash.
+        test_tmpdir = Path(os.environ["TEST_TMPDIR"])
+        mesh_filename = test_tmpdir / "mesh_checksum_test.obj"
+        with open(mesh_filename, "w") as f:
+            f.write("foobar")
+        mesh.string_data = str(mesh_filename)
+        mesh_hash_1 = dut(message)
+        self.assertNotEqual(mesh_hash_1, empty_hash)
+
+        # Changing the mesh content changes the checksum.
+        # Invalid mtl filenames are not an error.
+        with open(mesh_filename, "w") as f:
+            f.write("foo\n mtllib mesh_checksum_test.mtl \nbar\n")
+        mesh_hash_2 = dut(message)
+        self.assertNotEqual(mesh_hash_2, empty_hash)
+        self.assertNotEqual(mesh_hash_2, mesh_hash_1)
+
+        # The appearance of the mtl file changes the checksum.
+        with open(test_tmpdir / "mesh_checksum_test.mtl", "w") as f:
+            f.write("quux")
+        mesh_hash_3 = dut(message)
+        self.assertNotEqual(mesh_hash_3, empty_hash)
+        self.assertNotEqual(mesh_hash_3, mesh_hash_1)
+        self.assertNotEqual(mesh_hash_3, mesh_hash_2)
+
+        # Now finally, the mtl file has a texture. This time, as a cross-check,
+        # inspect the filenames that were hashed instead of the hash itself.
+        png_filename = test_tmpdir / "mesh_checksum_test.png"
+        with open(test_tmpdir / "mesh_checksum_test.mtl", "w") as f:
+            f.write("map_Kd mesh_checksum_test.png\n")
+        png_filename.touch()
+        hasher = mut._meldis._GeometryFileHasher()
+        hasher.on_viewer_load_robot(message)
+        hashed_names = set([x.name for x in hasher._paths])
+        self.assertSetEqual(hashed_names, {"mesh_checksum_test.obj",
+                                           "mesh_checksum_test.mtl",
+                                           "mesh_checksum_test.png"})
+
+    def test_viewer_applet_alpha_slider(self):
+        # Create the device under test.
+        dut = mut.Meldis()
+        meshcat = dut.meshcat
+        lcm = dut._lcm
+
+        # Create a simple scene with an invisible geometry (alpha == 0.0).
+        rgb = [0.0, 0.0, 1.0]
+        builder = DiagramBuilder()
+        plant, scene_graph = AddMultibodyPlantSceneGraph(builder, 0.0)
+        parser = Parser(plant=plant)
+        parser.AddModelsFromString(f"""
+<?xml version="1.0"?>
+<sdf version="1.9">
+  <model name="box">
+    <link name="box">
+      <visual name="box">
+        <geometry>
+          <box>
+            <size>1 1 1</size>
+          </box>
+        </geometry>
+        <material>
+          <diffuse>{rgb[0]} {rgb[1]} {rgb[2]} 0.0</diffuse>
+        </material>
+      </visual>
+    </link>
+    <static>1</static>
+  </model>
+</sdf>
+""", "sdf")
+        plant.Finalize()
+        DrakeVisualizer.AddToBuilder(builder=builder, scene_graph=scene_graph,
+                                     params=DrakeVisualizerParams(), lcm=lcm)
+        diagram = builder.Build()
+
+        # Process the load + draw messages.
+        context = diagram.CreateDefaultContext()
+        diagram.ForcedPublish(context)
+        lcm.HandleSubscriptions(timeout_millis=0)
+        dut._invoke_subscriptions()
+
+        # Request a different alpha.
+        new_alpha = 0.5
+        meshcat.SetSliderValue("Viewer α", new_alpha)
+        dut._invoke_poll()
+
+        # Confirm the new (modulated) opacity of the box. Note: this doesn't
+        # actually test the resulting opacity of the box, merely that we
+        # called set_property("/DRAKE_VIEWER", "modulated_opacity", new_alpha).
+        # We rely on meshcat to do the "right" thing in response.
+        path = "/DRAKE_VIEWER"
+        self.assertEqual(meshcat.HasPath(path), True)
+        message = meshcat._GetPackedProperty(path, "modulated_opacity")
+        parsed = umsgpack.unpackb(message)
+        self.assertEqual(parsed['value'], new_alpha)
+
+    def test_inertia_geometry(self):
+        url = "package://drake/examples/manipulation_station/models/sphere.sdf"
+        dut = mut.Meldis()
+        lcm = dut._lcm
+        builder = DiagramBuilder()
+        plant, scene_graph = AddMultibodyPlantSceneGraph(builder, 0.0)
+        parser = Parser(plant=plant)
+        parser.AddModels(url=url)
+        plant.Finalize()
+        config = mut.VisualizationConfig()
+        mut.ApplyVisualizationConfig(config=config, builder=builder, lcm=lcm)
+        diagram = builder.Build()
+        simulator = Simulator(diagram)
+        simulator.AdvanceTo(0.1)
+        with self.assertRaises(SystemExit):
+            dut.serve_forever(idle_timeout=0.001)
+        path = "/Inertia Visualizer/0/inertia_visualizer/InertiaVisualizer"
+        self.assertTrue(dut.meshcat.HasPath(path))
+        self.assertTrue(dut.meshcat.HasPath(f"{path}/sphere/base_link"))
+
     def test_hydroelastic_geometry(self):
         """Checks that _ViewerApplet doesn't crash when receiving
         hydroelastic geometry.
@@ -252,12 +443,11 @@ class TestMeldis(unittest.TestCase):
         lcm = dut._lcm
 
         # Enqueue a point contact result message.
-        sdf_file = FindResourceOrThrow(
-            "drake/examples/manipulation_station/models/sphere.sdf")
+        url = "package://drake/examples/manipulation_station/models/sphere.sdf"
         builder = DiagramBuilder()
         plant, scene_graph = AddMultibodyPlantSceneGraph(builder, 0.001)
-        sphere1_model, = Parser(plant, "sphere1").AddModels(sdf_file)
-        sphere2_model, = Parser(plant, "sphere2").AddModels(sdf_file)
+        sphere1_model, = Parser(plant, "sphere1").AddModels(url=url)
+        sphere2_model, = Parser(plant, "sphere2").AddModels(url=url)
         body1 = plant.GetBodyByName("base_link", sphere1_model)
         body2 = plant.GetBodyByName("base_link", sphere2_model)
         plant.AddJoint(PrismaticJoint(
@@ -295,12 +485,11 @@ class TestMeldis(unittest.TestCase):
         lcm = dut._lcm
 
         # Enqueue a hydroelastic contact message.
-        sdf_file = FindResourceOrThrow(
-            "drake/multibody/meshcat/test/hydroelastic.sdf")
+        url = "package://drake/multibody/meshcat/test/hydroelastic.sdf"
         builder = DiagramBuilder()
         plant, scene_graph = AddMultibodyPlantSceneGraph(builder, 0.001)
         parser = Parser(plant=plant)
-        parser.AddModels(sdf_file)
+        parser.AddModels(url=url)
         body1 = plant.GetBodyByName("body1")
         body2 = plant.GetBodyByName("body2")
         plant.AddJoint(PrismaticJoint(
@@ -407,3 +596,32 @@ class TestMeldis(unittest.TestCase):
                 dut._lcm.HandleSubscriptions(timeout_millis=1)
                 dut._invoke_subscriptions()
                 self.assertEqual(dut.meshcat.HasPath(meshcat_path), True)
+
+    def test_draw_frame_applet(self):
+        """Checks that _DrawFrameApplet doesn't crash when frames are sent
+        in DRAKE_DRAW_FRAMES channel.
+        """
+
+        # Create the device under test.
+        dut = mut.Meldis()
+
+        # Prepare a frame message
+        message = lcmt_viewer_draw()
+        message.position = [[0.0, 0.0, 0.1]]
+        message.quaternion = [[1.0, 0.0, 0.0, 0.0]]
+        message.num_links = 1
+        message.link_name = ['0']
+        message.robot_num = [1]
+
+        dut._lcm.Publish(channel="DRAKE_DRAW_FRAMES",
+                         buffer=message.encode())
+
+        meshcat_path = f"/DRAKE_DRAW_FRAMES/default/{message.link_name[0]}"
+        # Before the subscribed handlers are called, there is no meshcat path
+        # from the published lcm message.
+        self.assertEqual(dut.meshcat.HasPath(meshcat_path), False)
+
+        dut._lcm.HandleSubscriptions(timeout_millis=1)
+        dut._invoke_subscriptions()
+        # After the handlers are called, we have the expected meshcat path.
+        self.assertEqual(dut.meshcat.HasPath(meshcat_path), True)

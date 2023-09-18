@@ -44,6 +44,7 @@ drake_cc_package_library(
         ":name_value",
         ":network_policy",
         ":nice_type_name",
+        ":parallelism",
         ":pointer_cast",
         ":polynomial",
         ":random",
@@ -391,6 +392,15 @@ drake_cc_library(
     ],
     deps = [
         ":nice_type_name_override_header",
+    ],
+)
+
+drake_cc_library(
+    name = "parallelism",
+    srcs = ["parallelism.cc"],
+    hdrs = ["parallelism.h"],
+    deps = [
+        ":essential",
     ],
 )
 
@@ -1010,6 +1020,14 @@ drake_cc_googletest(
 )
 
 drake_cc_googletest(
+    name = "parallelism_test",
+    num_threads = 2,
+    deps = [
+        ":parallelism",
+    ],
+)
+
+drake_cc_googletest(
     name = "polynomial_test",
     deps = [
         ":essential",
@@ -1178,6 +1196,7 @@ drake_cc_googletest(
 )
 
 add_lint_tests(
+    enable_clang_format_lint = False,
     python_lint_extra_srcs = [
         ":test/resource_tool_installed_test.py",
     ],

@@ -298,6 +298,7 @@ drake_cc_googletest(
         "//common/symbolic:polynomial",
         "//common/test_utilities",
         "//geometry/optimization:convex_set",
+        "//solvers:mathematical_program",
     ],
 )
 
@@ -310,4 +311,4 @@ drake_cc_googletest(
     ],
 )
 
-add_lint_tests(enable_clang_format_lint = True)
+add_lint_tests()

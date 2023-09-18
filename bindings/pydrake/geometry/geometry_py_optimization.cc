@@ -2,15 +2,26 @@
  drake::geometry::optimization namespace. They can be found in the
  pydrake.geometry.optimization module. */
 
-#include "pybind11/stl/filesystem.h"
-
+#include "drake/bindings/pydrake/common/cpp_template_pybind.h"
 #include "drake/bindings/pydrake/common/default_scalars_pybind.h"
 #include "drake/bindings/pydrake/common/deprecation_pybind.h"
 #include "drake/bindings/pydrake/common/identifier_pybind.h"
+#include "drake/bindings/pydrake/common/serialize_pybind.h"
+#include "drake/bindings/pydrake/common/sorted_pair_pybind.h"
+#include "drake/bindings/pydrake/common/value_pybind.h"
 #include "drake/bindings/pydrake/documentation_pybind.h"
 #include "drake/bindings/pydrake/geometry/geometry_py.h"
 #include "drake/bindings/pydrake/geometry/optimization_pybind.h"
+#include "drake/bindings/pydrake/polynomial_types_pybind.h"
+#include "drake/bindings/pydrake/pydrake_pybind.h"
+#include "drake/common/yaml/yaml_io.h"
+#include "drake/geometry/optimization/affine_subspace.h"
+#include "drake/geometry/optimization/c_iris_collision_geometry.h"
 #include "drake/geometry/optimization/cartesian_product.h"
+#include "drake/geometry/optimization/cspace_free_polytope.h"
+#include "drake/geometry/optimization/cspace_free_polytope_base.h"
+#include "drake/geometry/optimization/cspace_free_structs.h"
+#include "drake/geometry/optimization/cspace_separating_plane.h"
 #include "drake/geometry/optimization/graph_of_convex_sets.h"
 #include "drake/geometry/optimization/hpolyhedron.h"
 #include "drake/geometry/optimization/hyperellipsoid.h"
@@ -23,6 +34,39 @@
 
 namespace drake {
 namespace pydrake {
+
+// CSpaceSeparatingPlane, CIrisSeparatingPlane
+template <typename T>
+void DoSeparatingPlaneDeclaration(py::module m, T) {
+  constexpr auto& doc = pydrake_doc.drake.geometry.optimization;
+  py::tuple param = GetPyParam<T>();
+  using Class = geometry::optimization::CSpaceSeparatingPlane<T>;
+  constexpr auto& base_cls_doc = doc.CSpaceSeparatingPlane;
+  {
+    auto cls =
+        DefineTemplateClassWithDefault<Class>(
+            m, "CSpaceSeparatingPlane", param, base_cls_doc.doc)
+            // Use py_rvp::copy here because numpy.ndarray with dtype=object
+            // arrays must be copied, and cannot be referenced.
+            .def_readonly("a", &Class::a, py_rvp::copy, base_cls_doc.a.doc)
+            .def_readonly("b", &Class::b, base_cls_doc.b.doc)
+            .def_readonly("positive_side_geometry",
+                &Class::positive_side_geometry,
+                base_cls_doc.positive_side_geometry.doc)
+            .def_readonly("negative_side_geometry",
+                &Class::negative_side_geometry,
+                base_cls_doc.negative_side_geometry.doc)
+            .def_readonly("expressed_body", &Class::expressed_body,
+                base_cls_doc.expressed_body.doc)
+            .def_readonly("plane_degree", &Class::plane_degree)
+            // Use py_rvp::copy here because numpy.ndarray with dtype=object
+            // arrays must be copied, and cannot be referenced.
+            .def_readonly("decision_variables", &Class::decision_variables,
+                py_rvp::copy, base_cls_doc.a.doc);
+    DefCopyAndDeepCopy(&cls);
+    AddValueInstantiation<Class>(m);
+  }
+}
 
 void DefineGeometryOptimization(py::module m) {
   // NOLINTNEXTLINE(build/namespaces): Emulate placement in namespace.
@@ -46,6 +90,11 @@ void DefineGeometryOptimization(py::module m) {
         .def("IntersectsWith", &ConvexSet::IntersectsWith, py::arg("other"),
             cls_doc.IntersectsWith.doc)
         .def("IsBounded", &ConvexSet::IsBounded, cls_doc.IsBounded.doc)
+        .def("IsEmpty", &ConvexSet::IsEmpty, cls_doc.IsEmpty.doc)
+        .def("MaybeGetPoint", &ConvexSet::MaybeGetPoint,
+            cls_doc.MaybeGetPoint.doc)
+        .def("MaybeGetFeasiblePoint", &ConvexSet::MaybeGetFeasiblePoint,
+            cls_doc.MaybeGetFeasiblePoint.doc)
         .def("PointInSet", &ConvexSet::PointInSet, py::arg("x"),
             py::arg("tol") = 1e-8, cls_doc.PointInSet.doc)
         .def("AddPointInSetConstraints", &ConvexSet::AddPointInSetConstraints,
@@ -74,13 +123,46 @@ void DefineGeometryOptimization(py::module m) {
             py::arg("d"), py::arg("x"), py::arg("t"),
             cls_doc.AddPointInNonnegativeScalingConstraints.doc_7args)
         .def("ToShapeWithPose", &ConvexSet::ToShapeWithPose,
-            cls_doc.ToShapeWithPose.doc);
+            cls_doc.ToShapeWithPose.doc)
+        .def("CalcVolume", &ConvexSet::CalcVolume, cls_doc.CalcVolume.doc);
+  }
+
+  // AffineSubspace
+  {
+    const auto& cls_doc = doc.AffineSubspace;
+    py::class_<AffineSubspace, ConvexSet> cls(m, "AffineSubspace", cls_doc.doc);
+    cls  // BR
+        .def(py::init<>(), cls_doc.ctor.doc_0args)
+        .def(py::init<const Eigen::Ref<const Eigen::MatrixXd>&,
+                 const Eigen::Ref<const Eigen::VectorXd>&>(),
+            py::arg("basis"), py::arg("translation"),
+            cls_doc.ctor.doc_2args_basis_translation)
+        .def(py::init<const ConvexSet&, double>(), py::arg("set"),
+            py::arg("tol") = 0, cls_doc.ctor.doc_2args_set_tol)
+        .def("basis", &AffineSubspace::basis, py_rvp::reference_internal,
+            cls_doc.basis.doc)
+        .def("translation", &AffineSubspace::translation,
+            py_rvp::reference_internal, cls_doc.translation.doc)
+        .def("AffineDimension", &AffineSubspace::AffineDimension,
+            cls_doc.AffineDimension.doc)
+        .def("Project", &AffineSubspace::Project, py::arg("x"),
+            cls_doc.Project.doc)
+        .def("ToLocalCoordinates", &AffineSubspace::ToLocalCoordinates,
+            py::arg("x"), cls_doc.ToLocalCoordinates.doc)
+        .def("ToGlobalCoordinates", &AffineSubspace::ToGlobalCoordinates,
+            py::arg("y"), cls_doc.ToGlobalCoordinates.doc)
+        .def("ContainedIn", &AffineSubspace::ContainedIn, py::arg("other"),
+            py::arg("tol") = 1e-15, cls_doc.ContainedIn.doc)
+        .def("IsNearlyEqualTo", &AffineSubspace::IsNearlyEqualTo,
+            py::arg("other"), py::arg("tol") = 1e-15, cls_doc.ContainedIn.doc);
+    DefClone(&cls);
   }
 
   // CartesianProduct
   {
     const auto& cls_doc = doc.CartesianProduct;
     py::class_<CartesianProduct, ConvexSet>(m, "CartesianProduct", cls_doc.doc)
+        .def(py::init<>(), cls_doc.ctor.doc_0args)
         .def(py::init([](const std::vector<ConvexSet*>& sets) {
           return std::make_unique<CartesianProduct>(CloneConvexSets(sets));
         }),
@@ -110,6 +192,7 @@ void DefineGeometryOptimization(py::module m) {
   {
     const auto& cls_doc = doc.HPolyhedron;
     py::class_<HPolyhedron, ConvexSet>(m, "HPolyhedron", cls_doc.doc)
+        .def(py::init<>(), cls_doc.ctor.doc_0args)
         .def(py::init<const Eigen::Ref<const Eigen::MatrixXd>&,
                  const Eigen::Ref<const Eigen::VectorXd>&>(),
             py::arg("A"), py::arg("b"), cls_doc.ctor.doc_2args)
@@ -130,12 +213,13 @@ void DefineGeometryOptimization(py::module m) {
             py::arg("tol") = 1E-9, cls_doc.ReduceInequalities.doc)
         .def("FindRedundant", &HPolyhedron::FindRedundant,
             py::arg("tol") = 1E-9, cls_doc.FindRedundant.doc)
-        .def("IsEmpty", &HPolyhedron::IsEmpty, cls_doc.IsEmpty.doc)
         .def("MaximumVolumeInscribedEllipsoid",
             &HPolyhedron::MaximumVolumeInscribedEllipsoid,
             cls_doc.MaximumVolumeInscribedEllipsoid.doc)
         .def("ChebyshevCenter", &HPolyhedron::ChebyshevCenter,
             cls_doc.ChebyshevCenter.doc)
+        .def("Scale", &HPolyhedron::Scale, py::arg("scale"),
+            py::arg("center") = std::nullopt, cls_doc.Scale.doc)
         .def("CartesianProduct", &HPolyhedron::CartesianProduct,
             py::arg("other"), cls_doc.CartesianProduct.doc)
         .def("CartesianPower", &HPolyhedron::CartesianPower, py::arg("n"),
@@ -171,6 +255,7 @@ void DefineGeometryOptimization(py::module m) {
   {
     const auto& cls_doc = doc.Hyperellipsoid;
     py::class_<Hyperellipsoid, ConvexSet>(m, "Hyperellipsoid", cls_doc.doc)
+        .def(py::init<>(), cls_doc.ctor.doc_0args)
         .def(py::init<const Eigen::Ref<const Eigen::MatrixXd>&,
                  const Eigen::Ref<const Eigen::VectorXd>&>(),
             py::arg("A"), py::arg("center"), cls_doc.ctor.doc_2args)
@@ -180,7 +265,6 @@ void DefineGeometryOptimization(py::module m) {
             py::arg("reference_frame") = std::nullopt, cls_doc.ctor.doc_3args)
         .def("A", &Hyperellipsoid::A, cls_doc.A.doc)
         .def("center", &Hyperellipsoid::center, cls_doc.center.doc)
-        .def("Volume", &Hyperellipsoid::Volume, cls_doc.Volume.doc)
         .def("MinimumUniformScalingToTouch",
             &Hyperellipsoid::MinimumUniformScalingToTouch, py::arg("other"),
             cls_doc.MinimumUniformScalingToTouch.doc)
@@ -190,6 +274,10 @@ void DefineGeometryOptimization(py::module m) {
             py::arg("radius"), py::arg("center"), cls_doc.MakeHypersphere.doc)
         .def_static("MakeUnitBall", &Hyperellipsoid::MakeUnitBall,
             py::arg("dim"), cls_doc.MakeUnitBall.doc)
+        .def_static("MinimumVolumeCircumscribedEllipsoid",
+            &Hyperellipsoid::MinimumVolumeCircumscribedEllipsoid,
+            py::arg("points"), py::arg("rank_tol") = 1e-6,
+            cls_doc.MinimumVolumeCircumscribedEllipsoid.doc)
         .def(py::pickle(
             [](const Hyperellipsoid& self) {
               return std::make_pair(self.A(), self.center());
@@ -203,6 +291,7 @@ void DefineGeometryOptimization(py::module m) {
   {
     const auto& cls_doc = doc.Intersection;
     py::class_<Intersection, ConvexSet>(m, "Intersection", cls_doc.doc)
+        .def(py::init<>(), cls_doc.ctor.doc_0args)
         .def(py::init([](const std::vector<ConvexSet*>& sets) {
           return std::make_unique<Intersection>(CloneConvexSets(sets));
         }),
@@ -219,6 +308,7 @@ void DefineGeometryOptimization(py::module m) {
   {
     const auto& cls_doc = doc.MinkowskiSum;
     py::class_<MinkowskiSum, ConvexSet>(m, "MinkowskiSum", cls_doc.doc)
+        .def(py::init<>(), cls_doc.ctor.doc_0args)
         .def(py::init([](const std::vector<ConvexSet*>& sets) {
           return std::make_unique<MinkowskiSum>(CloneConvexSets(sets));
         }),
@@ -238,6 +328,7 @@ void DefineGeometryOptimization(py::module m) {
   {
     const auto& cls_doc = doc.Point;
     py::class_<Point, ConvexSet>(m, "Point", cls_doc.doc)
+        .def(py::init<>(), cls_doc.ctor.doc_0args)
         .def(py::init<const Eigen::Ref<const Eigen::VectorXd>&>(), py::arg("x"),
             cls_doc.ctor.doc_1args)
         .def(py::init<const QueryObject<double>&, GeometryId,
@@ -264,6 +355,7 @@ void DefineGeometryOptimization(py::module m) {
   {
     const auto& cls_doc = doc.VPolytope;
     py::class_<VPolytope, ConvexSet>(m, "VPolytope", cls_doc.doc)
+        .def(py::init<>(), cls_doc.ctor.doc)
         .def(py::init<const Eigen::Ref<const Eigen::MatrixXd>&>(),
             py::arg("vertices"), cls_doc.ctor.doc_vertices)
         .def(py::init<const HPolyhedron&>(), py::arg("H"),
@@ -280,7 +372,6 @@ void DefineGeometryOptimization(py::module m) {
             py::arg("ub"), cls_doc.MakeBox.doc)
         .def_static("MakeUnitBox", &VPolytope::MakeUnitBox, py::arg("dim"),
             cls_doc.MakeUnitBox.doc)
-        .def("CalcVolume", &VPolytope::CalcVolume, cls_doc.CalcVolume.doc)
         .def("WriteObj", &VPolytope::WriteObj, py::arg("filename"),
             cls_doc.WriteObj.doc)
         .def(py::pickle([](const VPolytope& self) { return self.vertices(); },
@@ -311,17 +402,15 @@ void DefineGeometryOptimization(py::module m) {
         .def_property(
             "configuration_obstacles",
             [](const IrisOptions& self) {
-              py::list out;
-              py::object self_py = py::cast(self, py_rvp::reference);
+              std::vector<const ConvexSet*> convex_sets;
               for (const copyable_unique_ptr<ConvexSet>& convex_set :
                   self.configuration_obstacles) {
-                py::object convex_set_py =
-                    py::cast(convex_set.get(), py_rvp::reference);
-                // Keep alive, ownership: `convex_set` keeps `self` alive.
-                py_keep_alive(convex_set_py, self_py);
-                out.append(convex_set_py);
+                convex_sets.push_back(convex_set.get());
               }
-              return out;
+              py::object self_py = py::cast(self, py_rvp::reference);
+              // Keep alive, ownership: each item in `convex_sets` keeps `self`
+              // alive.
+              return py::cast(convex_sets, py_rvp::reference_internal, self_py);
             },
             [](IrisOptions& self, const std::vector<ConvexSet*>& sets) {
               self.configuration_obstacles = CloneConvexSets(sets);
@@ -395,6 +484,27 @@ void DefineGeometryOptimization(py::module m) {
           &IrisInConfigurationSpace),
       py::arg("plant"), py::arg("context"), py::arg("options") = IrisOptions(),
       doc.IrisInConfigurationSpace.doc);
+
+  // TODO(#19597) Deprecate and remove these functions once Python
+  // can natively handle the file I/O.
+  m.def(
+      "SaveIrisRegionsYamlFile",
+      [](const std::filesystem::path& filename, const IrisRegions& regions,
+          const std::optional<std::string>& child_name) {
+        yaml::SaveYamlFile(filename, regions, child_name);
+      },
+      py::arg("filename"), py::arg("regions"),
+      py::arg("child_name") = std::nullopt,
+      "Calls SaveYamlFile() to serialize an IrisRegions object.");
+
+  m.def(
+      "LoadIrisRegionsYamlFile",
+      [](const std::filesystem::path& filename,
+          const std::optional<std::string>& child_name) {
+        return yaml::LoadYamlFile<IrisRegions>(filename, child_name);
+      },
+      py::arg("filename"), py::arg("child_name") = std::nullopt,
+      "Calls LoadYamlFile() to deserialize an IrisRegions object.");
 
   // GraphOfConvexSetsOptions
   {
@@ -519,7 +629,11 @@ void DefineGeometryOptimization(py::module m) {
         .def("GetSolutionCost", &GraphOfConvexSets::Vertex::GetSolutionCost,
             py::arg("result"), vertex_doc.GetSolutionCost.doc)
         .def("GetSolution", &GraphOfConvexSets::Vertex::GetSolution,
-            py::arg("result"), vertex_doc.GetSolution.doc);
+            py::arg("result"), vertex_doc.GetSolution.doc)
+        .def("incoming_edges", &GraphOfConvexSets::Vertex::incoming_edges,
+            py_rvp::reference_internal, vertex_doc.incoming_edges.doc)
+        .def("outgoing_edges", &GraphOfConvexSets::Vertex::outgoing_edges,
+            py_rvp::reference_internal, vertex_doc.outgoing_edges.doc);
 
     // Edge
     const auto& edge_doc = doc.GraphOfConvexSets.Edge;
@@ -527,10 +641,14 @@ void DefineGeometryOptimization(py::module m) {
         graph_of_convex_sets, "Edge", edge_doc.doc)
         .def("id", &GraphOfConvexSets::Edge::id, edge_doc.id.doc)
         .def("name", &GraphOfConvexSets::Edge::name, edge_doc.name.doc)
-        .def("u", &GraphOfConvexSets::Edge::u, py_rvp::reference_internal,
-            edge_doc.u.doc)
-        .def("v", &GraphOfConvexSets::Edge::v, py_rvp::reference_internal,
-            edge_doc.v.doc)
+        .def("u",
+            overload_cast_explicit<GraphOfConvexSets::Vertex&>(
+                &GraphOfConvexSets::Edge::u),
+            py_rvp::reference_internal, edge_doc.u.doc_0args_nonconst)
+        .def("v",
+            overload_cast_explicit<GraphOfConvexSets::Vertex&>(
+                &GraphOfConvexSets::Edge::v),
+            py_rvp::reference_internal, edge_doc.v.doc_0args_nonconst)
         .def("phi", &GraphOfConvexSets::Edge::phi, py_rvp::reference_internal,
             edge_doc.phi.doc)
         .def(
@@ -583,61 +701,27 @@ void DefineGeometryOptimization(py::module m) {
             py::arg("name") = "", py_rvp::reference_internal,
             cls_doc.AddVertex.doc)
         .def("AddEdge",
-            py::overload_cast<GraphOfConvexSets::VertexId,
-                GraphOfConvexSets::VertexId, std::string>(
-                &GraphOfConvexSets::AddEdge),
-            py::arg("u_id"), py::arg("v_id"), py::arg("name") = "",
-            py_rvp::reference_internal, cls_doc.AddEdge.doc_by_id)
-        .def("AddEdge",
-            py::overload_cast<const GraphOfConvexSets::Vertex&,
-                const GraphOfConvexSets::Vertex&, std::string>(
+            py::overload_cast<GraphOfConvexSets::Vertex*,
+                GraphOfConvexSets::Vertex*, std::string>(
                 &GraphOfConvexSets::AddEdge),
             py::arg("u"), py::arg("v"), py::arg("name") = "",
-            py_rvp::reference_internal, cls_doc.AddEdge.doc_by_reference)
+            py_rvp::reference_internal, cls_doc.AddEdge.doc)
         .def("RemoveVertex",
-            py::overload_cast<GraphOfConvexSets::VertexId>(
+            py::overload_cast<GraphOfConvexSets::Vertex*>(
                 &GraphOfConvexSets::RemoveVertex),
-            py::arg("vertex_id"), cls_doc.RemoveVertex.doc_by_id)
-        .def("RemoveVertex",
-            py::overload_cast<const GraphOfConvexSets::Vertex&>(
-                &GraphOfConvexSets::RemoveVertex),
-            py::arg("vertex"), cls_doc.RemoveVertex.doc_by_reference)
+            py::arg("vertex"), cls_doc.RemoveVertex.doc)
         .def("RemoveEdge",
-            py::overload_cast<GraphOfConvexSets::EdgeId>(
+            py::overload_cast<GraphOfConvexSets::Edge*>(
                 &GraphOfConvexSets::RemoveEdge),
-            py::arg("edge_id"), cls_doc.RemoveEdge.doc_by_id)
-        .def("RemoveEdge",
-            py::overload_cast<const GraphOfConvexSets::Edge&>(
-                &GraphOfConvexSets::RemoveEdge),
-            py::arg("edge"), cls_doc.RemoveEdge.doc_by_reference)
-        .def(
-            "Vertices",
-            [](GraphOfConvexSets* self) {
-              py::list out;
-              py::object self_py = py::cast(self, py_rvp::reference);
-              for (auto* vertex : self->Vertices()) {
-                py::object vertex_py = py::cast(vertex, py_rvp::reference);
-                // Keep alive, ownership: `vertex` keeps `self` alive.
-                py_keep_alive(vertex_py, self_py);
-                out.append(vertex_py);
-              }
-              return out;
-            },
-            cls_doc.Vertices.doc)
-        .def(
-            "Edges",
-            [](GraphOfConvexSets* self) {
-              py::list out;
-              py::object self_py = py::cast(self, py_rvp::reference);
-              for (auto* edge : self->Edges()) {
-                py::object edge_py = py::cast(edge, py_rvp::reference);
-                // Keep alive, ownership: `edge` keeps `self` alive.
-                py_keep_alive(edge_py, self_py);
-                out.append(edge_py);
-              }
-              return out;
-            },
-            cls_doc.Edges.doc)
+            py::arg("edge"), cls_doc.RemoveEdge.doc)
+        .def("Vertices",
+            overload_cast_explicit<std::vector<GraphOfConvexSets::Vertex*>>(
+                &GraphOfConvexSets::Vertices),
+            py_rvp::reference_internal, cls_doc.Vertices.doc)
+        .def("Edges",
+            overload_cast_explicit<std::vector<GraphOfConvexSets::Edge*>>(
+                &GraphOfConvexSets::Edges),
+            py_rvp::reference_internal, cls_doc.Edges.doc)
         .def("ClearAllPhiConstraints",
             &GraphOfConvexSets::ClearAllPhiConstraints,
             cls_doc.ClearAllPhiConstraints.doc)
@@ -647,23 +731,345 @@ void DefineGeometryOptimization(py::module m) {
             cls_doc.GetGraphvizString.doc)
         .def("SolveShortestPath",
             overload_cast_explicit<solvers::MathematicalProgramResult,
-                GraphOfConvexSets::VertexId, GraphOfConvexSets::VertexId,
-                const GraphOfConvexSetsOptions&>(
-                &GraphOfConvexSets::SolveShortestPath),
-            py::arg("source_id"), py::arg("target_id"),
-            py::arg("options") = GraphOfConvexSetsOptions(),
-            cls_doc.SolveShortestPath.doc_by_id)
-        .def("SolveShortestPath",
-            overload_cast_explicit<solvers::MathematicalProgramResult,
                 const GraphOfConvexSets::Vertex&,
                 const GraphOfConvexSets::Vertex&,
                 const GraphOfConvexSetsOptions&>(
                 &GraphOfConvexSets::SolveShortestPath),
             py::arg("source"), py::arg("target"),
             py::arg("options") = GraphOfConvexSetsOptions(),
-            cls_doc.SolveShortestPath.doc_by_reference);
-  }
+            cls_doc.SolveShortestPath.doc)
+        .def("GetSolutionPath", &GraphOfConvexSets::GetSolutionPath,
+            py::arg("source"), py::arg("target"), py::arg("result"),
+            py::arg("tolerance") = 1e-3, py_rvp::reference_internal,
+            cls_doc.GetSolutionPath.doc)
+        .def("SolveConvexRestriction",
+            &GraphOfConvexSets::SolveConvexRestriction, py::arg("active_edges"),
+            py::arg("options") = GraphOfConvexSetsOptions(),
+            cls_doc.SolveConvexRestriction.doc);
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+    graph_of_convex_sets
+        .def("AddEdge",
+            WrapDeprecated(cls_doc.AddEdge.doc_deprecated,
+                py::overload_cast<GraphOfConvexSets::VertexId,
+                    GraphOfConvexSets::VertexId, std::string>(
+                    &GraphOfConvexSets::AddEdge)),
+            py::arg("u_id"), py::arg("v_id"), py::arg("name") = "",
+            py_rvp::reference_internal, cls_doc.AddEdge.doc_deprecated)
+        .def("RemoveVertex",
+            WrapDeprecated(cls_doc.RemoveVertex.doc_deprecated,
+                py::overload_cast<GraphOfConvexSets::VertexId>(
+                    &GraphOfConvexSets::RemoveVertex)),
+            py::arg("vertex_id"), cls_doc.RemoveVertex.doc_deprecated)
+        .def("RemoveEdge",
+            WrapDeprecated(cls_doc.RemoveEdge.doc_deprecated,
+                py::overload_cast<GraphOfConvexSets::EdgeId>(
+                    &GraphOfConvexSets::RemoveEdge)),
+            py::arg("edge_id"), cls_doc.RemoveEdge.doc_deprecated)
+        .def("SolveShortestPath",
+            WrapDeprecated(cls_doc.SolveShortestPath.doc_deprecated,
+                overload_cast_explicit<solvers::MathematicalProgramResult,
+                    GraphOfConvexSets::VertexId, GraphOfConvexSets::VertexId,
+                    const GraphOfConvexSetsOptions&>(
+                    &GraphOfConvexSets::SolveShortestPath)),
+            py::arg("source_id"), py::arg("target_id"),
+            py::arg("options") = GraphOfConvexSetsOptions(),
+            cls_doc.SolveShortestPath.doc_deprecated);
+#pragma GCC diagnostic pop
+  }
+  {
+    // Definitions for c_iris_collision_geometry.h/cc
+    py::enum_<PlaneSide>(m, "PlaneSide", doc.PlaneSide.doc)
+        .value("kPositive", PlaneSide::kPositive)
+        .value("kNegative", PlaneSide::kNegative);
+
+    py::enum_<CIrisGeometryType>(
+        m, "CIrisGeometryType", doc.CIrisGeometryType.doc)
+        .value("kPolytope", CIrisGeometryType::kPolytope,
+            doc.CIrisGeometryType.kPolytope.doc)
+        .value("kSphere", CIrisGeometryType::kSphere,
+            doc.CIrisGeometryType.kSphere.doc)
+        .value("kCylinder", CIrisGeometryType::kCylinder,
+            doc.CIrisGeometryType.kCylinder.doc)
+        .value("kCapsule", CIrisGeometryType::kCapsule,
+            doc.CIrisGeometryType.kCapsule.doc);
+
+    py::class_<CIrisCollisionGeometry>(
+        m, "CIrisCollisionGeometry", doc.CIrisCollisionGeometry.doc)
+        .def("type", &CIrisCollisionGeometry::type,
+            doc.CIrisCollisionGeometry.type.doc)
+        .def("geometry", &CIrisCollisionGeometry::geometry,
+            py_rvp::reference_internal, doc.CIrisCollisionGeometry.geometry.doc)
+        .def("body_index", &CIrisCollisionGeometry::body_index,
+            doc.CIrisCollisionGeometry.body_index.doc)
+        .def("id", &CIrisCollisionGeometry::id,
+            doc.CIrisCollisionGeometry.id.doc)
+        .def("X_BG", &CIrisCollisionGeometry::X_BG,
+            doc.CIrisCollisionGeometry.X_BG.doc)
+        .def("num_rationals", &CIrisCollisionGeometry::num_rationals,
+            doc.CIrisCollisionGeometry.num_rationals.doc);
+  }
+  {
+    py::enum_<SeparatingPlaneOrder>(
+        m, "SeparatingPlaneOrder", doc.SeparatingPlaneOrder.doc)
+        .value("kAffine", SeparatingPlaneOrder::kAffine,
+            doc.SeparatingPlaneOrder.kAffine.doc);
+    type_visit([m](auto dummy) { DoSeparatingPlaneDeclaration(m, dummy); },
+        type_pack<double, symbolic::Variable>());
+  }
+  {
+    // Definitions for cpsace_free_structs.h/cc
+    constexpr auto& prog_doc = doc.SeparationCertificateProgramBase;
+    auto prog_cls = py::class_<SeparationCertificateProgramBase>(
+        m, "SeparationCertificateProgramBase", prog_doc.doc)
+                        .def(
+                            "prog",
+                            [](const SeparationCertificateProgramBase* self) {
+                              return self->prog.get();
+                            },
+                            py_rvp::reference_internal)
+                        .def_readonly("plane_index",
+                            &SeparationCertificateProgramBase::plane_index);
+
+    constexpr auto& result_doc = doc.SeparationCertificateResultBase;
+    auto result_cls =
+        py::class_<SeparationCertificateResultBase>(
+            m, "SeparationCertificateResultBase", result_doc.doc)
+            .def_readonly("a", &SeparationCertificateResultBase::a)
+            .def_readonly("b", &SeparationCertificateResultBase::b)
+            .def_readonly("plane_decision_var_vals",
+                &SeparationCertificateResultBase::plane_decision_var_vals)
+            .def_readonly("result", &SeparationCertificateResultBase::result);
+
+    constexpr auto& find_options_doc = doc.FindSeparationCertificateOptions;
+    auto find_options_cls =
+        py::class_<FindSeparationCertificateOptions>(
+            m, "FindSeparationCertificateOptions", find_options_doc.doc)
+            .def(py::init<>())
+            .def_readwrite(
+                "num_threads", &FindSeparationCertificateOptions::num_threads)
+            .def_readwrite(
+                "verbose", &FindSeparationCertificateOptions::verbose)
+            .def_readwrite(
+                "solver_id", &FindSeparationCertificateOptions::solver_id)
+            .def_readwrite("terminate_at_failure",
+                &FindSeparationCertificateOptions::terminate_at_failure)
+            .def_readwrite("solver_options",
+                &FindSeparationCertificateOptions::solver_options);
+  }
+  {
+    using BaseClass = CspaceFreePolytopeBase;
+    const auto& base_cls_doc = doc.CspaceFreePolytopeBase;
+    py::class_<BaseClass> cspace_free_polytope_base_cls(
+        m, "CspaceFreePolytopeBase", base_cls_doc.doc);
+    cspace_free_polytope_base_cls
+        // TODO(Alexandre.Amice): Bind rational_forward_kinematics to resolve
+        // #20025.
+        .def("map_geometries_to_separating_planes",
+            &BaseClass::map_geometries_to_separating_planes,
+            base_cls_doc.map_geometries_to_separating_planes.doc)
+        .def("separating_planes", &BaseClass::separating_planes,
+            base_cls_doc.separating_planes.doc)
+        .def("y_slack", &BaseClass::y_slack, base_cls_doc.y_slack.doc);
+
+    {
+      const auto& options_cls_doc = base_cls_doc.Options;
+      py::class_<BaseClass::Options> options_cls(
+          cspace_free_polytope_base_cls, "Options", options_cls_doc.doc);
+      options_cls  // BR
+          .def(py::init<>(), options_cls_doc.ctor.doc)
+          .def_readwrite("with_cross_y", &BaseClass::Options::with_cross_y,
+              options_cls_doc.with_cross_y.doc);
+      DefReprUsingSerialize(&options_cls);
+    }
+
+    using Class = CspaceFreePolytope;
+    const auto& cls_doc = doc.CspaceFreePolytope;
+    py::class_<Class, BaseClass> cspace_free_polytope_cls(
+        m, "CspaceFreePolytope", cls_doc.doc);
+    cspace_free_polytope_cls
+        .def(py::init<const multibody::MultibodyPlant<double>*,
+                 const geometry::SceneGraph<double>*, SeparatingPlaneOrder,
+                 const Eigen::Ref<const Eigen::VectorXd>&,
+                 const Class::Options&>(),
+            py::arg("plant"), py::arg("scene_graph"), py::arg("plane_order"),
+            py::arg("q_star"), py::arg("options") = Class::Options(),
+            // Keep alive, reference: `self` keeps `plant` alive.
+            py::keep_alive<1, 2>(),
+            // Keep alive, reference: `self` keeps `scene_graph` alive.
+            py::keep_alive<1, 3>(), cls_doc.ctor.doc)
+        .def(
+            "FindSeparationCertificateGivenPolytope",
+            [](const CspaceFreePolytope* self,
+                const Eigen::Ref<const Eigen::MatrixXd>& C,
+                const Eigen::Ref<const Eigen::VectorXd>& d,
+                const CspaceFreePolytope::IgnoredCollisionPairs&
+                    ignored_collision_pairs,
+                const CspaceFreePolytope::
+                    FindSeparationCertificateGivenPolytopeOptions& options) {
+              std::unordered_map<SortedPair<geometry::GeometryId>,
+                  CspaceFreePolytope::SeparationCertificateResult>
+                  certificates;
+              bool success = self->FindSeparationCertificateGivenPolytope(
+                  C, d, ignored_collision_pairs, options, &certificates);
+              return std::pair(success, certificates);
+            },
+            py::arg("C"), py::arg("d"), py::arg("ignored_collision_pairs"),
+            py::arg("options"))
+        .def("SearchWithBilinearAlternation",
+            &Class::SearchWithBilinearAlternation,
+            py::arg("ignored_collision_pairs"), py::arg("C_init"),
+            py::arg("d_init"), py::arg("options"),
+            cls_doc.SearchWithBilinearAlternation.doc)
+        .def("BinarySearch", &Class::BinarySearch,
+            py::arg("ignored_collision_pairs"), py::arg("C"), py::arg("d"),
+            py::arg("s_center"), py::arg("options"), cls_doc.BinarySearch.doc)
+        .def("MakeIsGeometrySeparableProgram",
+            &Class::MakeIsGeometrySeparableProgram, py::arg("geometry_pair"),
+            py::arg("C"), py::arg("d"),
+            cls_doc.MakeIsGeometrySeparableProgram.doc)
+        .def("SolveSeparationCertificateProgram",
+            &Class::SolveSeparationCertificateProgram,
+            py::arg("certificate_program"), py::arg("options"),
+            cls_doc.SolveSeparationCertificateProgram.doc);
+    py::class_<Class::SeparatingPlaneLagrangians>(cspace_free_polytope_cls,
+        "SeparatingPlaneLagrangians", cls_doc.SeparatingPlaneLagrangians.doc)
+        .def(py::init<int, int>(), py::arg("C_rows"), py::arg("s_size"),
+            cls_doc.SeparatingPlaneLagrangians.ctor.doc)
+        .def("GetSolution", &Class::SeparatingPlaneLagrangians::GetSolution,
+            py::arg("result"),
+            cls_doc.SeparatingPlaneLagrangians.GetSolution.doc)
+        // Use py_rvp::copy here because numpy.ndarray with dtype=object arrays
+        // must be copied, and cannot be referenced.
+        .def("polytope", &Class::SeparatingPlaneLagrangians::mutable_polytope,
+            py_rvp::copy)
+        .def("s_lower", &Class::SeparatingPlaneLagrangians::mutable_s_lower)
+        .def("s_upper", &Class::SeparatingPlaneLagrangians::mutable_s_upper);
+
+    using SepCertClass = Class::SeparationCertificateResult;
+    py::class_<SepCertClass>(cspace_free_polytope_cls,
+        "SeparationCertificateResult", cls_doc.SeparationCertificateResult.doc)
+        .def_readonly("plane_index", &SepCertClass::plane_index)
+        .def_readonly("positive_side_rational_lagrangians",
+            &Class::SeparationCertificateResult::
+                positive_side_rational_lagrangians,
+            cls_doc.SeparationCertificateResult
+                .positive_side_rational_lagrangians.doc)
+        .def_readonly("negative_side_rational_lagrangians",
+            &Class::SeparationCertificateResult::
+                negative_side_rational_lagrangians,
+            cls_doc.SeparationCertificateResult
+                .negative_side_rational_lagrangians.doc)
+        // Use py_rvp::copy here because numpy.ndarray with dtype=object
+        // arrays must be copied, and cannot be referenced.
+        .def_readonly("a", &SepCertClass::a, py_rvp::copy,
+            doc.SeparationCertificateResultBase.a.doc)
+        .def_readonly(
+            "b", &SepCertClass::b, doc.SeparationCertificateResultBase.b.doc)
+        .def_readonly("result", &SepCertClass::result)
+        // Use py_rvp::copy here because numpy.ndarray with dtype=object
+        // arrays must be copied, and cannot be referenced.
+        .def_readonly("plane_decision_var_vals",
+            &SepCertClass::plane_decision_var_vals, py_rvp::copy);
+
+    py::class_<Class::SeparationCertificate>(cspace_free_polytope_cls,
+        "SeparationCertificate", cls_doc.SeparationCertificate.doc)
+        .def("GetSolution", &Class::SeparationCertificate::GetSolution,
+            py::arg("plane_index"), py::arg("a"), py::arg("b"),
+            py::arg("plane_decision_vars"), py::arg("result"),
+            cls_doc.SeparationCertificate.GetSolution.doc)
+        .def_readwrite("positive_side_rational_lagrangians",
+            &Class::SeparationCertificate::positive_side_rational_lagrangians)
+        .def_readwrite("negative_side_rational_lagrangians",
+            &Class::SeparationCertificate::negative_side_rational_lagrangians);
+
+    py::class_<Class::SeparationCertificateProgram,
+        SeparationCertificateProgramBase>(cspace_free_polytope_cls,
+        "SeparationCertificateProgram",
+        cls_doc.SeparationCertificateProgram.doc)
+        .def(py::init<>())
+        .def_readonly(
+            "plane_index", &Class::SeparationCertificateProgram::plane_index)
+        .def_readonly(
+            "certificate", &Class::SeparationCertificateProgram::certificate);
+
+    py::class_<Class::FindSeparationCertificateGivenPolytopeOptions,
+        FindSeparationCertificateOptions>(cspace_free_polytope_cls,
+        "FindSeparationCertificateGivenPolytopeOptions",
+        cls_doc.FindSeparationCertificateGivenPolytopeOptions.doc)
+        .def(py::init<>())
+        .def_readwrite("ignore_redundant_C",
+            &Class::FindSeparationCertificateGivenPolytopeOptions::
+                ignore_redundant_C);
+
+    py::enum_<Class::EllipsoidMarginCost>(cspace_free_polytope_cls,
+        "EllipsoidMarginCost", cls_doc.EllipsoidMarginCost.doc)
+        .value("kSum", Class::EllipsoidMarginCost::kSum)
+        .value("kGeometricMean", Class::EllipsoidMarginCost::kGeometricMean);
+
+    py::class_<Class::FindPolytopeGivenLagrangianOptions>(
+        cspace_free_polytope_cls, "FindPolytopeGivenLagrangianOptions",
+        cls_doc.FindPolytopeGivenLagrangianOptions.doc)
+        .def(py::init<>())
+        .def_readwrite("backoff_scale",
+            &Class::FindPolytopeGivenLagrangianOptions::backoff_scale)
+        .def_readwrite("ellipsoid_margin_epsilon",
+            &Class::FindPolytopeGivenLagrangianOptions::
+                ellipsoid_margin_epsilon)
+        .def_readwrite(
+            "solver_id", &Class::FindPolytopeGivenLagrangianOptions::solver_id)
+        .def_readwrite("solver_options",
+            &Class::FindPolytopeGivenLagrangianOptions::solver_options)
+        .def_readwrite("s_inner_pts",
+            &Class::FindPolytopeGivenLagrangianOptions::s_inner_pts)
+        .def_readwrite("search_s_bounds_lagrangians",
+            &Class::FindPolytopeGivenLagrangianOptions::
+                search_s_bounds_lagrangians)
+        .def_readwrite("ellipsoid_margin_cost",
+            &Class::FindPolytopeGivenLagrangianOptions::ellipsoid_margin_cost);
+
+    py::class_<Class::SearchResult>(
+        cspace_free_polytope_cls, "SearchResult", cls_doc.SearchResult.doc)
+        .def(py::init<>())
+        .def("C", &Class::SearchResult::C)
+        .def("d", &Class::SearchResult::d)
+        // Use py_rvp::copy here because numpy.ndarray with dtype=object arrays
+        // must be copied, and cannot be referenced.
+        .def("a", &Class::SearchResult::a, py_rvp::copy)
+        .def("b", &Class::SearchResult::b)
+        .def("num_iter", &Class::SearchResult::num_iter)
+        .def("certified_polytope", &Class::SearchResult::certified_polytope);
+
+    py::class_<Class::BilinearAlternationOptions>(cspace_free_polytope_cls,
+        "BilinearAlternationOptions", cls_doc.BilinearAlternationOptions.doc)
+        .def(py::init<>())
+        .def_readwrite("max_iter", &Class::BilinearAlternationOptions::max_iter,
+            cls_doc.BilinearAlternationOptions.max_iter.doc)
+        .def_readwrite("convergence_tol",
+            &Class::BilinearAlternationOptions::convergence_tol,
+            cls_doc.BilinearAlternationOptions.convergence_tol.doc)
+        .def_readwrite("find_polytope_options",
+            &Class::BilinearAlternationOptions::find_polytope_options,
+            cls_doc.BilinearAlternationOptions.find_polytope_options.doc)
+        .def_readonly("find_lagrangian_options",
+            &Class::BilinearAlternationOptions::find_lagrangian_options,
+            cls_doc.BilinearAlternationOptions.find_lagrangian_options.doc)
+        .def_readwrite("ellipsoid_scaling",
+            &Class::BilinearAlternationOptions::ellipsoid_scaling,
+            cls_doc.BilinearAlternationOptions.ellipsoid_scaling.doc);
+
+    py::class_<Class::BinarySearchOptions>(cspace_free_polytope_cls,
+        "BinarySearchOptions", cls_doc.BinarySearchOptions.doc)
+        .def(py::init<>())
+        .def_readwrite("scale_max", &Class::BinarySearchOptions::scale_max)
+        .def_readwrite("scale_min", &Class::BinarySearchOptions::scale_min)
+        .def_readwrite("max_iter", &Class::BinarySearchOptions::max_iter)
+        .def_readwrite(
+            "convergence_tol", &Class::BinarySearchOptions::convergence_tol)
+        .def_readonly("find_lagrangian_options",
+            &Class::BinarySearchOptions::find_lagrangian_options);
+  }
   // NOLINTNEXTLINE(readability/fn_size)
 }
 

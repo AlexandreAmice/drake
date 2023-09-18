@@ -12,6 +12,7 @@
 #include "drake/math/autodiff_gradient.h"
 #include "drake/math/matrix_util.h"
 #include "drake/systems/analysis/simulator.h"
+#include "drake/systems/analysis/simulator_config_functions.h"
 #include "drake/systems/framework/leaf_system.h"
 #include "drake/systems/framework/scalar_conversion_traits.h"
 
@@ -331,6 +332,7 @@ FiniteHorizonLinearQuadraticRegulator(
   // time-reversed Riccati equation from -tf to -t0, and reverse it after the
   // fact.
   Simulator<double> simulator(riccati);
+  ApplySimulatorConfig(options.simulator_config, &simulator);
 
   // Set the initial conditions (the Riccati solution at tf).
   if (options.Qf) {
@@ -372,7 +374,9 @@ FiniteHorizonLinearQuadraticRegulator(
       Eigen::VectorBlock<Eigen::VectorXd> sx =
           S_vectorized.segment(num_states * num_states, num_states);
       double& s0 = S_vectorized[S_vectorized.size() - 1];
-      const Eigen::VectorXd xd0 = options.xd->value(tf) - x0->value(tf);
+      const Eigen::VectorXd xd0 =
+          options.xd->value(tf) -
+          (options.x0 ? options.x0->value(tf) : x0->value(tf));
       sx = -(*options.Qf) * xd0;
       s0 = xd0.dot((*options.Qf) * xd0);
     }
@@ -380,6 +384,7 @@ FiniteHorizonLinearQuadraticRegulator(
   }
 
   simulator.get_mutable_context().SetTime(-tf);
+  simulator.Initialize();
   IntegratorBase<double>& integrator = simulator.get_mutable_integrator();
   integrator.StartDenseIntegration();
 

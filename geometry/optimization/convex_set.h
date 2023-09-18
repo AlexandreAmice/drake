@@ -1,5 +1,6 @@
 #pragma once
 
+#include <limits>
 #include <memory>
 #include <optional>
 #include <utility>
@@ -7,6 +8,7 @@
 
 #include "drake/common/copyable_unique_ptr.h"
 #include "drake/common/drake_assert.h"
+#include "drake/common/reset_after_move.h"
 #include "drake/geometry/geometry_ids.h"
 #include "drake/geometry/query_object.h"
 #include "drake/geometry/shape_specification.h"
@@ -55,6 +57,19 @@ The geometry::optimization tools support:
 @ingroup geometry
 @ingroup solvers */
 
+/** The result of a volume calculation from CalcVolumeViaSampling(). */
+struct SampledVolume {
+  /** The estimated volume of the set. */
+  double volume{};
+
+  /** An upper bound for the relative accuracy of the volume estimate. When not
+  evaluated, this value is NaN. */
+  double rel_accuracy{};
+
+  /** The number of samples used to compute the volume estimate. */
+  int num_samples{};
+};
+
 /** Abstract base class for defining a convex set.
 @ingroup geometry_optimization */
 class ConvexSet : public ShapeReifier {
@@ -80,27 +95,91 @@ class ConvexSet : public ShapeReifier {
   /** Returns true iff the set is bounded, e.g., there exists an element-wise
   finite lower and upper bound for the set.  Note: for some derived classes,
   this check is trivial, but for others it can require solving an (typically
-  small) optimization problem.  Check the derived class documentation for any
+  small) optimization problem. Check the derived class documentation for any
   notes. */
-  bool IsBounded() const { return DoIsBounded(); }
+  bool IsBounded() const {
+    if (ambient_dimension() == 0) {
+      return true;
+    }
+    const auto shortcut_result = DoIsBoundedShortcut();
+    if (shortcut_result.has_value()) {
+      return shortcut_result.value();
+    }
+    return GenericDoIsBounded();
+  }
 
-  /** Returns true iff the point x is contained in the set. */
+  /** Returns true iff the set is empty. Note: for some derived classes, this
+  check is trivial, but for others, it can require solving a (typically small)
+  optimization problem. Check the derived class documentation for any notes.
+  Zero-dimensional sets must be handled specially. There are two possible sets
+  in a zero-dimensional space -- the empty set, and the whole set (which is
+  simply the "zero vector space", {0}.) For more details, see:
+  https://en.wikipedia.org/wiki/Examples_of_vector_spaces#Trivial_or_zero_vector_space
+  Zero-dimensional sets are considered to be nonempty by default. Sets
+  which can be zero-dimensional and empty must handle this behavior in their
+  derived implementation of DoIsEmpty. An example of such a subclass is
+  VPolytope. */
+  bool IsEmpty() const { return DoIsEmpty(); }
+
+  /** If this set trivially contains exactly one point, returns the value of
+  that point. Otherwise, returns nullopt. By "trivially", we mean that
+  representation of the set structurally maps to a single point; if checking
+  for point-ness would require solving an optimization program, returns nullopt.
+  In other words, this is a relatively cheap function to call. */
+  std::optional<Eigen::VectorXd> MaybeGetPoint() const {
+    if (ambient_dimension() == 0) {
+      if (IsEmpty()) {
+        return std::nullopt;
+      } else {
+        return Eigen::VectorXd::Zero(0);
+      }
+    }
+    return DoMaybeGetPoint();
+  }
+
+  /** Returns a feasible point within this convex set if it is nonempty,
+  and nullopt otherwise. */
+  std::optional<Eigen::VectorXd> MaybeGetFeasiblePoint() const {
+    if (ambient_dimension() == 0) {
+      if (IsEmpty()) {
+        return std::nullopt;
+      } else {
+        return Eigen::VectorXd::Zero(0);
+      }
+    }
+    if (MaybeGetPoint().has_value()) {
+      return MaybeGetPoint();
+    } else {
+      return DoMaybeGetFeasiblePoint();
+    }
+  }
+
+  /** Returns true iff the point x is contained in the set. If the ambient
+  dimension is zero, then if the set is nonempty, the point is trivially in
+  the set, and if the set is empty, the point is trivially not in the set. */
   bool PointInSet(const Eigen::Ref<const Eigen::VectorXd>& x,
                   double tol = 0) const {
     DRAKE_THROW_UNLESS(x.size() == ambient_dimension());
+    if (ambient_dimension() == 0) {
+      return !IsEmpty();
+    }
     return DoPointInSet(x, tol);
   }
 
-  // Note: I would like to return the Binding, but the type is subclass
-  // dependent.
   /** Adds a constraint to an existing MathematicalProgram enforcing that the
-  point defined by vars is inside the set. */
-  void AddPointInSetConstraints(
+  point defined by vars is inside the set.
+  @return (new_vars, new_constraints) Some of the derived class will add new
+  decision variables to enforce this constraint, we return all the newly added
+  decision variables as new_vars. The meaning of these new decision variables
+  differs in each subclass. If no new variables are added, then we return an
+  empty Eigen vector. Also we return all the newly added constraints to `prog`
+  through this function.
+  @throws std::exception if ambient_dimension() == 0 */
+  std::pair<VectorX<symbolic::Variable>,
+            std::vector<solvers::Binding<solvers::Constraint>>>
+  AddPointInSetConstraints(
       solvers::MathematicalProgram* prog,
-      const Eigen::Ref<const solvers::VectorXDecisionVariable>& vars) const {
-    DRAKE_THROW_UNLESS(vars.size() == ambient_dimension());
-    return DoAddPointInSetConstraints(prog, vars);
-  }
+      const Eigen::Ref<const solvers::VectorXDecisionVariable>& vars) const;
 
   /** Let S be this convex set.  When S is bounded, this method adds the convex
   constraints to imply
@@ -114,7 +193,9 @@ class ConvexSet : public ShapeReifier {
   In this case, the constraints imply t ≥ 0, x ∈ t S ⊕ rec(S), where rec(S) is
   the recession cone of S (the asymptotic directions in which S is not bounded)
   and ⊕ is the Minkowski sum.  For t > 0, this is equivalent to x ∈ t S, but for
-  t = 0, we have only x ∈ rec(S). */
+  t = 0, we have only x ∈ rec(S).
+  @throws std::exception if ambient_dimension() == 0 */
+  // TODO(hongkai.dai): return the new variables also.
   std::vector<solvers::Binding<solvers::Constraint>>
   AddPointInNonnegativeScalingConstraints(
       solvers::MathematicalProgram* prog,
@@ -125,7 +206,7 @@ class ConvexSet : public ShapeReifier {
   constraints to imply
   @verbatim
   A * x + b ∈ (c' * t + d) S,
-  c * t + d ≥ 0,
+  c' * t + d ≥ 0,
   @endverbatim
   where A is an n-by-m matrix (with n the ambient_dimension), b is a vector of
   size n, c is a vector of size p, x is a point in ℜᵐ, and t is a point in ℜᵖ.
@@ -139,7 +220,8 @@ class ConvexSet : public ShapeReifier {
   where rec(S) is the recession cone of S (the asymptotic directions in which S
   is not bounded) and ⊕ is the Minkowski sum.  For c' * t + d > 0, this is
   equivalent to A * x + b ∈ (c' * t + d) S, but for c' * t + d = 0, we have
-  only A * x + b ∈ rec(S). */
+  only A * x + b ∈ rec(S).
+  @throws std::exception if ambient_dimension() == 0 */
   std::vector<solvers::Binding<solvers::Constraint>>
   AddPointInNonnegativeScalingConstraints(
       solvers::MathematicalProgram* prog,
@@ -162,38 +244,111 @@ class ConvexSet : public ShapeReifier {
   // TODO(russt): Consider adding a set_solver() method here, which determines
   // the solver that any derived class uses if it solves an optimization.
 
+  /** Computes the exact volume for the convex set.
+  @note Not every convex set can report an exact volume. In that case, use
+  CalcVolumeViaSampling() instead.
+  @throws std::exception if `has_exact_volume()` returns `false`.
+  @throws if ambient_dimension() == 0. */
+  double CalcVolume() const;
+
+  /** Calculates an estimate of the volume of the convex set using sampling and
+  performing Monte Carlo integration.
+  @note this method is intended to be used for low to moderate dimensions
+  (d<15). For larger dimensions, a telescopic product approach has yet to be
+  implemented. See, e.g.,
+  https://proceedings.mlr.press/v151/chevallier22a/chevallier22a.pdf
+  @param generator a random number generator.
+  @param desired_rel_accuracy the desired relative accuracy of the volume
+  estimate in the sense that the estimated volume is likely to be within the
+  interval defined by (1±2*desired_rel_accuracy)*true_volume with probability of
+  *at least* 0.95 according to the Law of Large Numbers.
+  https://people.math.umass.edu/~lr7q/ps_files/teaching/math456/Chapter6.pdf
+  The computation will terminate when the relative error is less than
+  rel_accuracy or when the maximum number of samples is reached.
+  @param max_num_samples the maximum number of samples to use.
+  @pre `desired_rel_accuracy` is in the range [0,1].
+  @return a pair the estimated volume of the set and an upper bound for the
+  relative accuracy
+  @throws if ambient_dimension() == 0.
+  @throws if the minimum axis-aligned bounding box of the set cannot be
+  computed. */
+  SampledVolume CalcVolumeViaSampling(RandomGenerator* generator,
+                                      const double desired_rel_accuracy = 1e-2,
+                                      const int max_num_samples = 1e4) const;
+
+  /** Returns true if the exact volume can be computed for this convex set
+  instance.
+  @note This value reasons about to the generic case of the convex set class
+  rather than the specific instance of the convex set. For example, the exact
+  volume of a box is trivival to compute, but if the box is created as a
+  HPolyhedron, then the exact volume cannot be computed. */
+  bool has_exact_volume() const { return has_exact_volume_; }
+
  protected:
   DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(ConvexSet)
 
-  /** For use by derived classes to construct a %ConvexSet. */
-  explicit ConvexSet(int ambient_dimension);
+  /** For use by derived classes to construct a %ConvexSet.
+  @param has_exact_volume Derived classes should pass `true` if they've
+  implemented DoCalcVolume() to return a value (at least sometimes). */
+  explicit ConvexSet(int ambient_dimension, bool has_exact_volume);
 
   /** Implements non-virtual base class serialization. */
   template <typename Archive>
   void Serialize(Archive* a) {
-    a->Visit(DRAKE_NVP(ambient_dimension_));
+    // Visit the mutable reference inside the reset_after_move wrapper.
+    int& ambient_dimension = ambient_dimension_;
+    a->Visit(DRAKE_NVP(ambient_dimension));
   }
 
   /** Non-virtual interface implementation for Clone(). */
   virtual std::unique_ptr<ConvexSet> DoClone() const = 0;
 
-  /** Non-virtual interface implementation for IsBounded(). */
-  virtual bool DoIsBounded() const = 0;
+  /** Non-virtual interface implementation for DoIsBoundedShortcut(). Trivially
+  returns std::nullopt. This allows a derived class to implement its own
+  boundedness checks, to potentially avoid the more expensive base class checks.
+  @pre ambient_dimension() >= 0 */
+  virtual std::optional<bool> DoIsBoundedShortcut() const {
+    return std::nullopt;
+  }
+
+  /** Non-virtual interface implementation for IsEmpty(). The default
+  implementation solves a feasibility optimization problem, but derived
+  classes can override with a custom (more efficient) implementation.
+  Zero-dimensional sets are considered to be nonempty by default. Sets which
+  can be zero-dimensional and empty must handle this behavior in their
+  derived implementation of DoIsEmpty. */
+  virtual bool DoIsEmpty() const;
+
+  /** Non-virtual interface implementation for MaybeGetPoint(). The default
+  implementation returns nullopt. Sets that can model a single point should
+  override with a custom implementation.
+  @pre ambient_dimension() >= 0 */
+  virtual std::optional<Eigen::VectorXd> DoMaybeGetPoint() const;
+
+  /** Non-virtual interface implementation for MaybeGetFeasiblePoint(). The
+  default implementation solves a feasibility optimization problem, but
+  derived classes can override with a custom (more efficient) implementation. */
+  virtual std::optional<Eigen::VectorXd> DoMaybeGetFeasiblePoint() const;
 
   /** Non-virtual interface implementation for PointInSet().
-  @pre x.size() == ambient_dimension() */
+  @pre x.size() == ambient_dimension()
+  @pre ambient_dimension() >= 0 */
   virtual bool DoPointInSet(const Eigen::Ref<const Eigen::VectorXd>& x,
                             double tol) const = 0;
 
   /** Non-virtual interface implementation for AddPointInSetConstraints().
-  @pre vars.size() == ambient_dimension() */
-  virtual void DoAddPointInSetConstraints(
+  @pre vars.size() == ambient_dimension()
+  @pre ambient_dimension() > 0 */
+  virtual std::pair<VectorX<symbolic::Variable>,
+                    std::vector<solvers::Binding<solvers::Constraint>>>
+  DoAddPointInSetConstraints(
       solvers::MathematicalProgram* prog,
       const Eigen::Ref<const solvers::VectorXDecisionVariable>& vars) const = 0;
 
   /** Non-virtual interface implementation for
   AddPointInNonnegativeScalingConstraints().
-  @pre x.size() == ambient_dimension() */
+  @pre x.size() == ambient_dimension()
+  @pre ambient_dimension() > 0 */
   virtual std::vector<solvers::Binding<solvers::Constraint>>
   DoAddPointInNonnegativeScalingConstraints(
       solvers::MathematicalProgram* prog,
@@ -205,6 +360,7 @@ class ConvexSet : public ShapeReifier {
   constraints needed to keep the point A * x + b in the non-negative scaling of
   the set. Note that subclasses do not need to add the constraint c * t + d ≥ 0
   as it is already added.
+  @pre ambient_dimension() > 0
   @pre A.rows() == ambient_dimension()
   @pre A.rows() == b.rows()
   @pre A.cols() == x.size()
@@ -223,8 +379,46 @@ class ConvexSet : public ShapeReifier {
   virtual std::pair<std::unique_ptr<Shape>, math::RigidTransformd>
   DoToShapeWithPose() const = 0;
 
+  /** Non-virtual interface implementation for CalcVolume(). This will *only* be
+  called if has_exact_volume() returns true and ambient_dimension() > 0 */
+  virtual double DoCalcVolume() const;
+
+  /** Instances of subclasses such as CartesianProduct and MinkowskiSum can
+  have constituent sets with zero ambient dimension, which much be handled in a
+  special manner when calling methods such as DoAddPointInSetConstraints. If the
+  set is empty, a trivially infeasible constraint must be added. We also warn
+  the user when this happens, since they probably didn't intend it to occur.
+  If the set is nonempty, then it's the unique zero-dimensional vector space
+  {0}, and no additional variables or constraints are needed. If a new variable
+  is created, return it, to optionally be stored (as in
+  AddPointInSetConstraints), or not be stored (as in
+  DoAddPointInNonnegativeScalingConstraints). */
+  std::optional<symbolic::Variable> HandleZeroAmbientDimensionConstraints(
+      solvers::MathematicalProgram* prog, const ConvexSet& set,
+      std::vector<solvers::Binding<solvers::Constraint>>* constraints) const;
+
  private:
-  int ambient_dimension_{0};
+  /** Generic implementation for IsBounded() -- applicable for all convex sets.
+  @pre ambient_dimension() >= 0 */
+  bool GenericDoIsBounded() const;
+
+  // The reset_after_move wrapper adjusts ConvexSet's default move constructor
+  // and move assignment operator to set the ambient dimension of a moved-from
+  // object back to zero. This is essential to keep the ambient dimension in
+  // sync with any moved-from member fields in concrete ConvexSet subclasses.
+  //
+  // For example, the `Eigen::VectorXd x_` member field of `Point` will be moved
+  // out, ending up with `x_.size() == 0` on the moved-from Point. To maintain
+  // the invariant that `x_.size() == ambient_dimension_`, we need to zero the
+  // dimension when `x_` is moved-from.
+  //
+  // Similarly, for subclasses that are composite sets (e.g., CartesianProduct)
+  // the `ConvexSets sets_` vector becomes empty when moved-from. To maintain
+  // an invariant like `∑(set.size() for set in sets_) == ambient_dimension_`,
+  // we need to zero the dimension when `sets_` is moved-from.
+  reset_after_move<int> ambient_dimension_;
+
+  bool has_exact_volume_{false};
 };
 
 /** Provides the recommended container for passing a collection of ConvexSet

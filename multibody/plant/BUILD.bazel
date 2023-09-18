@@ -124,6 +124,7 @@ drake_cc_library(
         ":tamsi_solver",
         "//common:default_scalars",
         "//common:essential",
+        "//common:unused",
         "//geometry:geometry_ids",
         "//geometry:geometry_roles",
         "//geometry:scene_graph",
@@ -132,7 +133,6 @@ drake_cc_library(
         "//multibody/contact_solvers/sap",
         "//multibody/fem",
         "//multibody/hydroelastics:hydroelastic_engine",
-        "//multibody/topology:multibody_graph",
         "//multibody/tree",
         "//systems/framework:diagram_builder",
         "//systems/framework:leaf_system",
@@ -177,6 +177,7 @@ drake_cc_library(
     deps = [
         "//common:default_scalars",
         "//math:geometric_transform",
+        "//multibody/contact_solvers:contact_configuration",
         "//multibody/contact_solvers:matrix_block",
         "//multibody/tree:multibody_tree_indexes",
     ],
@@ -394,6 +395,7 @@ drake_cc_library(
     deps = [
         "//common:default_scalars",
         "//common:essential",
+        "//multibody/contact_solvers:matrix_block",
     ],
 )
 
@@ -420,6 +422,22 @@ drake_cc_library(
     deps = [
         "//common:default_scalars",
         "//geometry:scene_graph_inspector",
+    ],
+)
+
+drake_cc_googletest(
+    name = "actuated_models_test",
+    data = [
+        "//manipulation/models/iiwa_description:models",
+        "//manipulation/models/wsg_50_description:models",
+        "//multibody:models",
+    ],
+    deps = [
+        ":plant",
+        "//common:find_resource",
+        "//common/test_utilities:eigen_matrix_compare",
+        "//common/test_utilities:expect_throws_message",
+        "//multibody/parsing",
     ],
 )
 
@@ -464,6 +482,7 @@ drake_cc_googletest(
         ":compliant_contact_manager_tester",
         ":plant",
         "//common/test_utilities:eigen_matrix_compare",
+        "//common/test_utilities:expect_throws_message",
     ],
 )
 
@@ -843,6 +862,14 @@ drake_cc_googletest(
 )
 
 drake_cc_googletest(
+    name = "contact_results_test",
+    deps = [
+        ":contact_results",
+        ":multibody_plant_core",
+    ],
+)
+
+drake_cc_googletest(
     name = "contact_results_to_lcm_test",
     deps = [
         ":contact_results_to_lcm",
@@ -865,6 +892,15 @@ drake_cc_googletest(
         "//common/test_utilities:eigen_matrix_compare",
         "//geometry:drake_visualizer",
         "//systems/analysis:simulator",
+        "//systems/framework:diagram_builder",
+    ],
+)
+
+drake_cc_googletest(
+    name = "deformable_collision_filter_test",
+    deps = [
+        ":multibody_plant_core",
+        "//geometry:scene_graph",
         "//systems/framework:diagram_builder",
     ],
 )
@@ -938,6 +974,7 @@ drake_cc_googletest(
         "//common/test_utilities:expect_throws_message",
         "//multibody/benchmarks/free_body",
         "//multibody/test_utilities:floating_body_plant",
+        "//systems/analysis:runge_kutta3_integrator",
         "//systems/analysis:simulator",
     ],
 )
@@ -984,6 +1021,7 @@ drake_cc_googletest(
 drake_cc_googletest(
     name = "joint_locking_test",
     deps = [
+        ":multibody_plant_config_functions",
         ":plant",
         "//systems/analysis:simulator",
     ],
@@ -1111,4 +1149,18 @@ drake_cc_googletest(
     ],
 )
 
-add_lint_tests()
+drake_cc_googletest(
+    name = "sap_driver_pd_controller_constraints_test",
+    data = [
+        "//manipulation/models/iiwa_description:models",
+        "//manipulation/models/wsg_50_description:models",
+    ],
+    deps = [
+        ":compliant_contact_manager_tester",
+        ":plant",
+        "//common:find_resource",
+        "//multibody/parsing",
+    ],
+)
+
+add_lint_tests(enable_clang_format_lint = False)

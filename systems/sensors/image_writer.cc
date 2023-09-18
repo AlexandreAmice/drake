@@ -9,15 +9,19 @@
 #include <vector>
 
 #include <fmt/format.h>
-#include <vtkImageData.h>
-#include <vtkNew.h>
-#include <vtkPNGWriter.h>
-#include <vtkSmartPointer.h>
-#include <vtkTIFFWriter.h>
+
+// To ease build system upkeep, we annotate VTK includes with their deps.
+#include <vtkImageData.h>     // vtkCommonDataModel
+#include <vtkImageWriter.h>   // vtkIOImage
+#include <vtkNew.h>           // vtkCommonCore
+#include <vtkSmartPointer.h>  // vtkCommonCore
+
+#include "drake/systems/sensors/vtk_image_reader_writer.h"
 
 namespace drake {
 namespace systems {
 namespace sensors {
+namespace {
 
 template <PixelType kPixelType>
 void SaveToFileHelper(const Image<kPixelType>& image,
@@ -35,19 +39,19 @@ void SaveToFileHelper(const Image<kPixelType>& image,
     case PixelType::kRgba8U:
     case PixelType::kGrey8U:
       vtk_image->AllocateScalars(VTK_UNSIGNED_CHAR, num_channels);
-      writer = vtkSmartPointer<vtkPNGWriter>::New();
+      writer = internal::MakeWriter(ImageFileFormat::kPng, file_path);
       break;
     case PixelType::kDepth16U:
       vtk_image->AllocateScalars(VTK_UNSIGNED_SHORT, num_channels);
-      writer = vtkSmartPointer<vtkPNGWriter>::New();
+      writer = internal::MakeWriter(ImageFileFormat::kPng, file_path);
       break;
     case PixelType::kDepth32F:
       vtk_image->AllocateScalars(VTK_FLOAT, num_channels);
-      writer = vtkSmartPointer<vtkTIFFWriter>::New();
+      writer = internal::MakeWriter(ImageFileFormat::kTiff, file_path);
       break;
     case PixelType::kLabel16I:
       vtk_image->AllocateScalars(VTK_UNSIGNED_SHORT, num_channels);
-      writer = vtkSmartPointer<vtkPNGWriter>::New();
+      writer = internal::MakeWriter(ImageFileFormat::kPng, file_path);
       break;
     default:
       throw std::logic_error(
@@ -69,10 +73,11 @@ void SaveToFileHelper(const Image<kPixelType>& image,
     }
   }
 
-  writer->SetFileName(file_path.c_str());
   writer->SetInputData(vtk_image.GetPointer());
   writer->Write();
 }
+
+}  // namespace
 
 void SaveToPng(const ImageRgba8U& image, const std::string& file_path) {
   SaveToFileHelper(image, file_path);
@@ -164,11 +169,16 @@ const InputPort<double>& ImageWriter::DeclareImageInputPort(
   const auto& port =
       DeclareAbstractInputPort(port_name, Value<Image<kPixelType>>());
 
+  // There is no DeclarePeriodicPublishEvent that accepts a lambda, so we must
+  // use the advanced API to add our event.
   PublishEvent<double> event(
       TriggerType::kPeriodic,
-      [this, port_index = port.get_index()](const Context<double>& context,
-                                            const PublishEvent<double>&) {
-        WriteImage<kPixelType>(context, port_index);
+      [port_index = port.get_index()](const System<double>& system,
+                                      const Context<double>& context,
+                                      const PublishEvent<double>&) {
+        const auto& self = dynamic_cast<const ImageWriter&>(system);
+        self.WriteImage<kPixelType>(context, port_index);
+        return EventStatus::Succeeded();
       });
   DeclarePeriodicEvent<PublishEvent<double>>(publish_period, start_time, event);
   port_info_.emplace_back(std::move(file_name_format), kPixelType);
@@ -211,8 +221,11 @@ const InputPort<double>& ImageWriter::DeclareImageInputPort(
           std::move(port_name), std::move(file_name_format), publish_period,
           start_time);
     }
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
     case PixelType::kExpr:
       break;
+#pragma GCC diagnostic pop
   }
   throw std::logic_error(fmt::format(
       "ImageWriter::DeclareImageInputPort does not support pixel_type={}",
@@ -250,8 +263,7 @@ std::string ImageWriter::DirectoryFromFormat(const std::string& format,
   // Extract the directory.  Note that in any error messages to the user, we'll
   // report using the argument name from the public method.
   if (format.empty()) {
-    throw std::logic_error(
-        "ImageWriter: The file_name_format cannot be empty");
+    throw std::logic_error("ImageWriter: The file_name_format cannot be empty");
   }
   if (format.back() == '/') {
     throw std::logic_error(fmt::format(

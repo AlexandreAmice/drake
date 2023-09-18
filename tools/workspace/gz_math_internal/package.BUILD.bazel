@@ -82,6 +82,7 @@ _MOST_HDRS = [
     "include/gz/math/Matrix3.hh",
     "include/gz/math/Matrix4.hh",
     "include/gz/math/Matrix6.hh",
+    "include/gz/math/MecanumDriveOdometry.hh",
     "include/gz/math/MovingWindowFilter.hh",
     "include/gz/math/OrientedBox.hh",
     "include/gz/math/PID.hh",
@@ -162,6 +163,7 @@ check_lists_consistency(
         "include/ignition/math/Matrix3.hh",
         "include/ignition/math/Matrix4.hh",
         "include/ignition/math/Matrix6.hh",
+        "include/ignition/math/MecanumDriveOdometry.hh",
         "include/ignition/math/MovingWindowFilter.hh",
         "include/ignition/math/OrientedBox.hh",
         "include/ignition/math/PID.hh",
@@ -224,6 +226,7 @@ _SRCS = [
     "src/Helpers.cc",
     "src/Kmeans.cc",
     "src/Material.cc",
+    "src/MecanumDriveOdometry.cc",
     "src/MovingWindowFilter.cc",
     "src/PID.cc",
     "src/Rand.cc",
@@ -249,15 +252,12 @@ cc_library_vendored(
     ],
     hdrs = _HDRS,
     hdrs_vendored = [
-        x.replace("include/gz/", "drake_src/drake_vendor/gz/")
+        x.replace("include/gz/", "drake_hdr/gz/")
         for x in _HDRS
     ],
-    edit_include = {
-        "gz/": "drake_vendor/gz/",
-    },
     copts = ["-w"],
     linkstatic = True,
-    includes = ["drake_src"],
+    includes = ["drake_hdr"],
     visibility = ["//visibility:public"],
     deps = [
         "@gz_utils_internal//:gz_utils",
@@ -266,9 +266,6 @@ cc_library_vendored(
 
 install(
     name = "install",
-    docs = [
-        "COPYING",
-        "LICENSE",
-    ],
+    docs = ["LICENSE"],
     visibility = ["//visibility:public"],
 )

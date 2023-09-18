@@ -43,9 +43,13 @@ GTEST_TEST(VPolytopeTest, TriangleTest) {
   VPolytope V(triangle);
   EXPECT_EQ(V.ambient_dimension(), 2);
   EXPECT_TRUE(CompareMatrices(V.vertices(), triangle));
+  EXPECT_FALSE(V.MaybeGetPoint().has_value());
 
   // Check IsBounded (which is trivially true for V Polytopes).
   EXPECT_TRUE(V.IsBounded());
+
+  // Test IsEmpty.
+  EXPECT_FALSE(V.IsEmpty());
 
   const Eigen::Vector2d center = triangle.rowwise().mean();
   // Mosek worked with 1e-15.
@@ -64,6 +68,54 @@ GTEST_TEST(VPolytopeTest, TriangleTest) {
     EXPECT_TRUE(V.PointInSet(at_tol, 2.0 * kTol));
     EXPECT_FALSE(V.PointInSet(at_tol, 0.5 * kTol));
   }
+
+  // Test MaybeGetFeasiblePoint.
+  ASSERT_TRUE(V.MaybeGetFeasiblePoint().has_value());
+  EXPECT_TRUE(V.PointInSet(V.MaybeGetFeasiblePoint().value(), kTol));
+}
+
+GTEST_TEST(VPolytopeTest, SinglePoint) {
+  Vector2d point(2, -1);
+  VPolytope V(point);
+  ASSERT_TRUE(V.MaybeGetPoint().has_value());
+  EXPECT_TRUE(CompareMatrices(V.MaybeGetPoint().value(), point));
+  ASSERT_TRUE(V.MaybeGetFeasiblePoint().has_value());
+  EXPECT_TRUE(V.PointInSet(V.MaybeGetFeasiblePoint().value()));
+}
+
+GTEST_TEST(VPolytopeTest, DefaultCtor) {
+  const VPolytope dut;
+  EXPECT_NO_THROW(dut.GetMinimalRepresentation());
+  EXPECT_EQ(dut.vertices().size(), 0);
+  DRAKE_EXPECT_THROWS_MESSAGE(dut.CalcVolume(), ".*zero.*");
+  EXPECT_NO_THROW(dut.Clone());
+  EXPECT_EQ(dut.ambient_dimension(), 0);
+  EXPECT_TRUE(dut.IsBounded());
+  EXPECT_TRUE(dut.IsEmpty());
+  EXPECT_FALSE(dut.MaybeGetPoint().has_value());
+  EXPECT_FALSE(dut.MaybeGetFeasiblePoint().has_value());
+  EXPECT_FALSE(dut.PointInSet(Eigen::VectorXd::Zero(0)));
+
+  // The intersection of {} and {} is {}, so this should be false
+  EXPECT_FALSE(dut.IntersectsWith(dut));
+}
+
+GTEST_TEST(VPolytopeTest, Move) {
+  Eigen::Matrix<double, 2, 3> triangle;
+  // clang-format off
+  triangle <<  2, 4, 3,
+              -1, 2, 5;
+  // clang-format on
+  VPolytope orig(triangle);
+
+  // A move-constructed VPolytope takes over the original data.
+  VPolytope dut(std::move(orig));
+  EXPECT_EQ(dut.ambient_dimension(), 2);
+  EXPECT_TRUE(CompareMatrices(dut.vertices(), triangle));
+
+  // The old VPolytope is in a valid but unspecified state.
+  EXPECT_EQ(orig.vertices().rows(), orig.ambient_dimension());
+  EXPECT_NO_THROW(orig.Clone());
 }
 
 GTEST_TEST(VPolytopeTest, UnitBoxTest) {
@@ -80,10 +132,29 @@ GTEST_TEST(VPolytopeTest, UnitBoxTest) {
   EXPECT_TRUE(V.PointInSet(in2_W, kTol));
   EXPECT_FALSE(V.PointInSet(out_W, kTol));
 
+  ASSERT_TRUE(V.MaybeGetFeasiblePoint().has_value());
+  EXPECT_TRUE(V.PointInSet(V.MaybeGetFeasiblePoint().value(), kTol));
+
   // Test AddPointInSetConstraints.
   EXPECT_TRUE(CheckAddPointInSetConstraints(V, in1_W));
   EXPECT_TRUE(CheckAddPointInSetConstraints(V, in2_W));
   EXPECT_FALSE(CheckAddPointInSetConstraints(V, out_W));
+  {
+    // Test the new variables in AddPointInSetConstraint
+    solvers::MathematicalProgram prog;
+    auto x = prog.NewContinuousVariables<3>();
+    auto [new_vars, new_constraints] = V.AddPointInSetConstraints(&prog, x);
+    EXPECT_EQ(new_vars.rows(), V.vertices().cols());
+    // It has to contain at least two constraints, one bounding box constraint
+    // on 0 <= new_vars <=1, and another linear equality constraint x = vertices
+    // * new_vars, sum(new_vars) = 1
+    EXPECT_GE(new_constraints.size(), 2);
+    auto result = solvers::Solve(prog);
+    EXPECT_TRUE(result.is_success());
+    const auto new_vars_val = result.GetSolution(new_vars);
+    const Eigen::Vector3d x_val = result.GetSolution(x);
+    EXPECT_TRUE(CompareMatrices(x_val, V.vertices() * new_vars_val, kTol));
+  }
 
   // Test SceneGraph constructor.
   auto [scene_graph, geom_id] =
@@ -119,10 +190,13 @@ GTEST_TEST(VPolytopeTest, ArbitraryBoxTest) {
   EXPECT_LE(query.ComputeSignedDistanceToPoint(in2_W)[0].distance, 0.0);
   EXPECT_GE(query.ComputeSignedDistanceToPoint(out_W)[0].distance, 0.0);
 
-  const double kTol = 1e-14;
+  const double kTol = 1e-11;
   EXPECT_TRUE(V.PointInSet(in1_W, kTol));
   EXPECT_TRUE(V.PointInSet(in2_W, kTol));
   EXPECT_FALSE(V.PointInSet(out_W, kTol));
+
+  ASSERT_TRUE(V.MaybeGetFeasiblePoint().has_value());
+  EXPECT_TRUE(V.PointInSet(V.MaybeGetFeasiblePoint().value(), kTol));
 
   EXPECT_TRUE(CheckAddPointInSetConstraints(V, in1_W));
   EXPECT_TRUE(CheckAddPointInSetConstraints(V, in2_W));
@@ -145,6 +219,9 @@ GTEST_TEST(VPolytopeTest, ArbitraryBoxTest) {
   EXPECT_TRUE(V_F.PointInSet(X_FW * in1_W, kTol));
   EXPECT_TRUE(V_F.PointInSet(X_FW * in2_W, kTol));
   EXPECT_FALSE(V_F.PointInSet(X_FW * out_W, kTol));
+
+  ASSERT_TRUE(V_F.MaybeGetFeasiblePoint().has_value());
+  EXPECT_TRUE(V_F.PointInSet(V_F.MaybeGetFeasiblePoint().value(), kTol));
 }
 
 // Check if the set of vertices equals to the set of vertices_expected.
@@ -192,7 +269,7 @@ GTEST_TEST(VPolytopeTest, OctahedronTest) {
 
 GTEST_TEST(VPolytopeTest, NonconvexMesh) {
   auto [scene_graph, geom_id] = MakeSceneGraphWithShape(
-      Convex(FindResourceOrThrow("drake/geometry/test/non_convex_mesh.obj")),
+      Mesh(FindResourceOrThrow("drake/geometry/test/non_convex_mesh.obj")),
       RigidTransformd{});
   auto context = scene_graph->CreateDefaultContext();
   auto query =
@@ -213,6 +290,34 @@ GTEST_TEST(VPolytopeTest, NonconvexMesh) {
   // clang-format on
   const double tol = 1E-12;
   CheckVertices(V.vertices(), vertices_expected.transpose(), tol);
+
+  ASSERT_TRUE(V.MaybeGetFeasiblePoint().has_value());
+  EXPECT_TRUE(V.PointInSet(V.MaybeGetFeasiblePoint().value()));
+}
+
+// Confirm that VPolytope will complain about non-obj mesh/convex shapes even
+// if SceneGraph stops complaining. Likewise confirm that GetVertices complains.
+GTEST_TEST(VPolytopeTest, UnsupportedMeshTypes) {
+  const Convex convex("bad_extension.stl");
+  const Mesh mesh("bad_extension.stl");
+
+  for (const auto* shape : std::vector<const Shape*>{&convex, &mesh}) {
+    const RigidTransformd X_WG;
+    // We can't add proximity properties; ProximityEngine would reject it.
+    const bool add_proximity_properties = false;
+    auto [scene_graph, geom_id] =
+        MakeSceneGraphWithShape(*shape, X_WG, add_proximity_properties);
+    auto context = scene_graph->CreateDefaultContext();
+    auto query = scene_graph->get_query_output_port().Eval<QueryObject<double>>(
+        *context);
+    DRAKE_EXPECT_THROWS_MESSAGE(
+        VPolytope(query, geom_id),
+        "VPolytope can only use mesh shapes .* '.*bad_extension.stl'.");
+  }
+
+  DRAKE_EXPECT_THROWS_MESSAGE(
+      GetVertices(convex),
+      "GetVertices\\(\\) can only use mesh shapes .* '.*bad_extension.stl'.");
 }
 
 GTEST_TEST(VPolytopeTest, UnitBox6DTest) {
@@ -242,7 +347,7 @@ GTEST_TEST(VPolytopeTest, FromHUnitBoxTest) {
   Vector6d out3_W;
   out3_W << .99, 1.01, .99, 1.01, .99, 1.01;
 
-  const double kTol = 1e-11;
+  const double kTol = 1e-9;
   EXPECT_TRUE(V.PointInSet(in1_W, kTol));
   EXPECT_TRUE(V.PointInSet(in2_W, kTol));
   EXPECT_FALSE(V.PointInSet(out1_W, kTol));
@@ -360,6 +465,104 @@ GTEST_TEST(VPolytopeTest, FromUnboundedHPolytopeTest) {
   DRAKE_EXPECT_THROWS_MESSAGE(VPolytope{H}, ".*hpoly.IsBounded().*");
 }
 
+GTEST_TEST(VPolytopeTest, ConstructorFromHPolyhedronQHullProblems) {
+  // Test cases of HPolyhedra that QHull cannot handle on its own.
+  // Code logic in the constructor should handle these cases without any
+  // QHull errors.
+
+  // Empty case.
+  Eigen::Matrix<double, 2, 1> A0;
+  // clang-format off
+  A0 << 1,   // x  <= 0
+        -1;  // -x <= -1 (equivalently, x >= 1)
+  // clang-format on
+  Eigen::VectorXd b0 = Eigen::VectorXd::Zero(2);
+  b0[1] = -1;
+  HPolyhedron hpoly0(A0, b0);
+  EXPECT_TRUE(hpoly0.IsEmpty());
+  EXPECT_NO_THROW(VPolytope{hpoly0});
+  const VPolytope vpoly0(hpoly0);
+  EXPECT_TRUE(vpoly0.IsEmpty());
+
+  // Zero-dimensional case (singleton point).
+  Eigen::Matrix<double, 6, 3> A1;
+  // clang-format off
+  A1 << 1,  0,  0,  // x  <= 0
+        -1, 0,  0,  // -x <= 0 (equivalently, x >= 0)
+        0,  1,  0,  // y  <= 0
+        0, -1,  0,  // -y <= 0 (equivalently, y >= 0)
+        0,  0,  1,  // z  <= 0
+        0,  0, -1;  // -z <= 0 (equivalently, z >= 0)
+  // clang-format on
+  Eigen::VectorXd b1 = Eigen::VectorXd::Zero(6);
+  HPolyhedron hpoly1(A1, b1);
+  EXPECT_NO_THROW(VPolytope{hpoly1});
+  const VPolytope vpoly1(hpoly1);
+  EXPECT_TRUE(vpoly1.PointInSet(Eigen::Vector3d(0, 0, 0)));
+  EXPECT_FALSE(vpoly1.PointInSet(Eigen::Vector3d(1, 0, 0)));
+  EXPECT_FALSE(vpoly1.PointInSet(Eigen::Vector3d(-1, 0, 0)));
+  EXPECT_FALSE(vpoly1.PointInSet(Eigen::Vector3d(0, 1, 0)));
+  EXPECT_FALSE(vpoly1.PointInSet(Eigen::Vector3d(0, -1, 0)));
+  EXPECT_FALSE(vpoly1.PointInSet(Eigen::Vector3d(0, 0, 1)));
+  EXPECT_FALSE(vpoly1.PointInSet(Eigen::Vector3d(0, 0, -1)));
+
+  // Due to poor numerics, a surprisingly loose tolerance is needed for
+  // PointInSet queries with VPolytope. This bug is tracked in Github issue
+  // #17197.
+  const double vpolyTol = 1e-8;
+
+  // One-dimensional case (line segment).
+  Eigen::Matrix<double, 6, 3> A2;
+  // clang-format off
+  A2 << 1,  0,  0,  // x  <= 1
+        -1, 0,  0,  // -x <= 0 (equivalently, x >= 0)
+        0,  1,  0,  // y  <= 0
+        0, -1,  0,  // -y <= 0 (equivalently, y >= 0)
+        0,  0,  1,  // z  <= 0
+        0,  0, -1;  // -z <= 0 (equivalently, z >= 0)
+  // clang-format on
+  Eigen::VectorXd b2 = Eigen::VectorXd::Zero(6);
+  b2[0] = 1;
+  HPolyhedron hpoly2(A2, b2);
+  EXPECT_NO_THROW(VPolytope{hpoly2});
+  const VPolytope vpoly2(hpoly2);
+  EXPECT_TRUE(vpoly2.PointInSet(Eigen::Vector3d(0, 0, 0), vpolyTol));
+  EXPECT_TRUE(vpoly2.PointInSet(Eigen::Vector3d(1, 0, 0), vpolyTol));
+  EXPECT_FALSE(vpoly2.PointInSet(Eigen::Vector3d(2, 0, 0), vpolyTol));
+  EXPECT_FALSE(vpoly2.PointInSet(Eigen::Vector3d(-1, 0, 0), vpolyTol));
+  EXPECT_FALSE(vpoly2.PointInSet(Eigen::Vector3d(0, 1, 0), vpolyTol));
+  EXPECT_FALSE(vpoly2.PointInSet(Eigen::Vector3d(0, -1, 0), vpolyTol));
+  EXPECT_FALSE(vpoly2.PointInSet(Eigen::Vector3d(0, 0, 1), vpolyTol));
+  EXPECT_FALSE(vpoly2.PointInSet(Eigen::Vector3d(0, 0, -1), vpolyTol));
+
+  // Two-dimensional case (square).
+  Eigen::Matrix<double, 6, 3> A3;
+  // clang-format off
+  A3 << 1,  0,  0,  // x  <= 0
+        -1, 0,  0,  // -x <= 0 (equivalently, x >= 0)
+        0,  1,  0,  // y  <= 1
+        0, -1,  0,  // -y <= 0 (equivalently, y >= 0)
+        0,  0,  1,  // z  <= 1
+        0,  0, -1;  // -z <= 0 (equivalently, z >= 0)
+  // clang-format on
+  Eigen::VectorXd b3 = Eigen::VectorXd::Zero(6);
+  b3[2] = 1;
+  b3[4] = 1;
+  HPolyhedron hpoly3(A3, b3);
+  EXPECT_NO_THROW(VPolytope{hpoly3});
+  const VPolytope vpoly3(hpoly3);
+  EXPECT_TRUE(vpoly3.PointInSet(Eigen::Vector3d(0, 0, 0), vpolyTol));
+  EXPECT_TRUE(vpoly3.PointInSet(Eigen::Vector3d(0, 1, 0), vpolyTol));
+  EXPECT_TRUE(vpoly3.PointInSet(Eigen::Vector3d(0, 0, 1), vpolyTol));
+  EXPECT_TRUE(vpoly3.PointInSet(Eigen::Vector3d(0, 1, 1), vpolyTol));
+  EXPECT_FALSE(vpoly3.PointInSet(Eigen::Vector3d(1, 0, 0), vpolyTol));
+  EXPECT_FALSE(vpoly3.PointInSet(Eigen::Vector3d(-1, 0, 0), vpolyTol));
+  EXPECT_FALSE(vpoly3.PointInSet(Eigen::Vector3d(0, -1, 0), vpolyTol));
+  EXPECT_FALSE(vpoly3.PointInSet(Eigen::Vector3d(0, 2, 0), vpolyTol));
+  EXPECT_FALSE(vpoly3.PointInSet(Eigen::Vector3d(0, 0, -1), vpolyTol));
+  EXPECT_FALSE(vpoly3.PointInSet(Eigen::Vector3d(0, 0, 2), vpolyTol));
+}
+
 GTEST_TEST(VPolytopeTest, CloneTest) {
   VPolytope V = VPolytope::MakeBox(Vector3d{-3, -4, -5}, Vector3d{6, 7, 8});
   std::unique_ptr<ConvexSet> clone = V.Clone();
@@ -451,7 +654,7 @@ GTEST_TEST(VPolytopeTest, NonnegativeScalingTest2) {
   EXPECT_FALSE(PointInTransformedScaledSet(2.01, Vector2d(0, -2.0)));
 }
 
-GTEST_TEST(VPolytopeTest, CalcVolume) {
+GTEST_TEST(VPolytopeTest, Volume) {
   const double tol{1E-6};
   EXPECT_NEAR(VPolytope::MakeUnitBox(3).CalcVolume(), 8, tol);
 
@@ -510,6 +713,8 @@ GTEST_TEST(VPolytopeTest, GetMinimalRepresentationTest) {
     auto vpoly = VPolytope(vertices).GetMinimalRepresentation();
     EXPECT_EQ(vpoly.vertices().cols(), 4);
     EXPECT_NEAR(vpoly.CalcVolume(), l * l, tol);
+    ASSERT_TRUE(vpoly.MaybeGetFeasiblePoint().has_value());
+    EXPECT_TRUE(vpoly.PointInSet(vpoly.MaybeGetFeasiblePoint().value(), tol));
     // Calculate the length of the path that visits all the vertices
     // sequentially.
     // If the vertices are in clockwise/counter-clockwise order,
@@ -546,6 +751,8 @@ GTEST_TEST(VPolytopeTest, GetMinimalRepresentationTest) {
     auto vpoly = VPolytope(vertices).GetMinimalRepresentation();
     EXPECT_EQ(vpoly.vertices().cols(), 8);
     EXPECT_NEAR(vpoly.CalcVolume(), l * l * l, tol);
+    ASSERT_TRUE(vpoly.MaybeGetFeasiblePoint().has_value());
+    EXPECT_TRUE(vpoly.PointInSet(vpoly.MaybeGetFeasiblePoint().value(), tol));
 
     // Test PointInSet with points nearby the six faces.
     const double d = 10 * tol;
@@ -582,6 +789,18 @@ GTEST_TEST(VPolytopeTest, WriteObjTest) {
 
   VPolytope V_scene_graph(query, geom_id);
   CheckVertices(V.vertices(), V_scene_graph.vertices(), 1e-6);
+}
+
+// If a VPolytope is constructed over an empty vertex list, it is considered
+// to be empty.
+GTEST_TEST(VPolytopeTest, EmptyTest) {
+  Eigen::Matrix<double, 3, 0> vertices;
+  auto V = VPolytope(vertices);
+  ASSERT_TRUE(V.IsEmpty());
+  ASSERT_EQ(V.ambient_dimension(), 3);
+  ASSERT_FALSE(V.IntersectsWith(V));
+  EXPECT_FALSE(V.MaybeGetPoint().has_value());
+  EXPECT_FALSE(V.PointInSet(Eigen::VectorXd::Zero(3)));
 }
 
 }  // namespace optimization

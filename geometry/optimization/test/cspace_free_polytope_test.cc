@@ -11,72 +11,12 @@
 #include "drake/geometry/optimization/cspace_free_internal.h"
 #include "drake/geometry/optimization/test/c_iris_test_utilities.h"
 #include "drake/multibody/rational/rational_forward_kinematics.h"
-#include "drake/multibody/rational/rational_forward_kinematics_internal.h"
 #include "drake/solvers/solve.h"
 
 namespace drake {
 namespace geometry {
 namespace optimization {
 const double kInf = std::numeric_limits<double>::infinity();
-
-TEST_F(CIrisToyRobotTest, CspaceFreePolytopeConstructor) {
-  // Test CspaceFreePolytope constructor.
-  const Eigen::Vector3d q_star(0, 0, 0);
-  CspaceFreePolytopeTester tester(plant_, scene_graph_,
-                                  SeparatingPlaneOrder::kAffine, q_star);
-  const CspaceFreePolytope& dut = tester.cspace_free_polytope();
-  int num_planes_expected = 0;
-
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-  // TODO(jwnimmer-tri) Once deprecation date 2023-09-01 is finished, adjust
-  // the namespace of the call here from `optimization::` to `internal::`.
-  const auto link_geometries =
-      optimization::GetCollisionGeometries(*plant_, *scene_graph_);
-#pragma GCC diagnostic pop
-  // Count the expected number of planes by hand.
-  num_planes_expected +=
-      link_geometries.at(plant_->world_body().index()).size() *
-      // Don't include world_body to body0 as there is only a weld joint between
-      // them.
-      (link_geometries.at(body_indices_[1]).size() +
-       link_geometries.at(body_indices_[2]).size() +
-       link_geometries.at(body_indices_[3]).size());
-  num_planes_expected += link_geometries.at(body_indices_[0]).size() *
-                         link_geometries.at(body_indices_[2]).size();
-  num_planes_expected += link_geometries.at(body_indices_[1]).size() *
-                         link_geometries.at(body_indices_[3]).size();
-  num_planes_expected += link_geometries.at(body_indices_[2]).size() *
-                         link_geometries.at(body_indices_[3]).size();
-  EXPECT_EQ(dut.separating_planes().size(), num_planes_expected);
-
-  const symbolic::Variables s_set{dut.rational_forward_kin().s()};
-
-  for (const auto& [geometry_pair, plane_index] :
-       dut.map_geometries_to_separating_planes()) {
-    // check plane
-    const auto& plane = dut.separating_planes()[plane_index];
-    if (plane.positive_side_geometry->id() <
-        plane.negative_side_geometry->id()) {
-      EXPECT_EQ(geometry_pair.first(), plane.positive_side_geometry->id());
-      EXPECT_EQ(geometry_pair.second(), plane.negative_side_geometry->id());
-    } else {
-      EXPECT_EQ(geometry_pair.first(), plane.negative_side_geometry->id());
-      EXPECT_EQ(geometry_pair.second(), plane.positive_side_geometry->id());
-    }
-    // Check the expressed body.
-    EXPECT_EQ(plane.expressed_body,
-              multibody::internal::FindBodyInTheMiddleOfChain(
-                  *plant_, plane.positive_side_geometry->body_index(),
-                  plane.negative_side_geometry->body_index()));
-    for (int i = 0; i < 3; ++i) {
-      EXPECT_EQ(plane.a(i).TotalDegree(), 1);
-      EXPECT_EQ(plane.a(i).indeterminates(), s_set);
-    }
-    EXPECT_EQ(plane.b.TotalDegree(), 1);
-    EXPECT_EQ(plane.b.indeterminates(), s_set);
-  }
-}
 
 TEST_F(CIrisToyRobotTest, CspaceFreePolytopeGenerateRationals) {
   const Eigen::Vector3d q_star(0, 0, 0);
@@ -312,6 +252,32 @@ TEST_F(CIrisToyRobotTest, AddCspacePolytopeContainment) {
   }
 }
 
+TEST_F(CIrisToyRobotTest, GetPolyhedronWithJointLimits) {
+  const Eigen::Vector3d q_star(0, 0, 0);
+  CspaceFreePolytopeTester tester(plant_, scene_graph_,
+                                  SeparatingPlaneOrder::kAffine, q_star);
+  Eigen::MatrixXd C(4, 3);
+  // clang-format off
+  C << 0.5, 1, 2,
+       0.4, -0.5, -0.2,
+       1, -2, 3,
+       0.5, -2, 1;
+  // clang-format on
+  Eigen::Vector4d d(1, 3, 2, 0.5);
+  const HPolyhedron polytope = tester.GetPolyhedronWithJointLimits(C, d);
+
+  const Eigen::VectorXd s_lower =
+      tester.cspace_free_polytope().rational_forward_kin().ComputeSValue(
+          plant_->GetPositionLowerLimits(), q_star);
+  const Eigen::VectorXd s_upper =
+      tester.cspace_free_polytope().rational_forward_kin().ComputeSValue(
+          plant_->GetPositionUpperLimits(), q_star);
+
+  HPolyhedron Cd_polytope(C, d);
+  auto joint_limits_polytope = HPolyhedron::MakeBox(s_lower, s_upper);
+  auto intersection_polytope = Cd_polytope.Intersection(joint_limits_polytope);
+  EXPECT_TRUE(polytope.ContainedIn(intersection_polytope));
+}
 }  // namespace optimization
 }  // namespace geometry
 }  // namespace drake

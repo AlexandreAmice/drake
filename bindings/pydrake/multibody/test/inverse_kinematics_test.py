@@ -3,6 +3,8 @@ from pydrake.multibody import inverse_kinematics as ik
 from collections import namedtuple
 from functools import partial, wraps
 import math
+import textwrap
+import typing
 import unittest
 
 import numpy as np
@@ -17,6 +19,7 @@ from pydrake.multibody.plant import (
 from pydrake.multibody.tree import BodyIndex
 import pydrake.solvers as mp
 from pydrake.systems.framework import DiagramBuilder
+from pydrake.planning import RobotDiagramBuilder, SceneGraphCollisionChecker
 
 # TODO(eric.cousineau): Replace manual coordinate indexing with more semantic
 # operations (`CalcRelativeTransform`, `SetFreeBodyPose`).
@@ -570,6 +573,86 @@ class TestConstraints(unittest.TestCase):
             plant=variables.plant,
             minimum_distance=0.1,
             plant_context=variables.plant_context)
+        self.assertIsInstance(constraint, mp.Constraint)
+
+        # Now set the new penalty function
+        def penalty_fun(x: float, compute_grad: bool) \
+                -> typing.Tuple[float, typing.Optional[float]]:
+            if x < 0:
+                if compute_grad:
+                    return x**2, 2 * x
+                else:
+                    return x**2, None
+            else:
+                if compute_grad:
+                    return 0., 0.
+                else:
+                    return 0., None
+
+        constraint = ik.MinimumDistanceConstraint(
+            plant=variables.plant, minimum_distance_lower=0.1,
+            minimum_distance_upper=1, plant_context=variables.plant_context,
+            penalty_function=penalty_fun, influence_distance=3)
+        self.assertIsInstance(constraint, mp.Constraint)
+
+        q = variables.plant.GetPositions(variables.plant_context)
+        y = constraint.Eval(q)
+
+        # Now test the case with penalty_function=None. It will use the
+        # default penalty function.
+        constraint = ik.MinimumDistanceConstraint(
+            plant=variables.plant, minimum_distance_lower=0.1,
+            minimum_distance_upper=1, plant_context=variables.plant_context,
+            penalty_function=None, influence_distance=3)
+        self.assertIsInstance(constraint, mp.Constraint)
+        y_default_penalty = constraint.Eval(q)
+
+    def _make_robot_diagram(self):
+        builder = RobotDiagramBuilder()
+        scene_yaml = textwrap.dedent("""
+        directives:
+        - add_model:
+            name: box
+            file: package://drake/multibody/models/box.urdf
+        - add_model:
+            name: ground
+            file: package://drake/planning/test_utilities/collision_ground_plane.sdf  # noqa
+        - add_weld:
+            parent: world
+            child: ground::ground_plane_box
+        """)
+        builder.parser().AddModelsFromString(scene_yaml, "dmd.yaml")
+        model_instance_index = builder.plant().GetModelInstanceByName("box")
+        robot_diagram = builder.Build()
+        return (robot_diagram, model_instance_index)
+
+    def test_minimum_distance_constraint_with_collision_checker(self):
+        # test the MinimumDistanceConstraint with CollisionChecker.
+        robot, index = self._make_robot_diagram()
+
+        def distance_function(q1, q2):
+            return np.linalg.norm(q1 - q2)
+
+        collision_checker = SceneGraphCollisionChecker(
+            model=robot,
+            robot_model_instances=[index],
+            configuration_distance_function=distance_function,
+            edge_step_size=0.125)
+        collision_checker_context = \
+            collision_checker.MakeStandaloneModelContext()
+        # Construct without minimum_distance_upper.
+        constraint = ik.MinimumDistanceConstraint(
+            collision_checker=collision_checker, minimum_distance=0.01,
+            collision_checker_context=collision_checker_context,
+            penalty_function=None, influence_distance_offset=0.1)
+        self.assertIsInstance(constraint, mp.Constraint)
+
+        # Construct with minimum_distance_upper.
+        constraint = ik.MinimumDistanceConstraint(
+            collision_checker=collision_checker, minimum_distance_lower=0.01,
+            minimum_distance_upper=0.1,
+            collision_checker_context=collision_checker_context,
+            penalty_function=None, influence_distance=0.2)
         self.assertIsInstance(constraint, mp.Constraint)
 
     @check_type_variables

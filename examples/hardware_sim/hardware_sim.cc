@@ -9,10 +9,13 @@ listens for command messages.
 It is intended to operate in the "no ground truth" regime, i.e, the only LCM
 messages it knows about are the ones used by the actual hardware. The one
 messaging difference from real life is that we emit visualization messages (for
-meldis or drake-visualizer) so that you can watch a simulation on your screen
-while some (separate) controller operates the robot, without extra hassle.
+Meldis, or the legacy `drake_visualizer` application of days past) so that you
+can watch a simulation on your screen while some (separate) controller operates
+the robot, without extra hassle.
 
 Drake maintainers should keep this file in sync with hardware_sim.py. */
+
+#include <fstream>
 
 #include <gflags/gflags.h>
 
@@ -42,6 +45,9 @@ DEFINE_string(scenario_name, "",
 DEFINE_string(scenario_text, "{}",
     "Additional YAML scenario text to load, in order to override values "
     "in the scenario_file, e.g., timeouts");
+DEFINE_string(graphviz, "",
+    "Dump the Simulator's Diagram to this file in Graphviz format as a "
+    "debugging aid");
 
 namespace drake {
 namespace {
@@ -71,6 +77,9 @@ class Simulation {
 
   /* Runs the main loop of the simulation until completion criteria are met. */
   void Simulate();
+
+  /* Provides read-only access to the diagram. */
+  const Diagram<double>& diagram() { return *diagram_; }
 
  private:
   // The scenario passed into the ctor.
@@ -130,6 +139,11 @@ int main() {
       FLAGS_scenario_file, FLAGS_scenario_name, FLAGS_scenario_text);
   Simulation sim(scenario);
   sim.Setup();
+  if (!FLAGS_graphviz.empty()) {
+    std::ofstream out(FLAGS_graphviz);
+    out << sim.diagram().GetGraphvizString();
+    DRAKE_THROW_UNLESS(out.good());
+  }
   sim.Simulate();
   return 0;
 }

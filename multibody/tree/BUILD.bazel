@@ -35,6 +35,7 @@ drake_cc_library(
         "multibody_tree_indexes.h",
     ],
     deps = [
+        "//common:identifier",
         "//common:type_safe_index",
     ],
 )
@@ -184,6 +185,7 @@ drake_cc_library(
         "//common:nice_type_name",
         "//common:unused",
         "//math:geometric_transform",
+        "//multibody/topology:multibody_graph",
         "//systems/framework:leaf_system",
     ],
 )
@@ -299,6 +301,7 @@ drake_cc_googletest(
         ":free_rotating_body_plant",
         "//common/test_utilities:eigen_matrix_compare",
         "//multibody/benchmarks/free_body",
+        "//systems/analysis:runge_kutta3_integrator",
         "//systems/analysis:simulator",
     ],
 )
@@ -344,6 +347,7 @@ drake_cc_googletest(
     deps = [
         ":tree",
         "//common/test_utilities:eigen_matrix_compare",
+        "//common/test_utilities:expect_throws_message",
     ],
 )
 
@@ -488,6 +492,7 @@ drake_cc_googletest(
         ":mobilizer_tester",
         ":tree",
         "//common/test_utilities:eigen_matrix_compare",
+        "//common/test_utilities:expect_throws_message",
     ],
 )
 
@@ -497,6 +502,7 @@ drake_cc_googletest(
         ":mobilizer_tester",
         ":tree",
         "//common/test_utilities:eigen_matrix_compare",
+        "//common/test_utilities:expect_throws_message",
     ],
 )
 
@@ -543,6 +549,7 @@ drake_cc_googletest(
     name = "articulated_body_algorithm_test",
     deps = [
         ":tree",
+        "//common/test_utilities:eigen_matrix_compare",
     ],
 )
 
@@ -679,4 +686,4 @@ drake_cc_googletest(
     ],
 )
 
-add_lint_tests()
+add_lint_tests(enable_clang_format_lint = False)

@@ -446,19 +446,10 @@ GTEST_TEST(TestAddDecisionVariables, AddVariable3) {
 GTEST_TEST(TestAddDecisionVariables, AddVariableError) {
   // Test the error inputs.
   MathematicalProgram prog;
-  auto y = prog.NewContinuousVariables<3>("y");
-  const Variable x0("x0", Variable::Type::CONTINUOUS);
-  const Variable x1("x1", Variable::Type::CONTINUOUS);
-  // The newly added variables contain a dummy variable.
-  Variable dummy;
-  EXPECT_TRUE(dummy.is_dummy());
-  EXPECT_THROW(
-      prog.AddDecisionVariables(VectorDecisionVariable<3>(x0, x1, dummy)),
-      std::runtime_error);
   auto z = prog.NewIndeterminates<2>("z");
   // Call AddDecisionVariables on a program that has some indeterminates, and
-  // the new
-  // variables intersects with the indeterminates.
+  // the new variables intersects with the indeterminates.
+  const Variable x0("x0", Variable::Type::CONTINUOUS);
   EXPECT_THROW(prog.AddDecisionVariables(VectorDecisionVariable<2>(x0, z(0))),
                std::runtime_error);
 
@@ -601,10 +592,6 @@ GTEST_TEST(TestAddIndeterminate, AddIndeterminateError) {
   // Call AddIndeterminate with an input of type BINARY.
   DRAKE_EXPECT_THROWS_MESSAGE(prog.AddIndeterminate(z),
                               ".*should be of type CONTINUOUS.*");
-  // Call AddIndeterminate with a dummy variable.
-  Variable dummy;
-  DRAKE_EXPECT_THROWS_MESSAGE(prog.AddIndeterminate(dummy),
-                              ".*should not be a dummy variable.*");
 }
 
 GTEST_TEST(TestAddIndeterminates, AddIndeterminatesVec1) {
@@ -683,11 +670,6 @@ GTEST_TEST(TestAddIndeterminates, AddIndeterminatesVecError) {
   DRAKE_EXPECT_THROWS_MESSAGE(
       prog.AddIndeterminates(VectorIndeterminate<2>(x1, x0)),
       ".*should be of type CONTINUOUS.*");
-  // Call AddIndeterminates with a dummy variable.
-  Variable dummy;
-  DRAKE_EXPECT_THROWS_MESSAGE(
-      prog.AddIndeterminates(VectorIndeterminate<2>(dummy, x0)),
-      ".*should not be a dummy variable.*");
 }
 
 GTEST_TEST(TestAddIndeterminates, AddIndeterminatesVars1) {
@@ -774,11 +756,6 @@ GTEST_TEST(TestAddIndeterminates, AddIndeterminatesVarsError) {
   DRAKE_EXPECT_THROWS_MESSAGE(
       prog.AddIndeterminates(symbolic::Variables({x0, x1})),
       ".*should be of type CONTINUOUS.*");
-  // Call AddIndeterminates with a dummy variable.
-  Variable dummy;
-  DRAKE_EXPECT_THROWS_MESSAGE(
-      prog.AddIndeterminates(symbolic::Variables({x0, dummy})),
-      ".*should not be a dummy variable.*");
 }
 
 GTEST_TEST(TestAddIndeterminates, MatrixInput) {
@@ -2798,7 +2775,7 @@ void CheckAddedSymbolicQuadraticCostUserFun(const MathematicalProgram& prog,
   EXPECT_EQ(binding.variables(), prog.quadratic_costs().back().variables());
 
   auto cnstr = prog.quadratic_costs().back().evaluator();
-  // Check the added cost is 0.5 * x' * Q * x + b' * x
+  // Check the added cost is 0.5 * x' * Q * x + b' * x + c
   const auto& x_bound = binding.variables();
   const Expression e_added = 0.5 * x_bound.dot(cnstr->Q() * x_bound) +
                              cnstr->b().dot(x_bound) + cnstr->c();
@@ -2831,6 +2808,11 @@ GTEST_TEST(TestMathematicalProgram, AddSymbolicQuadraticCost) {
   Expression e2 = x.transpose() * x + 1;
   CheckAddedSymbolicQuadraticCost(&prog, e2, true);
   EXPECT_TRUE(prog.quadratic_costs().back().evaluator()->is_convex());
+  // Confirm that const terms are respected.
+  auto b = prog.AddQuadraticCost(e2);
+  VectorXd y(1);
+  b.evaluator()->Eval(Vector3d::Zero(), &y);
+  EXPECT_EQ(y[0], 1);
 
   // Identity diagonal term.
   Expression e3 = x(0) * x(0) + x(1) * x(1) + 2;
@@ -3135,9 +3117,6 @@ GTEST_TEST(TestMathematicalProgram, TestAddCostThrowError) {
   MathematicalProgram prog;
   auto x = prog.NewContinuousVariables<2>();
 
-  // Add a non-polynomial cost.
-  EXPECT_THROW(prog.AddCost(sin(x(0))), runtime_error);
-
   // Add a cost containing variable not included in the mathematical program.
   Variable y("y");
   DRAKE_EXPECT_THROWS_MESSAGE(prog.AddCost(x(0) + y),
@@ -3160,6 +3139,27 @@ GTEST_TEST(TestMathematicalProgram, TestAddGenericCost) {
   GenericPtr quadratic_cost(new QuadraticCost(Matrix1d(1), Vector1d(1)));
   prog.AddCost(quadratic_cost, x);
   EXPECT_EQ(prog.quadratic_costs().size(), 1);
+}
+
+GTEST_TEST(TestMathematicalProgram, TestAddGenericCostExpression) {
+  MathematicalProgram prog;
+  Variable x = prog.NewContinuousVariables<1>()[0];
+  Variable y = prog.NewContinuousVariables<1>()[0];
+
+  using std::atan2;
+  auto b = prog.AddCost(atan2(y, x));
+  EXPECT_EQ(prog.generic_costs().size(), 1);
+  Vector2d x_test(0.5, 0.2);
+  Vector1d y_expected(atan2(0.2, 0.5));
+  EXPECT_TRUE(CompareMatrices(prog.EvalBinding(b, x_test), y_expected));
+}
+
+// Confirm that even constant costs are supported.
+GTEST_TEST(TestMathematicalProgram, TestAddCostConstant) {
+  MathematicalProgram prog;
+
+  auto b = prog.AddCost(Expression(0.5));
+  EXPECT_EQ(prog.linear_costs().size(), 1);
 }
 
 GTEST_TEST(TestMathematicalProgram, TestClone) {
@@ -3988,6 +3988,24 @@ GTEST_TEST(TestMathematicalProgram, TestToString) {
   EXPECT_THAT(s, testing::HasSubstr("y"));
   EXPECT_THAT(s, testing::HasSubstr("2"));
   EXPECT_THAT(s, testing::HasSubstr("3"));
+}
+
+GTEST_TEST(TestMathematicalProgram, TestToLatex) {
+  MathematicalProgram prog;
+  std::string empty_prog = prog.ToLatex();
+  EXPECT_EQ(empty_prog,
+            "\\text{This MathematicalProgram has no decision variables.}");
+
+  auto x = prog.NewContinuousVariables<2>("x");
+  auto y = prog.NewIndeterminates<1>("y");
+  prog.AddLinearCost(2 * x[0] + 3 * x[1]);
+  prog.AddLinearConstraint(x[0] + x[1] <= 2.0);
+  prog.AddSosConstraint(x[0] * y[0] * y[0]);
+
+  std::string s = prog.ToLatex();
+  EXPECT_THAT(s, testing::HasSubstr("\\min"));
+  EXPECT_THAT(s, testing::HasSubstr("\\text{subject to}\\quad"));
+  EXPECT_THAT(s, testing::HasSubstr("\\succeq 0."));
 }
 
 GTEST_TEST(TestMathematicalProgram, RemoveLinearConstraint) {

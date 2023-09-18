@@ -5,6 +5,7 @@
 #include <utility>
 #include <vector>
 
+#include "drake/common/name_value.h"
 #include "drake/geometry/optimization/convex_set.h"
 
 namespace drake {
@@ -23,10 +24,16 @@ invertible, but the quadratic form can also represent unbounded sets.
 Note: the name Hyperellipsoid was taken here to avoid conflicting with
 geometry::Ellipsoid and to distinguish that this class supports N dimensions.
 
+A hyperellipsoid can never be empty -- it always contains its center. This
+includes the zero-dimensional case.
+
 @ingroup geometry_optimization */
 class Hyperellipsoid final : public ConvexSet {
  public:
   DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(Hyperellipsoid)
+
+  /** Constructs a default (zero-dimensional, nonempty) set. */
+  Hyperellipsoid();
 
   /** Constructs the ellipsoid.
   @pre A.cols() == center.size(). */
@@ -50,15 +57,14 @@ class Hyperellipsoid final : public ConvexSet {
   /** Returns the center of the ellipsoid. */
   const Eigen::VectorXd& center() const { return center_; }
 
-  /** Returns the volume of the hyperellipsoid (in Euclidean space). */
-  double Volume() const;
-
   /** Computes the smallest uniform scaling of this ellipsoid for which it still
   intersects @p other. √ minₓ (x-center)ᵀAᵀA(x-center) s.t. x ∈ other.  Note
   that if center ∈ other, then we expect scaling = 0 and x = center (up to
   precision).
   @pre `other` must have the same ambient_dimension as this.
-  @returns the minimal scaling and the witness point, x, on other. */
+  @returns the minimal scaling and the witness point, x, on other.
+  @throws std::exception if `other` is empty.
+  @throws std::exception if ambient_dimension() == 0 */
   std::pair<double, Eigen::VectorXd> MinimumUniformScalingToTouch(
       const ConvexSet& other) const;
 
@@ -89,15 +95,60 @@ class Hyperellipsoid final : public ConvexSet {
   /** Constructs the L₂-norm unit ball in `dim` dimensions, {x | |x|₂ <= 1 }. */
   static Hyperellipsoid MakeUnitBall(int dim);
 
+  /** Constructs the minimum-volume ellipsoid which contains all of the
+  `points`. This is commonly referred to as the outer Löwner-John ellipsoid.
+
+  @param points is a d-by-n matrix, where d is the ambient dimension and each
+  column represents one point.
+  @param rank_tol the singular values of the data matrix will be considered
+  non-zero if they are strictly greater than `rank_tol` * `max_singular_value`.
+  The default is 1e-6 to be compatible with common solver tolerances. This is
+  used to detect if the data lies on a lower-dimensional affine space than the
+  ambient dimension of the ellipsoid.
+  @throws std::exception if the MathematicalProgram fails to solve. If this
+  were to happen (due to numerical issues), then increasing `rank_tol` should
+  provide a mitigation.
+  @throw std::exception if points includes NaNs or infinite values.
+  @pre The numerical data rank of points is greater than 0 (the largest
+  singular value is greater than rank_tol). This requires, for instance, that
+  points.cols() > 1.
+  */
+  static Hyperellipsoid MinimumVolumeCircumscribedEllipsoid(
+      const Eigen::Ref<const Eigen::MatrixXd>& points, double rank_tol = 1e-6);
+
+  /** Passes this object to an Archive.
+  Refer to @ref yaml_serialization "YAML Serialization" for background. */
+  template <typename Archive>
+  void Serialize(Archive* a) {
+    ConvexSet::Serialize(a);
+    a->Visit(MakeNameValue("A", &A_));
+    a->Visit(MakeNameValue("center", &center_));
+    CheckInvariants();
+  }
+
+  // TODO(SeanCurtis-TRI) Deprecate this function.
+  /** Computes the volume for the hyperellipsoid set.*/
+  double Volume() const { return CalcVolume(); }
+
  private:
   std::unique_ptr<ConvexSet> DoClone() const final;
 
-  bool DoIsBounded() const final;
+  std::optional<bool> DoIsBoundedShortcut() const final;
+
+  bool DoIsEmpty() const final;
+
+  // N.B. No need to override DoMaybeGetPoint here. This class cannot represent
+  // a single point.
+
+  /** Returns the center, which is always feasible. */
+  std::optional<Eigen::VectorXd> DoMaybeGetFeasiblePoint() const final;
 
   bool DoPointInSet(const Eigen::Ref<const Eigen::VectorXd>& x,
                     double tol) const final;
 
-  void DoAddPointInSetConstraints(
+  std::pair<VectorX<symbolic::Variable>,
+            std::vector<solvers::Binding<solvers::Constraint>>>
+  DoAddPointInSetConstraints(
       solvers::MathematicalProgram* prog,
       const Eigen::Ref<const solvers::VectorXDecisionVariable>& vars)
       const final;
@@ -119,6 +170,10 @@ class Hyperellipsoid final : public ConvexSet {
 
   std::pair<std::unique_ptr<Shape>, math::RigidTransformd> DoToShapeWithPose()
       const final;
+
+  double DoCalcVolume() const final;
+
+  void CheckInvariants() const;
 
   // Implement support shapes for the ShapeReifier interface.
   using ShapeReifier::ImplementGeometry;

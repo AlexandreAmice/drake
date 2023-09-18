@@ -46,6 +46,9 @@ class System : public SystemBase {
   // System objects are neither copyable nor moveable.
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(System)
 
+  /// The scalar type with which this %System was instantiated.
+  using Scalar = T;
+
   ~System() override;
 
   /// Implements a visitor pattern.  @see SystemVisitor<T>.
@@ -727,6 +730,16 @@ class System : public SystemBase {
   void GetInitializationEvents(const Context<T>& context,
                                CompositeEventCollection<T>* events) const;
 
+  /** This method triggers all of the initialization events returned by
+  GetInitializationEvents(). The method allocates temporary storage to perform
+  the updates, and is intended only as a convenience method for callers who do
+  not want to use the full Simulator workflow.
+
+  Note that this is not fully equivalent to Simulator::Initialize() because
+  _only_ initialization events are handled here, while Simulator::Initialize()
+  also processes other events associated with time zero. */
+  void ExecuteInitializationEvents(Context<T>* context) const;
+
   /** Determines whether there exists a unique periodic timing (offset and
   period) that triggers one or more discrete update events (and, if so, returns
   that unique periodic timing). Thus, this method can be used (1) as a test to
@@ -1057,14 +1070,8 @@ class System : public SystemBase {
   /** @name                      Utility methods */
   //@{
 
-  /** Returns a name for this %System based on a stringification of its type
-  name and memory address.  This is intended for use in diagnostic output
-  and should not be used for behavioral logic, because the stringification
-  of the type name may produce differing results across platforms and
-  because the address can vary from run to run. */
-  std::string GetMemoryObjectName() const;
-
-  // So we don't have to keep writing this->num_input_ports().
+  // Avoid `this->` boilerplate for these member functions.
+  using SystemBase::GetMemoryObjectName;
   using SystemBase::num_input_ports;
   using SystemBase::num_output_ports;
 
@@ -1082,15 +1089,16 @@ class System : public SystemBase {
                                       /* warn_deprecated = */ true));
   }
 
-  /** Convenience method for the case of exactly one input port. */
+  /** Convenience method for the case of exactly one input port.
+  This function ignores deprecated ports, unless there is only one port in which
+  case it will return the deprecated port. */
   const InputPort<T>& get_input_port() const {
-    static constexpr char message[] =
-        "Cannot use the get_input_port() convenience method unless there is"
-        " exactly one input port. num_input_ports() = {}";
-    if (num_input_ports() != 1) {
-      throw std::logic_error(fmt::format(message, num_input_ports()));
+    // Fast path for common case.
+    if (num_input_ports() == 1) {
+      return get_input_port(0);
     }
-    return get_input_port(0);
+    // Fallback for deprecation and/or error handling case.
+    return GetSoleInputPort();
   }
 
   /** Returns the typed input port specified by the InputPortSelection or by
@@ -1124,15 +1132,16 @@ class System : public SystemBase {
                                        /* warn_deprecated = */ true));
   }
 
-  /** Convenience method for the case of exactly one output port. */
+  /** Convenience method for the case of exactly one output port.
+  This function ignores deprecated ports, unless there is only one port in which
+  case it will return the deprecated port. */
   const OutputPort<T>& get_output_port() const {
-    static constexpr char message[] =
-        "Cannot use the get_output_port() convenience method unless there is"
-        " exactly one output port. num_output_ports() = {}";
-    if (num_output_ports() != 1) {
-      throw std::logic_error(fmt::format(message, num_output_ports()));
+    // Fast path for common case.
+    if (num_output_ports() == 1) {
+      return get_output_port(0);
     }
-    return get_output_port(0);
+    // Fallback for deprecation and/or error handling case.
+    return GetSoleOutputPort();
   }
 
   /** Returns the typed output port specified by the OutputPortSelection or by
@@ -1178,10 +1187,10 @@ class System : public SystemBase {
   /** Returns a Graphviz string describing this System.  To render the string,
   use the Graphviz tool, ``dot``. http://www.graphviz.org/
 
+  Deprecated ports are flagged with a headstone emoji (🪦) after their name.
+
   @param max_depth Sets a limit to the depth of nested diagrams to
   visualize.  Set to zero to render a diagram as a single system block.
-
-  @see GenerateHtml
   */
   std::string GetGraphvizString(
       int max_depth = std::numeric_limits<int>::max()) const;
@@ -1953,6 +1962,12 @@ class System : public SystemBase {
   // cache entry.
   void CalcUniquePeriodicDiscreteUpdate(
       const Context<T>& context, DiscreteValues<T>* updated) const;
+
+  // The non-inline implementation of get_input_port().
+  const InputPort<T>& GetSoleInputPort() const;
+
+  // The non-inline implementation of get_output_port().
+  const OutputPort<T>& GetSoleOutputPort() const;
 
   // The constraints_ vector encompass all constraints on this system, whether
   // they were declared by a concrete subclass during construction (e.g., by

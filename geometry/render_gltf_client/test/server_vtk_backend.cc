@@ -18,21 +18,23 @@ programs for the glTF Render Client-Server integration test. */
 #include <string>
 
 #include <gflags/gflags.h>
-#include <vtkActorCollection.h>
-#include <vtkAutoInit.h>
-#include <vtkCamera.h>
-#include <vtkGLTFImporter.h>
-#include <vtkImageExport.h>
-#include <vtkLight.h>
-#include <vtkMatrix4x4.h>
-#include <vtkOpenGLPolyDataMapper.h>
-#include <vtkOpenGLShaderProperty.h>
-#include <vtkPNGWriter.h>
-#include <vtkProperty.h>
-#include <vtkRenderWindow.h>
-#include <vtkRenderer.h>
-#include <vtkTIFFWriter.h>
-#include <vtkWindowToImageFilter.h>
+
+// To ease build system upkeep, we annotate VTK includes with their deps.
+#include <vtkActorCollection.h>       // vtkRenderingCore
+#include <vtkAutoInit.h>              // vtkCommonCore
+#include <vtkCamera.h>                // vtkRenderingCore
+#include <vtkGLTFImporter.h>          // vtkIOImport
+#include <vtkImageExport.h>           // vtkIOImage
+#include <vtkLight.h>                 // vtkRenderingCore
+#include <vtkMatrix4x4.h>             // vtkCommonMath
+#include <vtkOpenGLPolyDataMapper.h>  // vtkRenderingOpenGL2
+#include <vtkOpenGLShaderProperty.h>  // vtkRenderingOpenGL2
+#include <vtkPNGWriter.h>             // vtkIOImage
+#include <vtkProperty.h>              // vtkRenderingCore
+#include <vtkRenderWindow.h>          // vtkRenderingCore
+#include <vtkRenderer.h>              // vtkRenderingCore
+#include <vtkTIFFWriter.h>            // vtkIOImage
+#include <vtkWindowToImageFilter.h>   // vtkRenderingCore
 
 #include "drake/common/drake_assert.h"
 #include "drake/common/text_logging.h"
@@ -146,7 +148,8 @@ bool ValidateOutputExtension() {
 /* Constructs and sets the explicit projection matrix rather than using the one
  from glTF which only supports limited intrinsic specification.  The
  implementation is imported from RenderCameraCore::CalcProjectionMatrix().
- @sa https://github.com/RobotLocomotion/drake/blob/master/geometry/render/render_camera.cc
+ @sa
+ https://github.com/RobotLocomotion/drake/blob/master/geometry/render/render_camera.cc
  */
 void CalcProjectionMatrix(vtkRenderer* renderer) {
   vtkCamera* camera = renderer->GetActiveCamera();
@@ -191,8 +194,7 @@ void SetDefaultLighting(vtkRenderer* renderer) {
 
 int DoMain() {
   // All the input args should be validated past this point.
-  if (!ValidateOutputExtension())
-    return 1;
+  if (!ValidateOutputExtension()) return 1;
 
   vtkNew<vtkRenderer> renderer;
   renderer->UseHiddenLineRemovalOn();
@@ -274,12 +276,9 @@ int DoMain() {
       }
     }
   } else {  // FLAGS_image_type == "label"
-    // TODO(zachfang): We need to find a workaround and document it, so that no
-    // server implementations need to hard-code these magic numbers.
-    /* NOTE: This is hard-coded to be the value that
-     RenderEngine::GetColorDFromLabel(RenderLabel::kEmpty) would produce.  If
-     that value changes, this should change to match. */
-    renderer->SetBackground(254.0 / 255.0, 127.0 / 255.0, 0.0);
+    // Following the client-server API (see render_gltf_client_doxygen.h), the
+    // background of a label image should be set to white.
+    renderer->SetBackground(1.0, 1.0, 1.0);
 
     // Same as RenderEngineVtk, label actors have lighting disabled.  Labels
     // have already been encoded as geometry materials in the glTF.  By

@@ -1,10 +1,5 @@
 # -*- bazel -*-
 
-load(
-    "@drake//tools/install:install.bzl",
-    "install",
-)
-
 licenses(["notice"])  # BSD-2-Clause AND BSD-4-Clause and MIT
 
 package(default_visibility = ["//visibility:private"])
@@ -147,6 +142,14 @@ cc_library(
         "@drake//tools/workspace/petsc:stubs",
     ],
     visibility = ["//visibility:public"],
+    deprecation = "The @petsc external is deprecated in Drake's WORKSPACE and will be removed on or after 2023-11-01.",  # noqa
+)
+
+# An alias that avoids the deprecation warning (for Drake's internal use only).
+cc_library(
+    name = "petsc_nowarn",
+    deps = [":petsc"],
+    visibility = ["//visibility:public"],
 )
 
 genrule(
@@ -172,15 +175,4 @@ genrule(
     # Select lines 15..46 of the header to get the license text.
     cmd = "head -n 46 $< | tail +15 > $@",
     visibility = ["@drake//tools/workspace/petsc:__pkg__"],
-)
-
-install(
-    name = "install",
-    docs = [
-        "LICENSE",  # BSD-2-Clause
-        ":LICENSE-khash.txt",  # MIT
-        ":LICENSE-libyaml.txt",  # MIT
-        ":LICENSE-valgrind.txt",  # BSD-4-Clause
-    ],
-    visibility = ["//visibility:public"],
 )

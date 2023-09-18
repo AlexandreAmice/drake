@@ -6,14 +6,19 @@
 #include "drake/math/compute_numerical_gradient.h"
 #include "drake/math/rigid_transform.h"
 #include "drake/multibody/inverse_kinematics/test/inverse_kinematics_test_utilities.h"
+#include "drake/planning/scene_graph_collision_checker.h"
+#include "drake/solvers/minimum_value_constraint.h"
 #include "drake/solvers/test_utilities/check_constraint_eval_nonsymbolic.h"
 
 namespace drake {
 namespace multibody {
-
-using solvers::test::CheckConstraintEvalNonsymbolic;
+namespace {
+const double kInf = std::numeric_limits<double>::infinity();
 
 constexpr int kNumPositionsForTwoFreeBodies{14};
+}  // namespace
+
+using solvers::test::CheckConstraintEvalNonsymbolic;
 
 template <typename T>
 Vector3<T> ComputeCollisionSphereCenterPosition(
@@ -27,11 +32,34 @@ class TwoFreeSpheresMinimumDistanceTest : public TwoFreeSpheresTest {
  public:
   void CheckConstraintBounds(
       const MinimumDistanceConstraint& constraint) const {
-    EXPECT_EQ(constraint.num_constraints(), 1);
-    EXPECT_TRUE(
-        CompareMatrices(constraint.lower_bound(),
-                        Vector1d(-std::numeric_limits<double>::infinity())));
-    EXPECT_TRUE(CompareMatrices(constraint.upper_bound(), Vector1d(1)));
+    int num_constraints = 0;
+    std::vector<double> lower_bound_expected;
+    std::vector<double> upper_bound_expected;
+    if (std::isfinite(constraint.minimum_distance_lower())) {
+      // Impose the constraint
+      // SmoothOverMax( φ((dᵢ(q) - d_influence)/(d_influence - lb)) / φ(-1) ) ≤
+      // 1
+      num_constraints++;
+      lower_bound_expected.push_back(-kInf);
+      upper_bound_expected.push_back(1);
+    }
+    if (std::isfinite(constraint.minimum_distance_upper())) {
+      // Impose the constraint
+      // SmoothUnderMax( φ((dᵢ(q) - d_influence)/(d_influence - ub)) / φ(-1) ) ≥
+      // 1
+      num_constraints++;
+      lower_bound_expected.push_back(1);
+      upper_bound_expected.push_back(kInf);
+    }
+    EXPECT_EQ(constraint.num_constraints(), num_constraints);
+    EXPECT_TRUE(CompareMatrices(
+        constraint.lower_bound(),
+        Eigen::Map<Eigen::VectorXd>(lower_bound_expected.data(),
+                                    lower_bound_expected.size())));
+    EXPECT_TRUE(CompareMatrices(
+        constraint.upper_bound(),
+        Eigen::Map<Eigen::VectorXd>(upper_bound_expected.data(),
+                                    upper_bound_expected.size())));
   }
 
   void CheckConstraintEvalLargerThanInfluenceDistance(
@@ -44,63 +72,89 @@ class TwoFreeSpheresMinimumDistanceTest : public TwoFreeSpheresTest {
     Eigen::Matrix<double, kNumPositionsForTwoFreeBodies, 1> q;
     q << QuaternionToVectorWxyz(sphere1_quaternion), p_WB1,
         QuaternionToVectorWxyz(sphere2_quaternion), p_WB2;
-    Eigen::VectorXd y_double(1);
+    Eigen::VectorXd y_double(constraint.num_constraints());
     constraint.Eval(q, &y_double);
     Eigen::Matrix<AutoDiffXd, kNumPositionsForTwoFreeBodies, 1> q_autodiff =
         math::InitializeAutoDiff(q);
-    AutoDiffVecXd y_autodiff(1);
-    constraint.Eval(q_autodiff, &y_autodiff);
-
-    EXPECT_TRUE(constraint.CheckSatisfied(q));
-    EXPECT_TRUE(constraint.CheckSatisfied(q_autodiff));
-    EXPECT_EQ(y_double(0), 0);
-    EXPECT_TRUE(CompareMatrices(
-        y_autodiff(0).derivatives(),
-        Eigen::Matrix<double, kNumPositionsForTwoFreeBodies, 1>::Zero()));
-    CheckConstraintEvalNonsymbolic(constraint, q_autodiff, 1E-12);
-  }
-
-  void CheckConstraintEvalBetweenMinimumAndInfluenceDistance(
-      const MinimumDistanceConstraint& constraint, const Eigen::Vector3d& p_WB1,
-      const Eigen::Vector3d p_WB2) const {
-    const Eigen::Quaterniond sphere1_quaternion(1, 0, 0, 0);
-    const Eigen::Quaterniond sphere2_quaternion(1, 0, 0, 0);
-    Eigen::Matrix<double, kNumPositionsForTwoFreeBodies, 1> q;
-    q << QuaternionToVectorWxyz(sphere1_quaternion), p_WB1,
-        QuaternionToVectorWxyz(sphere2_quaternion), p_WB2;
-    Eigen::VectorXd y_double(1);
-    constraint.Eval(q, &y_double);
-    Eigen::Matrix<AutoDiffXd, kNumPositionsForTwoFreeBodies, 1> q_autodiff =
-        math::InitializeAutoDiff(q);
-    AutoDiffVecXd y_autodiff(1);
-    constraint.Eval(q_autodiff, &y_autodiff);
-
-    EXPECT_TRUE(constraint.CheckSatisfied(q));
-    EXPECT_TRUE(constraint.CheckSatisfied(q_autodiff));
-    // Check that the value is strictly greater than 0.
-    EXPECT_GT(y_double(0), 0);
-    CheckConstraintEvalNonsymbolic(constraint, q_autodiff, 1E-12);
-  }
-
-  void CheckConstraintEvalSmallerThanMinimumDistance(
-      const MinimumDistanceConstraint& constraint, const Eigen::Vector3d& p_WB1,
-      const Eigen::Vector3d p_WB2) const {
-    const Eigen::Quaterniond sphere1_quaternion(1, 0, 0, 0);
-    const Eigen::Quaterniond sphere2_quaternion(1, 0, 0, 0);
-    Eigen::Matrix<double, kNumPositionsForTwoFreeBodies, 1> q;
-    q << QuaternionToVectorWxyz(sphere1_quaternion), p_WB1,
-        QuaternionToVectorWxyz(sphere2_quaternion), p_WB2;
-    Eigen::VectorXd y_double(1);
-    constraint.Eval(q, &y_double);
-    Eigen::Matrix<AutoDiffXd, kNumPositionsForTwoFreeBodies, 1> q_autodiff =
-        math::InitializeAutoDiff(q);
-    AutoDiffVecXd y_autodiff(1);
+    AutoDiffVecXd y_autodiff(constraint.num_constraints());
     constraint.Eval(q_autodiff, &y_autodiff);
 
     EXPECT_FALSE(constraint.CheckSatisfied(q));
     EXPECT_FALSE(constraint.CheckSatisfied(q_autodiff));
-    // Check that the value is strictly greater than 1.
-    EXPECT_GT(y_double(0), 1);
+    for (int i = 0; i < constraint.num_constraints(); ++i) {
+      EXPECT_TRUE(CompareMatrices(
+          y_autodiff(i).derivatives(),
+          Eigen::Matrix<double, kNumPositionsForTwoFreeBodies, 1>::Zero()));
+    }
+    CheckConstraintEvalNonsymbolic(constraint, q_autodiff, 1E-12);
+  }
+
+  void CheckConstraintEvalBetweenMinimumUpperAndInfluenceDistance(
+      const MinimumDistanceConstraint& constraint, const Eigen::Vector3d& p_WB1,
+      const Eigen::Vector3d p_WB2) const {
+    DRAKE_DEMAND(std::isfinite(constraint.minimum_distance_lower()));
+    DRAKE_DEMAND(std::isfinite(constraint.minimum_distance_upper()));
+    const Eigen::Quaterniond sphere1_quaternion(1, 0, 0, 0);
+    const Eigen::Quaterniond sphere2_quaternion(1, 0, 0, 0);
+    Eigen::Matrix<double, kNumPositionsForTwoFreeBodies, 1> q;
+    q << QuaternionToVectorWxyz(sphere1_quaternion), p_WB1,
+        QuaternionToVectorWxyz(sphere2_quaternion), p_WB2;
+    Eigen::VectorXd y_double(constraint.num_constraints());
+    constraint.Eval(q, &y_double);
+    Eigen::Matrix<AutoDiffXd, kNumPositionsForTwoFreeBodies, 1> q_autodiff =
+        math::InitializeAutoDiff(q);
+    AutoDiffVecXd y_autodiff(constraint.num_constraints());
+    constraint.Eval(q_autodiff, &y_autodiff);
+
+    EXPECT_FALSE(constraint.CheckSatisfied(q));
+    EXPECT_FALSE(constraint.CheckSatisfied(q_autodiff));
+    // Check that the value is strictly greater than 0.
+    EXPECT_GE(y_double(0), constraint.lower_bound()(0));
+    EXPECT_LE(y_double(0), constraint.upper_bound()(0));
+    EXPECT_FALSE(y_double(1) >= constraint.lower_bound()(1) &&
+                 y_double(1) <= constraint.upper_bound()(1));
+    CheckConstraintEvalNonsymbolic(constraint, q_autodiff, 1E-12);
+  }
+
+  void CheckConstraintEvalBetweenMinimumLowerAndUpperDistance(
+      const MinimumDistanceConstraint& constraint, const Eigen::Vector3d& p_WB1,
+      const Eigen::Vector3d& p_WB2) const {
+    DRAKE_DEMAND(std::isfinite(constraint.minimum_distance_lower()));
+    DRAKE_DEMAND(std::isfinite(constraint.minimum_distance_upper()));
+    const Eigen::Quaterniond sphere1_quaternion(1, 0, 0, 0);
+    const Eigen::Quaterniond sphere2_quaternion(1, 0, 0, 0);
+    Eigen::Matrix<double, kNumPositionsForTwoFreeBodies, 1> q;
+    q << QuaternionToVectorWxyz(sphere1_quaternion), p_WB1,
+        QuaternionToVectorWxyz(sphere2_quaternion), p_WB2;
+    Eigen::VectorXd y_double(constraint.num_constraints());
+    constraint.Eval(q, &y_double);
+    Eigen::Matrix<AutoDiffXd, kNumPositionsForTwoFreeBodies, 1> q_autodiff =
+        math::InitializeAutoDiff(q);
+    AutoDiffVecXd y_autodiff(constraint.num_constraints());
+    constraint.Eval(q_autodiff, &y_autodiff);
+
+    EXPECT_TRUE(constraint.CheckSatisfied(q));
+    EXPECT_TRUE(constraint.CheckSatisfied(q_autodiff));
+    CheckConstraintEvalNonsymbolic(constraint, q_autodiff, 1E-12);
+  }
+
+  void CheckConstraintEvalSmallerThanMinimumLowerDistance(
+      const MinimumDistanceConstraint& constraint, const Eigen::Vector3d& p_WB1,
+      const Eigen::Vector3d& p_WB2) const {
+    const Eigen::Quaterniond sphere1_quaternion(1, 0, 0, 0);
+    const Eigen::Quaterniond sphere2_quaternion(1, 0, 0, 0);
+    Eigen::Matrix<double, kNumPositionsForTwoFreeBodies, 1> q;
+    q << QuaternionToVectorWxyz(sphere1_quaternion), p_WB1,
+        QuaternionToVectorWxyz(sphere2_quaternion), p_WB2;
+    Eigen::VectorXd y_double(constraint.num_constraints());
+    constraint.Eval(q, &y_double);
+    Eigen::Matrix<AutoDiffXd, kNumPositionsForTwoFreeBodies, 1> q_autodiff =
+        math::InitializeAutoDiff(q);
+    AutoDiffVecXd y_autodiff(constraint.num_constraints());
+    constraint.Eval(q_autodiff, &y_autodiff);
+
+    EXPECT_FALSE(constraint.CheckSatisfied(q));
+    EXPECT_FALSE(constraint.CheckSatisfied(q_autodiff));
     CheckConstraintEvalNonsymbolic(constraint, q_autodiff, 1E-12);
   }
 
@@ -110,47 +164,64 @@ class TwoFreeSpheresMinimumDistanceTest : public TwoFreeSpheresTest {
     Eigen::Vector3d p_WB2(1.2, -0.4, 2.3);
     CheckConstraintEvalLargerThanInfluenceDistance(constraint, p_WB1, p_WB2);
 
-    // Distance between the spheres is larger than minimum_distance but less
-    // than influence_distance
+    // Distance between the spheres is larger than minimum_distance_upper but
+    // less than influence distance
+    p_WB1 << 0.2, 1.2, 0.3;
+    p_WB2 = p_WB1 + Eigen::Vector3d(1.0 / 3, 2.0 / 3, 2.0 / 3) *
+                        (radius1_ + radius2_ +
+                         0.5 * (constraint.minimum_distance_upper() +
+                                constraint.influence_distance()));
+
+    // Distance between the spheres is larger than minimum_distance_lower
+    // but less than minimum_distance_upper
     p_WB1 << 0.1, 0.2, 0.3;
     p_WB2 = p_WB1 + Eigen::Vector3d(1.0 / 3, 2.0 / 3, 2.0 / 3) *
                         (radius1_ + radius2_ +
-                         0.5 * (constraint.influence_distance() +
-                                constraint.minimum_distance()));
-    CheckConstraintEvalBetweenMinimumAndInfluenceDistance(constraint, p_WB1,
-                                                          p_WB2);
+                         0.5 * (constraint.minimum_distance_lower() +
+                                constraint.minimum_distance_upper()));
+    CheckConstraintEvalBetweenMinimumLowerAndUpperDistance(constraint, p_WB1,
+                                                           p_WB2);
 
     // Two spheres are colliding.
     p_WB1 << 0.1, 0.2, 0.3;
     p_WB2 << 0.11, 0.21, 0.31;
-    CheckConstraintEvalSmallerThanMinimumDistance(constraint, p_WB1, p_WB2);
+    CheckConstraintEvalSmallerThanMinimumLowerDistance(constraint, p_WB1,
+                                                       p_WB2);
 
     // Two spheres are separated, but their distance is smaller than
     // minimum_distance.
     p_WB1 << 0.1, 0.2, 0.3;
-    p_WB2 = p_WB1 +
-            Eigen::Vector3d(1.0 / 3, 2.0 / 3, 2.0 / 3) *
-                (radius1_ + radius2_ + 0.5 * constraint.minimum_distance());
+    p_WB2 = p_WB1 + Eigen::Vector3d(1.0 / 3, 2.0 / 3, 2.0 / 3) *
+                        (radius1_ + radius2_ +
+                         0.5 * constraint.minimum_distance_lower());
 
-    CheckConstraintEvalSmallerThanMinimumDistance(constraint, p_WB1, p_WB2);
+    CheckConstraintEvalSmallerThanMinimumLowerDistance(constraint, p_WB1,
+                                                       p_WB2);
   }
 };
 
 TEST_F(TwoFreeSpheresMinimumDistanceTest, ExponentialPenalty) {
-  const double minimum_distance(0.1);
+  const double minimum_distance_lower{0.1};
+  const double minimum_distance_upper{0.2};
+  const double influence_distance{1.0};
   const MinimumDistanceConstraint constraint(
-      plant_double_, minimum_distance, plant_context_double_,
-      solvers::ExponentiallySmoothedHingeLoss);
+      plant_double_, minimum_distance_lower, minimum_distance_upper,
+      plant_context_double_, solvers::ExponentiallySmoothedHingeLoss,
+      influence_distance);
   CheckConstraintBounds(constraint);
 
   CheckConstraintEval(constraint);
 }
 
 TEST_F(TwoFreeSpheresMinimumDistanceTest, QuadraticallySmoothedHingePenalty) {
-  const double minimum_distance(0.1);
+  const double minimum_distance_lower{0.1};
+  const double minimum_distance_upper{0.2};
+  const double influence_distance{1.0};
   // The default penalty type is smoothed hinge.
-  const MinimumDistanceConstraint constraint(plant_double_, minimum_distance,
-                                             plant_context_double_);
+  const MinimumDistanceConstraint constraint(
+      plant_double_, minimum_distance_lower, minimum_distance_upper,
+      plant_context_double_, solvers::QuadraticallySmoothedHingeLoss,
+      influence_distance);
 
   CheckConstraintBounds(constraint);
 
@@ -196,23 +267,28 @@ GTEST_TEST(MinimumDistanceConstraintTest, MultibodyPlantWithoutCollisionPairs) {
 TEST_F(TwoFreeSpheresTest, NonpositiveInfluenceDistanceOffset) {
   DRAKE_EXPECT_THROWS_MESSAGE(
       MinimumDistanceConstraint(plant_double_, 0.1, plant_context_double_, {},
-                                0.0),
-      "MinimumDistanceConstraint: influence_distance_offset must be positive.");
-  DRAKE_EXPECT_THROWS_MESSAGE(
-      MinimumDistanceConstraint(plant_double_, 0.1, plant_context_double_, {},
-                                -0.1),
-      "MinimumDistanceConstraint: influence_distance_offset must be positive.");
+                                -0.05),
+      "MinimumDistanceConstraint: influence_distance=0.05, must be larger than "
+      "minimum_distance_lower=0.1; equivalently, "
+      "influence_distance_offset=-0.05, but it "
+      "needs to be positive.");
+  // We've already tested the message contents for a *smaller* influence
+  // distance. We'll assume the message is the same for an equal distance and
+  // just confirm the throw.
+  EXPECT_THROW(MinimumDistanceConstraint(plant_double_, 0.1,
+                                         plant_context_double_, {}, 0.0),
+               std::exception);
 }
 
 TEST_F(TwoFreeSpheresTest, NonfiniteInfluenceDistanceOffset) {
   DRAKE_EXPECT_THROWS_MESSAGE(
       MinimumDistanceConstraint(plant_double_, 0.1, plant_context_double_, {},
                                 std::numeric_limits<double>::infinity()),
-      "MinimumDistanceConstraint: influence_distance_offset must be finite.");
+      "MinimumDistanceConstraint: influence_distance must be finite.");
   DRAKE_EXPECT_THROWS_MESSAGE(
       MinimumDistanceConstraint(plant_double_, 0.1, plant_context_double_, {},
                                 std::numeric_limits<double>::quiet_NaN()),
-      "MinimumDistanceConstraint: influence_distance_offset must be finite.");
+      "MinimumDistanceConstraint: influence_distance must be finite.");
 }
 
 template <typename T>
@@ -235,15 +311,15 @@ TEST_F(BoxSphereTest, Test) {
                                          plant_context_double_,
                                          penalty_function);
 
-    auto check_eval_autodiff =
-        [&constraint](const Eigen::VectorXd& q_val,
-                      const Eigen::MatrixXd& q_gradient, double tol,
-                      const Eigen::Vector3d& box_size, double radius) {
-          AutoDiffVecXd x_autodiff =
-              math::InitializeAutoDiff(q_val, q_gradient);
+    auto check_eval_autodiff = [&constraint](const Eigen::VectorXd& q_val,
+                                             const Eigen::MatrixXd& q_gradient,
+                                             double tol,
+                                             const Eigen::Vector3d& box_size,
+                                             double radius) {
+      AutoDiffVecXd x_autodiff = math::InitializeAutoDiff(q_val, q_gradient);
 
-          CheckConstraintEvalNonsymbolic(constraint, x_autodiff, tol);
-        };
+      CheckConstraintEvalNonsymbolic(constraint, x_autodiff, tol);
+    };
 
     Eigen::VectorXd q(kNumPositionsForTwoFreeBodies);
     // First check q with normalized quaternion.
@@ -400,6 +476,132 @@ GTEST_TEST(ThreeSpheresTest, SomeLargerThanInfluenceSomeSmallerThanMinimum) {
     dut.Eval(q, &y_val);
     EXPECT_TRUE((y_val.array() < dut.lower_bound().array()).any() ||
                 (y_val.array() > dut.upper_bound().array()).any());
+  }
+}
+
+TEST_F(SpheresAndWallsTest, TestWithCollisionChecker) {
+  // Test MinimumDistanceConstraint constructed with CollisionChecker.
+  planning::CollisionCheckerParams params;
+  params.model = builder_.Build();
+  params.robot_model_instances.push_back(multibody::default_model_instance());
+  auto quaternion_difference = [](const Eigen::Ref<const Eigen::Vector4d>& q1,
+                                  const Eigen::Ref<const Eigen::Vector4d>& q2) {
+    // Compute 1-cos(theta/2) where theta is the angle between the two
+    // quaternions.
+    return 1 - (Eigen::Quaterniond(q1(0), q1(1), q1(2), q1(3)).conjugate() *
+                Eigen::Quaterniond(q2(0), q2(1), q2(2), q2(3)))
+                   .w();
+  };
+  params.configuration_distance_function = [quaternion_difference](
+                                               const Eigen::VectorXd& q1,
+                                               const Eigen::VectorXd& q2) {
+    return quaternion_difference(q1.head<4>(), q2.head<4>()) +
+           quaternion_difference(q1.segment<4>(7), q2.segment<4>(7)) +
+           (q1.segment<3>(4) - q2.segment<3>(4)).norm() +
+           (q1.segment<3>(11) - q2.segment<3>(11)).norm();
+  };
+  params.edge_step_size = 0.05;
+  planning::SceneGraphCollisionChecker collision_checker(std::move(params));
+  auto collision_checker_context =
+      collision_checker.MakeStandaloneModelContext();
+  double influence_distance = 0.2;
+  auto check_constraint = [&collision_checker](
+                              const MinimumDistanceConstraint& dut,
+                              const Eigen::Vector3d& p_WS1,
+                              const Eigen::Vector3d& p_WS2, bool is_satisfied) {
+    Eigen::VectorXd q(collision_checker.plant().num_positions());
+    // sphere 1 quaternion.
+    q.head<4>() << 1, 0, 0, 0;
+    q.segment<3>(4) = p_WS1;
+    // sphere 2 quaternion.
+    q.segment<4>(7) << 1, 0, 0, 0;
+    q.tail<3>() = p_WS2;
+    EXPECT_EQ(dut.CheckSatisfied(q), is_satisfied);
+    // Make sure the gradient is correct.
+    const AutoDiffVecXd q_ad = math::InitializeAutoDiff(q);
+    AutoDiffVecXd y_ad;
+    dut.Eval(q_ad, &y_ad);
+
+    math::NumericalGradientOption options(
+        math::NumericalGradientMethod::kCentral);
+    const Eigen::MatrixXd grad_numeric =
+        math::ComputeNumericalGradient<Eigen::VectorXd, Eigen::VectorXd,
+                                       Eigen::VectorXd>(
+            [&dut](const Eigen::VectorXd& x, Eigen::VectorXd* y) {
+              dut.Eval(x, y);
+            },
+            q, options);
+    EXPECT_TRUE(
+        CompareMatrices(math::ExtractGradient(y_ad), grad_numeric, 1E-7));
+  };
+
+  {
+    // We provide both minimum_distance_lower and minimum_distance_upper.
+    double minimum_distance_lower = 0.05;
+    double minimum_distance_upper = 0.15;
+    MinimumDistanceConstraint dut(
+        &collision_checker, minimum_distance_lower, minimum_distance_upper,
+        collision_checker_context.get(),
+        solvers::QuadraticallySmoothedHingeLoss, influence_distance);
+    EXPECT_EQ(dut.num_constraints(), 2);
+    EXPECT_EQ(dut.num_vars(), collision_checker.plant().num_positions());
+
+    // The two spheres almost coincide (do not set the two spheres to exactly
+    // coincide as the distance jacobian is ill defined at that point).
+    check_constraint(dut, Eigen::Vector3d(0, 0, 0), Eigen::Vector3d(1E-4, 0, 0),
+                     false);
+    // The two spheres are separated, but the distance is smaller than
+    // minimum_distance_lower
+    check_constraint(
+        dut, Eigen::Vector3d(0, 0, 0),
+        Eigen::Vector3d(0.9 * minimum_distance_lower + 2 * radius_, 0, 0),
+        false);
+    // The distance between the two spheres is between minimum_distance_lower
+    // and minimum_distance_upper.
+    check_constraint(
+        dut, Eigen::Vector3d(0, 0, 0),
+        Eigen::Vector3d(
+            (minimum_distance_lower + minimum_distance_upper) / 2 + 2 * radius_,
+            0, 0),
+        true);
+    // The distance between the two spheres is above minimum_distance_upper.
+    check_constraint(
+        dut, Eigen::Vector3d(0, 0, 0),
+        Eigen::Vector3d(minimum_distance_upper + 2 * radius_ + 1E-3, 0, 0),
+        false);
+    // The distance between the two spheres is above minimum_distance_upper, but
+    // the distance between sphere 2 and the right wall is between
+    // minimum_distance_lower and minimum_distance_upper.
+    check_constraint(
+        dut, Eigen::Vector3d(0, 0, 0),
+        Eigen::Vector3d(
+            wall_length_ / 2 -
+                (minimum_distance_lower + minimum_distance_upper) / 2 - radius_,
+            0, 0),
+        true);
+  }
+
+  {
+    // Only specify minimum_distance_lower.
+    double minimum_distance = 0.05;
+    MinimumDistanceConstraint dut(&collision_checker, minimum_distance,
+                                  collision_checker_context.get());
+    EXPECT_EQ(dut.num_constraints(), 1);
+    EXPECT_EQ(dut.num_vars(), collision_checker.plant().num_positions());
+
+    // The two spheres almost coincide (do not set the two spheres to exactly
+    // coincide as the distance jacobian is ill defined at that point).
+    check_constraint(dut, Eigen::Vector3d(0, 0, 0), Eigen::Vector3d(1E-4, 0, 0),
+                     false);
+    // The two spheres are separated, but the distance is smaller than
+    // minimum_distance_lower.
+    check_constraint(
+        dut, Eigen::Vector3d(0, 0, 0),
+        Eigen::Vector3d(0.9 * minimum_distance + 2 * radius_, 0, 0), false);
+    // The distance between the two spheres is above minimum_distance.
+    check_constraint(
+        dut, Eigen::Vector3d(0, 0, 0),
+        Eigen::Vector3d(1.1 * minimum_distance + 2 * radius_, 0, 0), true);
   }
 }
 }  // namespace multibody

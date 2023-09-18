@@ -4,10 +4,11 @@
 
 #include "drake/common/eigen_types.h"
 #include "drake/common/test_utilities/eigen_matrix_compare.h"
+#include "drake/common/test_utilities/expect_throws_message.h"
 #include "drake/math/rigid_transform.h"
 #include "drake/math/rotation_matrix.h"
+#include "drake/multibody/tree/ball_rpy_joint.h"
 #include "drake/multibody/tree/multibody_tree-inl.h"
-#include "drake/multibody/tree/multibody_tree_system.h"
 #include "drake/multibody/tree/test/mobilizer_tester.h"
 #include "drake/systems/framework/context.h"
 
@@ -33,8 +34,8 @@ class SpaceXYZMobilizerTest :  public MobilizerTester {
   // Creates a simple model consisting of a single body with a space xyz
   // mobilizer connecting it to the world.
   void SetUp() override {
-    mobilizer_ = &AddMobilizerAndFinalize(
-        std::make_unique<SpaceXYZMobilizer<double>>(
+    mobilizer_ = &AddJointAndFinalize<BallRpyJoint, SpaceXYZMobilizer>(
+        std::make_unique<BallRpyJoint<double>>("joint0",
             tree().world_body().body_frame(), body_->body_frame()));
   }
 
@@ -110,6 +111,8 @@ TEST_F(SpaceXYZMobilizerTest, MapUsesN) {
   const Vector3d rpy_value(M_PI / 3, -M_PI / 3, M_PI / 5);
   mobilizer_->set_angles(context_.get(), rpy_value);
 
+  EXPECT_FALSE(mobilizer_->is_velocity_equal_to_qdot());
+
   // Set arbitrary v and MapVelocityToQDot.
   const Vector3<double> v = (Vector3<double>() << 1, 2, 3).finished();
   Vector3<double> qdot;
@@ -142,6 +145,24 @@ TEST_F(SpaceXYZMobilizerTest, MapUsesNplus) {
   EXPECT_TRUE(CompareMatrices(v, Nplus * qdot, kTolerance,
                               MatrixCompareType::relative));
 }
+
+TEST_F(SpaceXYZMobilizerTest, SingularityError) {
+  // Set state in singularity
+  const Vector3d rpy_value(M_PI / 3, M_PI / 2, M_PI / 5);
+  mobilizer_->set_angles(context_.get(), rpy_value);
+
+  // Set arbitrary qdot and MapVelocityToQDot.
+  const Vector3<double> v = (Vector3<double>() << 1, 2, 3).finished();
+  Vector3<double> qdot;
+  DRAKE_EXPECT_THROWS_MESSAGE(
+      mobilizer_->MapVelocityToQDot(*context_, v, &qdot), ".*singularity.*");
+
+  // Compute N.
+  MatrixX<double> N(3, 3);
+  DRAKE_EXPECT_THROWS_MESSAGE(mobilizer_->CalcNMatrix(*context_, &N),
+                              ".*singularity.*");
+}
+
 }  // namespace
 }  // namespace internal
 }  // namespace multibody

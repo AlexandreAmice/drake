@@ -13,8 +13,8 @@
 #include <vector>
 
 #include <Eigen/Dense>
-#include <drake_vendor/tinyxml2.h>
 #include <fmt/format.h>
+#include <tinyxml2.h>
 
 #include "drake/common/sorted_pair.h"
 #include "drake/math/rotation_matrix.h"
@@ -81,6 +81,7 @@ class UrdfParser {
   // reporting, and return values.
   std::optional<ModelInstanceIndex> Parse();
   void ParseBushing(XMLElement* node);
+  void ParseBallConstraint(XMLElement* node);
   void ParseFrame(XMLElement* node);
   void ParseTransmission(const JointEffortLimits& joint_effort_limits,
                          XMLElement* node);
@@ -160,84 +161,18 @@ SpatialInertia<double> UrdfParser::ExtractSpatialInertiaAboutBoExpressedInB(
     ParseScalarAttribute(mass, "value", &body_mass);
   }
 
-  // If physical validity checks fail below, return a prepared plausible
-  // inertia instead. Use a plausible guess for the mass, letting actual mass
-  // validity checking happen later.
-  const double plausible_dummy_mass =
-      (std::isfinite(body_mass) && body_mass > 0.0) ? body_mass : 1.0;
-  // Construct a dummy inertia for a solid sphere, with the density of water,
-  // and radius deduced from the plausible mass.
-  static constexpr double kPlausibleDensity{1000};  // Water is 1000 kg/m³.
-  const double plausible_volume = plausible_dummy_mass / kPlausibleDensity;
-  // Volume = (4/3)π(radius)³, so radius = ³√(3/(4π))(volume).
-  const double plausible_radius =
-      std::cbrt((3.0 / (4.0 * M_PI)) * plausible_volume);
-  // Create Mdum_BBo_B, a plausible spatial inertia for B about Bo (B's origin).
-  // To do this, create Mdum_BBcm (a plausible spatial inertia for B about
-  // Bcm) as a solid sphere and then shift that spatial inertia from Bcm to Bo.
-  // Note: It is unwise to directly create a solid sphere about Bo as this does
-  // not guarantee that the spatial inertia about Bcm is valid. Bcm (B's center
-  // of mass) is the ground-truth point for validity tests.
-  const SpatialInertia<double> Mdum_BBcm =
-    SpatialInertia<double>::SolidSphereWithDensity(
-       kPlausibleDensity, plausible_radius);
-  // Bi's origin is at the COM as documented in
-  // http://wiki.ros.org/urdf/XML/link#Elements
-  const Vector3d& p_BoBcm_B = X_BBi.translation();
-  const SpatialInertia<double> Mdum_BBo_B = Mdum_BBcm.Shift(-p_BoBcm_B);
-
-  double ixx = 0;
-  double ixy = 0;
-  double ixz = 0;
-  double iyy = 0;
-  double iyz = 0;
-  double izz = 0;
-
+  InertiaInputs inputs;
   XMLElement* inertia = node->FirstChildElement("inertia");
   if (inertia) {
-    ParseScalarAttribute(inertia, "ixx", &ixx);
-    ParseScalarAttribute(inertia, "ixy", &ixy);
-    ParseScalarAttribute(inertia, "ixz", &ixz);
-    ParseScalarAttribute(inertia, "iyy", &iyy);
-    ParseScalarAttribute(inertia, "iyz", &iyz);
-    ParseScalarAttribute(inertia, "izz", &izz);
+    ParseScalarAttribute(inertia, "ixx", &inputs.ixx);
+    ParseScalarAttribute(inertia, "ixy", &inputs.ixy);
+    ParseScalarAttribute(inertia, "ixz", &inputs.ixz);
+    ParseScalarAttribute(inertia, "iyy", &inputs.iyy);
+    ParseScalarAttribute(inertia, "iyz", &inputs.iyz);
+    ParseScalarAttribute(inertia, "izz", &inputs.izz);
   }
-
-  // Yes, catching exceptions violates the coding standard. It is done here to
-  // capture math-aware exceptions into parse-time warnings, since non-physical
-  // inertias are all too common, and the thrown messages are actually pretty
-  // useful.
-  RotationalInertia<double> I_BBcm_Bi;
-  try {
-    // Use the factory method here; it doesn't change its diagnostic behavior
-    // between release and debug builds.
-    I_BBcm_Bi = RotationalInertia<double>::MakeFromMomentsAndProductsOfInertia(
-            ixx, iyy, izz, ixy, ixz, iyz);
-  } catch (const std::exception& e) {
-    Warning(*node, e.what());
-    return Mdum_BBo_B;
-  }
-
-  // If this is a massless body, return a zero SpatialInertia.
-  if (body_mass == 0.0 && I_BBcm_Bi.get_moments().isZero() &&
-      I_BBcm_Bi.get_products().isZero()) {
-    return SpatialInertia<double>(
-        0.0, Vector3d::Zero(), UnitInertia<double>{0.0, 0.0, 0.0});
-  }
-  // B and Bi are not necessarily aligned.
-  const math::RotationMatrix<double> R_BBi(X_BBi.rotation());
-
-  // Re-express in frame B as needed.
-  const RotationalInertia<double> I_BBcm_B = I_BBcm_Bi.ReExpress(R_BBi);
-
-  try {
-    return SpatialInertia<double>::MakeFromCentralInertia(
-        body_mass, p_BoBcm_B, I_BBcm_B);
-  } catch (const std::exception& e) {
-    Warning(*node, e.what());
-    return Mdum_BBo_B;
-  }
-  DRAKE_UNREACHABLE();
+  return ParseSpatialInertia(diagnostic_.MakePolicyForNode(node),
+                             X_BBi, body_mass, inputs);
 }
 
 void UrdfParser::ParseBody(XMLElement* node, MaterialMap* materials) {
@@ -646,9 +581,13 @@ void UrdfParser::ParseJoint(
     // e.g., revolute joint.  Here, we still set F to be coincident with M at
     // the zero state of the joint, but they are not necessarily coincident with
     // B. Instead, we let Mz_B to be specified by the parsed axis, and we let M
-    // and B have the same origin.
-    const Vector3d& Mz_B = axis;
-    const RotationMatrixd R_BM = RotationMatrixd::MakeFromOneVector(Mz_B, 2);
+    // and B have the same origin. Note that, in addition, this does not
+    // uniquely determine M or F, we still have the freedom to choose the x (or
+    // the y) axis to uniquely characterize M and F. Here we choose the M so
+    // that it's as close to B as possible.
+    const RotationMatrixd R_BM =
+        RotationMatrixd::MakeClosestRotationToIdentityFromUnitZ(
+            axis);  // axis is normalized above.
     const RigidTransformd X_BM = RigidTransformd(R_BM, Vector3d::Zero());
     const RigidTransformd X_PM = X_PB * X_BM;
     const RigidTransformd& X_PF = X_PM;
@@ -976,6 +915,63 @@ void UrdfParser::ParseBushing(XMLElement* node) {
   ParseLinearBushingRollPitchYaw(read_vector, read_frame, w_.plant);
 }
 
+void UrdfParser::ParseBallConstraint(XMLElement* node) {
+  // Functor to read a child element with a vector valued `value` attribute.
+  // Returns a zero vector if unable to find the tag or if the value attribute
+  // is improperly formed.
+  auto read_vector = [node, this](const char* element_name) -> Eigen::Vector3d {
+    const XMLElement* value_node = node->FirstChildElement(element_name);
+    if (value_node != nullptr) {
+      Eigen::Vector3d value;
+      if (ParseVectorAttribute(value_node, "value", &value)) {
+        return value;
+      } else {
+        Error(*node, fmt::format("Unable to read the 'value' attribute for the"
+                                 " <{}> tag",
+                                 element_name));
+        return Eigen::Vector3d::Zero();
+      }
+    } else {
+      Error(*node, fmt::format("Unable to find the <{}> tag", element_name));
+      return Eigen::Vector3d::Zero();
+    }
+  };
+
+  // Functor to read a child element with a string-valued `name` attribute.
+  // Returns nullptr if unable to find the tag, if the name attribute is
+  // improperly formed, or if it does not refer to a frame already in the
+  // model.
+  auto read_body =
+      [node, this](const char* element_name) -> const Body<double>* {
+    XMLElement* value_node = node->FirstChildElement(element_name);
+
+    if (value_node != nullptr) {
+      std::string body_name;
+      auto plant = w_.plant;
+      if (ParseStringAttribute(value_node, "name", &body_name)) {
+        if (!plant->HasBodyNamed(body_name, model_instance_)) {
+          Error(*value_node, fmt::format("Body: {} specified for <{}> does not"
+                                         " exist in the model.",
+                                         body_name, element_name));
+          return {};
+        }
+        return &plant->GetBodyByName(body_name, model_instance_);
+      } else {
+        Error(*value_node, fmt::format("Unable to read the 'name' attribute for"
+                                       " the <{}> tag",
+                                       element_name));
+        return {};
+      }
+
+    } else {
+      Error(*node, fmt::format("Unable to find the <{}> tag", element_name));
+      return {};
+    }
+  };
+
+  internal::ParseBallConstraint(read_vector, read_body, w_.plant);
+}
+
 std::optional<ModelInstanceIndex> UrdfParser::Parse() {
   XMLElement* node = xml_doc_->FirstChildElement("robot");
   if (!node) {
@@ -1062,6 +1058,15 @@ std::optional<ModelInstanceIndex> UrdfParser::Parse() {
        bushing_node; bushing_node = bushing_node->NextSiblingElement(
                          "drake:linear_bushing_rpy")) {
     ParseBushing(bushing_node);
+  }
+
+  // Parses the model's custom Drake ball constraint tags.
+  for (XMLElement* ball_constraint_node =
+           node->FirstChildElement("drake:ball_constraint");
+       ball_constraint_node;
+       ball_constraint_node =
+           ball_constraint_node->NextSiblingElement("drake:ball_constraint")) {
+    ParseBallConstraint(ball_constraint_node);
   }
 
   return model_instance_;

@@ -9,6 +9,7 @@
 
 #include <gtest/gtest.h>
 
+#include "drake/geometry/optimization/cspace_free_box.h"
 #include "drake/geometry/optimization/cspace_free_polytope.h"
 #include "drake/geometry/scene_graph.h"
 #include "drake/multibody/plant/multibody_plant.h"
@@ -125,7 +126,7 @@ class CspaceFreePolytopeTester {
       SortedPair<multibody::BodyIndex>,
       std::array<VectorX<symbolic::Monomial>, 4>>&
   map_body_to_monomial_basis_array() const {
-    return cspace_free_polytope_->map_body_to_monomial_basis_array_;
+    return cspace_free_polytope_->map_body_to_monomial_basis_array();
   }
 
   [[nodiscard]] CspaceFreePolytope::SeparationCertificateProgram
@@ -195,6 +196,81 @@ class CspaceFreePolytopeTester {
  private:
   std::unique_ptr<CspaceFreePolytope> cspace_free_polytope_;
 };
+
+class CspaceFreeBoxTester {
+ public:
+  CspaceFreeBoxTester(
+      const multibody::MultibodyPlant<double>* plant,
+      const geometry::SceneGraph<double>* scene_graph,
+      SeparatingPlaneOrder plane_order,
+      const CspaceFreeBox::Options& options = CspaceFreeBox::Options{})
+      : cspace_free_box_(plant, scene_graph, plane_order, options) {}
+
+  const CspaceFreeBox& cspace_free_box() const { return cspace_free_box_; }
+
+  void ComputeSBox(const Eigen::Ref<const Eigen::VectorXd>& q_box_lower,
+                   const Eigen::Ref<const Eigen::VectorXd>& q_box_upper,
+                   Eigen::VectorXd* s_box_lower, Eigen::VectorXd* s_box_upper,
+                   Eigen::VectorXd* q_star) const {
+    return cspace_free_box_.ComputeSBox(q_box_lower, q_box_upper, s_box_lower,
+                                        s_box_upper, q_star);
+  }
+
+  struct PolynomialsToCertify {
+    CspaceFreeBox::PolynomialsToCertify data;
+  };
+
+  void GeneratePolynomialsToCertify(
+      const Eigen::Ref<const Eigen::VectorXd>& s_box_lower,
+      const Eigen::Ref<const Eigen::VectorXd>& s_box_upper,
+      const Eigen::Ref<const Eigen::VectorXd>& q_star,
+      const CspaceFreeBox::IgnoredCollisionPairs& ignored_collision_pairs,
+      PolynomialsToCertify* certify_polynomials) const {
+    return cspace_free_box_.GeneratePolynomialsToCertify(
+        s_box_lower, s_box_upper, q_star, ignored_collision_pairs,
+        &(certify_polynomials->data));
+  }
+
+  [[nodiscard]] CspaceFreeBox::SeparationCertificateProgram
+  ConstructPlaneSearchProgram(
+      const PlaneSeparatesGeometries& plane_geometries,
+      const VectorX<symbolic::Polynomial>& s_minus_s_lower,
+      const VectorX<symbolic::Polynomial>& s_upper_minus_s) const {
+    return cspace_free_box_.ConstructPlaneSearchProgram(
+        plane_geometries, s_minus_s_lower, s_upper_minus_s);
+  }
+
+  [[nodiscard]] std::vector<
+      std::optional<CspaceFreeBox::SeparationCertificateResult>>
+  FindSeparationCertificateGivenBox(
+      const CspaceFreeBox::IgnoredCollisionPairs& ignored_collision_pairs,
+      const Eigen::Ref<const Eigen::VectorXd>& q_box_lower,
+      const Eigen::Ref<const Eigen::VectorXd>& q_box_upper,
+      const FindSeparationCertificateOptions& options) const {
+    return cspace_free_box_.FindSeparationCertificateGivenBox(
+        ignored_collision_pairs, q_box_lower, q_box_upper, options);
+  }
+
+ private:
+  CspaceFreeBox cspace_free_box_;
+};
+
+// Returns true if the posture is in collision.
+bool InCollision(const multibody::MultibodyPlant<double>& plant,
+                 const systems::Context<double>& plant_context);
+
+// Evaluate the polynomial at a batch of samples, check if all evaluated results
+// are positive.
+// @param x_samples Each column is a sample of indeterminates.
+void CheckPositivePolynomialBySamples(
+    const symbolic::Polynomial& poly,
+    const Eigen::Ref<const VectorX<symbolic::Variable>>& indeterminates,
+    const Eigen::Ref<const Eigen::MatrixXd>& x_samples);
+
+// Solve an sos program to check if a polynomial is sos.
+// @param tol We seek another polynomial p2 being sos, and the difference
+// between p1's coefficient and p2's coefficient is less than tol.
+bool IsPolynomialSos(const symbolic::Polynomial& p, double tol);
 
 }  // namespace optimization
 }  // namespace geometry

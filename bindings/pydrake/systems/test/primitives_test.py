@@ -5,7 +5,7 @@ import numpy as np
 from pydrake.autodiffutils import AutoDiffXd
 from pydrake.common import RandomDistribution, RandomGenerator
 from pydrake.common.test_utilities import numpy_compare
-from pydrake.common.value import AbstractValue
+from pydrake.common.value import Value
 from pydrake.symbolic import Expression, Variable
 from pydrake.systems.framework import (
     BasicVector,
@@ -56,7 +56,7 @@ from pydrake.systems.primitives import (
     SymbolicVectorSystem, SymbolicVectorSystem_,
     TrajectoryAffineSystem, TrajectoryAffineSystem_,
     TrajectoryLinearSystem, TrajectoryLinearSystem_,
-    TrajectorySource,
+    TrajectorySource, TrajectorySource_,
     VectorLog, VectorLogSink, VectorLogSink_,
     WrapToSystem, WrapToSystem_,
     ZeroOrderHold, ZeroOrderHold_,
@@ -109,6 +109,7 @@ class TestGeneral(unittest.TestCase):
                                    supports_symbolic=False)
         self._check_instantiations(TrajectoryLinearSystem_,
                                    supports_symbolic=False)
+        self._check_instantiations(TrajectorySource_)
         self._check_instantiations(VectorLogSink_)
         self._check_instantiations(WrapToSystem_)
         self._check_instantiations(ZeroOrderHold_)
@@ -119,7 +120,7 @@ class TestGeneral(unittest.TestCase):
         B = np.array([[0], [1]])
         f0 = np.array([[0], [0]])
         C = np.array([[0, 1]])
-        D = [0]
+        D = [1]
         y0 = [0]
         system = LinearSystem(A, B, C, D)
         context = system.CreateDefaultContext()
@@ -181,6 +182,22 @@ class TestGeneral(unittest.TestCase):
         self.assertTrue((linearized.A() == A).all())
         taylor = FirstOrderTaylorApproximation(system, context)
         self.assertTrue((taylor.y0() == y0).all())
+
+        new_A = np.array([[1, 2], [3, 4]])
+        new_B = np.array([[5], [6]])
+        new_f0 = np.array([[7], [8]])
+        new_C = np.array([[9, 10]])
+        new_D = np.array([[11]])
+        new_y0 = np.array([12])
+        system.UpdateCoefficients(
+            A=new_A, B=new_B, f0=new_f0, C=new_C, D=new_D, y0=new_y0
+        )
+        np.testing.assert_equal(new_A, system.A())
+        np.testing.assert_equal(new_B, system.B())
+        np.testing.assert_equal(new_f0.flatten(), system.f0())
+        np.testing.assert_equal(new_C, system.C())
+        np.testing.assert_equal(new_D, system.D())
+        np.testing.assert_equal(new_y0, system.y0())
 
         system = MatrixGain(D=A)
         self.assertTrue((system.D() == A).all())
@@ -311,7 +328,7 @@ class TestGeneral(unittest.TestCase):
             model_value, system.get_output_port().Eval(context))
 
     def test_abstract_pass_through(self):
-        model_value = AbstractValue.Make("Hello world")
+        model_value = Value("Hello world")
         system = PassThrough(abstract_model_value=model_value)
         context = system.CreateDefaultContext()
         system.get_input_port(0).FixValue(context, model_value)
@@ -666,15 +683,17 @@ class TestGeneral(unittest.TestCase):
         """Tests construction of systems for systems whose executions semantics
         are not tested above.
         """
-        ConstantValueSource(AbstractValue.Make("Hello world"))
-        DiscreteTimeDelay(update_sec=0.1, delay_timesteps=5, vector_size=2)
+        ConstantValueSource(Value("Hello world"))
+        DiscreteTimeDelay(update_sec=0.1, delay_time_steps=5, vector_size=2)
         DiscreteTimeDelay(
-            update_sec=0.1, delay_timesteps=5,
-            abstract_model_value=AbstractValue.Make("Hello world"))
-        ZeroOrderHold(period_sec=0.1, vector_size=2)
-        ZeroOrderHold(
-            period_sec=0.1,
-            abstract_model_value=AbstractValue.Make("Hello world"))
+            update_sec=0.1, delay_time_steps=5,
+            abstract_model_value=Value("Hello world"))
+
+        ZeroOrderHold(period_sec=0.1, offset_sec=0.0, vector_size=2)
+        dut = ZeroOrderHold(period_sec=1.0, offset_sec=0.25,
+                            abstract_model_value=Value("Hello world"))
+        self.assertEqual(dut.period(), 1.0)
+        self.assertEqual(dut.offset(), 0.25)
 
     def test_shared_pointer_system_ctor(self):
         dut = SharedPointerSystem(value_to_hold=[1, 2, 3])

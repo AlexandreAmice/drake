@@ -4,7 +4,6 @@ import unittest
 from math import pi
 
 from pydrake.common.test_utilities import numpy_compare
-from pydrake.common.test_utilities.deprecation import catch_drake_warnings
 from pydrake.common.value import Value
 from pydrake.math import RigidTransform_
 from pydrake.symbolic import Expression
@@ -34,6 +33,8 @@ class TestGeometrySceneGraph(unittest.TestCase):
         global_frame = scene_graph.RegisterFrame(
             source_id=global_source,
             frame=mut.GeometryFrame("anchored_frame1"))
+        scene_graph.RenameFrame(frame_id=global_frame, name="something")
+        scene_graph.RenameFrame(frame_id=global_frame, name="anchored_frame1")
         scene_graph.RegisterFrame(
             source_id=global_source, parent_id=global_frame,
             frame=mut.GeometryFrame("anchored_frame2"))
@@ -48,6 +49,8 @@ class TestGeometrySceneGraph(unittest.TestCase):
             geometry=mut.GeometryInstance(X_PG=RigidTransform_[float](),
                                           shape=mut.Sphere(1.),
                                           name="sphere2"))
+        scene_graph.RenameGeometry(geometry_id=sphere_2, name="else")
+        scene_graph.RenameGeometry(geometry_id=sphere_2, name="sphere2")
         props = mut.ProximityProperties()
         mut.AddRigidHydroelasticProperties(resolution_hint=1, properties=props)
         scene_graph.AssignRole(source_id=global_source, geometry_id=sphere_2,
@@ -85,6 +88,7 @@ class TestGeometrySceneGraph(unittest.TestCase):
         inspector = scene_graph.model_inspector()
         self.assertEqual(inspector.num_sources(), 2)
         self.assertEqual(inspector.num_frames(), 3)
+        self.assertEqual(len(inspector.GetAllSourceIds()), 2)
         self.assertEqual(len(inspector.GetAllFrameIds()), 3)
         self.assertTrue(inspector.world_frame_id()
                         in inspector.GetAllFrameIds())

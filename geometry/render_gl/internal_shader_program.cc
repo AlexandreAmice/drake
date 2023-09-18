@@ -14,6 +14,7 @@ namespace render_gl {
 namespace internal {
 
 using Eigen::Vector3d;
+using math::RigidTransformd;
 
 namespace {
 
@@ -24,9 +25,9 @@ GLuint CompileShader(GLuint shader_type, const std::string& shader_code) {
   glCompileShader(shader_gl_id);
 
   // Check compilation result.
-  GLint result{0};
-  glGetShaderiv(shader_gl_id, GL_COMPILE_STATUS, &result);
-  if (!result) {
+  GLint is_compiled{0};
+  glGetShaderiv(shader_gl_id, GL_COMPILE_STATUS, &is_compiled);
+  if (is_compiled == GL_FALSE) {
     const std::string error_prefix =
         fmt::format("Error compiling {} shader: ",
                     shader_type == GL_VERTEX_SHADER ? "vertex" : "fragment");
@@ -45,47 +46,46 @@ GLuint CompileShader(GLuint shader_type, const std::string& shader_code) {
   return shader_gl_id;
 }
 
-}  // namespace
-
-void ShaderProgram::LoadFromSources(const std::string& vertex_shader_source,
-                                    const std::string& fragment_shader_source) {
-  // Compile.
-  GLuint vertex_shader_id =
-      CompileShader(GL_VERTEX_SHADER, vertex_shader_source);
-  GLuint fragment_shader_id =
-      CompileShader(GL_FRAGMENT_SHADER, fragment_shader_source);
-
+GLuint LinkProgram(GLuint vertex_id, GLuint fragment_id) {
   // Link.
-  gl_id_ = glCreateProgram();
-  glAttachShader(gl_id_, vertex_shader_id);
-  glAttachShader(gl_id_, fragment_shader_id);
-  glLinkProgram(gl_id_);
+  GLuint program_id = glCreateProgram();
+  glAttachShader(program_id, vertex_id);
+  glAttachShader(program_id, fragment_id);
+  glLinkProgram(program_id);
 
-  // Clean up.
-  glDetachShader(gl_id_, vertex_shader_id);
-  glDetachShader(gl_id_, fragment_shader_id);
-  glDeleteShader(vertex_shader_id);
-  glDeleteShader(fragment_shader_id);
+  // Partial clean up; we'll detach the shaders from the program, but we won't
+  // delete them so we can reuse them in cloning.
+  glDetachShader(program_id, vertex_id);
+  glDetachShader(program_id, fragment_id);
 
   // Check.
   GLint result{0};
-  glGetProgramiv(gl_id_, GL_LINK_STATUS, &result);
+  glGetProgramiv(program_id, GL_LINK_STATUS, &result);
   if (!result) {
     const std::string error_prefix = "Error linking shaders: ";
     std::string info("No further information available");
     int info_log_length;
-    glGetProgramiv(gl_id_, GL_INFO_LOG_LENGTH, &info_log_length);
+    glGetProgramiv(program_id, GL_INFO_LOG_LENGTH, &info_log_length);
     if (info_log_length > 0) {
       std::vector<char> error_message(info_log_length + 1);
-      glGetProgramInfoLog(gl_id_, info_log_length, NULL,
-                          &error_message[0]);
+      glGetProgramInfoLog(program_id, info_log_length, NULL, &error_message[0]);
       info = &error_message[0];
     }
     throw std::runtime_error(error_prefix + info);
   }
+  return program_id;
+}
 
-  projection_matrix_loc_ = GetUniformLocation("T_DC");
-  model_view_loc_ = GetUniformLocation("T_CM");
+}  // namespace
+
+void ShaderProgram::LoadFromSources(const std::string& vertex_shader_source,
+                                    const std::string& fragment_shader_source) {
+  vertex_id_ = CompileShader(GL_VERTEX_SHADER, vertex_shader_source);
+  fragment_id_ = CompileShader(GL_FRAGMENT_SHADER, fragment_shader_source);
+
+  gl_id_ = LinkProgram(vertex_id_, fragment_id_);
+
+  ConfigureUniforms();
 }
 
 namespace {
@@ -109,23 +109,26 @@ void ShaderProgram::SetProjectionMatrix(const Eigen::Matrix4f& T_DC) const {
   glUniformMatrix4fv(projection_matrix_loc_, 1, GL_FALSE, T_DC.data());
 }
 
-void ShaderProgram::SetModelViewMatrix(const Eigen::Matrix4f& X_CM,
+void ShaderProgram::SetModelViewMatrix(const Eigen::Matrix4f& X_CW,
+                                       const RigidTransformd& X_WG,
                                        const Vector3d& scale) const {
-  const Eigen::DiagonalMatrix<float, 4, 4> scale_mat(
+  const Eigen::DiagonalMatrix<float, 4, 4> S_GM(
       Vector4<float>(scale(0), scale(1), scale(2), 1.0));
+  const Eigen::Matrix4f X_WG_f = X_WG.GetAsMatrix4().cast<float>();
+  const Eigen::Matrix4f T_WM = X_WG_f * S_GM;
+  const Eigen::Matrix4f T_CM = X_CW * T_WM;
   // Our camera frame C wrt the OpenGL's camera frame Cgl.
   // clang-format off
-  static const Eigen::Matrix4f kX_CglC =
+  static const Eigen::Matrix4f kT_CglC =
       (Eigen::Matrix4f() << 1,  0,  0, 0,
                             0, -1,  0, 0,
                             0,  0, -1, 0,
                             0,  0,  0, 1)
           .finished();
   // clang-format on
-  const Eigen::Matrix4f X_CglM = kX_CglC * X_CM;
-  Eigen::Matrix4f T_CglM = X_CglM * scale_mat;
+  const Eigen::Matrix4f T_CglM = kT_CglC * T_CM;
   glUniformMatrix4fv(model_view_loc_, 1, GL_FALSE, T_CglM.data());
-  DoModelViewMatrix(X_CglM, scale);
+  DoSetModelViewMatrix(X_CW, T_WM, X_WG_f, scale);
 }
 
 GLint ShaderProgram::GetUniformLocation(const std::string& uniform_name) const {
@@ -137,7 +140,9 @@ GLint ShaderProgram::GetUniformLocation(const std::string& uniform_name) const {
   return id;
 }
 
-void ShaderProgram::Use() const { glUseProgram(gl_id_); }
+void ShaderProgram::Use() const {
+  glUseProgram(gl_id_);
+}
 
 void ShaderProgram::Unuse() const {
   GLint curr_program;
@@ -145,6 +150,23 @@ void ShaderProgram::Unuse() const {
   if (curr_program == static_cast<GLint>(gl_id_)) {
     glUseProgram(0);
   }
+}
+
+void ShaderProgram::Relink() {
+  DRAKE_ASSERT(glIsShader(vertex_id_));
+  gl_id_ = LinkProgram(vertex_id_, fragment_id_);
+  ConfigureUniforms();
+}
+
+void ShaderProgram::Free() {
+  DRAKE_ASSERT(glIsProgram(gl_id_));
+  glDeleteProgram(gl_id_);
+}
+
+void ShaderProgram::ConfigureUniforms() {
+  projection_matrix_loc_ = GetUniformLocation("T_DC");
+  model_view_loc_ = GetUniformLocation("T_CM");
+  DoConfigureUniforms();
 }
 
 }  // namespace internal

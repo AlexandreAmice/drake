@@ -3,6 +3,8 @@
 #include <limits>
 #include <utility>
 
+#include <gtest/gtest.h>
+
 #include "drake/geometry/optimization/convex_set.h"
 #include "drake/geometry/scene_graph.h"
 #include "drake/math/rigid_transform.h"
@@ -16,11 +18,14 @@ namespace internal {
 using math::RigidTransformd;
 
 std::tuple<std::unique_ptr<SceneGraph<double>>, GeometryId>
-MakeSceneGraphWithShape(const Shape& shape, const RigidTransformd& X_WG) {
+MakeSceneGraphWithShape(const Shape& shape, const RigidTransformd& X_WG,
+                        bool add_proximity_properties) {
   auto scene_graph = std::make_unique<SceneGraph<double>>();
   SourceId source_id = scene_graph->RegisterSource("test");
   auto instance = std::make_unique<GeometryInstance>(X_WG, shape.Clone(), "G");
-  instance->set_proximity_properties(ProximityProperties());
+  if (add_proximity_properties) {
+    instance->set_proximity_properties(ProximityProperties());
+  }
   GeometryId geom_id =
       scene_graph->RegisterAnchoredGeometry(source_id, std::move(instance));
   return std::tuple<std::unique_ptr<SceneGraph<double>>, GeometryId>(
@@ -32,7 +37,10 @@ bool CheckAddPointInSetConstraints(
     const ConvexSet& set, const Eigen::Ref<const Eigen::VectorXd>& point) {
   solvers::MathematicalProgram prog;
   auto x = prog.NewContinuousVariables(point.size());
-  set.AddPointInSetConstraints(&prog, x);
+  const auto [new_vars, new_constraints] =
+      set.AddPointInSetConstraints(&prog, x);
+  EXPECT_EQ(prog.num_vars(), x.rows() + new_vars.rows());
+  EXPECT_FALSE(new_constraints.empty());
   // x = point.
   prog.AddBoundingBoxConstraint(point, point, x);
   return solvers::Solve(prog).is_success();

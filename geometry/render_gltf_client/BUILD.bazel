@@ -98,8 +98,11 @@ drake_cc_library(
         "//geometry/render:render_camera",
         "//geometry/render:render_engine",
         "//systems/sensors:image",
-        "@picosha2",
-        "@vtk//:vtkIOImage",
+        "//systems/sensors:vtk_image_reader_writer",
+        "@picosha2_internal//:picosha2",
+        "@vtk_internal//:vtkCommonCore",
+        "@vtk_internal//:vtkCommonDataModel",
+        "@vtk_internal//:vtkIOImage",
     ],
 )
 
@@ -114,11 +117,29 @@ drake_cc_library(
     internal = True,
     visibility = ["//visibility:private"],
     deps = [
+        ":internal_merge_gltf",
         ":internal_render_client",
+        "//common:essential",
         "//geometry/render:render_camera",
         "//geometry/render_vtk:internal_render_engine_vtk",
         "//systems/sensors:image",
-        "@vtk//:vtkIOExport",
+        "@nlohmann_internal//:nlohmann",
+        "@vtk_internal//:vtkCommonCore",
+        "@vtk_internal//:vtkCommonMath",
+        "@vtk_internal//:vtkIOExport",
+        "@vtk_internal//:vtkRenderingCore",
+    ],
+)
+
+drake_cc_library(
+    name = "internal_merge_gltf",
+    srcs = ["internal_merge_gltf.cc"],
+    hdrs = ["internal_merge_gltf.h"],
+    internal = True,
+    visibility = ["//visibility:private"],
+    deps = [
+        "//common:essential",
+        "@nlohmann_internal//:nlohmann",
     ],
 )
 
@@ -148,6 +169,7 @@ drake_cc_googletest(
     name = "render_engine_gltf_client_params_test",
     deps = [
         ":render_engine_gltf_client_params",
+        "//common/yaml",
     ],
 )
 
@@ -179,6 +201,8 @@ filegroup(
         "test/test_depth_32F.tiff",
         "test/test_rgb_8U.png",
         "test/test_rgba_8U.png",
+        "test/tri.obj",
+        "test/tri_tree.gltf",
     ],
 )
 
@@ -188,6 +212,7 @@ drake_cc_library(
     srcs = ["test/internal_sample_image_data.cc"],
     hdrs = ["test/internal_sample_image_data.h"],
     deps = [
+        "//geometry/render:render_label",
         "//systems/sensors:image",
     ],
 )
@@ -203,6 +228,7 @@ drake_cc_googletest(
         "//common:find_resource",
         "//common/test_utilities:expect_no_throw",
         "//common/test_utilities:expect_throws_message",
+        "//systems/sensors/test_utilities:image_compare",
     ],
 )
 
@@ -215,8 +241,13 @@ drake_cc_googletest(
     deps = [
         ":internal_render_engine_gltf_client",
         ":internal_sample_image_data",
+        "//common/test_utilities:eigen_matrix_compare",
         "//common/test_utilities:expect_no_throw",
         "//common/test_utilities:expect_throws_message",
+        "//systems/sensors/test_utilities:image_compare",
+        "@nlohmann_internal//:nlohmann",
+        "@vtk_internal//:vtkCommonMath",
+        "@vtk_internal//:vtkRenderingCore",
     ],
 )
 
@@ -235,7 +266,6 @@ drake_cc_binary(
     testonly = True,
     srcs = ["test/server_vtk_backend.cc"],
     deps = [
-        "//geometry/render:render_label",
         "//geometry/render/shaders:depth_shaders",
         "//geometry/render_vtk:factory",
         "//geometry/render_vtk:internal_render_engine_vtk",
@@ -243,10 +273,12 @@ drake_cc_binary(
         "//systems/sensors:color_palette",
         "//systems/sensors:image",
         "@gflags",
-        "@vtk//:vtkIOImage",
-        "@vtk//:vtkIOImport",
-        "@vtk//:vtkRenderingCore",
-        "@vtk//:vtkRenderingOpenGL2",
+        "@vtk_internal//:vtkCommonCore",
+        "@vtk_internal//:vtkCommonMath",
+        "@vtk_internal//:vtkIOImage",
+        "@vtk_internal//:vtkIOImport",
+        "@vtk_internal//:vtkRenderingCore",
+        "@vtk_internal//:vtkRenderingOpenGL2",
     ],
 )
 
@@ -309,6 +341,27 @@ drake_py_unittest(
     ],
     deps = [
         "@bazel_tools//tools/python/runfiles",
+    ],
+)
+
+filegroup(
+    name = "merge_resources",
+    srcs = [
+        "test/red_box.gltf",
+        "test/textured_green_box.gltf",
+    ],
+)
+
+drake_cc_googletest(
+    name = "internal_merge_gltf_test",
+    data = [
+        ":merge_resources",
+    ],
+    deps = [
+        ":internal_merge_gltf",
+        "//common:find_resource",
+        "//common/test_utilities:eigen_matrix_compare",
+        "@nlohmann_internal//:nlohmann",
     ],
 )
 

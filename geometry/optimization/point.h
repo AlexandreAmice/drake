@@ -14,10 +14,15 @@ namespace optimization {
 /** A convex set that contains exactly one element.  Also known as a
 singleton or unit set.
 
+This set is always nonempty, even in the zero-dimensional case.
+
 @ingroup geometry_optimization */
 class Point final : public ConvexSet {
  public:
   DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(Point)
+
+  /** Constructs a default (zero-dimensional, nonempty) set. */
+  Point();
 
   /** Constructs a Point. */
   explicit Point(const Eigen::Ref<const Eigen::VectorXd>& x);
@@ -46,12 +51,19 @@ class Point final : public ConvexSet {
  private:
   std::unique_ptr<ConvexSet> DoClone() const final;
 
-  bool DoIsBounded() const final { return true; }
+  std::optional<bool> DoIsBoundedShortcut() const final;
+
+  /** A Point is always nonempty, even in the zero-dimensional case. */
+  bool DoIsEmpty() const final;
+
+  std::optional<Eigen::VectorXd> DoMaybeGetPoint() const final;
 
   bool DoPointInSet(const Eigen::Ref<const Eigen::VectorXd>& x,
                     double tol) const final;
 
-  void DoAddPointInSetConstraints(
+  std::pair<VectorX<symbolic::Variable>,
+            std::vector<solvers::Binding<solvers::Constraint>>>
+  DoAddPointInSetConstraints(
       solvers::MathematicalProgram*,
       const Eigen::Ref<const solvers::VectorXDecisionVariable>&) const final;
 
@@ -72,6 +84,8 @@ class Point final : public ConvexSet {
 
   std::pair<std::unique_ptr<Shape>, math::RigidTransformd> DoToShapeWithPose()
       const final;
+
+  double DoCalcVolume() const final { return 0.0; }
 
   // Implement support shapes for the ShapeReifier interface.
   using ShapeReifier::ImplementGeometry;

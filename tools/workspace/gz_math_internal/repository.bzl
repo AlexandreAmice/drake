@@ -9,8 +9,8 @@ def gz_math_internal_repository(
         # drake/tools/workspace/new_release.py.  When practical, all members
         # of this cohort should be updated at the same time.
         repository = "gazebosim/gz-math",
-        commit = "gz-math7_7.1.0",
-        sha256 = "3df09a16b84fa27fabf4955b5efb207f417ef9b0b5b801ae28cfda6d8e11765a",  # noqa
+        commit = "gz-math7_7.3.0",
+        sha256 = "320afb30f43727340718743c0f8d94e61e9c1083c17927701efe75087f9cc6d0",  # noqa
         build_file = ":package.BUILD.bazel",
         mirrors = mirrors,
     )

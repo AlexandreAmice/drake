@@ -339,24 +339,15 @@ class Joint : public MultibodyElement<T> {
   }
 
   /// Lock the joint. Its generalized velocities will be 0 until it is
-  /// unlocked. Locking is not yet supported for continuous-mode systems.
-  /// @throws std::exception if the parent model uses continuous state.
+  /// unlocked.
   void Lock(systems::Context<T>* context) const {
-    // Joint locking is only supported for discrete mode.
-    // TODO(sherm1): extend the design to support continuous-mode systems.
-    DRAKE_THROW_UNLESS(this->get_parent_tree().is_state_discrete());
     for (internal::Mobilizer<T>* mobilizer : implementation_->mobilizers_) {
       mobilizer->Lock(context);
     }
   }
 
-  /// Unlock the joint. Unlocking is not yet supported for continuous-mode
-  /// systems.
-  /// @throws std::exception if the parent model uses continuous state.
+  /// Unlock the joint.
   void Unlock(systems::Context<T>* context) const {
-    // Joint locking is only supported for discrete mode.
-    // TODO(sherm1): extend the design to support continuous-mode systems.
-    DRAKE_THROW_UNLESS(this->get_parent_tree().is_state_discrete());
     for (internal::Mobilizer<T>* mobilizer : implementation_->mobilizers_) {
       mobilizer->Unlock(context);
     }
@@ -512,6 +503,12 @@ class Joint : public MultibodyElement<T> {
     joint_clone->OwnImplementation(std::move(implementation_clone));
 
     return joint_clone;
+  }
+
+  const internal::Mobilizer<T>& GetMobilizerInUse() const {
+    // This implementation should only have one mobilizer.
+    DRAKE_DEMAND(get_implementation().num_mobilizers() == 1);
+    return *get_implementation().mobilizers_[0];
   }
 #endif
   // End of hidden Doxygen section.

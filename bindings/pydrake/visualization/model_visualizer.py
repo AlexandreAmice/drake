@@ -37,6 +37,7 @@ resources then you will need to set that environment variable.
 import argparse
 import logging
 import os
+from pathlib import Path
 
 from pydrake.visualization._model_visualizer import \
     ModelVisualizer as _ModelVisualizer
@@ -83,6 +84,21 @@ def _main():
         action="store_true",
         help="Visualize the frames as triads for all links.",
     )
+    assert defaults["show_rgbd_sensor"] is False
+    args_parser.add_argument(
+        "--show_rgbd_sensor",
+        action="store_true",
+        help="Add and show an RgbdSensor. At the moment, the image display "
+             "uses a native window so will not work in a remote or cloud "
+             "runtime environment.",
+    )
+    assert defaults["environment_map"] == Path()
+    args_parser.add_argument(
+        "--environment_map", default=Path(), type=Path,
+        help="Filesystem path to an image to be used as an environment map. "
+             "It must be an image type normally used by your browser (e.g., "
+             ".jpg, .png, etc.). HDR images are not supported yet."
+    )
 
     args_parser.add_argument(
         "--triad_length",
@@ -123,11 +139,13 @@ def _main():
         os.chdir(os.environ['BUILD_WORKING_DIRECTORY'])
 
     visualizer = _ModelVisualizer(visualize_frames=args.visualize_frames,
+                                  show_rgbd_sensor=args.show_rgbd_sensor,
                                   triad_length=args.triad_length,
                                   triad_radius=args.triad_radius,
                                   triad_opacity=args.triad_opacity,
                                   browser_new=args.browser_new,
-                                  pyplot=args.pyplot)
+                                  pyplot=args.pyplot,
+                                  environment_map=args.environment_map)
     package_map = visualizer.package_map()
     package_map.PopulateFromRosPackagePath()
     for item in args.filename:

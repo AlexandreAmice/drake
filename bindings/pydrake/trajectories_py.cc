@@ -1,9 +1,4 @@
-#include "pybind11/eigen.h"
 #include "pybind11/eval.h"
-#include "pybind11/numpy.h"
-#include "pybind11/operators.h"
-#include "pybind11/pybind11.h"
-#include "pybind11/stl.h"
 
 #include "drake/bindings/pydrake/common/default_scalars_pybind.h"
 #include "drake/bindings/pydrake/documentation_pybind.h"
@@ -240,8 +235,10 @@ struct Impl {
       cls  // BR
           .def(py::init<>())
           .def("value", &Class::value, py::arg("t"), cls_doc.value.doc)
-          .def(
-              "vector_values", &Class::vector_values, cls_doc.vector_values.doc)
+          .def("vector_values",
+              overload_cast_explicit<MatrixX<T>, const std::vector<T>&>(
+                  &Class::vector_values),
+              py::arg("t"), cls_doc.vector_values.doc)
           .def("has_derivative", &Class::has_derivative,
               cls_doc.has_derivative.doc)
           .def("EvalDerivative", &Class::EvalDerivative, py::arg("t"),
@@ -270,9 +267,13 @@ struct Impl {
               cls_doc.BernsteinBasis.doc)
           .def("control_points", &Class::control_points,
               cls_doc.control_points.doc)
+          .def("AsLinearInControlPoints", &Class::AsLinearInControlPoints,
+              py::arg("derivative_order") = 1,
+              cls_doc.AsLinearInControlPoints.doc)
           .def("GetExpression", &Class::GetExpression,
               py::arg("time") = symbolic::Variable("t"),
-              cls_doc.GetExpression.doc);
+              cls_doc.GetExpression.doc)
+          .def("ElevateOrder", &Class::ElevateOrder, cls_doc.ElevateOrder.doc);
       DefCopyAndDeepCopy(&cls);
     }
 

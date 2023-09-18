@@ -242,7 +242,7 @@ std::vector<GeometryId> GeometryState<T>::GetAllGeometryIds() const {
 template <typename T>
 unordered_set<GeometryId> GeometryState<T>::GetGeometryIds(
       const GeometrySet& geometry_set, const std::optional<Role>& role) const {
-  return CollectIds(geometry_set, role);
+  return CollectIds(geometry_set, role, CollisionFilterScope::kAll);
 }
 
 template <typename T>
@@ -317,6 +317,20 @@ GeometryState<T>::GetCollisionCandidates() const {
     }
   }
   return pairs;
+}
+
+template <typename T>
+std::vector<SourceId> GeometryState<T>::GetAllSourceIds() const {
+  std::vector<SourceId> result;
+  result.reserve(source_frame_id_map_.size());
+  result.push_back(self_source_);
+  for (const auto& [source_id, _] : source_names_) {
+    if (source_id != self_source_) {
+      result.push_back(source_id);
+    }
+  }
+  std::sort(result.begin() + 1, result.end());
+  return result;
 }
 
 template <typename T>
@@ -466,17 +480,27 @@ GeometryId GeometryState<T>::GetGeometryIdByName(
 
   if (count == 1) return result;
   if (count < 1) {
-    throw std::logic_error("The frame '" + frame_name + "' (" +
-        to_string(frame_id) + ") has no geometry with the role '" +
-        to_string(role) + "' and the canonical name '" + canonical_name + "'");
+    std::vector<std::string_view> names;
+    for (GeometryId geometry_id : frame.child_geometries()) {
+      const InternalGeometry& geometry = geometries_.at(geometry_id);
+      if (geometry.has_role(role)) {
+        names.emplace_back(geometry.name());
+      }
+    }
+    throw std::logic_error(fmt::format(
+        "The frame '{}' ({}) has no geometry with the role '{}' and the "
+        "canonical name '{}'. The names associated with this frame/role are "
+        "{{{}}}.",
+        frame_name, frame_id, role, canonical_name, fmt::join(names, ", ")));
   }
   // This case should only be possible for unassigned geometries - internal
   // invariants require unique names for actual geometries with the _same_
   // role on the same frame.
   DRAKE_DEMAND(role == Role::kUnassigned);
-  throw std::logic_error("The frame '" + frame_name + "' (" +
-      to_string(frame_id) + ") has multiple geometries with the role '" +
-      to_string(role) + "' and the canonical name '" + canonical_name + "'");
+  throw std::logic_error(
+      fmt::format("The frame '{}' ({}) has multiple geometries with the role "
+                  "'{}' and the canonical name '{}'",
+                  frame_name, frame_id, role, canonical_name));
 }
 
 template <typename T>
@@ -765,6 +789,34 @@ FrameId GeometryState<T>::RegisterFrame(SourceId source_id, FrameId parent_id,
 }
 
 template <typename T>
+void GeometryState<T>::RenameFrame(FrameId frame_id, const std::string& name) {
+  FindOrThrow(frame_id, frames_, [frame_id]() {
+    return "Cannot rename frame with invalid frame id: " +
+        to_string(frame_id);
+  });
+  InternalFrame& frame = frames_.at(frame_id);
+  const std::string old_name(frame.name());
+  if (old_name == name) { return; }
+
+  SourceId source_id = frame.source_id();
+
+  // Edit source_frame_name_map_.
+  FrameNameSet& f_name_set = source_frame_name_map_.at(source_id);
+  f_name_set.erase(old_name);
+  const auto& [iterator, was_inserted] =
+      f_name_set.insert(std::string(name));
+  if (!was_inserted) {
+    throw std::logic_error(
+        fmt::format("Renaming frame from '{}'"
+                    " to an already existing name '{}'",
+                    old_name, name));
+  }
+
+  // Edit internal frame object.
+  frame.set_name(name);
+}
+
+template <typename T>
 GeometryId GeometryState<T>::RegisterGeometry(
     SourceId source_id, FrameId frame_id,
     std::unique_ptr<GeometryInstance> geometry) {
@@ -830,6 +882,29 @@ GeometryId GeometryState<T>::RegisterDeformableGeometry(
   AssignAllDefinedRoles(source_id, std::move(geometry));
 
   return geometry_id;
+}
+
+template <typename T>
+void GeometryState<T>::RenameGeometry(GeometryId geometry_id,
+                                      const std::string& name) {
+  InternalGeometry* geometry = GetMutableGeometry(geometry_id);
+  if (geometry == nullptr) {
+    throw std::logic_error(
+        "Cannot rename geometry with invalid geometry id: "
+        + to_string(geometry_id));
+  }
+  if (geometry->name() == name) { return; }
+
+  // Check for name uniqueness in all assigned roles. Note: if the universe of
+  // roles grows, this iteration will need to grow as well.
+  for (Role role : {Role::kProximity, Role::kIllustration, Role::kPerception}) {
+    if (geometry->has_role(role)) {
+      ThrowIfNameExistsInRole(geometry->frame_id(), role, name);
+    }
+  }
+
+  // Edit internal geometry object.
+  geometry->set_name(name);
 }
 
 template <typename T>
@@ -969,11 +1044,13 @@ void GeometryState<T>::AssignRole(SourceId source_id, GeometryId geometry_id,
       ids_for_filtering.Add(geometry.frame_id());
       // Apply collision filter between geometry id and any geometries that have
       // been identified. If none have been identified, this makes no changes.
+      // Per public documentation of SceneGraph, we exclude deformable
+      // geometries and only filter among rigid geometries.
       geometry_engine_->collision_filter().Apply(
-          CollisionFilterDeclaration().ExcludeBetween(GeometrySet(geometry_id),
-                                                      ids_for_filtering),
-          [this](const GeometrySet& set) {
-            return this->CollectIds(set, Role::kProximity);
+          CollisionFilterDeclaration(CollisionFilterScope::kOmitDeformable)
+              .ExcludeBetween(GeometrySet(geometry_id), ids_for_filtering),
+          [this](const GeometrySet& set, CollisionFilterScope scope) {
+            return this->CollectIds(set, Role::kProximity, scope);
           },
           true /* is_invariant */);
     } break;
@@ -1204,7 +1281,8 @@ void GeometryState<T>::RenderColorImage(const ColorRenderCamera& camera,
                                         FrameId parent_frame,
                                         const RigidTransformd& X_PC,
                                         ImageRgba8U* color_image_out) const {
-  const RigidTransformd X_WC = GetDoubleWorldPose(parent_frame) * X_PC;
+  const RigidTransformd X_WC =
+      CalcCameraWorldPose(camera.core(), parent_frame, X_PC);
   const render::RenderEngine& engine =
       GetRenderEngineOrThrow(camera.core().renderer_name());
   // TODO(SeanCurtis-TRI): Invoke UpdateViewpoint() as part of a calc cache
@@ -1218,7 +1296,8 @@ void GeometryState<T>::RenderDepthImage(const DepthRenderCamera& camera,
                                         FrameId parent_frame,
                                         const RigidTransformd& X_PC,
                                         ImageDepth32F* depth_image_out) const {
-  const RigidTransformd X_WC = GetDoubleWorldPose(parent_frame) * X_PC;
+  const RigidTransformd X_WC =
+      CalcCameraWorldPose(camera.core(), parent_frame, X_PC);
   const render::RenderEngine& engine =
       GetRenderEngineOrThrow(camera.core().renderer_name());
   // See note in RenderColorImage() about this const cast.
@@ -1231,7 +1310,8 @@ void GeometryState<T>::RenderLabelImage(const ColorRenderCamera& camera,
                                         FrameId parent_frame,
                                         const RigidTransformd& X_PC,
                                         ImageLabel16I* label_image_out) const {
-  const RigidTransformd X_WC = GetDoubleWorldPose(parent_frame) * X_PC;
+  const RigidTransformd X_WC =
+      CalcCameraWorldPose(camera.core(), parent_frame, X_PC);
   const render::RenderEngine& engine =
       GetRenderEngineOrThrow(camera.core().renderer_name());
   // See note in RenderColorImage() about this const cast.
@@ -1248,13 +1328,20 @@ GeometryState<T>::ToAutoDiffXd() const {
 
 template <typename T>
 unordered_set<GeometryId> GeometryState<T>::CollectIds(
-    const GeometrySet& geometry_set, std::optional<Role> role) const {
+    const GeometrySet& geometry_set, std::optional<Role> role,
+    CollisionFilterScope scope) const {
+  auto must_include = [scope](const InternalGeometry& g,
+                              const std::optional<Role>& r) {
+    // Must have compatible role and be part of the scope.
+    return (!r.has_value() || g.has_role(*r)) &&
+           (scope == CollisionFilterScope::kAll || !g.is_deformable());
+  };
   unordered_set<GeometryId> resultant_ids;
   for (auto frame_id : geometry_set.frames()) {
     const auto& frame = GetValueOrThrow(frame_id, frames_);
     for (auto geometry_id : frame.child_geometries()) {
       const InternalGeometry& geometry = geometries_.at(geometry_id);
-      if (!role.has_value() || geometry.has_role(*role)) {
+      if (must_include(geometry, role)) {
         resultant_ids.insert(geometry_id);
       }
     }
@@ -1268,10 +1355,11 @@ unordered_set<GeometryId> GeometryState<T>::CollectIds(
           "SceneGraph: " +
           to_string(geometry_id));
     }
-    if (!role.has_value() || geometry->has_role(*role)) {
+    if (must_include(*geometry, role)) {
       resultant_ids.insert(geometry_id);
     }
   }
+
   return resultant_ids;
 }
 
@@ -1701,6 +1789,14 @@ const render::RenderEngine& GeometryState<T>::GetRenderEngineOrThrow(
 
   throw std::logic_error(
       fmt::format("No renderer exists with name: '{}'", renderer_name));
+}
+
+template <typename T>
+RigidTransformd GeometryState<T>::CalcCameraWorldPose(
+    const render::RenderCameraCore& core, FrameId parent_frame,
+    const RigidTransformd& X_PC) const {
+  return GetDoubleWorldPose(parent_frame) * X_PC *
+         core.sensor_pose_in_camera_body();
 }
 
 template <typename T>

@@ -16,12 +16,14 @@ namespace optimization {
 The ambient dimension of the set is N(N+1)/2; the number of variables required
 to describe the N-by-N semidefinite matrix.
 
+By convention, a zero-dimensional spectrahedron is considered nonempty.
+
 @ingroup geometry_optimization */
 class Spectrahedron final : public ConvexSet {
  public:
   DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(Spectrahedron)
 
-  /** Default constructor (which constructs the empty set). */
+  /** Default constructor (yields the zero-dimensional nonempty set). */
   Spectrahedron();
 
   /** Constructs the spectrahedron from a MathematicalProgram.
@@ -38,15 +40,22 @@ class Spectrahedron final : public ConvexSet {
   // only work in the case where the ambient_dimension is ONLY symmetric
   // matrices.
 
+  /** @throws  Not implemented. */
+  using ConvexSet::CalcVolume;
+
  private:
   std::unique_ptr<ConvexSet> DoClone() const final;
 
-  bool DoIsBounded() const final;
+  std::optional<bool> DoIsBoundedShortcut() const final;
+
+  // N.B. No need to override DoMaybeGetPoint here.
 
   bool DoPointInSet(const Eigen::Ref<const Eigen::VectorXd>& x,
                     double tol) const final;
 
-  void DoAddPointInSetConstraints(
+  std::pair<VectorX<symbolic::Variable>,
+            std::vector<solvers::Binding<solvers::Constraint>>>
+  DoAddPointInSetConstraints(
       solvers::MathematicalProgram* prog,
       const Eigen::Ref<const solvers::VectorXDecisionVariable>& vars)
       const final;

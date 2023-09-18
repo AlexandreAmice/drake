@@ -21,6 +21,7 @@ drake_cc_package_library(
         ":deformable_contact_internal",
         ":deformable_mesh_intersection",
         ":deformable_volume_mesh",
+        ":detect_zero_simplex",
         ":field_intersection",
         ":hydroelastic_internal",
         ":make_box_field",
@@ -183,6 +184,7 @@ drake_cc_library(
     srcs = ["deformable_contact_internal.cc"],
     hdrs = ["deformable_contact_internal.h"],
     deps = [
+        ":collision_filter",
         ":deformable_mesh_intersection",
         "//common:essential",
         "//geometry:geometry_ids",
@@ -215,6 +217,17 @@ drake_cc_library(
         ":bvh_updater",
         ":mesh_deformer",
         ":volume_mesh",
+    ],
+)
+
+drake_cc_library(
+    name = "detect_zero_simplex",
+    srcs = ["detect_zero_simplex.cc"],
+    hdrs = ["detect_zero_simplex.h"],
+    deps = [
+        ":volume_mesh",
+        ":volume_to_surface_mesh",
+        "//common:sorted_pair",
     ],
 )
 
@@ -668,7 +681,7 @@ drake_cc_library(
     deps = [
         "//common:essential",
         "@fmt",
-        "@tinyobjloader",
+        "@tinyobjloader_internal//:tinyobjloader",
     ],
 )
 
@@ -818,7 +831,9 @@ drake_cc_library(
     ],
     deps = [
         "@fmt",
-        "@vtk//:vtkIOGeometry",
+        "@vtk_internal//:vtkCommonCore",
+        "@vtk_internal//:vtkCommonDataModel",
+        "@vtk_internal//:vtkIOLegacy",
     ],
 )
 
@@ -963,6 +978,15 @@ drake_cc_googletest(
         ":deformable_volume_mesh",
         ":make_box_mesh",
         "//common/test_utilities:eigen_matrix_compare",
+    ],
+)
+
+drake_cc_googletest(
+    name = "detect_zero_simplex_test",
+    deps = [
+        ":detect_zero_simplex",
+        ":make_cylinder_mesh",
+        ":mesh_to_vtk",
     ],
 )
 

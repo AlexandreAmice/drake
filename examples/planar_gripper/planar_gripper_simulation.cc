@@ -107,7 +107,7 @@ DEFINE_string(orientation, "vertical",
               "The orientation of the planar gripper. Options are {vertical, "
               "horizontal}.");
 DEFINE_bool(visualize_contacts, false,
-            "Visualize contacts in Drake visualizer.");
+            "Visualize contacts in Meldis.");
 DEFINE_bool(
     use_position_control, true,
     "If true (default) we simulate position control via inverse dynamics "
@@ -327,7 +327,8 @@ int DoMain() {
     // GeneralizedForceToActuationOrdering fills this role.
     auto force_to_actuation =
         builder.AddSystem<GeneralizedForceToActuationOrdering>(control_plant);
-    builder.Connect(*id_controller, *force_to_actuation);
+    builder.Connect(id_controller->get_output_port_control(),
+                    force_to_actuation->get_input_port());
     builder.Connect(force_to_actuation->get_output_port(0),
                     plant.get_actuation_input_port(gripper_index));
   } else {  // Use torque control.

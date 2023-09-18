@@ -214,8 +214,8 @@ class Parser final {
   std::vector<ModelInstanceIndex> AddModelsFromUrl(
       const std::string& url);
 
-  // TODO(rpoyner-tri): deprecate on or after 2023-01.
   /// Legacy spelling of AddModels.
+  DRAKE_DEPRECATED("2023-12-01", "Use AddModels() instead.")
   std::vector<ModelInstanceIndex> AddAllModelsFromFile(
       const std::string& file_name);
 
@@ -244,25 +244,12 @@ class Parser final {
   ///
   /// @sa http://sdformat.org/tutorials?tut=composition&ver=1.7 for details on
   /// nesting in SDFormat.
+  DRAKE_DEPRECATED("2023-12-01", "Use parser.AddModels() instead. To port the"
+                   " 2-argument form, rename models using"
+                   " parser.SetAutoRenaming() and plant.RenameModelInstance()."
+                   " See PR #19978 for more details.")
   ModelInstanceIndex AddModelFromFile(
       const std::string& file_name,
-      const std::string& model_name = {});
-
-  /// Provides same functionality as AddModelFromFile, but instead parses the
-  /// model description text data via @p file_contents with format dictated by
-  /// @p file_type.
-  ///
-  /// @param file_contents The model data to be parsed.
-  /// @param file_type The data format; must be one of the filename suffixes
-  /// listed above, *without* the leading dot (.) .
-  /// @param model_name The name given to the newly created instance of this
-  /// model. If empty, the model name provided by the input text will be used.
-  /// @returns The instance index for the newly added model.
-  /// @throws std::exception in case of errors.
-  DRAKE_DEPRECATED("2023-04-01", "Use AddModelsFromString() instead.")
-  ModelInstanceIndex AddModelFromString(
-      const std::string& file_contents,
-      const std::string& file_type,
       const std::string& model_name = {});
 
  private:

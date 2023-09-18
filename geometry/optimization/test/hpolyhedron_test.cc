@@ -7,9 +7,11 @@
 #include "drake/common/eigen_types.h"
 #include "drake/common/fmt_eigen.h"
 #include "drake/common/test_utilities/eigen_matrix_compare.h"
+#include "drake/common/test_utilities/maybe_pause_for_user.h"
 #include "drake/common/yaml/yaml_io.h"
 #include "drake/geometry/geometry_frame.h"
 #include "drake/geometry/meshcat.h"
+#include "drake/geometry/optimization/hyperrectangle.h"
 #include "drake/geometry/optimization/test_utilities.h"
 #include "drake/geometry/optimization/vpolytope.h"
 #include "drake/geometry/scene_graph.h"
@@ -44,6 +46,13 @@ GTEST_TEST(HPolyhedronTest, DefaultConstructor) {
   EXPECT_EQ(H.ambient_dimension(), 0);
   EXPECT_EQ(H.A().size(), 0);
   EXPECT_EQ(H.b().size(), 0);
+  EXPECT_NO_THROW(H.Clone());
+  EXPECT_TRUE(H.IntersectsWith(H));
+  EXPECT_TRUE(H.IsBounded());
+  EXPECT_FALSE(H.IsEmpty());
+  EXPECT_TRUE(H.PointInSet(Eigen::VectorXd::Zero(0)));
+  ASSERT_TRUE(H.MaybeGetFeasiblePoint().has_value());
+  EXPECT_TRUE(H.PointInSet(H.MaybeGetFeasiblePoint().value()));
 }
 
 GTEST_TEST(HPolyhedronTest, UnitBoxTest) {
@@ -62,6 +71,13 @@ GTEST_TEST(HPolyhedronTest, UnitBoxTest) {
   EXPECT_EQ(Hbox.ambient_dimension(), 3);
   EXPECT_TRUE(CompareMatrices(A, Hbox.A()));
   EXPECT_TRUE(CompareMatrices(b, Hbox.b()));
+
+  // Test MaybeGetPoint.
+  EXPECT_FALSE(H.MaybeGetPoint().has_value());
+
+  // Test MaybeGetFeasiblePoint.
+  ASSERT_TRUE(H.MaybeGetFeasiblePoint().has_value());
+  EXPECT_TRUE(H.PointInSet(H.MaybeGetFeasiblePoint().value()));
 
   // Test PointInSet.
   EXPECT_TRUE(H.PointInSet(Vector3d(.8, .3, -.9)));
@@ -83,6 +99,28 @@ GTEST_TEST(HPolyhedronTest, UnitBoxTest) {
   HPolyhedron H_scene_graph(query, geom_id);
   EXPECT_TRUE(CompareMatrices(A, H_scene_graph.A()));
   EXPECT_TRUE(CompareMatrices(b, H_scene_graph.b()));
+
+  ASSERT_TRUE(H_scene_graph.MaybeGetFeasiblePoint().has_value());
+  EXPECT_TRUE(
+      H_scene_graph.PointInSet(H_scene_graph.MaybeGetFeasiblePoint().value()));
+}
+
+GTEST_TEST(HPolyhedronTest, Move) {
+  Matrix<double, 6, 3> A;
+  A << Matrix3d::Identity(), -Matrix3d::Identity();
+  Vector6d b = Vector6d::Ones();
+  HPolyhedron orig(A, b);
+
+  // A move-constructed HPolyhedron takes over the original data.
+  HPolyhedron dut(std::move(orig));
+  EXPECT_EQ(dut.ambient_dimension(), 3);
+  EXPECT_TRUE(CompareMatrices(dut.A(), A));
+  EXPECT_TRUE(CompareMatrices(dut.b(), b));
+
+  // The old HPolyhedron is in a valid but unspecified state.
+  EXPECT_EQ(orig.A().cols(), orig.ambient_dimension());
+  EXPECT_EQ(orig.b().size(), orig.ambient_dimension());
+  EXPECT_NO_THROW(orig.Clone());
 }
 
 GTEST_TEST(HPolyhedronTest, ConstructorFromVPolytope) {
@@ -115,6 +153,107 @@ GTEST_TEST(HPolyhedronTest, ConstructorFromVPolytope) {
   EXPECT_TRUE(hpoly2.PointInSet(Eigen::Vector3d(1.99, -1.99, 3.99)));
   EXPECT_FALSE(hpoly2.PointInSet(Eigen::Vector3d(0, 3.01, 0)));
   EXPECT_FALSE(hpoly2.PointInSet(Eigen::Vector3d(-1.01, 0, 0)));
+
+  ASSERT_TRUE(hpoly1.MaybeGetFeasiblePoint().has_value());
+  EXPECT_TRUE(hpoly1.PointInSet(hpoly1.MaybeGetFeasiblePoint().value()));
+  ASSERT_TRUE(hpoly2.MaybeGetFeasiblePoint().has_value());
+  EXPECT_TRUE(hpoly2.PointInSet(hpoly2.MaybeGetFeasiblePoint().value()));
+}
+
+void CheckHPolyhedronContainsVPolyhedron(const HPolyhedron& h,
+                                         const VPolytope& v, double tol = 0) {
+  for (int i = 0; i < v.vertices().cols(); ++i) {
+    EXPECT_TRUE(h.PointInSet(v.vertices().col(i)));
+  }
+}
+
+GTEST_TEST(HPolyhedronTest, ConstructorFromVPolytopeQHullProblems) {
+  // Test cases of VPolytopes that QHull cannot handle on its own.
+  // Code logic in the constructor should handle these cases without any
+  // QHull errors.
+
+  // Case 1: Not enough points (need at least n+1 points in R^n). This
+  // will throw QHull error QH6214.
+  Eigen::Matrix<double, 2, 1> vert1;
+  vert1 << 1, 0;
+  const VPolytope vpoly1(vert1);
+  EXPECT_NO_THROW(HPolyhedron{vpoly1});
+  const HPolyhedron hpoly1(vpoly1);
+  CheckHPolyhedronContainsVPolyhedron(hpoly1, vpoly1);
+  EXPECT_FALSE(hpoly1.PointInSet(Eigen::Vector2d(0, 0)));
+  EXPECT_FALSE(hpoly1.PointInSet(Eigen::Vector2d(2, 0)));
+  EXPECT_FALSE(hpoly1.PointInSet(Eigen::Vector2d(1, 1)));
+  EXPECT_FALSE(hpoly1.PointInSet(Eigen::Vector2d(1, -1)));
+
+  Eigen::Matrix<double, 2, 2> vert2;
+  // clang-format off
+  vert2 << 1, 0,
+           0, 1;
+  // clang-format on
+  const VPolytope vpoly2(vert2);
+  EXPECT_NO_THROW(HPolyhedron{vpoly2});
+  const HPolyhedron hpoly2(vpoly2);
+  CheckHPolyhedronContainsVPolyhedron(hpoly2, vpoly2);
+  EXPECT_FALSE(hpoly2.PointInSet(Eigen::Vector2d(0, 0)));
+  EXPECT_FALSE(hpoly2.PointInSet(Eigen::Vector2d(1, 1)));
+  EXPECT_FALSE(hpoly2.PointInSet(Eigen::Vector2d(2, -1)));
+  EXPECT_FALSE(hpoly2.PointInSet(Eigen::Vector2d(-1, 2)));
+
+  Eigen::Matrix<double, 3, 3> vert3;
+  // clang-format off
+  vert3 << 1, 0, 0,
+           0, 1, 0,
+           0, 0, 0;
+  // clang-format on
+  const VPolytope vpoly3(vert3);
+  EXPECT_NO_THROW(HPolyhedron{vpoly3});
+  const HPolyhedron hpoly3(vpoly3);
+  CheckHPolyhedronContainsVPolyhedron(hpoly3, vpoly3);
+  EXPECT_FALSE(hpoly3.PointInSet(Eigen::Vector3d(1, 1, 0)));
+  EXPECT_FALSE(hpoly3.PointInSet(Eigen::Vector3d(-1, 0, 0)));
+  EXPECT_FALSE(hpoly3.PointInSet(Eigen::Vector3d(0, -1, 0)));
+  EXPECT_FALSE(hpoly3.PointInSet(Eigen::Vector3d(0, 0, 1)));
+  EXPECT_FALSE(hpoly3.PointInSet(Eigen::Vector3d(0, 0, -1)));
+
+  // Case 2: VPolytope not full-dimensional (all points lie on a
+  // proper affine subspace). This will throw QHull error QH6154.
+  Eigen::Matrix<double, 2, 5> vert4;
+  // clang-format off
+  vert4 << 1, 2, 3, 4, 5,
+           0, 1, 2, 3, 4;
+  // clang-format on
+  const VPolytope vpoly4(vert4);
+  EXPECT_NO_THROW(HPolyhedron{vpoly4});
+  const HPolyhedron hpoly4(vpoly4);
+  CheckHPolyhedronContainsVPolyhedron(hpoly4, vpoly4);
+
+  Eigen::Matrix<double, 3, 4> vert5;
+  // clang-format off
+  vert5 << 0, 1, 0, 1,
+           0, 0, 1, 1,
+           0, 0, 0, 0;
+  // clang-format on
+  const VPolytope vpoly5(vert5);
+  EXPECT_NO_THROW(HPolyhedron{vpoly5});
+  const HPolyhedron hpoly5(vpoly5);
+  CheckHPolyhedronContainsVPolyhedron(hpoly5, vpoly5);
+
+  // Case 3: VPolytope is empty
+  Eigen::Matrix<double, 2, 0> vert6;
+  const VPolytope vpoly6(vert6);
+  EXPECT_TRUE(vpoly6.IsEmpty());
+  EXPECT_EQ(vpoly6.ambient_dimension(), 2);
+  EXPECT_NO_THROW(HPolyhedron{vpoly6});
+  const HPolyhedron hpoly6(vpoly6);
+  EXPECT_TRUE(hpoly6.IsEmpty());
+
+  Eigen::Matrix<double, 0, 0> vert7;
+  const VPolytope vpoly7(vert7);
+  EXPECT_TRUE(vpoly7.IsEmpty());
+  EXPECT_EQ(vpoly7.ambient_dimension(), 0);
+  // Should throw an error, because HPolyhedron can't
+  // handle an empty zero dimensional set.
+  EXPECT_THROW(HPolyhedron{vpoly7}, std::exception);
 }
 
 GTEST_TEST(HPolyhedronTest, L1BallTest) {
@@ -136,6 +275,9 @@ GTEST_TEST(HPolyhedronTest, L1BallTest) {
   EXPECT_EQ(H_L1_box.ambient_dimension(), 3);
   EXPECT_TRUE(CompareMatrices(A, H_L1_box.A()));
   EXPECT_TRUE(CompareMatrices(b, H_L1_box.b()));
+
+  ASSERT_TRUE(H_L1_box.MaybeGetFeasiblePoint().has_value());
+  EXPECT_TRUE(H_L1_box.PointInSet(H_L1_box.MaybeGetFeasiblePoint().value()));
 }
 
 GTEST_TEST(HPolyhedronTest, ArbitraryBoxTest) {
@@ -163,6 +305,9 @@ GTEST_TEST(HPolyhedronTest, ArbitraryBoxTest) {
   EXPECT_FALSE(H.PointInSet(out1_W));
   EXPECT_FALSE(H.PointInSet(out2_W));
 
+  ASSERT_TRUE(H.MaybeGetFeasiblePoint().has_value());
+  EXPECT_TRUE(H.PointInSet(H.MaybeGetFeasiblePoint().value()));
+
   EXPECT_TRUE(CheckAddPointInSetConstraints(H, in1_W));
   EXPECT_TRUE(CheckAddPointInSetConstraints(H, in2_W));
   EXPECT_FALSE(CheckAddPointInSetConstraints(H, out1_W));
@@ -186,6 +331,10 @@ GTEST_TEST(HPolyhedronTest, ArbitraryBoxTest) {
   EXPECT_TRUE(H_F.PointInSet(X_FW * in2_W));
   EXPECT_FALSE(H_F.PointInSet(X_FW * out1_W));
   EXPECT_FALSE(H_F.PointInSet(X_FW * out2_W));
+
+  const double kTol = 1e-14;
+  ASSERT_TRUE(H_F.MaybeGetFeasiblePoint().has_value());
+  EXPECT_TRUE(H_F.PointInSet(H_F.MaybeGetFeasiblePoint().value(), kTol));
 }
 
 GTEST_TEST(HPolyhedronTest, HalfSpaceTest) {
@@ -212,6 +361,9 @@ GTEST_TEST(HPolyhedronTest, HalfSpaceTest) {
   EXPECT_TRUE(H.PointInSet(in2_W));
   EXPECT_FALSE(H.PointInSet(out1_W));
   EXPECT_FALSE(H.PointInSet(out2_W));
+
+  ASSERT_TRUE(H.MaybeGetFeasiblePoint().has_value());
+  EXPECT_TRUE(H.PointInSet(H.MaybeGetFeasiblePoint().value()));
 }
 
 GTEST_TEST(HPolyhedronTest, UnitBox6DTest) {
@@ -225,6 +377,9 @@ GTEST_TEST(HPolyhedronTest, UnitBox6DTest) {
   EXPECT_TRUE(H.PointInSet(in2_W));
   EXPECT_FALSE(H.PointInSet(out1_W));
   EXPECT_FALSE(H.PointInSet(out2_W));
+
+  ASSERT_TRUE(H.MaybeGetFeasiblePoint().has_value());
+  EXPECT_TRUE(H.PointInSet(H.MaybeGetFeasiblePoint().value()));
 }
 
 GTEST_TEST(HPolyhedronTest, InscribedEllipsoidTest) {
@@ -300,6 +455,103 @@ GTEST_TEST(HPolyhedronTest, ChebyshevCenter2) {
   EXPECT_GE(distance[3], 1.0 - 1e-6);
 }
 
+GTEST_TEST(HpolyhedronTest, Scale) {
+  const double kTol = 1e-12;
+  const HPolyhedron H = HPolyhedron::MakeUnitBox(3);
+  const double kScale = 2.0;
+
+  // The original volume is 2x2x2 = 8.
+  // The new volume should be 16.
+  HPolyhedron H_scaled = H.Scale(kScale);
+  VPolytope V(H_scaled);
+  EXPECT_NEAR(V.CalcVolume(), 16.0, kTol);
+  // The vertices should be pow(16,1/3)/2.
+  const double kVertexValue = std::pow(16.0, 1.0 / 3.0) / 2.0;
+  for (int i = 0; i < V.vertices().rows(); ++i) {
+    for (int j = 0; j < V.vertices().cols(); ++j) {
+      EXPECT_NEAR(std::abs(V.vertices()(i, j)), kVertexValue, kTol);
+    }
+  }
+
+  // Again with the center specified explicitly.
+  H_scaled = H.Scale(kScale, Vector3d::Zero());
+  V = VPolytope(H_scaled);
+  EXPECT_NEAR(V.CalcVolume(), 16.0, kTol);
+
+  // Again with the center in the bottom corner.
+  H_scaled = H.Scale(1.0 / 8.0, Vector3d::Constant(-1.0));
+  V = VPolytope(H_scaled);
+  EXPECT_NEAR(V.CalcVolume(), 1.0, kTol);
+  EXPECT_TRUE(H_scaled.PointInSet(Vector3d::Constant(-0.01)));
+  EXPECT_FALSE(H_scaled.PointInSet(Vector3d::Constant(0.01)));
+  EXPECT_TRUE(H_scaled.PointInSet(Vector3d::Constant(-0.99)));
+  EXPECT_FALSE(H_scaled.PointInSet(Vector3d::Constant(-1.01)));
+
+  ASSERT_TRUE(H_scaled.MaybeGetFeasiblePoint().has_value());
+  EXPECT_TRUE(H_scaled.PointInSet(H_scaled.MaybeGetFeasiblePoint().value()));
+
+  // Shrink to a point.
+  const Vector3d kPoint = Vector3d::Constant(-1.0);
+  H_scaled = H.Scale(0, kPoint);
+  // A*point == b.
+  EXPECT_TRUE(CompareMatrices(H_scaled.A() * kPoint, H_scaled.b(), kTol));
+}
+
+// Scale supports unbounded sets.
+GTEST_TEST(HPolyhedronTest, Scale2) {
+  const double kTol = 1e-14;
+  // The ice cream cone in 2d. y>=x, y>=-x.
+  Eigen::Matrix2d A;
+  A << 1, -1, 1, 1;
+  HPolyhedron H(A, Vector2d::Zero());
+
+  const double kScale = 0.25;
+  // Scaling about the origin should have no effect.
+  HPolyhedron H_scaled = H.Scale(kScale, Vector2d::Zero());
+  EXPECT_TRUE(CompareMatrices(H.A(), H_scaled.A(), kTol));
+  EXPECT_TRUE(CompareMatrices(H.b(), H_scaled.b(), kTol));
+
+  // Scaling about the point (0,1) will move the cone up, to
+  // y >= x + 0.5, y >= -x - 0.5.
+  H_scaled = H.Scale(kScale, Vector2d{0, 1});
+  EXPECT_TRUE(CompareMatrices(H_scaled.A(), H.A(), kTol));
+  EXPECT_TRUE(CompareMatrices(H_scaled.b(), Vector2d{-0.5, 0.5}, kTol));
+}
+
+// The original set has no volume.
+GTEST_TEST(HPolyhedronTest, Scale3) {
+  // Make a square in the xz plane, with y=0.
+  Eigen::MatrixXd A(6, 3);
+  // clang-format off
+  A <<  1,  0,  0,  // x <= 1
+       -1,  0,  0,  // x >= -1
+        0,  1,  0,  // y <= 0
+        0, -1,  0,  // y >= 0
+        0,  0,  1,  // z <= 1
+        0,  0, -1;  // z >= -1
+  // clang-format on
+  VectorXd b(6);
+  b << 1, 1, 0, 0, 1, 1;
+  HPolyhedron H(A, b);
+
+  const double kScale = 2.0;
+  const double kOffset = 1e-6;
+  HPolyhedron H_scaled = H.Scale(kScale, Vector3d::Zero());
+  const double kVertexValue = std::pow(16.0, 1.0 / 3.0) / 2.0;
+  EXPECT_TRUE(H_scaled.PointInSet(
+      Vector3d{kVertexValue - kOffset, 0, kVertexValue - kOffset}));
+  EXPECT_FALSE(H_scaled.PointInSet(
+      Vector3d{kVertexValue + kOffset, 0, kVertexValue + kOffset}));
+
+  // center does not need to be in the set.
+  H_scaled = H.Scale(kScale, Vector3d{2, 0, 0});
+  EXPECT_FALSE(H_scaled.PointInSet(Vector3d{1, 0, 0}));
+  EXPECT_TRUE(H_scaled.PointInSet(Vector3d{-1, 0, 0}));
+
+  ASSERT_TRUE(H_scaled.MaybeGetFeasiblePoint().has_value());
+  EXPECT_TRUE(H_scaled.PointInSet(H_scaled.MaybeGetFeasiblePoint().value()));
+}
+
 GTEST_TEST(HPolyhedronTest, CloneTest) {
   HPolyhedron H = HPolyhedron::MakeBox(Vector3d{-3, -4, -5}, Vector3d{6, 7, 8});
   std::unique_ptr<ConvexSet> clone = H.Clone();
@@ -356,7 +608,7 @@ GTEST_TEST(HPolyhedronTest, NonnegativeScalingTest) {
 
 bool PointInScaledSet(const solvers::VectorXDecisionVariable& x_vars,
                       const solvers::VectorXDecisionVariable& t_vars,
-                      const Vector2d& x, const Vector2d& t,
+                      const VectorXd& x, const VectorXd& t,
                       solvers::MathematicalProgram* prog,
                       const std::vector<Binding<Constraint>>& constraints) {
   const double tol = 0;
@@ -459,6 +711,7 @@ GTEST_TEST(HPolyhedronTest, IsBoundedEmptyPolyhedron) {
   // clang-format on
   HPolyhedron H(A_infeasible, -Vector3d::Ones());
   EXPECT_TRUE(H.IsEmpty());
+  EXPECT_FALSE(H.MaybeGetFeasiblePoint().has_value());
 }
 
 GTEST_TEST(HPolyhedronTest, CartesianPowerTest) {
@@ -516,6 +769,9 @@ GTEST_TEST(HPolyhedronTest, CartesianProductTest) {
   VectorXd x_C{x_A.size() + x_B.size()};
   x_C << x_A, x_B;
   EXPECT_TRUE(H_C.PointInSet(x_C));
+
+  ASSERT_TRUE(H_C.MaybeGetFeasiblePoint().has_value());
+  EXPECT_TRUE(H_C.PointInSet(H_C.MaybeGetFeasiblePoint().value()));
 }
 
 GTEST_TEST(HPolyhedronTest, AxisAlignedContainment) {
@@ -624,14 +880,15 @@ GTEST_TEST(HPolyhedronTest, ReduceL1LInfBallIntersection) {
   A_int.bottomRows(Linfty_ball.A().rows()) = Linfty_ball.A();
   b_int.bottomRows(Linfty_ball.b().rows()) = Linfty_ball.b();
   HPolyhedron polyhedron_to_reduce(A_int, b_int);
-  const auto redundant_indices = polyhedron_to_reduce.FindRedundant();
+  const double tol = 1E-7;
+  const auto redundant_indices = polyhedron_to_reduce.FindRedundant(tol);
   // Removed Linfty_ball.
   std::set<int> redundant_indices_expected;
   for (int i = 0; i < Linfty_ball.A().rows(); ++i) {
     redundant_indices_expected.emplace(i + L1_ball.A().rows());
   }
   EXPECT_EQ(redundant_indices, redundant_indices_expected);
-  HPolyhedron reduced_polyhedron = polyhedron_to_reduce.ReduceInequalities();
+  HPolyhedron reduced_polyhedron = polyhedron_to_reduce.ReduceInequalities(tol);
 
   EXPECT_TRUE(CompareMatrices(reduced_polyhedron.A(), L1_ball.A()));
   EXPECT_TRUE(CompareMatrices(reduced_polyhedron.b(), L1_ball.b()));
@@ -655,6 +912,8 @@ GTEST_TEST(HPolyhedronTest, ReduceToInfeasibleSet) {
 
   EXPECT_TRUE(H.IsEmpty());
   EXPECT_TRUE(H_reduced.IsEmpty());
+  EXPECT_FALSE(H.MaybeGetFeasiblePoint().has_value());
+  EXPECT_FALSE(H_reduced.MaybeGetFeasiblePoint().has_value());
 }
 
 GTEST_TEST(HPolyhedronTest, IsEmptyMinimalInequalitySet) {
@@ -722,6 +981,9 @@ GTEST_TEST(HPolyhedronTest, IntersectionTest) {
   EXPECT_FALSE(H_A.PointInSet(x_B));
   EXPECT_TRUE(H_B.PointInSet(x_B));
   EXPECT_FALSE(H_C.PointInSet(x_B));
+
+  ASSERT_TRUE(H_C.MaybeGetFeasiblePoint().has_value());
+  EXPECT_TRUE(H_C.PointInSet(H_C.MaybeGetFeasiblePoint().value()));
 }
 
 GTEST_TEST(HPolyhedronTest, PontryaginDifferenceTestAxisAligned) {
@@ -733,6 +995,9 @@ GTEST_TEST(HPolyhedronTest, PontryaginDifferenceTestAxisAligned) {
 
   EXPECT_TRUE(CompareMatrices(H_C.A(), H_C_expected.A(), 1e-8));
   EXPECT_TRUE(CompareMatrices(H_C.b(), H_C_expected.b(), 1e-8));
+
+  ASSERT_TRUE(H_C.MaybeGetFeasiblePoint().has_value());
+  EXPECT_TRUE(H_C.PointInSet(H_C.MaybeGetFeasiblePoint().value()));
 }
 
 GTEST_TEST(HPolyhedronTest, PontryaginDifferenceTestSquareTriangle) {
@@ -805,9 +1070,7 @@ GTEST_TEST(HPolyhedronTest, UniformSampleTest) {
     cloud.mutable_xyzs().bottomRows<1>().setZero();
     meshcat->SetObject("samples", cloud, 0.01, Rgba(0, 0, 1));
 
-    // Note: This will not pause execution when running as a bazel test.
-    std::cout << "[Press RETURN to continue]." << std::endl;
-    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+    common::MaybePauseForUser();
   }
 
   // Check that they are all in the polyhedron.

@@ -109,6 +109,8 @@ void DoScalarDependentDefinitions(py::module m, T) {
             py::arg("meshcat"), py::arg("params") = MeshcatVisualizerParams{},
             // `meshcat` is a shared_ptr, so does not need a keep_alive.
             cls_doc.ctor.doc)
+        .def("ResetRealtimeRateCalculator", &Class::ResetRealtimeRateCalculator,
+            cls_doc.ResetRealtimeRateCalculator.doc)
         .def("Delete", &Class::Delete, cls_doc.Delete.doc)
         .def("StartRecording", &Class::StartRecording,
             py::arg("set_transforms_while_recording") = true,
@@ -268,6 +270,10 @@ void DoScalarIndependentDefinitions(py::module m) {
             cls_doc.Set2dRenderMode.doc)
         .def("ResetRenderMode", &Class::ResetRenderMode,
             cls_doc.ResetRenderMode.doc)
+        .def("SetCameraTarget", &Class::SetCameraTarget,
+            py::arg("target_in_world"), cls_doc.SetCameraTarget.doc)
+        .def("SetCameraPose", &Class::SetCameraPose, py::arg("camera_in_world"),
+            py::arg("target_in_world"), cls_doc.SetCameraPose.doc)
         .def("SetTransform",
             py::overload_cast<std::string_view, const math::RigidTransformd&,
                 const std::optional<double>&>(&Class::SetTransform),
@@ -281,6 +287,8 @@ void DoScalarIndependentDefinitions(py::module m) {
         .def("Delete", &Class::Delete, py::arg("path") = "", cls_doc.Delete.doc)
         .def("SetRealtimeRate", &Class::SetRealtimeRate, py::arg("rate"),
             cls_doc.SetRealtimeRate.doc)
+        .def("GetRealtimeRate", &Class::GetRealtimeRate,
+            cls_doc.GetRealtimeRate.doc)
         .def("SetProperty",
             py::overload_cast<std::string_view, std::string, bool,
                 const std::optional<double>&>(&Class::SetProperty),
@@ -300,6 +308,8 @@ void DoScalarIndependentDefinitions(py::module m) {
             py::arg("path"), py::arg("property"), py::arg("value"),
             py::arg("time_in_recording") = std::nullopt,
             cls_doc.SetProperty.doc_vector_double)
+        .def("SetEnvironmentMap", &Class::SetEnvironmentMap,
+            py::arg("image_path"), cls_doc.SetEnvironmentMap.doc)
         .def("SetAnimation", &Class::SetAnimation, py::arg("animation"),
             +cls_doc.SetAnimation.doc)
         .def("AddButton", &Class::AddButton, py::arg("name"),
@@ -335,9 +345,29 @@ void DoScalarIndependentDefinitions(py::module m) {
             cls_doc.DeleteRecording.doc)
         .def("get_mutable_recording", &Class::get_mutable_recording,
             py_rvp::reference_internal, cls_doc.get_mutable_recording.doc)
-        .def("HasPath", &Class::HasPath, py::arg("path"), cls_doc.HasPath.doc);
-    // Note: we intentionally do not bind the advanced methods (GetPacked...)
-    // which were intended primarily for testing in C++.
+        .def("HasPath", &Class::HasPath, py::arg("path"), cls_doc.HasPath.doc)
+        // These methods are intended to primarily for testing. Because they
+        // are excluded from C++ Doxygen, we bind them privately here.
+        .def(
+            "_GetPackedObject",
+            [](const Class& self, std::string_view path) {
+              return py::bytes(self.GetPackedObject(path));
+            },
+            py::arg("path"))
+        .def(
+            "_GetPackedTransform",
+            [](const Class& self, std::string_view path) {
+              return py::bytes(self.GetPackedTransform(path));
+            },
+            py::arg("path"))
+        .def(
+            "_GetPackedProperty",
+            [](const Class& self, std::string_view path,
+                std::string_view property) {
+              return py::bytes(
+                  self.GetPackedProperty(path, std::string{property}));
+            },
+            py::arg("path"), py::arg("property"));
 
     const auto& perspective_camera_doc = doc.Meshcat.PerspectiveCamera;
     py::class_<Meshcat::PerspectiveCamera> perspective_camera_cls(

@@ -6,8 +6,8 @@
 #include <string>
 #include <variant>
 
-#include <drake_vendor/sdf/Element.hh>
-#include <drake_vendor/tinyxml2.h>
+#include <sdf/Element.hh>
+#include <tinyxml2.h>
 
 #include "drake/common/diagnostic_policy.h"
 #include "drake/common/drake_copyable.h"
@@ -16,6 +16,7 @@
 #include "drake/multibody/plant/coulomb_friction.h"
 #include "drake/multibody/plant/multibody_plant.h"
 #include "drake/multibody/tree/linear_bushing_roll_pitch_yaw.h"
+#include "drake/multibody/tree/spatial_inertia.h"
 
 namespace drake {
 namespace multibody {
@@ -162,6 +163,40 @@ const LinearBushingRollPitchYaw<double>* ParseLinearBushingRollPitchYaw(
     const std::function<const Frame<double>*(const char*)>& read_frame,
     MultibodyPlant<double>* plant);
 
+// Adds a ball constraint to `plant` from a reading interface in a URDF/SDF
+// agnostic manner. This function does no semantic parsing and leaves the
+// responsibility of handling errors or missing values to the individual
+// parsers. All values are expected to exist and be well formed. Through this,
+// the API to specify the ball_constraint tag in both SDF and URDF can be
+// controlled/modified in a single function.
+//
+// __SDF__:
+//
+// <drake:ball_constraint>
+//   <drake:ball_constraint_body_A>body_A</drake:ball_constraint_body_A>
+//   <drake:ball_constraint_body_B>body_B</drake:ball_constraint_body_B>
+//   <drake:ball_constraint_p_AP>0 0 0</drake:ball_constraint_p_AP>
+//   <drake:ball_constraint_p_BQ>0 0 0</drake:ball_constraint_p_BQ>
+// </drake:ball_constraint>
+//
+// __URDF__:
+//
+// <drake:ball_constraint>
+//   <drake:ball_constraint_body_A name="body_A"/>
+//   <drake:ball_constraint_body_B name="body_B"/>
+//   <drake:ball_constraint_p_AP value="0 0 0"/>
+//   <drake:ball_constraint_p_BQ value="0 0 0"/>
+// </drake:ball_constraint>
+//
+// The @p read_body functor may (at its option) throw std:exception, or return
+// nullptr when body parsing fails. Similarly,
+// ParseBallConstraint() may return nullopt when read_body has
+// returned nullptr.
+std::optional<MultibodyConstraintId> ParseBallConstraint(
+    const std::function<Eigen::Vector3d(const char*)>& read_vector,
+    const std::function<const Body<double>*(const char*)>& read_body,
+    MultibodyPlant<double>* plant);
+
 // TODO(@SeanCurtis-TRI): The real solution here is to create a wrapper
 // class that provides a consistent interface to either representation.
 // Then instantiate on the caller side and express the code here in terms of
@@ -212,6 +247,47 @@ void ParseCollisionFilterGroupCommon(
         read_bool_attribute,
     const std::function<std::string(const ElementNode&, const char*)>&
         read_tag_string);
+
+// This struct helps label and order the rotational inertia inputs at call
+// sites of ParseSpatialInertia. Units of all quantities are kg⋅m².
+//
+// These quantities should have been parsed from the URDF
+// `/robot/link/inertial/inertia` tag or from the SDFormat
+// `//model/link/inertial/inertia` tag.
+struct InertiaInputs {
+  // Moments.
+  double ixx{};
+  double iyy{};
+  double izz{};
+  // Products of inertia.
+  double ixy{};
+  double ixz{};
+  double iyz{};
+};
+
+// Combines the given user inputs into a SpatialInertia. When any data is
+// invalid, emits a warning into the diagnostic policy and returns a
+// best-effort approximation instead.
+//
+// The inertia math defines an "inertia frame" (called here Bi), with
+// origin at the center of mass of the body, and axes arbitrary, but sometimes
+// chosen to zero out the products of inertia.
+//
+// Conveniently, both URDF and SDFormat inputs support compatible formats for
+// specifying the inertia frame. Callers should have previously constructed the
+// transform `X_BBi` from the URDF `/robot/link/inertial/origin` tag or from
+// the SDFormat `//model/link/inertial/pose` tag.
+//
+// @param diagnostic  The error-reporting channel.
+// @param X_BBi       Pose of the inertia frame expressed in the body's frame.
+// @param mass        Mass of the body.
+// @param inertia_Bi_Bi  The moments and products of inertia about Bi's origin,
+//                      expressed in frame Bi.
+SpatialInertia<double> ParseSpatialInertia(
+    const drake::internal::DiagnosticPolicy& diagnostic,
+    const math::RigidTransformd& X_BBi,
+    double mass,
+    const InertiaInputs& inertia_Bi_Bi);
 
 }  // namespace internal
 }  // namespace multibody

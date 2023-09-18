@@ -7,7 +7,7 @@
 #include <utility>
 #include <vector>
 
-#include <drake_vendor/fcl/fcl.h>
+#include <fcl/fcl.h>
 #include <fmt/ostream.h>
 #include <gtest/gtest.h>
 
@@ -474,7 +474,7 @@ GTEST_TEST(ProximityEngineTests, VtkForPointContactThrow) {
   DRAKE_EXPECT_THROWS_MESSAGE(
       engine.AddAnchoredGeometry(vtk_mesh, RigidTransformd::Identity(),
                                  GeometryId::get_new_id()),
-      "ProximityEngine: expect an Obj file for non-hydroelastics but get.*");
+      ".*only support .obj files.*");
 }
 
 // Tests simple addition of anchored geometry.
@@ -684,8 +684,8 @@ GTEST_TEST(ProximityEngineTests, FailedParsing) {
         "The file parsed contains no objects;.+");
   }
 
-  // The file is not an OBJ.
-  { const std::filesystem::path file = temp_dir / "not_an_obj.txt";
+  // The file does not have OBJ contents..
+  { const std::filesystem::path file = temp_dir / "not_really_an_obj.obj";
     std::ofstream f(file.string());
     f << "I'm not a valid obj\n";
     f.close();
@@ -909,7 +909,8 @@ GTEST_TEST(ProximityEngineTests, SignedDistancePairClosestPoint) {
   {
     // I know the GeometrySet only has id_A and id_B, so I'll construct the
     // extracted set by hand.
-    auto extract_ids = [id_A, id_B](const GeometrySet&) {
+    auto extract_ids = [id_A, id_B](const GeometrySet&,
+                                    CollisionFilterScope) {
       return std::unordered_set<GeometryId>{id_A, id_B};
     };
     engine.collision_filter().Apply(
@@ -2460,7 +2461,8 @@ TEST_F(SimplePenetrationTest, WithCollisionFilters) {
 
   // I know the GeometrySet only has id_A and id_B, so I'll construct the
   // extracted set by hand.
-  auto extract_ids = [origin_id, collide_id](const GeometrySet&) {
+  auto extract_ids = [origin_id, collide_id](const GeometrySet&,
+                                             CollisionFilterScope) {
     return std::unordered_set<GeometryId>{origin_id, collide_id};
   };
   engine_.collision_filter().Apply(CollisionFilterDeclaration().ExcludeWithin(
