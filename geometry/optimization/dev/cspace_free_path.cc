@@ -494,8 +494,8 @@ CspaceFreePath::FindSeparationCertificateGivenPath(
   std::vector<CspaceFreePath::FindSeparationCertificateStatistics>
       certification_statistics(num_pieces, active_plane_indices);
   // Find the max degree of the separation condition polynomial.
-  for (auto stats : certification_statistics) {
-    for (const auto [plane_index, _] : stats.certifying_poly_degree) {
+  for (auto& stats : certification_statistics) {
+    for (const auto& [plane_index, _] : stats.certifying_poly_degree) {
       int max_deg = 0;
       PlaneSeparatesGeometriesOnPath plane_geoms =
           plane_geometries_on_path_.at(plane_index);

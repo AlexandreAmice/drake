@@ -65,6 +65,10 @@ drake_py_library(
         "sampling_based_motion_planners.py",
     ],
     visibility = ["//visibility:public"],
+    deps = [
+        "//bindings/pydrake",
+        "//C_Iris_Examples:visualization_utils",
+    ]
 )
 
 drake_py_library(
@@ -166,6 +170,7 @@ drake_jupyter_py_binary(
         "//bindings/pydrake",
     ],
 )
+
 
 
 drake_jupyter_py_binary(

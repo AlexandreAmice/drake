@@ -367,10 +367,10 @@ class N_Link_K_Boxes_Experiment:
 path_to_data_save_folder = Path(
     "/home/amice/Documents/coding_projects/drake/C_Iris_Examples/final_experiment_data"
 )
-n = 12
+n = 4
 plane_order = 1
 maximum_path_degree = 1
-k = 100
+k = 10
 num_obstacles = k
 l = 100
 
