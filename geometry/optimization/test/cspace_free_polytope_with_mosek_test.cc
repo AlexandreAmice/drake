@@ -3,7 +3,6 @@
 #include <gtest/gtest.h>
 
 #include "drake/common/test_utilities/eigen_matrix_compare.h"
-#include "drake/common/test_utilities/expect_throws_message.h"
 #include "drake/common/test_utilities/symbolic_test_util.h"
 #include "drake/geometry/collision_filter_declaration.h"
 #include "drake/geometry/geometry_ids.h"
@@ -14,6 +13,7 @@
 #include "drake/solvers/common_solver_option.h"
 #include "drake/solvers/mosek_solver.h"
 #include "drake/solvers/solve.h"
+#include "drake/solvers/sos_basis_generator.h"
 
 namespace drake {
 namespace geometry {
@@ -47,6 +47,58 @@ const double kInf = std::numeric_limits<double>::infinity();
     DRAKE_DEMAND(result.is_success());
     return result.GetSolution(s);
   }
+}
+
+// Evaluate the polynomial at a batch of samples, check if all evaluated results
+// are positive.
+// @param x_samples Each column is a sample of indeterminates.
+void CheckPositivePolynomialBySamples(
+    const symbolic::Polynomial& poly,
+    const Eigen::Ref<const VectorX<symbolic::Variable>>& indeterminates,
+    const Eigen::Ref<const Eigen::MatrixXd>& x_samples) {
+  EXPECT_TRUE(
+      (poly.EvaluateIndeterminates(indeterminates, x_samples).array() >= 0)
+          .all());
+}
+
+// Solve an sos program to check if a polynomial is sos.
+// @param tol We seek another polynomial p2 being sos, and the difference
+// between p1's coefficient and p2's coefficient is less than tol.
+bool IsPolynomialSos(const symbolic::Polynomial& p, double tol) {
+  DRAKE_DEMAND(p.decision_variables().empty());
+  if (p.monomial_to_coefficient_map().empty()) {
+    // p = 0.
+    return true;
+  } else if (p.monomial_to_coefficient_map().size() == 1 &&
+             p.monomial_to_coefficient_map().count(symbolic::Monomial()) > 0) {
+    // p is a constant
+    symbolic::Environment env;
+    const double constant =
+        p.monomial_to_coefficient_map().at(symbolic::Monomial()).Evaluate(env);
+    return constant >= -tol;
+  }
+  solvers::MathematicalProgram prog;
+  VectorX<symbolic::Variable> indeterminates_vec(p.indeterminates().size());
+  int indeterminate_count = 0;
+  for (const auto& v : p.indeterminates()) {
+    indeterminates_vec(indeterminate_count++) = v;
+  }
+  prog.AddIndeterminates(indeterminates_vec);
+  if (tol == 0) {
+    prog.AddSosConstraint(p);
+  } else {
+    const VectorX<symbolic::Monomial> monomial_basis =
+        solvers::ConstructMonomialBasis(p);
+    const auto pair = prog.NewSosPolynomial(
+        monomial_basis,
+        solvers::MathematicalProgram::NonnegativePolynomial::kSos);
+    const symbolic::Polynomial poly_diff = pair.first - p;
+    for (const auto& term : poly_diff.monomial_to_coefficient_map()) {
+      prog.AddLinearConstraint(term.second, -tol, tol);
+    }
+  }
+  const auto result = solvers::Solve(prog);
+  return result.is_success();
 }
 
 void SetupPolytope(const CspaceFreePolytopeTester& tester,
@@ -354,17 +406,6 @@ TEST_F(CIrisToyRobotTest, MakeAndSolveIsGeometrySeparableProgram) {
   // clang-format on
   Eigen::Matrix<double, 9, 1> d_good;
   d_good << 0.1, 0.2, 0.3, 0.2, 0.2, 0.2, 0.1, 0.1, 0.2;
-
-  // First test the geometry pair that doesn't require a separation certificate.
-  {
-    CspaceFreePolytope::SeparationCertificateProgram ret;
-    // These two geometries are on the same body.
-    DRAKE_EXPECT_THROWS_MESSAGE(
-        ret = tester.cspace_free_polytope().MakeIsGeometrySeparableProgram(
-            SortedPair<geometry::GeometryId>(body0_box_, body0_sphere_), C_good,
-            d_good),
-        ".*does not need a separation certificate");
-  }
   CspaceFreePolytope::FindSeparationCertificateGivenPolytopeOptions
       find_certificate_options;
   find_certificate_options.verbose = false;
@@ -373,78 +414,50 @@ TEST_F(CIrisToyRobotTest, MakeAndSolveIsGeometrySeparableProgram) {
 
   const SortedPair<geometry::GeometryId> geometry_pair{body0_box_,
                                                        body2_sphere_};
-  {
-    auto separation_certificate_program =
-        tester.cspace_free_polytope().MakeIsGeometrySeparableProgram(
-            geometry_pair, C_good, d_good);
-    auto separation_certificate_result =
-        tester.cspace_free_polytope().SolveSeparationCertificateProgram(
-            separation_certificate_program, find_certificate_options);
-    const auto plane_index =
-        tester.cspace_free_polytope().map_geometries_to_separating_planes().at(
-            geometry_pair);
-    const auto& plane_geometry = tester.plane_geometries()[plane_index];
-    CheckSosLagrangians(
-        separation_certificate_result->positive_side_rational_lagrangians);
-    CheckSosLagrangians(
-        separation_certificate_result->negative_side_rational_lagrangians);
-    CheckRationalsPositiveInCspacePolytope(
-        plane_geometry.positive_side_rationals,
-        separation_certificate_result->positive_side_rational_lagrangians,
-        tester.cspace_free_polytope()
-            .separating_planes()[plane_index]
-            .decision_variables,
-        separation_certificate_result->plane_decision_var_vals, C_good, d_good,
-        tester, 1E-5);
-    CheckRationalsPositiveInCspacePolytope(
-        plane_geometry.negative_side_rationals,
-        separation_certificate_result->negative_side_rational_lagrangians,
-        tester.cspace_free_polytope()
-            .separating_planes()[plane_index]
-            .decision_variables,
-        separation_certificate_result->plane_decision_var_vals, C_good, d_good,
-        tester, 1E-5);
-    EXPECT_TRUE(separation_certificate_result.has_value());
-    Eigen::Matrix<double, 10, 3> s_samples;
-    // clang-format off
-    s_samples << 1, 2, -1,
-               -0.5, 0.3, 0.2,
-               0.2, 0.1, 0.4,
-               0.5, -1.2, 0.3,
-               0.2, 0.5, -0.4,
-               -0.3, 1.5, 2,
-               0.5, 0.2, 1,
-               -0.4, 0.5, 1,
-               0, 0, 0,
-               0.2, -1.5, 1;
-    // clang-format on
-    CheckSeparationBySamples(tester, *diagram_, s_samples, C_good, d_good,
-                             {{separation_certificate_result->plane_index,
-                               separation_certificate_result->a}},
-                             {{separation_certificate_result->plane_index,
-                               separation_certificate_result->b}},
-                             q_star, {});
-  }
+  auto separation_certificate_program =
+      tester.cspace_free_polytope().MakeIsGeometrySeparableProgram(
+          geometry_pair, C_good, d_good);
+  auto separation_certificate_result =
+      tester.cspace_free_polytope().SolveSeparationCertificateProgram(
+          separation_certificate_program, find_certificate_options);
+  EXPECT_TRUE(separation_certificate_result.has_value());
+  Eigen::Matrix<double, 10, 3> s_samples;
+  // clang-format off
+  s_samples << 1, 2, -1,
+             -0.5, 0.3, 0.2,
+             0.2, 0.1, 0.4,
+             0.5, -1.2, 0.3,
+             0.2, 0.5, -0.4,
+             -0.3, 1.5, 2,
+             0.5, 0.2, 1,
+             -0.4, 0.5, 1,
+             0, 0, 0,
+             0.2, -1.5, 1;
+  // clang-format on
+  CheckSeparationBySamples(tester, *diagram_, s_samples, C_good, d_good,
+                           {{separation_certificate_result->plane_index,
+                             separation_certificate_result->a}},
+                           {{separation_certificate_result->plane_index,
+                             separation_certificate_result->b}},
+                           q_star, {});
 
-  {
-    // This C-space polytope is NOT collision free.
-    Eigen::Matrix<double, 4, 3> C_bad;
-    // clang-format off
-    C_bad << 1, 1, 0,
-            -1, -1, 0,
-            -1, 0, 1,
+  // This C-space polytope is NOT collision free.
+  Eigen::Matrix<double, 4, 3> C_bad;
+  // clang-format off
+  C_bad << 1, 1, 0,
+          -1, -1, 0,
+          -1, 0, 1,
           1, 0, -1;
-    // clang-format on
-    Eigen::Matrix<double, 4, 1> d_bad;
-    d_bad << 10.8, 20, 34, 22;
-    auto separation_certificate_program =
-        tester.cspace_free_polytope().MakeIsGeometrySeparableProgram(
-            geometry_pair, C_bad, d_bad);
-    auto separation_certificate_result =
-        tester.cspace_free_polytope().SolveSeparationCertificateProgram(
-            separation_certificate_program, find_certificate_options);
-    EXPECT_FALSE(separation_certificate_result.has_value());
-  }
+  // clang-format on
+  Eigen::Matrix<double, 4, 1> d_bad;
+  d_bad << 10.8, 20, 34, 22;
+  separation_certificate_program =
+      tester.cspace_free_polytope().MakeIsGeometrySeparableProgram(
+          geometry_pair, C_bad, d_bad);
+  separation_certificate_result =
+      tester.cspace_free_polytope().SolveSeparationCertificateProgram(
+          separation_certificate_program, find_certificate_options);
+  EXPECT_FALSE(separation_certificate_result.has_value());
 }
 
 TEST_F(CIrisToyRobotTest, FindSeparationCertificateGivenPolytopeSuccess) {
@@ -1126,10 +1139,9 @@ TEST_F(CIrisToyRobotTest, SearchWithBilinearAlternation) {
           ignored_collision_pairs, C, d, bilinear_alternation_options);
   ASSERT_FALSE(bilinear_alternation_results.empty());
   ASSERT_EQ(bilinear_alternation_results.size(),
-            bilinear_alternation_results.back().num_iter() + 1);
+            bilinear_alternation_results.back().num_iter + 1);
   EXPECT_EQ(bilinear_alternation_results.back()
-                .certified_polytope()
-                .ambient_dimension(),
+                .certified_polytope.ambient_dimension(),
             C.cols());
   // Sample many s_values, project to {s | C*s <= d}. And then make sure that
   // the corresponding configurations are collision free.
@@ -1147,14 +1159,14 @@ TEST_F(CIrisToyRobotTest, SearchWithBilinearAlternation) {
                0.2, -1.5, 1;
   // clang-format on
   for (const auto& result : bilinear_alternation_results) {
-    EXPECT_EQ(result.a().size(),
+    EXPECT_EQ(result.a.size(),
               tester.cspace_free_polytope().separating_planes().size() -
                   ignored_collision_pairs.size());
-    EXPECT_EQ(result.a().size(),
+    EXPECT_EQ(result.a.size(),
               tester.cspace_free_polytope().separating_planes().size() -
                   ignored_collision_pairs.size());
-    CheckSeparationBySamples(tester, *diagram_, s_samples, result.C(),
-                             result.d(), result.a(), result.b(), q_star,
+    CheckSeparationBySamples(tester, *diagram_, s_samples, result.C, result.d,
+                             result.a, result.b, q_star,
                              ignored_collision_pairs);
   }
 
@@ -1201,8 +1213,8 @@ TEST_F(CIrisToyRobotTest, BinarySearch) {
   auto result = tester.cspace_free_polytope().BinarySearch(
       ignored_collision_pairs, C, d, s_center, options);
   ASSERT_TRUE(result.has_value());
-  EXPECT_EQ(result->certified_polytope().ambient_dimension(), C.cols());
-  EXPECT_GT(result->num_iter(), 0);
+  EXPECT_EQ(result->certified_polytope.ambient_dimension(), C.cols());
+  EXPECT_GT(result->num_iter, 0);
   Eigen::Matrix<double, 10, 3> s_samples;
   // clang-format off
   s_samples << 1, 2, -1,
@@ -1216,14 +1228,14 @@ TEST_F(CIrisToyRobotTest, BinarySearch) {
              0, 0, 0,
              0.2, -1.5, 1;
   // clang-format on
-  EXPECT_EQ(result->a().size(),
+  EXPECT_EQ(result->a.size(),
             tester.cspace_free_polytope().separating_planes().size() -
                 ignored_collision_pairs.size());
-  EXPECT_EQ(result->a().size(),
+  EXPECT_EQ(result->a.size(),
             tester.cspace_free_polytope().separating_planes().size() -
                 ignored_collision_pairs.size());
-  CheckSeparationBySamples(tester, *diagram_, s_samples, result->C(),
-                           result->d(), result->a(), result->b(), q_star,
+  CheckSeparationBySamples(tester, *diagram_, s_samples, result->C, result->d,
+                           result->a, result->b, q_star,
                            ignored_collision_pairs);
 
   // Now test epsilon_max being feasible.
@@ -1232,19 +1244,19 @@ TEST_F(CIrisToyRobotTest, BinarySearch) {
   result = tester.cspace_free_polytope().BinarySearch(ignored_collision_pairs,
                                                       C, d, s_center, options);
   ASSERT_TRUE(result.has_value());
-  EXPECT_EQ(result->num_iter(), 0);
-  EXPECT_TRUE(CompareMatrices(result->C(), C));
+  EXPECT_EQ(result->num_iter, 0);
+  EXPECT_TRUE(CompareMatrices(result->C, C));
   EXPECT_TRUE(CompareMatrices(
-      result->d(),
-      options.scale_max * d + (1 - options.scale_max) * C * s_center, 1E-10));
-  EXPECT_EQ(result->a().size(),
+      result->d, options.scale_max * d + (1 - options.scale_max) * C * s_center,
+      1E-10));
+  EXPECT_EQ(result->a.size(),
             tester.cspace_free_polytope().separating_planes().size() -
                 ignored_collision_pairs.size());
-  EXPECT_EQ(result->a().size(),
+  EXPECT_EQ(result->a.size(),
             tester.cspace_free_polytope().separating_planes().size() -
                 ignored_collision_pairs.size());
-  CheckSeparationBySamples(tester, *diagram_, s_samples, result->C(),
-                           result->d(), result->a(), result->b(), q_star,
+  CheckSeparationBySamples(tester, *diagram_, s_samples, result->C, result->d,
+                           result->a, result->b, q_star,
                            ignored_collision_pairs);
 
   // Now check infeasible epsilon_min
@@ -1253,7 +1265,7 @@ TEST_F(CIrisToyRobotTest, BinarySearch) {
   result = tester.cspace_free_polytope().BinarySearch(ignored_collision_pairs,
                                                       C, d, s_center, options);
   ASSERT_FALSE(result.has_value());
-  EXPECT_EQ(result->num_iter(), 0);
+  EXPECT_EQ(result->num_iter, 0);
 }
 }  // namespace optimization
 }  // namespace geometry
