@@ -586,7 +586,7 @@ void DefineGeometryOptimizationDev(py::module m) {
     py::class_<Class::SeparationCertificateResult>(cspace_free_path_cls,
         "SeparationCertificateResult", cls_doc.SeparationCertificateResult.doc)
         .def(py::init<>())
-        .def_readonly("a", &SeparationCertificateResultBase::a)
+        .def_readonly("a", &SeparationCertificateResultBase::a, py_rvp::copy)
         .def_readonly("b", &SeparationCertificateResultBase::b)
         .def_readonly("plane_decision_var_vals",
             &SeparationCertificateResultBase::plane_decision_var_vals)

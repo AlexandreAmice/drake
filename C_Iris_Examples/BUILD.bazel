@@ -140,6 +140,20 @@ drake_jupyter_py_binary(
 )
 
 drake_jupyter_py_binary(
+    name = "n_link_pend_plane_viz",
+    add_test_rule = 0,
+    data = [
+        "//C_Iris_Examples:models",
+    ],
+    deps = [
+        "//C_Iris_Examples:iris_plant_visualizer",
+        "//C_Iris_Examples:sampling_based_motion_planners",
+        "//C_Iris_Examples:visualization_utils",
+        "//bindings/pydrake",
+    ],
+)
+
+drake_jupyter_py_binary(
     name = "n_link_pend_data_analysis",
     add_test_rule = 0,
     data = [
