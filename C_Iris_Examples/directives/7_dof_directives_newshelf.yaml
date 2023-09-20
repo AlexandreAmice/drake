@@ -58,6 +58,11 @@ directives:
     parent: shelf2_origin
     child: shelves2::bottom
 
+model_drivers:
+    iiwa: !IiwaDriver
+      hand_model_name: wsg
+    wsg: !SchunkWsgDriver {}
+
 # # Add shelves
 # - add_model:
 #     name: shelves3

@@ -290,14 +290,20 @@ def visualize_s_space_trajectory(
     body: RigidBody,
     path: str,
     options=TrajectoryVisualizationOptions(),
+    pos_set_fun_s=None,
 ):
     points = []
     for t in np.linspace(
         trajectory.start_time(), trajectory.end_time(), options.num_points
     ):
         s = trajectory.value(t)
-        q = vis_bundle.rational_forward_kinematics.ComputeQValue(s, vis_bundle.q_star)
-        vis_bundle.plant.SetPositions(vis_bundle.plant_context, q)
+        if pos_set_fun_s is None:
+            q = vis_bundle.rational_forward_kinematics.ComputeQValue(
+                s, vis_bundle.q_star
+            )
+            vis_bundle.plant.SetPositions(vis_bundle.plant_context, q)
+        else:
+            pos_set_fun_s(s)
         points.append(
             vis_bundle.plant.EvalBodyPoseInWorld(
                 vis_bundle.plant_context, body
@@ -306,16 +312,19 @@ def visualize_s_space_trajectory(
     points = np.array(points)
     pc = PointCloud(len(points))
     pc.mutable_xyzs()[:] = points.T
-    pc.mutable_xyzs()[:, 2] = 1
+    # pc.mutable_xyzs()[:, 2] = 1
     vis_bundle.meshcat_instance.SetObject(
         path, pc, point_size=options.path_size, rgba=options.path_color
     )
 
     start_s = trajectory.value(trajectory.start_time())
-    start_q = vis_bundle.rational_forward_kinematics.ComputeQValue(
-        start_s, vis_bundle.q_star
-    )
-    vis_bundle.plant.SetPositions(vis_bundle.plant_context, start_q)
+    if pos_set_fun_s is None:
+        start_q = vis_bundle.rational_forward_kinematics.ComputeQValue(
+            start_s, vis_bundle.q_star
+        )
+        vis_bundle.plant.SetPositions(vis_bundle.plant_context, start_q)
+    else:
+        pos_set_fun_s(start_s)
     plot_point(
         vis_bundle.plant.EvalBodyPoseInWorld(
             vis_bundle.plant_context, body
@@ -327,10 +336,14 @@ def visualize_s_space_trajectory(
     )
 
     end_s = trajectory.value(trajectory.end_time())
-    end_q = vis_bundle.rational_forward_kinematics.ComputeQValue(
-        end_s, vis_bundle.q_star
-    )
-    vis_bundle.plant.SetPositions(vis_bundle.plant_context, end_q)
+    if pos_set_fun_s is None:
+        end_q = vis_bundle.rational_forward_kinematics.ComputeQValue(
+            end_s, vis_bundle.q_star
+        )
+        vis_bundle.plant.SetPositions(vis_bundle.plant_context, end_q)
+    else:
+        pos_set_fun_s(end_s)
+
     plot_point(
         vis_bundle.plant.EvalBodyPoseInWorld(
             vis_bundle.plant_context, body
