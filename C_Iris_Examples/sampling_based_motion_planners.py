@@ -4,11 +4,11 @@ from pydrake.all import Sphere, Rgba, RigidBody
 from tqdm import tqdm
 import numpy as np
 from dataclasses import dataclass
-from visualization_utils import visualize_body_at_s, VisualizationBundle
+from C_Iris_Examples.visualization_utils import visualize_body_at_s, VisualizationBundle
 from scipy.sparse.csgraph import dijkstra
 from scipy.sparse import coo_matrix
 from scipy.spatial import cKDTree
-import visualization_utils as vis_utils
+import C_Iris_Examples.visualization_utils as vis_utils
 
 
 class StraightLineCollisionChecker:
@@ -500,6 +500,7 @@ class RRT:
         upper_limits,
         straight_line_col_checker: StraightLineCollisionChecker,
         do_build_max_iter=-1,
+        max_dist=0.5,
     ):
         """
         start_pos: start of the rrt
@@ -514,7 +515,7 @@ class RRT:
 
         self.lower_limits = lower_limits
         self.upper_limits = upper_limits
-
+        self.max_dist = max_dist
         self.straight_line_col_checker = straight_line_col_checker
         if do_build_max_iter > 0:
             self.build_tree(do_build_max_iter)
@@ -550,7 +551,9 @@ class RRT:
             while t_upper_bound - t_lower_bound > bisection_tol:
                 t = (t_upper_bound + t_lower_bound) / 2
                 cur_end = (1 - t) * nearest_nod_arr + t * pos
-                if self.straight_line_col_checker.straight_line_has_collision(
+                if np.linalg.norm(
+                    cur_end - nearest_nod_arr
+                ) > self.max_dist or self.straight_line_col_checker.straight_line_has_collision(
                     cur_end, nearest_nod_arr
                 ):
                     t_upper_bound = t
@@ -570,12 +573,15 @@ class RRT:
         pos = self.get_random_node()
         return self.add_node(pos, bisection_tol)
 
-    def build_tree(self, max_iter=int(1e4), bisection_tol=1e-5):
+    def build_tree(self, max_iter=int(1e4), bisection_tol=1e-5, exit_on_path=False):
+        has_path = False
         for i in tqdm(range(max_iter)):
             self.add_new_random_node(bisection_tol)
             if self.end_pos in self.tree.nodes():
+                has_path = True
+            if exit_on_path and has_path:
                 return True
-        return False
+        return has_path
 
     def draw_start_and_end(
         self,
@@ -632,6 +638,7 @@ class BiRRT:
         lower_limits,
         upper_limits,
         straight_line_col_checker: StraightLineCollisionChecker,
+        max_dist=0.5,
     ):
         """
         start_pos: start of the rrt
@@ -640,10 +647,20 @@ class BiRRT:
         collision_check_handle: return True if the configuration is in collision, false otherwise.
         """
         self.tree_to_start = RRT(
-            start_pos, end_pos, lower_limits, upper_limits, straight_line_col_checker
+            start_pos,
+            end_pos,
+            lower_limits,
+            upper_limits,
+            straight_line_col_checker,
+            max_dist=max_dist,
         )
         self.tree_to_end = RRT(
-            end_pos, start_pos, lower_limits, upper_limits, straight_line_col_checker
+            end_pos,
+            start_pos,
+            lower_limits,
+            upper_limits,
+            straight_line_col_checker,
+            max_dist=max_dist,
         )
         self.start_pos = start_pos
         self.end_pos = end_pos
@@ -671,16 +688,21 @@ class BiRRT:
             pos = np.random.uniform(self.lower_limits, self.upper_limits)
         return pos
 
-    def build_tree(self, max_iter=int(1e4), bisection_tol=1e-5, verbose=True):
+    def build_tree(self, max_iter=int(1e4), bisection_tol=1e-5, exit_on_path=False):
+        has_path = False
         for i in tqdm(range(max_iter)):
             pos = self.get_random_node()
             trees_connected = self.add_node(pos, bisection_tol)
             if trees_connected:
-                self.connected_tree = nx.compose(
-                    self.tree_to_start.tree, self.tree_to_end.tree
-                )
-                return True
-        return False
+                has_path = True
+            if exit_on_path and has_path:
+                break
+
+        if has_path:
+            self.connected_tree = nx.compose(
+                self.tree_to_start.tree, self.tree_to_end.tree
+            )
+        return has_path
 
     def draw_tree(
         self,
