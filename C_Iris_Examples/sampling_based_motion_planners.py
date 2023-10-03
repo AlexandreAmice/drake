@@ -500,7 +500,6 @@ class RRT:
         upper_limits,
         straight_line_col_checker: StraightLineCollisionChecker,
         do_build_max_iter=-1,
-        max_dist=0.5,
     ):
         """
         start_pos: start of the rrt
@@ -515,7 +514,7 @@ class RRT:
 
         self.lower_limits = lower_limits
         self.upper_limits = upper_limits
-        self.max_dist = max_dist
+
         self.straight_line_col_checker = straight_line_col_checker
         if do_build_max_iter > 0:
             self.build_tree(do_build_max_iter)
