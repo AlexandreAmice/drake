@@ -18,7 +18,8 @@ namespace solvers {
  * constraints. If you would like to avoid mutating the original program,
  * consider cloning it using prog.Clone().
  */
-void MakeDiagonallyDominantInnerApproximation(std::unique_ptr<MathematicalProgram> prog);
+void MakeDiagonallyDominantInnerApproximation(
+    std::unique_ptr<MathematicalProgram>& prog);
 
 /** Provides an inner approximation of the MathematicalProgram @p prog by
  * replacing all positive semidefinite constraints with scaled positive
@@ -29,7 +30,8 @@ void MakeDiagonallyDominantInnerApproximation(std::unique_ptr<MathematicalProgra
  * constraints. If you would like to avoid mutating the original program,
  * consider cloning it using prog.Clone().
  */
-void MakeScaledDiagonallyDominantInnerApproximation(std::unique_ptr<MathematicalProgram> prog);
+void MakeScaledDiagonallyDominantInnerApproximation(
+    std::unique_ptr<MathematicalProgram>& prog);
 
 /** Provides an outer approximation of the MathematicalProgram @p prog by
  * replacing all positive semidefinite constraints with positive diagonally
@@ -43,7 +45,7 @@ void MakeScaledDiagonallyDominantInnerApproximation(std::unique_ptr<Mathematical
  * program, consider cloning it using prog.Clone().
  */
 void MakeDiagonallyDominantDualConeOuterApproximation(
-    std::unique_ptr<MathematicalProgram> prog);
+    std::unique_ptr<MathematicalProgram>& prog);
 
 /** Provides an outer approximation of the MathematicalProgram @p prog by
  * replacing all positive semidefinite constraints with scaled positive
@@ -55,7 +57,7 @@ void MakeDiagonallyDominantDualConeOuterApproximation(
  * program, consider cloning it using prog.Clone().
  */
 void MakeScaledDiagonallyDominantDualConeOuterApproximation(
-    std::unique_ptr<MathematicalProgram> prog);
+    std::unique_ptr<MathematicalProgram>& prog);
 
 }  // namespace solvers
 }  // namespace drake
