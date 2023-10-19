@@ -1103,6 +1103,16 @@ drake_cc_library(
 )
 
 # === test/ ===
+drake_cc_googletest(
+    name = "approximate_semidefinite_program_test",
+    deps = [
+        ":approximate_semidefinite_program",
+        "//common:ssize",
+        "//common/test_utilities:eigen_matrix_compare",
+        ":mathematical_program_test_util",
+    ],
+)
+
 
 drake_cc_googletest(
     name = "binding_test",
