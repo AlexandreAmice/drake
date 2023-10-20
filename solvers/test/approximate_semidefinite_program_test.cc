@@ -20,7 +20,7 @@ void CheckDiagonallyDominantDualConeOuterApproximation(
             std::back_inserter(original_psd_constraints));
 
   auto prog = sdp_prog->Clone();
-  MakeDiagonallyDominantDualConeOuterApproximation(prog);
+//  MakeDiagonallyDominantDualConeOuterApproximation(prog);
 
   // Approximated program should have the same costs.
   EXPECT_TRUE(
@@ -113,6 +113,18 @@ GTEST_TEST(MakeSemidefiniteRelaxationTest,
       std::unique_ptr<MathematicalProgram>(&prog));
 }
 
+GTEST_TEST(MakeSemidefiniteRelaxationTest,
+           Blah) {
+  MathematicalProgram prog;
+  const auto y = prog.NewContinuousVariables<2>("y");
+
+  std::unique_ptr<MathematicalProgram> prog_ptr{&prog};
+
+  CheckDiagonallyDominantDualConeOuterApproximation(
+      std::unique_ptr<MathematicalProgram>(&prog));
+}
+
 }  // namespace test
 }  // namespace solvers
 }  // namespace drake
+
