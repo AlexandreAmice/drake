@@ -15,6 +15,9 @@ namespace internal {
 /* Defines bindings per solvers_py_augmented_lagrangian.cc. */
 void DefineSolversAugmentedLagrangian(py::module m);
 
+/* Defines bindings per solvers_py_approximate_semidefinite_program.cc. */
+void DefineApproximateSemidefiniteProgram(py::module m);
+
 /* Defines bindings per solvers_py_branch_and_bound.cc. */
 void DefineSolversBranchAndBound(py::module m);
 
