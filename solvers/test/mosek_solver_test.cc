@@ -165,51 +165,51 @@ GTEST_TEST(TestSOCP, TestSocpDuplicatedVariable2) {
 
 GTEST_TEST(TestSemidefiniteProgram, TrivialSDP) {
   MosekSolver mosek_solver;
-  if (mosek_solver.available()) {
-    TestTrivialSDP(mosek_solver, 1E-8);
-  }
+  TestTrivialSDP(
+      mosek_solver, 1E-8,
+      mosek_solver.is_available() /* test result if solver is available */);
 }
 
 GTEST_TEST(TestSemidefiniteProgram, CommonLyapunov) {
   MosekSolver mosek_solver;
-  if (mosek_solver.available()) {
-    FindCommonLyapunov(mosek_solver, {}, 1E-8);
-  }
+  FindCommonLyapunov(
+      mosek_solver, {}, 1E-8,
+      mosek_solver.is_available() /* test result if solver is available */);
 }
 
 GTEST_TEST(TestSemidefiniteProgram, OuterEllipsoid) {
   MosekSolver mosek_solver;
-  if (mosek_solver.available()) {
-    FindOuterEllipsoid(mosek_solver, {}, 1E-6);
-  }
+  FindOuterEllipsoid(
+      mosek_solver, {}, 1E-6,
+      mosek_solver.is_available() /* test result if solver is available */);
 }
 
 GTEST_TEST(TestSemidefiniteProgram, EigenvalueProblem) {
   MosekSolver mosek_solver;
-  if (mosek_solver.available()) {
-    SolveEigenvalueProblem(mosek_solver, {}, 1E-7);
-  }
+  SolveEigenvalueProblem(
+      mosek_solver, {}, 1E-7,
+      mosek_solver.is_available() /* test result if solver is available */);
 }
 
 GTEST_TEST(TestSemidefiniteProgram, SolveSDPwithSecondOrderConeExample1) {
   MosekSolver mosek_solver;
-  if (mosek_solver.available()) {
-    SolveSDPwithSecondOrderConeExample1(mosek_solver, 1E-7);
-  }
+  SolveSDPwithSecondOrderConeExample1(
+      mosek_solver, 1E-7,
+      mosek_solver.is_available() /* test result if solver is available */);
 }
 
 GTEST_TEST(TestSemidefiniteProgram, SolveSDPwithSecondOrderConeExample2) {
   MosekSolver mosek_solver;
-  if (mosek_solver.available()) {
-    SolveSDPwithSecondOrderConeExample2(mosek_solver, 1E-7);
-  }
+  SolveSDPwithSecondOrderConeExample2(
+      mosek_solver, 1E-7,
+      mosek_solver.is_available() /* test result if solver is available */);
 }
 
 GTEST_TEST(TestSemidefiniteProgram, SolveSDPwithOverlappingVariables) {
   MosekSolver mosek_solver;
-  if (mosek_solver.available()) {
-    SolveSDPwithOverlappingVariables(mosek_solver, 1E-7);
-  }
+  SolveSDPwithOverlappingVariables(
+      mosek_solver, 1E-7,
+      mosek_solver.is_available() /* test result if solver is available */);
 }
 
 GTEST_TEST(TestExponentialConeProgram, ExponentialConeTrivialExample) {
@@ -452,9 +452,9 @@ GTEST_TEST(MosekTest, MinimalDistanceFromSphereProblem) {
 
 GTEST_TEST(MosekTest, SolveSDPwithQuadraticCosts) {
   MosekSolver solver;
-  if (solver.available()) {
-    SolveSDPwithQuadraticCosts(solver, 1E-8);
-  }
+  SolveSDPwithQuadraticCosts(
+      solver, 1E-8,
+      solver.available() /* test result if solver is available */);
 }
 
 GTEST_TEST(MosekTest, LPDualSolution1) {
@@ -556,9 +556,9 @@ GTEST_TEST(MosekSolver, SocpDualSolution2) {
 
 GTEST_TEST(MosekTest, SDPDualSolution1) {
   MosekSolver solver;
-  if (solver.available()) {
-    TestSDPDualSolution1(solver, 3E-6);
-  }
+  TestSDPDualSolution1(
+      solver, 3E-6,
+      solver.is_available() /* test result if solver is available */);
 }
 
 GTEST_TEST(MosekTest, TestEllipsoid1) {

@@ -333,51 +333,51 @@ GTEST_TEST(TestDuplicatedVariableQuadraticProgram, Test) {
 
 GTEST_TEST(TestSemidefiniteProgram, TrivialSDP) {
   ScsSolver scs_solver;
-  if (scs_solver.available()) {
-    TestTrivialSDP(scs_solver, kTol);
-  }
+  TestTrivialSDP(
+      scs_solver, kTol,
+      scs_solver.is_available() /* test result if solver is available */);
 }
 
 GTEST_TEST(TestSemidefiniteProgram, CommonLyapunov) {
   ScsSolver scs_solver;
-  if (scs_solver.available()) {
-    FindCommonLyapunov(scs_solver, {}, kTol);
-  }
+  FindCommonLyapunov(
+      scs_solver, {}, kTol,
+      scs_solver.is_available() /* test result if solver is available */);
 }
 
 GTEST_TEST(TestSemidefiniteProgram, OuterEllipsoid) {
   ScsSolver scs_solver;
-  if (scs_solver.available()) {
-    FindOuterEllipsoid(scs_solver, {}, kTol);
-  }
+  FindOuterEllipsoid(
+      scs_solver, {}, kTol,
+      scs_solver.is_available() /* test result if solver is available */);
 }
 
 GTEST_TEST(TestSemidefiniteProgram, EigenvalueProblem) {
   ScsSolver scs_solver;
-  if (scs_solver.available()) {
-    SolveEigenvalueProblem(scs_solver, {}, kTol);
-  }
+  SolveEigenvalueProblem(
+      scs_solver, {}, kTol,
+      scs_solver.is_available() /* test result if solver is available */);
 }
 
 GTEST_TEST(TestSemidefiniteProgram, SolveSDPwithSecondOrderConeExample1) {
   ScsSolver scs_solver;
-  if (scs_solver.available()) {
-    SolveSDPwithSecondOrderConeExample1(scs_solver, kTol);
-  }
+  SolveSDPwithSecondOrderConeExample1(
+      scs_solver, kTol,
+      scs_solver.is_available() /* test result if solver is available */);
 }
 
 GTEST_TEST(TestSemidefiniteProgram, SolveSDPwithSecondOrderConeExample2) {
   ScsSolver scs_solver;
-  if (scs_solver.available()) {
-    SolveSDPwithSecondOrderConeExample2(scs_solver, kTol);
-  }
+  SolveSDPwithSecondOrderConeExample2(
+      scs_solver, kTol,
+      scs_solver.is_available() /* test result if solver is available */);
 }
 
 GTEST_TEST(TestSemidefiniteProgram, SolveSDPwithOverlappingVariables) {
   ScsSolver scs_solver;
-  if (scs_solver.available()) {
-    SolveSDPwithOverlappingVariables(scs_solver, kTol);
-  }
+  SolveSDPwithOverlappingVariables(
+      scs_solver, kTol,
+      scs_solver.is_available() /* test result if solver is available */);
 }
 
 GTEST_TEST(TestExponentialConeProgram, ExponentialConeTrivialExample) {

@@ -19,7 +19,7 @@ namespace solvers {
  * consider cloning it using prog.Clone().
  */
 void MakeDiagonallyDominantInnerApproximation(
-    std::unique_ptr<MathematicalProgram>& prog);
+    MathematicalProgram* prog);
 
 /** Provides an inner approximation of the MathematicalProgram @p prog by
  * replacing all positive semidefinite constraints with scaled positive
@@ -31,7 +31,7 @@ void MakeDiagonallyDominantInnerApproximation(
  * consider cloning it using prog.Clone().
  */
 void MakeScaledDiagonallyDominantInnerApproximation(
-    std::unique_ptr<MathematicalProgram>& prog);
+    MathematicalProgram* prog);
 
 /** Provides an outer approximation of the MathematicalProgram @p prog by
  * replacing all positive semidefinite constraints with positive diagonally
@@ -45,7 +45,7 @@ void MakeScaledDiagonallyDominantInnerApproximation(
  * program, consider cloning it using prog.Clone().
  */
 void MakeDiagonallyDominantDualConeOuterApproximation(
-    std::unique_ptr<MathematicalProgram>& prog);
+    MathematicalProgram* prog);
 
 /** Provides an outer approximation of the MathematicalProgram @p prog by
  * replacing all positive semidefinite constraints with scaled positive
@@ -57,7 +57,7 @@ void MakeDiagonallyDominantDualConeOuterApproximation(
  * program, consider cloning it using prog.Clone().
  */
 void MakeScaledDiagonallyDominantDualConeOuterApproximation(
-    std::unique_ptr<MathematicalProgram>& prog);
+    MathematicalProgram* prog);
 
 }  // namespace solvers
 }  // namespace drake
