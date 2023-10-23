@@ -1,5 +1,7 @@
+#include "drake/solvers/approximate_semidefinite_program.h"
+
 #include <functional>
-#include <memory>
+#include <vector>
 
 #include "drake/solvers/mathematical_program.h"
 
@@ -20,48 +22,48 @@ void ApproximateProgram(
     const std::function<T(const Binding<PositiveSemidefiniteConstraint>&)>&
         psd_constraint_replacing_function,
     MathematicalProgram* prog) {
-  for (const auto& psd_constraint : prog->positive_semidefinite_constraints()) {
+  const std::vector<Binding<PositiveSemidefiniteConstraint>> constraints =
+      prog->positive_semidefinite_constraints();
+  for (const auto& psd_constraint : constraints) {
     psd_constraint_replacing_function(psd_constraint);
   }
 }
 }  // namespace
 
-void MakeDiagonallyDominantInnerApproximation(
-    std::unique_ptr<MathematicalProgram>& prog) {
+void MakeDiagonallyDominantInnerApproximation(MathematicalProgram* prog) {
   auto fun =
       [&prog](const Binding<PositiveSemidefiniteConstraint>& constraint) {
-        return prog.get()->TightenPSDConstraintToDDConstraint(constraint);
+        return prog->TightenPSDConstraintToDDConstraint(constraint);
       };
-  ApproximateProgram<MatrixX<symbolic::Expression>>(fun, prog.get());
+  ApproximateProgram<MatrixX<symbolic::Expression>>(fun, prog);
 }
 
-void MakeScaledDiagonallyDominantInnerApproximation(
-    std::unique_ptr<MathematicalProgram>& prog) {
+void MakeScaledDiagonallyDominantInnerApproximation(MathematicalProgram* prog) {
   auto fun =
       [&prog](const Binding<PositiveSemidefiniteConstraint>& constraint) {
-        return prog.get()->TightenPSDConstraintToSDDConstraint(constraint);
+        return prog->TightenPSDConstraintToSDDConstraint(constraint);
       };
   ApproximateProgram<std::vector<std::vector<Matrix2<symbolic::Variable>>>>(
-      fun, prog.get());
-};
+      fun, prog);
+}
 
 void MakeDiagonallyDominantDualConeOuterApproximation(
-    std::unique_ptr<MathematicalProgram>& prog) {
+    MathematicalProgram* prog) {
   auto fun =
       [&prog](const Binding<PositiveSemidefiniteConstraint>& constraint) {
-        return prog.get()->RelaxPSDConstraintToDDDualConeConstraint(constraint);
+        return prog->RelaxPSDConstraintToDDDualConeConstraint(constraint);
       };
-  ApproximateProgram<Binding<LinearConstraint>>(fun, prog.get());
+  ApproximateProgram<Binding<LinearConstraint>>(fun, prog);
 }
 
 void MakeScaledDiagonallyDominantDualConeOuterApproximation(
-    std::unique_ptr<MathematicalProgram>& prog) {
-  auto fun = [&prog](
-                 const Binding<PositiveSemidefiniteConstraint>& constraint) {
-    return prog.get()->RelaxPSDConstraintToSDDDualConeConstraint(constraint);
-  };
-  ApproximateProgram<std::vector<Binding<RotatedLorentzConeConstraint>>>(
-      fun, prog.get());
+    MathematicalProgram* prog) {
+  auto fun =
+      [&prog](const Binding<PositiveSemidefiniteConstraint>& constraint) {
+        return prog->RelaxPSDConstraintToSDDDualConeConstraint(constraint);
+      };
+  ApproximateProgram<std::vector<Binding<RotatedLorentzConeConstraint>>>(fun,
+                                                                         prog);
 }
 
 }  // namespace solvers
