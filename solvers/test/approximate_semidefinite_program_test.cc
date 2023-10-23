@@ -1,7 +1,8 @@
 #include "drake/solvers/approximate_semidefinite_program.h"
 
-#include <gtest/gtest.h>
 #include <iostream>
+
+#include <gtest/gtest.h>
 
 #include "drake/common/ssize.h"
 #include "drake/common/test_utilities/eigen_matrix_compare.h"
@@ -12,15 +13,15 @@ namespace solvers {
 namespace test {
 
 void CheckDiagonallyDominantDualConeOuterApproximation(
-    std::unique_ptr<MathematicalProgram> sdp_prog) {
+    const std::unique_ptr<MathematicalProgram>& sdp_prog) {
   // Copy the psd constraints so that we can check that sdp_prog isn't modified.
-  std::vector<Binding<PositiveSemidefiniteConstraint>>original_psd_constraints;
+  std::vector<Binding<PositiveSemidefiniteConstraint>> original_psd_constraints;
   std::copy(sdp_prog->positive_semidefinite_constraints().begin(),
             sdp_prog->positive_semidefinite_constraints().end(),
             std::back_inserter(original_psd_constraints));
 
   auto prog = sdp_prog->Clone();
-//  MakeDiagonallyDominantDualConeOuterApproximation(prog);
+  //  MakeDiagonallyDominantDualConeOuterApproximation(prog);
 
   // Approximated program should have the same costs.
   EXPECT_TRUE(
@@ -48,9 +49,8 @@ void CheckDiagonallyDominantDualConeOuterApproximation(
 
   // Prog should not have any semidefinite constraints, but the semidefinite
   // constraints of sdp_prog should be untouched.
-  EXPECT_TRUE(
-      IsVectorOfBindingEqual(original_psd_constraints,
-                             sdp_prog->positive_semidefinite_constraints()));
+  EXPECT_TRUE(IsVectorOfBindingEqual(
+      original_psd_constraints, sdp_prog->positive_semidefinite_constraints()));
   EXPECT_EQ(ssize(prog->positive_semidefinite_constraints()), 0);
 
   EXPECT_TRUE(
@@ -67,7 +67,7 @@ void CheckDiagonallyDominantDualConeOuterApproximation(
 
   EXPECT_TRUE(
       CompareMatrices(sdp_prog->initial_guess(), prog->initial_guess()));
-    std::cout << "passed up to linear equality test" << std::endl;
+  std::cout << "passed up to linear equality test" << std::endl;
 
   // Now we test the linear constraints of the approximated program
   int num_new_linear_constraints_expected = 0;
@@ -78,17 +78,19 @@ void CheckDiagonallyDominantDualConeOuterApproximation(
   EXPECT_EQ(ssize(prog->linear_constraints()),
             ssize(sdp_prog->linear_constraints()) +
                 num_new_linear_constraints_expected);
-std:: cout << "tested constraint size" << std::endl;
-std:: cout << "num linear constraints sdp " << ssize(sdp_prog->linear_constraints()) << std::endl;
-std:: cout << "num linear constraints new " << ssize(prog->linear_constraints()) << std::endl;
+  std::cout << "tested constraint size" << std::endl;
+  std::cout << "num linear constraints sdp "
+            << ssize(sdp_prog->linear_constraints()) << std::endl;
+  std::cout << "num linear constraints new "
+            << ssize(prog->linear_constraints()) << std::endl;
   // Ensure that all the linear constraints of the original program are in the
   // approximating program.
   for (const auto& original_linear_constraint :
        sdp_prog->linear_constraints()) {
-    std:: cout << "loop entered" << std::endl;
+    std::cout << "loop entered" << std::endl;
     bool constraint_found = false;
     for (const auto& new_linear_constraint : prog->linear_constraints()) {
-      std:: cout << "testing binding equality" << std::endl;
+      std::cout << "testing binding equality" << std::endl;
       ::testing::AssertionResult assertion_result{
           IsBindingEqual(original_linear_constraint, new_linear_constraint)};
       if (assertion_result) {
@@ -97,11 +99,43 @@ std:: cout << "num linear constraints new " << ssize(prog->linear_constraints())
       }
     }
     if (!constraint_found) {
-      EXPECT_TRUE(::testing::AssertionFailure()
-                  << fmt::format("Constraint {} not found.",
-                                 original_linear_constraint));
+      EXPECT_TRUE(::testing::AssertionFailure() << fmt::format(
+                      "Constraint {} not found.", original_linear_constraint));
     }
   }
+}
+
+void MWE(const std::unique_ptr<MathematicalProgram>& sdp_prog) {
+  std::cout << "MWE entered" << std::endl;
+  for (const auto& constraint :
+       sdp_prog->GetAllConstraints()) {
+    std::cout << "loop entered" << std::endl;
+    std::cout << constraint.GetNumElements() << std::endl;
+  }
+}
+
+void MWE_Raw(const MathematicalProgram* sdp_prog) {
+  std::cout << "MWE entered" << std::endl;
+  for (const auto& constraint :
+       sdp_prog->GetAllConstraints()) {
+    std::cout << "loop entered" << std::endl;
+    std::cout << constraint.GetNumElements() << std::endl;
+  }
+}
+
+GTEST_TEST(MWE_Raw, MWE_Raw) {
+   MathematicalProgram prog;
+  const auto y = prog.NewContinuousVariables<2>("y");
+
+  MWE_Raw(&prog);
+}
+
+GTEST_TEST(MWE, MWE) {
+   MathematicalProgram prog;
+  const auto y = prog.NewContinuousVariables<2>("y");
+
+  MWE(
+      std::unique_ptr<MathematicalProgram>(&prog));
 }
 
 GTEST_TEST(MakeSemidefiniteRelaxationTest,
@@ -113,8 +147,7 @@ GTEST_TEST(MakeSemidefiniteRelaxationTest,
       std::unique_ptr<MathematicalProgram>(&prog));
 }
 
-GTEST_TEST(MakeSemidefiniteRelaxationTest,
-           Blah) {
+GTEST_TEST(MakeSemidefiniteRelaxationTest, Blah) {
   MathematicalProgram prog;
   const auto y = prog.NewContinuousVariables<2>("y");
 
@@ -127,4 +160,3 @@ GTEST_TEST(MakeSemidefiniteRelaxationTest,
 }  // namespace test
 }  // namespace solvers
 }  // namespace drake
-
