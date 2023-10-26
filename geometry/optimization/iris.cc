@@ -1,6 +1,7 @@
 #include "drake/geometry/optimization/iris.h"
 
 #include <algorithm>
+#include <iostream>
 #include <limits>
 #include <optional>
 #include <tuple>
@@ -20,8 +21,6 @@
 #include "drake/solvers/choose_best_solver.h"
 #include "drake/solvers/ipopt_solver.h"
 #include "drake/solvers/snopt_solver.h"
-
-#include <iostream>
 
 namespace drake {
 namespace geometry {
@@ -436,11 +435,14 @@ struct GeometryPairWithDistance {
 
 }  // namespace
 
-HPolyhedron IrisInConfigurationSpace(const MultibodyPlant<double>& plant,
-                                     const Context<double>& diagram_context,
-                                     const IrisOptions& options) {
-  const Context<double> context{plant.GetMyContextFromRoot(*(diagram_context.Clone()))};
-  Context<double> mut_context{plant.GetMyMutableContextFromRoot(*(diagram_context.Clone()))};                  
+HPolyhedron IrisInConfigurationSpace(
+    const MultibodyPlant<double>& plant,
+    const Context<double>& diagram_context,
+    const IrisOptions& options) {
+  auto diagram_context_clone = diagram_context.Clone();
+  const Context<double>& context{plant.GetMyContextFromRoot(diagram_context)};
+  Context<double>& mut_context =
+      plant.GetMyMutableContextFromRoot(diagram_context_clone.get());
   // Check the inputs.
   plant.ValidateContext(context);
   const int nq = plant.num_positions();
@@ -681,27 +683,27 @@ HPolyhedron IrisInConfigurationSpace(const MultibodyPlant<double>& plant,
           guess = prev_counter_examples[counter_example_searches_for_this_pair];
         } else {
           MakeGuessFeasible(P_candidate, &guess);
+
           std::vector<VectorXd> samples_in_region;
           int num_samps = 20;
-          for(int i=0; i < num_samps; i++){
+          for (int i = 0; i < num_samps; i++) {
             guess = P_candidate.UniformSample(&generator, guess);
-            std::cout <<"before set positions" << std::endl;
-            plant.SetPositions(mut_context, guess);
-            std::cout <<"before eval" << std::endl;
+            plant.SetPositions(&mut_context, guess);
             auto mut_query_object =
-            plant.get_geometry_query_input_port().Eval<QueryObject<double>>(mut_context);
-            std::cout <<"got eval" << std::endl;
-            
-            if (mut_query_object.HasCollisions()){
-                samples_in_region.push_back(guess);
+                plant.get_geometry_query_input_port().Eval<QueryObject<double>>(
+                    mut_context);
+            if (mut_query_object.HasCollisions()) {
+              samples_in_region.push_back(guess);
             }
           }
-          if (samples_in_region.size()>0){
+          if (samples_in_region.size() > 0) {
             VectorXd cum_sum = VectorXd::Zero(guess.size());
-            for (const auto s: samples_in_region){ cum_sum = cum_sum+s;}
-            guess = cum_sum/samples_in_region.size();
+            for (const auto& s : samples_in_region) {
+              cum_sum = cum_sum + s;
+            }
+            guess = cum_sum / samples_in_region.size();
           }
-        //   guess = samples_in_region[0];//do mean
+          //           guess = samples_in_region[0];//do mean
         }
         ++counter_example_searches_for_this_pair;
         if (options.meshcat && nq <= 3) {

@@ -877,8 +877,10 @@ GTEST_TEST(IrisInConfigurationSpaceTest, DoublePendulumEndEffectorConstraints) {
   // We required > 10 samples to pass the test on mac CI with ipopt.
   options.num_additional_constraint_infeasible_samples = 15;
 
-  HPolyhedron region = IrisInConfigurationSpace(
-      plant, plant.GetMyContextFromRoot(*context), options);
+//  HPolyhedron region = IrisInConfigurationSpace(
+//      plant, plant.GetMyContextFromRoot(*context), options);
+HPolyhedron region = IrisInConfigurationSpace(
+      plant, *context, options);
 
   EXPECT_EQ(region.ambient_dimension(), 2);
 
