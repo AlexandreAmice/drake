@@ -199,7 +199,7 @@ run-time of the algorithm. The same goes for
 */
 HPolyhedron IrisInConfigurationSpace(
     const multibody::MultibodyPlant<double>& plant,
-    const systems::Context<double>& context,
+    const systems::Context<double>& diagram_context,
     const IrisOptions& options = IrisOptions());
 
 /** Defines a standardized representation for (named) IrisRegions, which can be

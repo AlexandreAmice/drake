@@ -45,8 +45,10 @@ HPolyhedron IrisFromUrdf(const std::string urdf,
 
   auto context = diagram->CreateDefaultContext();
   plant.SetPositions(&plant.GetMyMutableContextFromRoot(context.get()), sample);
-  return IrisInConfigurationSpace(plant, plant.GetMyContextFromRoot(*context),
+  return IrisInConfigurationSpace(plant, *context,
                                   options);
+//   return IrisInConfigurationSpace(plant, plant.GetMyContextFromRoot(*context),
+//                                   options);
 }
 
 // One prismatic link with joint limits.  Iris should return the joint limits.

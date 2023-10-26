@@ -214,7 +214,7 @@ Hyperellipsoid Hyperellipsoid::MinimumVolumeCircumscribedEllipsoid(
   // directly, s.t. v = A_lorentz * vars + b_lorentz, where A=Aᵀ and b are the
   // vars.
   VectorX<Expression> v(rank + 1);
-  v[0] = 1;
+  v[0] = 100;
   for (int i = 0; i < n; ++i) {
     if (U) {  // rank < dim
       // |AUᵀ(x-mean) + b|₂ <= 1, written as a Lorentz cone with v = [1;
@@ -222,12 +222,14 @@ Hyperellipsoid Hyperellipsoid::MinimumVolumeCircumscribedEllipsoid(
       v.tail(rank) = A * U->transpose() * (points.col(i) - mean) + b;
     } else {  // rank == dim
       // |Ax + b|₂ <= 1, written as a Lorentz cone with v = [1; A * x + b].
-      v.tail(rank) = A * points.col(i) + b;
+      v.tail(rank) = 100*(A * points.col(i) + b);
     }
     prog.AddLorentzConeConstraint(v);
   }
 
   solvers::MathematicalProgramResult result = Solve(prog);
+  log()->info("MinimumVolumeCircumscribedEllipsoid solved with {}", result.get_solver_id().name());
+  
   if (!result.is_success()) {
     throw std::runtime_error(
         fmt::format("The MathematicalProgram was not solved successfully. The "
@@ -242,7 +244,8 @@ Hyperellipsoid Hyperellipsoid::MinimumVolumeCircumscribedEllipsoid(
   // Note: We can use llt() because know that A will be positive definite;
   // there is a PSD constraint, but we are maximizing the eigenvalues of A and
   // the convex hull of the points is guaranteed to be bounded.
-  const VectorXd c = A_sol.llt().solve(-b_sol);
+  //const VectorXd c = A_sol.llt().solve(-b_sol);
+  const VectorXd c = A_sol.ldlt().solve(-b_sol);
 
   if (U) {
     // AUᵀ(x-mean) + b => AUᵀ(x - center), so center = -UA⁻¹b + mean.
