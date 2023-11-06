@@ -63,7 +63,9 @@ std::unique_ptr<MathematicalProgram> MakeSemidefiniteRelaxation(
   relaxation->AddBoundingBoxConstraint(1, 1,
                                        X(prog.num_vars(), prog.num_vars()));
   // X ≽ 0.
-  relaxation->AddPositiveSemidefiniteConstraint(X);
+  MatrixX<Variable> Y = relaxation->NewSymmetricContinuousVariables(X.rows(), "Y");
+  relaxation->AddPositiveSemidefiniteConstraint(Y);
+  relaxation->AddLinearEqualityConstraint(X == Y);
 
   auto x = X.col(prog.num_vars());
 
