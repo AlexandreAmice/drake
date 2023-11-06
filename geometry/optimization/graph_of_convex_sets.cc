@@ -3,6 +3,7 @@
 #undef EIGEN_NO_IO
 
 #include "drake/geometry/optimization/graph_of_convex_sets.h"
+#include "drake/solvers/approximate_semidefinite_program.h"
 
 #include <limits>
 #include <memory>
@@ -60,15 +61,19 @@ using symbolic::Variable;
 using symbolic::Variables;
 
 namespace {
-MathematicalProgramResult Solve(const MathematicalProgram& prog,
+MathematicalProgramResult Solve(const MathematicalProgram& passed_prog,
                                 const GraphOfConvexSetsOptions& options) {
   MathematicalProgramResult result;
+  auto prog = passed_prog.Clone();
+  if(options.relax_to_sdd_star) {
+    MakeScaledDiagonallyDominantDualConeOuterApproximation(prog.get());
+  }
   if (options.solver) {
-    options.solver->Solve(prog, {}, options.solver_options, &result);
+    options.solver->Solve(*prog, {}, options.solver_options, &result);
   } else {
     std::unique_ptr<solvers::SolverInterface> solver{};
     try {
-      solvers::SolverId solver_id = solvers::ChooseBestSolver(prog);
+      solvers::SolverId solver_id = solvers::ChooseBestSolver(*prog);
       solver = solvers::MakeSolver(solver_id);
     } catch (const std::exception&) {
       // We should only get here if the user is trying to solve the MIP.
@@ -92,7 +97,7 @@ MathematicalProgramResult Solve(const MathematicalProgram& prog,
           "GraphOfConvexSetsOptions for more details.");
     }
     DRAKE_DEMAND(solver != nullptr);
-    solver->Solve(prog, {}, options.solver_options, &result);
+    solver->Solve(*prog, {}, options.solver_options, &result);
   }
   return result;
 }

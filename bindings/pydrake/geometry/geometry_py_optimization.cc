@@ -561,6 +561,8 @@ void DefineGeometryOptimization(py::module m) {
             cls_doc.flow_tolerance.doc)
         .def_readwrite("rounding_seed",
             &GraphOfConvexSetsOptions::rounding_seed, cls_doc.rounding_seed.doc)
+        .def_readwrite("relax_to_sdd_star",
+            &GraphOfConvexSetsOptions::relax_to_sdd_star, cls_doc.relax_to_sdd_star.doc)
         .def_property("solver_options",
             py::cpp_function(
                 [](GraphOfConvexSetsOptions& self) {

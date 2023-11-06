@@ -72,6 +72,11 @@ struct GraphOfConvexSetsOptions {
   running the relaxed problem and looser (i.e., higher) tolerances for final
   solves during rounding. */
   std::optional<solvers::SolverOptions> rounding_solver_options{std::nullopt};
+
+  /**
+   * Relax to SDD*.
+   */
+   bool relax_to_sdd_star{false};
 };
 
 /**
