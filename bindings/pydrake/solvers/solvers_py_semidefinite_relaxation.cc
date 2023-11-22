@@ -11,9 +11,18 @@ void DefineSolversSemidefiniteRelaxation(py::module m) {
   // NOLINTNEXTLINE(build/namespaces): Emulate placement in namespace.
   using namespace drake::solvers;
   constexpr auto& doc = pydrake_doc.drake.solvers;
+  unused(doc);
 
-  m.def("MakeSemidefiniteRelaxation", &solvers::MakeSemidefiniteRelaxation,
-      py::arg("prog"), doc.MakeSemidefiniteRelaxation.doc);
+  m.def("MakeSemidefiniteRelaxation",
+      py::overload_cast<const MathematicalProgram&, bool>(
+          &solvers::MakeSemidefiniteRelaxation),
+      py::arg("prog"), py::arg("use_term_sparsity") = true);
+
+  m.def("MakeSemidefiniteRelaxation",
+      py::overload_cast<const MathematicalProgram&,
+          const std::map<symbolic::Variables, bool>&>(
+          &solvers::MakeSemidefiniteRelaxation),
+      py::arg("prog"), py::arg("variables_to_enforce_sparsity"));
 }
 
 }  // namespace internal
