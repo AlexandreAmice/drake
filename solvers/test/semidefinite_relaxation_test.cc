@@ -86,8 +86,10 @@ Variables GetMinorVariablesFromMakeSemidefiniteRelaxationVars(
 GTEST_TEST(MakeSemidefiniteRelaxationTest, NoCostsNorConstraints) {
   MathematicalProgram prog;
   const auto y = prog.NewContinuousVariables<2>("y");
-  const auto relaxation_and_X = internal::MakeSemidefiniteRelaxationLinearConstraints(prog);
-  std::unique_ptr<MathematicalProgram> relaxation{std::move(relaxation_and_X.first)};
+  const auto relaxation_and_X =
+      internal::MakeSemidefiniteRelaxationLinearConstraintsAndComputeMinorCliques(prog, std::nullopt);
+  std::unique_ptr<MathematicalProgram> relaxation{
+      std::move(relaxation_and_X.first)};
   MatrixX<Variable> X{std::move(relaxation_and_X)};
   // X is 3x3 symmetric.
   EXPECT_EQ(relaxation->num_vars(), 6);
@@ -100,7 +102,7 @@ GTEST_TEST(MakeSemidefiniteRelaxationTest, NoCostsNorConstraints) {
             Variables{one});
 }
 //
-//GTEST_TEST(MakeSemidefiniteRelaxationTest, NoCostsNorConstraintsAutoSparse) {
+// GTEST_TEST(MakeSemidefiniteRelaxationTest, NoCostsNorConstraintsAutoSparse) {
 //  MathematicalProgram prog;
 //  const auto y = prog.NewContinuousVariables<2>("y");
 //  const auto relaxation = MakeSemidefiniteRelaxation(prog, true);
@@ -118,7 +120,8 @@ GTEST_TEST(MakeSemidefiniteRelaxationTest, NoCostsNorConstraints) {
 //  EXPECT_EQ(relaxation->positive_semidefinite_constraints().size(), 0);
 //}
 //
-//GTEST_TEST(MakeSemidefiniteRelaxationTest, NoCostsNorConstraintsManualSparse) {
+// GTEST_TEST(MakeSemidefiniteRelaxationTest, NoCostsNorConstraintsManualSparse)
+// {
 //  MathematicalProgram prog;
 //  const auto y = prog.NewContinuousVariables<2>("y");
 //  std::map<Variables, bool> variables_to_enforce_sparsity{
@@ -150,7 +153,7 @@ GTEST_TEST(MakeSemidefiniteRelaxationTest, NoCostsNorConstraints) {
 //          relaxation->decision_variables(), prog.num_vars(), {1}));
 //}
 //
-//GTEST_TEST(MakeSemidefiniteRelaxationTest,
+// GTEST_TEST(MakeSemidefiniteRelaxationTest,
 //           NoCostsNorConstraintsManualSparseEmptyMap) {
 //  MathematicalProgram prog;
 //  const auto y = prog.NewContinuousVariables<2>("y");
@@ -172,7 +175,7 @@ GTEST_TEST(MakeSemidefiniteRelaxationTest, NoCostsNorConstraints) {
 //  EXPECT_EQ(relaxation->positive_semidefinite_constraints().size(), 0);
 //}
 //
-//GTEST_TEST(MakeSemidefiniteRelaxationTest, UnsupportedCost) {
+// GTEST_TEST(MakeSemidefiniteRelaxationTest, UnsupportedCost) {
 //  MathematicalProgram prog;
 //  const auto y = prog.NewContinuousVariables<2>("y");
 //  prog.AddCost(sin(y[0]));
@@ -181,7 +184,7 @@ GTEST_TEST(MakeSemidefiniteRelaxationTest, NoCostsNorConstraints) {
 //      ".*GenericCost was declared but is not supported.");
 //}
 //
-//GTEST_TEST(MakeSemidefiniteRelaxationTest, UnsupportedCostAutoSparse) {
+// GTEST_TEST(MakeSemidefiniteRelaxationTest, UnsupportedCostAutoSparse) {
 //  MathematicalProgram prog;
 //  const auto y = prog.NewContinuousVariables<2>("y");
 //  prog.AddCost(sin(y[0]));
@@ -190,7 +193,7 @@ GTEST_TEST(MakeSemidefiniteRelaxationTest, NoCostsNorConstraints) {
 //      ".*GenericCost was declared but is not supported.");
 //}
 //
-//GTEST_TEST(MakeSemidefiniteRelaxationTest, UnsupportedCostManualSparse) {
+// GTEST_TEST(MakeSemidefiniteRelaxationTest, UnsupportedCostManualSparse) {
 //  MathematicalProgram prog;
 //  const auto y = prog.NewContinuousVariables<2>("y");
 //  std::map<Variables, bool> variables_to_enforce_sparsity{
@@ -201,7 +204,7 @@ GTEST_TEST(MakeSemidefiniteRelaxationTest, NoCostsNorConstraints) {
 //      ".*GenericCost was declared but is not supported.");
 //}
 //
-//GTEST_TEST(MakeSemidefiniteRelaxationTest, UnsupportedConstraint) {
+// GTEST_TEST(MakeSemidefiniteRelaxationTest, UnsupportedConstraint) {
 //  MathematicalProgram prog;
 //  const auto y = prog.NewContinuousVariables<2>("y");
 //  prog.AddConstraint(sin(y[0]) >= 0.2);
@@ -210,7 +213,7 @@ GTEST_TEST(MakeSemidefiniteRelaxationTest, NoCostsNorConstraints) {
 //      ".*GenericConstraint was declared but is not supported.");
 //}
 //
-//GTEST_TEST(MakeSemidefiniteRelaxationTest, UnsupportedConstraintAutoSparse) {
+// GTEST_TEST(MakeSemidefiniteRelaxationTest, UnsupportedConstraintAutoSparse) {
 //  MathematicalProgram prog;
 //  const auto y = prog.NewContinuousVariables<2>("y");
 //  prog.AddConstraint(sin(y[0]) >= 0.2);
@@ -219,7 +222,8 @@ GTEST_TEST(MakeSemidefiniteRelaxationTest, NoCostsNorConstraints) {
 //      ".*GenericConstraint was declared but is not supported.");
 //}
 //
-//GTEST_TEST(MakeSemidefiniteRelaxationTest, UnsupportedConstraintManualSparse) {
+// GTEST_TEST(MakeSemidefiniteRelaxationTest, UnsupportedConstraintManualSparse)
+// {
 //  MathematicalProgram prog;
 //  const auto y = prog.NewContinuousVariables<2>("y");
 //  std::map<Variables, bool> variables_to_enforce_sparsity{
@@ -230,7 +234,7 @@ GTEST_TEST(MakeSemidefiniteRelaxationTest, NoCostsNorConstraints) {
 //      ".*GenericConstraint was declared but is not supported.");
 //}
 //
-//GTEST_TEST(MakeSemidefiniteRelaxationTest, LinearCost) {
+// GTEST_TEST(MakeSemidefiniteRelaxationTest, LinearCost) {
 //  MathematicalProgram prog;
 //  const auto y = prog.NewContinuousVariables<2>("y");
 //  const Vector2d a(0.5, 0.7);
@@ -255,7 +259,7 @@ GTEST_TEST(MakeSemidefiniteRelaxationTest, NoCostsNorConstraints) {
 //  EXPECT_EQ(indices.size(), 2);
 //}
 //
-//GTEST_TEST(MakeSemidefiniteRelaxationTest, LinearCostAutoSparseWithOffset) {
+// GTEST_TEST(MakeSemidefiniteRelaxationTest, LinearCostAutoSparseWithOffset) {
 //  MathematicalProgram prog;
 //  const auto y = prog.NewContinuousVariables<3>("y");
 //  const Vector3d a(0.5, 0, 0.7);
@@ -293,7 +297,7 @@ GTEST_TEST(MakeSemidefiniteRelaxationTest, NoCostsNorConstraints) {
 //  EXPECT_EQ(indices.size(), 3);
 //}
 //
-//GTEST_TEST(MakeSemidefiniteRelaxationTest, LinearCostAutoSparseNoOffset) {
+// GTEST_TEST(MakeSemidefiniteRelaxationTest, LinearCostAutoSparseNoOffset) {
 //  MathematicalProgram prog;
 //  const auto y = prog.NewContinuousVariables<3>("y");
 //  const Vector3d a(0.5, 0, 0.7);
@@ -331,7 +335,7 @@ GTEST_TEST(MakeSemidefiniteRelaxationTest, NoCostsNorConstraints) {
 //  EXPECT_EQ(indices.size(), 3);
 //}
 //
-//GTEST_TEST(MakeSemidefiniteRelaxationTest, LinearCostManualSparse) {
+// GTEST_TEST(MakeSemidefiniteRelaxationTest, LinearCostManualSparse) {
 //  MathematicalProgram prog;
 //  const auto y = prog.NewContinuousVariables<3>("y");
 //  const Vector3d a(0.5, 0, 0.7);
@@ -384,7 +388,7 @@ GTEST_TEST(MakeSemidefiniteRelaxationTest, NoCostsNorConstraints) {
 //  EXPECT_EQ(indices.size(), 3);
 //}
 //
-//GTEST_TEST(MakeSemidefiniteRelaxationTest, QuadraticCost) {
+// GTEST_TEST(MakeSemidefiniteRelaxationTest, QuadraticCost) {
 //  MathematicalProgram prog;
 //  const auto y = prog.NewContinuousVariables<2>("y");
 //  const Vector2d yd(0.5, 0.7);
@@ -402,7 +406,7 @@ GTEST_TEST(MakeSemidefiniteRelaxationTest, NoCostsNorConstraints) {
 //      0, 1e-12);
 //}
 //
-//GTEST_TEST(MakeSemidefiniteRelaxationTest, QuadraticCostManualSparse) {
+// GTEST_TEST(MakeSemidefiniteRelaxationTest, QuadraticCostManualSparse) {
 //  MathematicalProgram prog;
 //  const auto y = prog.NewContinuousVariables<2>("y");
 //  const Vector2d yd(0.5, 0.7);
@@ -420,7 +424,7 @@ GTEST_TEST(MakeSemidefiniteRelaxationTest, NoCostsNorConstraints) {
 //      0, 1e-12);
 //}
 //
-//GTEST_TEST(MakeSemidefiniteRelaxationTest, BoundingBoxConstraint) {
+// GTEST_TEST(MakeSemidefiniteRelaxationTest, BoundingBoxConstraint) {
 //  MathematicalProgram prog;
 //  const int N_VARS = 2;
 //  const auto y = prog.NewContinuousVariables<2>("y");
@@ -475,7 +479,7 @@ GTEST_TEST(MakeSemidefiniteRelaxationTest, NoCostsNorConstraints) {
 //      expected, 1e-12));
 //}
 //
-//GTEST_TEST(MakeSemidefiniteRelaxationTest, LinearConstraint) {
+// GTEST_TEST(MakeSemidefiniteRelaxationTest, LinearConstraint) {
 //  MathematicalProgram prog;
 //  const auto y = prog.NewContinuousVariables<2>("y");
 //  MatrixXd A0(3, 2);
@@ -540,7 +544,7 @@ GTEST_TEST(MakeSemidefiniteRelaxationTest, NoCostsNorConstraints) {
 //                              expected, 1e-12));
 //}
 //
-//GTEST_TEST(MakeSemidefiniteRelaxationTest, LinearEqualityConstraint) {
+// GTEST_TEST(MakeSemidefiniteRelaxationTest, LinearEqualityConstraint) {
 //  MathematicalProgram prog;
 //  const auto y = prog.NewContinuousVariables<2>("y");
 //  MatrixXd A(3, 2);
@@ -571,7 +575,7 @@ GTEST_TEST(MakeSemidefiniteRelaxationTest, NoCostsNorConstraints) {
 //  EXPECT_TRUE(CompareMatrices(value, expected, 1e-12));
 //}
 //
-//GTEST_TEST(MakeSemidefiniteRelaxationTest, QuadraticConstraint) {
+// GTEST_TEST(MakeSemidefiniteRelaxationTest, QuadraticConstraint) {
 //  MathematicalProgram prog;
 //  const auto y = prog.NewContinuousVariables<2>("y");
 //  Matrix2d Q;
@@ -602,10 +606,11 @@ GTEST_TEST(MakeSemidefiniteRelaxationTest, NoCostsNorConstraints) {
 //
 //// This test checks that repeated variables in a quadratic constraint are
 //// handled correctly.
-//GTEST_TEST(MakeSemidefiniteRelaxationTest, QuadraticConstraint2) {
+// GTEST_TEST(MakeSemidefiniteRelaxationTest, QuadraticConstraint2) {
 //  MathematicalProgram prog;
 //  const auto y = prog.NewContinuousVariables<1>("y");
-//  prog.AddQuadraticConstraint(Eigen::Matrix2d::Ones(), Eigen::Vector2d::Zero(),
+//  prog.AddQuadraticConstraint(Eigen::Matrix2d::Ones(),
+//  Eigen::Vector2d::Zero(),
 //                              0, 1, Vector2<Variable>(y(0), y(0)));
 //  auto relaxation = MakeSemidefiniteRelaxation(prog);
 //

@@ -12,6 +12,8 @@
 #include "drake/common/ssize.h"
 #include "drake/common/text_logging.h"
 #include "drake/solvers/program_attribute.h"
+#include "drake/solvers/semidefinite_relaxation_internal.h"
+
 
 namespace drake {
 namespace solvers {
@@ -28,23 +30,6 @@ namespace {
 
 const double kInf = std::numeric_limits<double>::infinity();
 
-// If any of the variable groups are subsets of vars, remove them from the set.
-// If vars is not a subset of any of the variable groups, add it to the set.
-void InsertIfNotSubsetOrReplaceIfSuperset(
-    const Variables vars, std::set<symbolic::Variables>* variable_groups) {
-  bool do_insert{true};
-  for (const auto& cur_vars : *variable_groups) {
-    if (vars.IsStrictSupersetOf(cur_vars)) {
-      variable_groups->erase(cur_vars);
-    } else if (vars.IsSubsetOf(cur_vars)) {
-      do_insert = false;
-      break;
-    }
-  }
-  if (do_insert) {
-    variable_groups->insert(vars);
-  }
-}
 
 // This constrains the minors of X corresponding to the groups of variables in
 // sparsity_to_apply to be PSD.
@@ -96,274 +81,48 @@ void AddMinorsArePsdConstraints(
 
 }  // namespace
 
-namespace internal {
+std::unique_ptr<MathematicalProgram> MakeSemidefiniteRelaxation(
+    const MathematicalProgram& prog,
+    const SemidefiniteRelaxationSparsityType& sparsity) {
+  std::set<symbolic::Variables> computed_sparsity_groups;
+  auto prog_and_X = internal::MakeSemidefiniteRelaxationLinearConstraintsAndComputeMinorCliques(
+      prog, sparsity != SemidefiniteRelaxationSparsityType::kDense
+            ? std::optional{&computed_sparsity_groups}
+            : std::nullopt);
+  switch (sparsity) {
+    case kDense:
+      prog_and_X.first->AddPositiveSemidefiniteConstraint(prog_and_X.second);
+      break;
+    case kTermSparse:
+      AddMinorsArePsdConstraints(prog_and_X.second, computed_sparsity_groups,
+                                 prog_and_X.first.get());
+      break;
+      DRAKE_UNREACHABLE();
+  }
+  return std::move(prog_and_X.first);
+}
 
-
-//
-// std::unique_ptr<MathematicalProgram> MakeSemidefiniteRelaxation(
-//    const MathematicalProgram& prog,
-//    std::optional<std::vector<std::pair<symbolic::Variables, bool>>>
-//        variables_to_enforce_sparsity) {
-//  std::string unsupported_message{};
-//  const ProgramAttributes supported_attributes(
-//      std::initializer_list<ProgramAttribute>{
-//          ProgramAttribute::kLinearCost, ProgramAttribute::kQuadraticCost,
-//          ProgramAttribute::kLinearConstraint,
-//          ProgramAttribute::kLinearEqualityConstraint,
-//          ProgramAttribute::kQuadraticConstraint});
-//  if (!AreRequiredAttributesSupported(prog.required_capabilities(),
-//                                      supported_attributes,
-//                                      &unsupported_message)) {
-//    throw std::runtime_error(fmt::format(
-//        "MakeSemidefiniteRelaxation() does not (yet) support this program:
-//        {}.", unsupported_message));
-//  }
-//
-//  auto relaxation = std::make_unique<MathematicalProgram>();
-//
-//  // Build a symmetric matrix X of decision variables using the original
-//  // program variables (so that GetSolution, etc, works using the original
-//  // variables).
-//  relaxation->AddDecisionVariables(prog.decision_variables());
-//  MatrixX<Variable> X(prog.num_vars() + 1, prog.num_vars() + 1);
-//  // X = xxᵀ; x = [prog.decision_vars(); 1].
-//  X.topLeftCorner(prog.num_vars(), prog.num_vars()) =
-//      relaxation->NewSymmetricContinuousVariables(prog.num_vars(), "Y");
-//  X.topRightCorner(prog.num_vars(), 1) = prog.decision_variables();
-//  X.bottomLeftCorner(1, prog.num_vars()) =
-//      prog.decision_variables().transpose();
-//  // X(-1,-1) = 1.
-//  Variable one("one");
-//  X(prog.num_vars(), prog.num_vars()) = one;
-//  relaxation->AddDecisionVariables(Vector1<Variable>(one));
-//  relaxation->AddBoundingBoxConstraint(1, 1,
-//                                       X(prog.num_vars(), prog.num_vars()));
-//  // X ≽ 0.
-//  if (variables_to_enforce_sparsity.has_value()) {
-//    for (const auto& vars_and_use_constant :
-//         variables_to_enforce_sparsity.value()) {
-//      const Variables vars{vars_and_use_constant.first};
-//      const bool use_constant{vars_and_use_constant.second};
-//      const int minor_size{
-//          static_cast<int>(use_constant ? ssize(vars) + 1 : ssize(vars))};
-//      MatrixX<Variable> minor(minor_size, minor_size);
-//      int minor_r = 0;
-//      for (auto it = vars.begin(); it != vars.end(); ++it) {
-//        const int X_r = prog.decision_variable_index().at(it->get_id());
-//        int minor_c = 0;
-//        for (auto inner_it = it; inner_it != vars.end(); ++inner_it) {
-//          const int X_c =
-//          prog.decision_variable_index().at(inner_it->get_id());
-//          minor(minor_r, minor_c) = X(X_r, X_c);
-//          minor(minor_c, minor_r) = X(X_c, X_r);
-//          ++minor_r;
-//          ++minor_c;
-//        }
-//        if (use_constant) {
-//          minor(minor_r, minor_c) = X(X_r, X.cols() - 1);
-//          minor(minor_c, minor_r) = X(X.cols() - 1, X_r);
-//        }
-//      }
-//      relaxation->AddPositiveSemidefiniteConstraint(minor);
-//    }
-//  } else {
-//    relaxation->AddPositiveSemidefiniteConstraint(X);
-//  }
-//
-//  auto x = X.col(prog.num_vars());
-//
-//  // Returns the {a, vars} in relaxation, such that a' vars = 0.5*tr(QY). This
-//  // assumes Q=Q', which is ensured by QuadraticCost and QuadraticConstraint.
-//  auto half_trace_QY = [&X, &prog](const Eigen::MatrixXd& Q,
-//                                   const VectorXDecisionVariable& prog_vars)
-//      -> std::pair<VectorXd, VectorX<Variable>> {
-//    const int N = prog_vars.size();
-//    const int num_vars = N * (N + 1) / 2;
-//    const std::vector<int> indices =
-//        prog.FindDecisionVariableIndices(prog_vars);
-//    VectorXd a = VectorXd::Zero(num_vars);
-//    VectorX<Variable> y(num_vars);
-//    int count = 0;
-//    for (int i = 0; i < N; ++i) {
-//      for (int j = 0; j <= i; ++j) {
-//        // tr(QY) = ∑ᵢ ∑ⱼ Qᵢⱼ Yⱼᵢ.
-//        a[count] = ((i == j) ? 0.5 : 1.0) * Q(i, j);
-//        y[count] = X(indices[i], indices[j]);
-//        ++count;
-//      }
-//    }
-//    return {a, y};
-//  };
-//
-//  // Linear costs => Linear costs.
-//  for (const auto& binding : prog.linear_costs()) {
-//    relaxation->AddCost(binding);
-//  }
-//  // Quadratic costs.
-//  // 0.5 y'Qy + b'y + c => 0.5 tr(QY) + b'y + c
-//  for (const auto& binding : prog.quadratic_costs()) {
-//    const int N = binding.variables().size();
-//    const int num_vars = N + (N * (N + 1) / 2);
-//    std::pair<VectorXd, VectorX<Variable>> quadratic_terms =
-//        half_trace_QY(binding.evaluator()->Q(), binding.variables());
-//    VectorXd a(num_vars);
-//    VectorX<Variable> vars(num_vars);
-//    a << quadratic_terms.first, binding.evaluator()->b();
-//    vars << quadratic_terms.second, binding.variables();
-//    relaxation->AddLinearCost(a, binding.evaluator()->c(), vars);
-//  }
-//
-//  // Bounding Box constraints
-//  // lb ≤ y ≤ ub => lb ≤ y ≤ ub
-//  for (const auto& binding : prog.bounding_box_constraints()) {
-//    relaxation->AddConstraint(binding);
-//  }
-//
-//  // Linear constraints
-//  // lb ≤ Ay ≤ ub => lb ≤ Ay ≤ ub
-//  for (const auto& binding : prog.linear_constraints()) {
-//    relaxation->AddConstraint(binding);
-//  }
-//
-//  {  // Now assemble one big Ay <= b matrix from all bounding box constraints
-//    // and linear constraints
-//    // TODO(bernhardpg): Consider special-casing linear equality constraints
-//    // that are added as bounding box or linear constraints with lb == ub
-//    int num_constraints = 0;
-//    int nnz = 0;
-//    for (const auto& binding : prog.bounding_box_constraints()) {
-//      for (int i = 0; i < binding.evaluator()->num_constraints(); ++i) {
-//        if (std::isfinite(binding.evaluator()->lower_bound()[i])) {
-//          ++num_constraints;
-//        }
-//        if (std::isfinite(binding.evaluator()->upper_bound()[i])) {
-//          ++num_constraints;
-//        }
-//      }
-//      nnz += binding.evaluator()->get_sparse_A().nonZeros();
-//    }
-//    for (const auto& binding : prog.linear_constraints()) {
-//      for (int i = 0; i < binding.evaluator()->num_constraints(); ++i) {
-//        if (std::isfinite(binding.evaluator()->lower_bound()[i])) {
-//          ++num_constraints;
-//        }
-//        if (std::isfinite(binding.evaluator()->upper_bound()[i])) {
-//          ++num_constraints;
-//        }
-//      }
-//      nnz += binding.evaluator()->get_sparse_A().nonZeros();
-//    }
-//
-//    std::vector<Triplet<double>> triplet_list;
-//    triplet_list.reserve(nnz);
-//    SparseMatrix<double> A(num_constraints, prog.num_vars());
-//    VectorXd b(num_constraints);
-//
-//    int constraint_idx = 0;
-//    for (const auto& binding : prog.bounding_box_constraints()) {
-//      const std::vector<int> indices =
-//          prog.FindDecisionVariableIndices(binding.variables());
-//      for (int i = 0; i < binding.evaluator()->num_constraints(); ++i) {
-//        if (std::isfinite(binding.evaluator()->lower_bound()[i])) {
-//          triplet_list.push_back(
-//              Triplet<double>(constraint_idx, indices[i], -1.0));
-//          b(constraint_idx++) = -binding.evaluator()->lower_bound()[i];
-//        }
-//        if (std::isfinite(binding.evaluator()->upper_bound()[i])) {
-//          triplet_list.push_back(
-//              Triplet<double>(constraint_idx, indices[i], 1.0));
-//          b(constraint_idx++) = binding.evaluator()->upper_bound()[i];
-//        }
-//      }
-//    }
-//
-//    for (const auto& binding : prog.linear_constraints()) {
-//      const std::vector<int> indices =
-//          prog.FindDecisionVariableIndices(binding.variables());
-//      // TODO(hongkai-dai): Consider using the SparseMatrix iterators.
-//      for (int i = 0; i < binding.evaluator()->num_constraints(); ++i) {
-//        if (std::isfinite(binding.evaluator()->lower_bound()[i])) {
-//          for (int j = 0; j < binding.evaluator()->num_vars(); ++j) {
-//            if (binding.evaluator()->get_sparse_A().coeff(i, j) != 0) {
-//              triplet_list.push_back(Triplet<double>(
-//                  constraint_idx, indices[j],
-//                  -binding.evaluator()->get_sparse_A().coeff(i, j)));
-//            }
-//          }
-//          b(constraint_idx++) = -binding.evaluator()->lower_bound()[i];
-//        }
-//        if (std::isfinite(binding.evaluator()->upper_bound()[i])) {
-//          for (int j = 0; j < binding.evaluator()->num_vars(); ++j) {
-//            if (binding.evaluator()->get_sparse_A().coeff(i, j) != 0) {
-//              triplet_list.push_back(Triplet<double>(
-//                  constraint_idx, indices[j],
-//                  binding.evaluator()->get_sparse_A().coeff(i, j)));
-//            }
-//          }
-//          b(constraint_idx++) = binding.evaluator()->upper_bound()[i];
-//        }
-//      }
-//    }
-//    A.setFromTriplets(triplet_list.begin(), triplet_list.end());
-//
-//    // 0 ≤ (Ay-b)(Ay-b)ᵀ, implemented with
-//    // -bbᵀ ≤ AYAᵀ - b(Ay)ᵀ - (Ay)bᵀ.
-//    // TODO(russt): Avoid the symbolic computation here.
-//    // TODO(russt): Avoid the dense matrix.
-//    // TODO(russt): Only add the lower triangular constraints
-//    // (MathematicalProgram::AddLinearEqualityConstraint has this option, but
-//    // AddLinearConstraint does not yet).
-//    const MatrixX<Expression> AYAT =
-//        A * X.topLeftCorner(prog.num_vars(), prog.num_vars()) * A.transpose();
-//    const VectorX<Variable> y = x.head(prog.num_vars());
-//    relaxation->AddLinearConstraint(
-//        AYAT - b * (A * y).transpose() - A * y * b.transpose(),
-//        -b * b.transpose(),
-//        MatrixXd::Constant(num_constraints, num_constraints, kInf));
-//  }
-//
-//  // Linear equality constraints.
-//  // Ay = b => (Ay-b)xᵀ = Ayxᵀ - bxᵀ = 0.
-//  // Note that this contains Ay=b since x contains 1.
-//  for (const auto& binding : prog.linear_equality_constraints()) {
-//    const int N = binding.variables().size();
-//    const std::vector<int> indices =
-//        prog.FindDecisionVariableIndices(binding.variables());
-//    VectorX<Variable> vars(N + 1);
-//    // Add the constraints one column at a time:
-//    // Ayx_j - bx_j = 0.
-//    MatrixX<double> Ab(binding.evaluator()->num_constraints(), N + 1);
-//    // TODO(Alexandre.Amice) make this only access the sparse matrix.
-//    Ab.leftCols(N) = binding.evaluator()->GetDenseA();
-//    Ab.col(N) = -binding.evaluator()->lower_bound();
-//    for (int j = 0; j < static_cast<int>(x.size()); ++j) {
-//      for (int i = 0; i < N; ++i) {
-//        vars[i] = X(indices[i], j);
-//      }
-//      vars[N] = x[j];
-//      relaxation->AddLinearEqualityConstraint(
-//          Ab, VectorXd::Zero(binding.evaluator()->num_constraints()), vars);
-//    }
-//  }
-//
-//  // Quadratic constraints.
-//  // lb ≤ 0.5 y'Qy + b'y ≤ ub => lb ≤ 0.5 tr(QY) + b'y ≤ ub
-//  for (const auto& binding : prog.quadratic_constraints()) {
-//    const int N = binding.variables().size();
-//    const int num_vars = N + (N * (N + 1) / 2);
-//    std::pair<VectorXd, VectorX<Variable>> quadratic_terms =
-//        half_trace_QY(binding.evaluator()->Q(), binding.variables());
-//    VectorXd a(num_vars);
-//    VectorX<Variable> vars(num_vars);
-//    a << quadratic_terms.first, binding.evaluator()->b();
-//    vars << quadratic_terms.second, binding.variables();
-//    relaxation->AddLinearConstraint(a.transpose(),
-//                                    binding.evaluator()->lower_bound(),
-//                                    binding.evaluator()->upper_bound(), vars);
-//  }
-//
-//  return relaxation;
-//}
-
+std::unique_ptr<MathematicalProgram> MakeSemidefiniteRelaxation(
+    const MathematicalProgram& prog,
+    const std::map<symbolic::Variables, bool>& variables_to_enforce_sparsity) {
+  auto prog_and_X =
+      internal::MakeSemidefiniteRelaxationLinearConstraintsAndComputeMinorCliques(prog, std::nullopt);
+  std::set<symbolic::Variables> sparsity_to_apply;
+  const Variables prog_vars{prog.decision_variables()};
+  for (const auto& [vars, use_one] : variables_to_enforce_sparsity) {
+    Variables local_vars{vars};
+    DRAKE_THROW_UNLESS(local_vars.IsSubsetOf(prog_vars));
+    if (use_one) {
+      local_vars.insert(prog_and_X.second.bottomRightCorner<1, 1>()(0));
+    }
+    internal::InsertIfNotSubsetOrReplaceIfSuperset(local_vars, &sparsity_to_apply);
+  };
+  //  for (const auto& vars : sparsity_to_apply) {
+  //    std::cout << vars << std::endl;
+  //  }
+  AddMinorsArePsdConstraints(prog_and_X.second, sparsity_to_apply,
+                             prog_and_X.first.get());
+  return std::move(prog_and_X.first);
+};
 }  // namespace solvers
 }  // namespace drake

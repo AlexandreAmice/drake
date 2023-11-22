@@ -60,9 +60,9 @@ std::unique_ptr<MathematicalProgram> MakeSemidefiniteRelaxation(
 
 namespace internal {
 std::pair<std::unique_ptr<MathematicalProgram>, MatrixX<symbolic::Variable>>
-MakeSemidefiniteRelaxationLinearConstraints(
+MakeSemidefiniteRelaxationLinearConstraintsAndComputeMinorCliques(
     const MathematicalProgram& prog,
-    std::optional<std::set<symbolic::Variables>*> variable_dependence_cliques);
+    std::optional<std::set<symbolic::Variables>*> term_sparsity);
 }
 
 }  // namespace solvers

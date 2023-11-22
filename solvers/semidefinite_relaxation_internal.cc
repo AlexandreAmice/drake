@@ -1,9 +1,39 @@
 #include "drake/solvers/semidefinite_relaxation_internal.h"
 
-
 namespace drake {
 namespace solvers {
 namespace internal {
+using Eigen::MatrixXd;
+using Eigen::SparseMatrix;
+using Eigen::Triplet;
+using Eigen::VectorXd;
+using symbolic::Expression;
+using symbolic::Variable;
+using symbolic::Variables;
+
+namespace {
+const double kInf = std::numeric_limits<double>::infinity();
+
+// If any of the variable groups are subsets of vars, remove them from the set.
+// If vars is not a subset of any of the variable groups, add it to the set.
+
+}  // namespace
+
+void InsertIfNotSubsetOrReplaceIfSuperset(
+    const Variables vars, std::set<Variables>* variable_groups) {
+  bool do_insert{true};
+  for (const auto& cur_vars : *variable_groups) {
+    if (vars.IsStrictSupersetOf(cur_vars)) {
+      variable_groups->erase(cur_vars);
+    } else if (vars.IsSubsetOf(cur_vars)) {
+      do_insert = false;
+      break;
+    }
+  }
+  if (do_insert) {
+    variable_groups->insert(vars);
+  }
+}
 
 // Creates the linear constraints in semidefinite relaxation and computes which
 // variables appear in constraints together. This does NOT add the semidefinite
@@ -12,14 +42,14 @@ namespace internal {
 // constraint added, as well as the variable X. Throughout this method use y =
 // prog.decision_vars(), x = [y, 1], Y = yyᵀ, and X = xxᵀ.
 std::pair<std::unique_ptr<MathematicalProgram>, MatrixX<Variable>>
-MakeSemidefiniteRelaxationLinearConstraints(
+MakeSemidefiniteRelaxationLinearConstraintsAndComputeMinorCliques(
     const MathematicalProgram& prog,
-    std::optional<std::set<symbolic::Variables>*> variable_dependence_cliques) {
+    std::optional<std::set<symbolic::Variables>*> term_sparsity) {
   auto add_to_computed_sparsity_group =
-      [&variable_dependence_cliques](const Variables& variables) {
-        if (variable_dependence_cliques.has_value()) {
+      [&term_sparsity](const Variables& variables) {
+        if (term_sparsity.has_value()) {
           InsertIfNotSubsetOrReplaceIfSuperset(
-              variables, variable_dependence_cliques.value());
+              variables, term_sparsity.value());
         }
       };
   std::string unsupported_message{};
@@ -62,8 +92,9 @@ MakeSemidefiniteRelaxationLinearConstraints(
 
   // Returns the {a, vars} in relaxation, such that a' vars = 0.5*tr(QY). This
   // assumes Q=Q', which is ensured by QuadraticCost and QuadraticConstraint.
-  auto half_trace_QY = [&X, &prog](const Eigen::MatrixXd& Q,
-                                   const VectorXDecisionVariable& prog_vars)
+  auto half_trace_QY = [&X, &prog, &add_to_computed_sparsity_group](
+                           const Eigen::MatrixXd& Q,
+                           const VectorXDecisionVariable& prog_vars)
       -> std::pair<VectorXd, VectorX<Variable>> {
     const int N = prog_vars.size();
     const int num_vars = N * (N + 1) / 2;
@@ -76,6 +107,9 @@ MakeSemidefiniteRelaxationLinearConstraints(
       for (int j = 0; j <= i; ++j) {
         // tr(QY) = ∑ᵢ ∑ⱼ Qᵢⱼ Yⱼᵢ.
         a[count] = ((i == j) ? 0.5 : 1.0) * Q(i, j);
+        if(i != j && Q(i,j) != 0) {
+          add_to_computed_sparsity_group({y(i), y(j)});
+        }
         y[count] = X(indices[i], indices[j]);
         ++count;
       }
@@ -86,18 +120,6 @@ MakeSemidefiniteRelaxationLinearConstraints(
   // Linear costs => Linear costs.
   for (const auto& binding : prog.linear_costs()) {
     relaxation->AddCost(binding);
-    if (variable_dependence_cliques.has_value()) {
-      Variables cur_vars;
-      for (int k = 0; k < binding.evaluator()->a().size(); ++k) {
-        if (binding.evaluator()->a()(k) != 0) {
-          cur_vars.insert(binding.variables()(k));
-        }
-      }
-      if (binding.evaluator()->b() != 0) {
-        cur_vars.insert(one);
-      }
-      add_to_computed_sparsity_group(cur_vars);
-    }
   }
 
   // Quadratic costs.
@@ -172,7 +194,7 @@ MakeSemidefiniteRelaxationLinearConstraints(
       // non-zero entries of this linear constraint to find which variables
       // actually interact. Otherwise, avoid this costly iteration in favor of a
       // simpler, more efficient loop.
-      if (variable_dependence_cliques.has_value()) {
+      if (term_sparsity.has_value()) {
         std::vector<bool> has_finite_lower_bound(
             binding.evaluator()->num_constraints(), false);
         std::vector<bool> has_finite_upper_bound(
@@ -337,52 +359,6 @@ MakeSemidefiniteRelaxationLinearConstraints(
 
   return std::make_pair(std::move(relaxation), X);
 }
-}  // namespace internal
-
-std::unique_ptr<MathematicalProgram> MakeSemidefiniteRelaxation(
-    const MathematicalProgram& prog,
-    const SemidefiniteRelaxationSparsityType& sparsity) {
-  std::set<symbolic::Variables> computed_sparsity_groups;
-  auto prog_and_X = internal::MakeSemidefiniteRelaxationLinearConstraints(
-      prog, sparsity != SemidefiniteRelaxationSparsityType::kDense
-                ? std::optional{&computed_sparsity_groups}
-                : std::nullopt);
-  switch (sparsity) {
-    case kDense:
-      prog_and_X.first->AddPositiveSemidefiniteConstraint(prog_and_X.second);
-      break;
-    case kTermSparse:
-      AddMinorsArePsdConstraints(prog_and_X.second, computed_sparsity_groups,
-                                 prog_and_X.first.get());
-      break;
-      DRAKE_UNREACHABLE();
-  }
-  return std::move(prog_and_X.first);
-}
-
-std::unique_ptr<MathematicalProgram> MakeSemidefiniteRelaxation(
-    const MathematicalProgram& prog,
-    const std::map<symbolic::Variables, bool>& variables_to_enforce_sparsity) {
-  auto prog_and_X =
-      internal::MakeSemidefiniteRelaxationLinearConstraints(prog, std::nullopt);
-  std::set<symbolic::Variables> sparsity_to_apply;
-  const Variables prog_vars{prog.decision_variables()};
-  for (const auto& [vars, use_one] : variables_to_enforce_sparsity) {
-    Variables local_vars{vars};
-    DRAKE_THROW_UNLESS(local_vars.IsSubsetOf(prog_vars));
-    if (use_one) {
-      local_vars.insert(prog_and_X.second.bottomRightCorner<1, 1>()(0));
-    }
-    InsertIfNotSubsetOrReplaceIfSuperset(local_vars, &sparsity_to_apply);
-  };
-  //  for (const auto& vars : sparsity_to_apply) {
-  //    std::cout << vars << std::endl;
-  //  }
-  AddMinorsArePsdConstraints(prog_and_X.second, sparsity_to_apply,
-                             prog_and_X.first.get());
-  return std::move(prog_and_X.first);
-};
-
 }  // namespace internal
 }  // namespace solvers
 }  // namespace drake
