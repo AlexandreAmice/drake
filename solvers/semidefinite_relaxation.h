@@ -8,6 +8,8 @@
 namespace drake {
 namespace solvers {
 
+enum SemidefiniteRelaxationSparsityType { kDense, kTermSparse };
+
 // TODO(russt): Add an option for using diagonal dominance and/or
 // scaled-diagonal dominance instead of the PSD constraint.
 
@@ -36,7 +38,8 @@ namespace solvers {
  linear nor quadratic.
  */
 std::unique_ptr<MathematicalProgram> MakeSemidefiniteRelaxation(
-    const MathematicalProgram& prog, bool use_term_sparsity = false);
+    const MathematicalProgram& prog,
+    const SemidefiniteRelaxationSparsityType& sparsity = kDense);
 
 /**
  * A variant of MakeSemidefiniteRelaxation which only enforces that the minor
@@ -54,6 +57,13 @@ std::unique_ptr<MathematicalProgram> MakeSemidefiniteRelaxation(
 std::unique_ptr<MathematicalProgram> MakeSemidefiniteRelaxation(
     const MathematicalProgram& prog,
     const std::map<symbolic::Variables, bool>& variables_to_enforce_sparsity);
+
+namespace internal {
+std::pair<std::unique_ptr<MathematicalProgram>, MatrixX<symbolic::Variable>>
+MakeSemidefiniteRelaxationLinearConstraints(
+    const MathematicalProgram& prog,
+    std::optional<std::set<symbolic::Variables>*> variable_dependence_cliques);
+}
 
 }  // namespace solvers
 }  // namespace drake
