@@ -33,7 +33,7 @@ void ApproximateProgram(
 void MakeDiagonallyDominantInnerApproximation(MathematicalProgram* prog) {
   auto fun =
       [&prog](const Binding<PositiveSemidefiniteConstraint>& constraint) {
-        return prog->TightenPSDConstraintToDDConstraint(constraint);
+        return prog->TightenPsdConstraintToDd(constraint);
       };
   ApproximateProgram<MatrixX<symbolic::Expression>>(fun, prog);
 }
@@ -41,7 +41,7 @@ void MakeDiagonallyDominantInnerApproximation(MathematicalProgram* prog) {
 void MakeScaledDiagonallyDominantInnerApproximation(MathematicalProgram* prog) {
   auto fun =
       [&prog](const Binding<PositiveSemidefiniteConstraint>& constraint) {
-        return prog->TightenPSDConstraintToSDDConstraint(constraint);
+        return prog->TightenPsdConstraintToSdd(constraint);
       };
   ApproximateProgram<std::vector<std::vector<Matrix2<symbolic::Variable>>>>(
       fun, prog);
@@ -51,7 +51,7 @@ void MakeDiagonallyDominantDualConeOuterApproximation(
     MathematicalProgram* prog) {
   auto fun =
       [&prog](const Binding<PositiveSemidefiniteConstraint>& constraint) {
-        return prog->RelaxPSDConstraintToDDDualConeConstraint(constraint);
+        return prog->RelaxPsdConstraintToDdDualCone(constraint);
       };
   ApproximateProgram<Binding<LinearConstraint>>(fun, prog);
 }
@@ -60,7 +60,7 @@ void MakeScaledDiagonallyDominantDualConeOuterApproximation(
     MathematicalProgram* prog) {
   auto fun =
       [&prog](const Binding<PositiveSemidefiniteConstraint>& constraint) {
-        return prog->RelaxPSDConstraintToSDDDualConeConstraint(constraint);
+        return prog->RelaxPsdConstraintToSddDualCone(constraint);
       };
   ApproximateProgram<std::vector<Binding<RotatedLorentzConeConstraint>>>(fun,
                                                                          prog);

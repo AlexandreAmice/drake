@@ -14,9 +14,9 @@ namespace solvers {
 namespace test {
 GTEST_TEST(TestSemidefiniteProgram, SolveSDPwithOverlappingVariables) {
   CsdpSolver solver;
-  test::SolveSDPwithOverlappingVariables(
-      solver, 1E-7,
-      solver.is_available() /* test result if solver is available */);
+  if (solver.available()) {
+    test::SolveSDPwithOverlappingVariables(solver, 1E-7);
+  }
 }
 
 TEST_F(CsdpDocExample, Solve) {
@@ -287,36 +287,36 @@ TEST_F(UnboundedLinearProgramTest0, TestUnbounded) {
 GTEST_TEST(TestSemidefiniteProgram, CommonLyapunov) {
   for (auto method : GetRemoveFreeVariableMethods()) {
     CsdpSolver solver;
-    SolverOptions solver_options;
-    solver_options.SetOption(solver.id(), "drake::RemoveFreeVariableMethod",
-                             static_cast<int>(method));
-    FindCommonLyapunov(
-        solver, solver_options, 1E-6,
-        solver.is_available() /* test result if solver is available */);
+    if (solver.available()) {
+      SolverOptions solver_options;
+      solver_options.SetOption(solver.id(), "drake::RemoveFreeVariableMethod",
+                               static_cast<int>(method));
+      FindCommonLyapunov(solver, solver_options, 1E-6);
+    }
   }
 }
 
 GTEST_TEST(TestSemidefiniteProgram, OuterEllipsoid) {
   for (auto method : GetRemoveFreeVariableMethods()) {
     CsdpSolver solver;
-    SolverOptions solver_options;
-    solver_options.SetOption(solver.id(), "drake::RemoveFreeVariableMethod",
-                             static_cast<int>(method));
-    FindOuterEllipsoid(
-        solver, solver_options, 1E-6,
-        solver.is_available() /* test result if solver is available */);
+    if (solver.available()) {
+      SolverOptions solver_options;
+      solver_options.SetOption(solver.id(), "drake::RemoveFreeVariableMethod",
+                               static_cast<int>(method));
+      FindOuterEllipsoid(solver, solver_options, 1E-6);
+    }
   }
 }
 
 GTEST_TEST(TestSemidefiniteProgram, EigenvalueProblem) {
   for (auto method : GetRemoveFreeVariableMethods()) {
     CsdpSolver solver;
-    SolverOptions solver_options;
-    solver_options.SetOption(solver.id(), "drake::RemoveFreeVariableMethod",
-                             static_cast<int>(method));
-    SolveEigenvalueProblem(
-        solver, solver_options, 1E-6,
-        solver.is_available() /* test result if solver is available */);
+    if (solver.available()) {
+      SolverOptions solver_options;
+      solver_options.SetOption(solver.id(), "drake::RemoveFreeVariableMethod",
+                               static_cast<int>(method));
+      SolveEigenvalueProblem(solver, solver_options, 1E-6);
+    }
   }
 }
 

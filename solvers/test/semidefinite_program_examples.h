@@ -19,7 +19,7 @@ namespace test {
 //     [1 1]
 // @return The tested program
 std::unique_ptr<MathematicalProgram> TestTrivialSDP(
-    const SolverInterface& solver, double tol, bool solver_is_available);
+    const SolverInterface& solver, double tol, bool solver_is_available = true);
 
 // Solves a semidefinite programming problem.
 // Finds the common Lyapunov function for linear systems
@@ -32,7 +32,7 @@ std::unique_ptr<MathematicalProgram> TestTrivialSDP(
 std::unique_ptr<MathematicalProgram> FindCommonLyapunov(
     const SolverInterface& solver,
     const std::optional<SolverOptions>& solver_options, double tol,
-    bool solver_is_available);
+    bool solver_is_available = true);
 
 // Given some ellipsoids ℰᵢ : xᵀQᵢx + 2 bᵢᵀx ≤ 1, i = 1, 2, ..., n, finds an
 // ellipsoid xᵀPx + 2cᵀx ≤ 1 as an outer approximation for the union of
@@ -61,7 +61,7 @@ std::unique_ptr<MathematicalProgram> FindCommonLyapunov(
 std::unique_ptr<MathematicalProgram> FindOuterEllipsoid(
     const SolverInterface& solver,
     const std::optional<SolverOptions>& solver_options, double tol,
-    bool solver_is_available);
+    bool solver_is_available = true);
 
 // Solves an eigen value problem through a semidefinite programming.
 // Minimize the maximum eigen value of a matrix that depends affinely on a
@@ -74,13 +74,13 @@ std::unique_ptr<MathematicalProgram> FindOuterEllipsoid(
 std::unique_ptr<MathematicalProgram> SolveEigenvalueProblem(
     const SolverInterface& solver,
     const std::optional<SolverOptions>& solver_options, double tol,
-    bool solver_is_available);
+    bool solver_is_available = true);
 
 // Solves an SDP with a second order cone constraint. This example is taken
 // from https://docs.mosek.com/10.0/capi/tutorial-sdo-shared.html
 // @return The tested program
 std::unique_ptr<MathematicalProgram> SolveSDPwithSecondOrderConeExample1(
-    const SolverInterface& solver, double tol, bool solver_is_available);
+    const SolverInterface& solver, double tol, bool solver_is_available = true);
 
 // Solves an SDP with second order cone constraints. Notice that the variables
 // appear in the second order cone constraints appear also in the positive
@@ -92,7 +92,7 @@ std::unique_ptr<MathematicalProgram> SolveSDPwithSecondOrderConeExample1(
 //     X is psd, x(0) >= 0
 // @return The tested program
 std::unique_ptr<MathematicalProgram> SolveSDPwithSecondOrderConeExample2(
-    const SolverInterface& solver, double tol, bool solver_is_available);
+    const SolverInterface& solver, double tol, bool solver_is_available = true);
 
 // Solves an SDP with two PSD constraint, where each PSD constraint has
 // duplicate entries and the two PSD matrix share a common variables.
@@ -105,7 +105,7 @@ std::unique_ptr<MathematicalProgram> SolveSDPwithSecondOrderConeExample2(
 // The optimal solution will be x = (1, 1, -1).
 // @return The tested program
 std::unique_ptr<MathematicalProgram> SolveSDPwithOverlappingVariables(
-    const SolverInterface& solver, double tol, bool solver_is_available);
+    const SolverInterface& solver, double tol, bool solver_is_available = true);
 
 // Solves an SDP with quadratic cost and two PSD constraints, where each PSD
 // constraint has duplicate entries and the two PSD matrix share a common
@@ -120,7 +120,7 @@ std::unique_ptr<MathematicalProgram> SolveSDPwithOverlappingVariables(
 // The optimal solution will be x = (1, 1, -1).
 // @return The tested program
 std::unique_ptr<MathematicalProgram> SolveSDPwithQuadraticCosts(
-    const SolverInterface& solver, double tol, bool solver_is_available);
+    const SolverInterface& solver, double tol, bool solver_is_available = true);
 
 // Tests a simple SDP with only PSD constraint and bounding box constraint.
 // min x1
@@ -130,7 +130,7 @@ std::unique_ptr<MathematicalProgram> SolveSDPwithQuadraticCosts(
 //     x2 <= 1
 // @return The tested program
 std::unique_ptr<MathematicalProgram> TestSDPDualSolution1(
-    const SolverInterface& solver, double tol, bool solver_is_available);
+    const SolverInterface& solver, double tol, bool solver_is_available = true);
 }  // namespace test
 }  // namespace solvers
 }  // namespace drake

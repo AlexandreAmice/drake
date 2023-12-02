@@ -189,7 +189,7 @@ GTEST_TEST(ReplacePSDConstraintWithDDConstraint, SinglePsdConstraint) {
   EXPECT_EQ(ssize(prog.positive_semidefinite_constraints()), 1);
   EXPECT_EQ(ssize(prog.linear_constraints()), 2);
 
-  auto dd_constraint = prog.TightenPSDConstraintToDDConstraint(psd_constraint);
+  auto dd_constraint = prog.TightenPsdConstraintToDd(psd_constraint);
 
   EXPECT_EQ(ssize(prog.positive_semidefinite_constraints()), 0);
   EXPECT_EQ(ssize(prog.linear_constraints()), X.rows() * X.rows() + 2);
@@ -224,14 +224,14 @@ GTEST_TEST(ReplacePSDConstraintWithDDConstraint, MultiPsdConstraint) {
   EXPECT_EQ(ssize(prog.linear_equality_constraints()), 1);
 
   auto dd_constraint_X =
-      prog.TightenPSDConstraintToDDConstraint(psd_constraint_X);
+      prog.TightenPsdConstraintToDd(psd_constraint_X);
 
   EXPECT_EQ(ssize(prog.positive_semidefinite_constraints()), 1);
   EXPECT_EQ(ssize(prog.linear_constraints()), X.rows() * X.rows() + 2);
   EXPECT_EQ(ssize(prog.linear_equality_constraints()), 1);
 
   auto dd_constraint_Y =
-      prog.TightenPSDConstraintToDDConstraint(psd_constraint_Y);
+      prog.TightenPsdConstraintToDd(psd_constraint_Y);
 
   EXPECT_EQ(ssize(prog.positive_semidefinite_constraints()), 0);
   EXPECT_EQ(ssize(prog.linear_constraints()),
@@ -250,7 +250,7 @@ GTEST_TEST(ReplacePSDConstraintWithDDConstraint,
   auto psd_constraint2 = prog2.AddPositiveSemidefiniteConstraint(X2);
 
   DRAKE_EXPECT_THROWS_MESSAGE(
-      prog1.TightenPSDConstraintToDDConstraint(psd_constraint2),
+      prog1.TightenPsdConstraintToDd(psd_constraint2),
       ".*is not a decision variable.*");
 }
 
@@ -263,7 +263,7 @@ GTEST_TEST(ReplacePSDConstraintWithDDConstraint,
       std::make_shared<PositiveSemidefiniteConstraint>(X.rows()),
       Eigen::Map<VectorXDecisionVariable>(X.data(), X.size()));
   EXPECT_EQ(ssize(prog.positive_semidefinite_constraints()), 0);
-  prog.TightenPSDConstraintToDDConstraint(constraint);
+  prog.TightenPsdConstraintToDd(constraint);
   EXPECT_EQ(ssize(prog.positive_semidefinite_constraints()), 0);
   // Still adds the DD constraint even though the constraint was not found in
   // the program.

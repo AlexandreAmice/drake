@@ -19,14 +19,14 @@ void DefineApproximateSemidefiniteProgram(py::module m) {
       &solvers::MakeScaledDiagonallyDominantInnerApproximation, py::arg("prog"),
       doc.MakeScaledDiagonallyDominantInnerApproximation.doc);
   m.def("MakeDiagonallyDominantDualConeOuterApproximation",
-      &solvers::MakeDiagonallyDominantDualConeOuterApproximation, py::arg("prog"),
+      &solvers::MakeDiagonallyDominantDualConeOuterApproximation,
+      py::arg("prog"),
       doc.MakeDiagonallyDominantDualConeOuterApproximation.doc);
   m.def("MakeScaledDiagonallyDominantDualConeOuterApproximation",
-      &solvers::MakeScaledDiagonallyDominantDualConeOuterApproximation, py::arg("prog"),
+      &solvers::MakeScaledDiagonallyDominantDualConeOuterApproximation,
+      py::arg("prog"),
       doc.MakeScaledDiagonallyDominantDualConeOuterApproximation.doc);
-
 }
-
 }  // namespace internal
 }  // namespace pydrake
 }  // namespace drake

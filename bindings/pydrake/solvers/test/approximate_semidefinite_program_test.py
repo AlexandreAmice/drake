@@ -13,7 +13,8 @@ from pydrake.solvers import (
 class TestApproximateSemidefiniteProgram(unittest.TestCase):
 
     def make_test_program(self):
-        # A test program with many types of constraints, and one PSD constraint.
+        # A test program with many types of constraints, and one PSD
+        # constraint.
         prog = MathematicalProgram()
         x = prog.NewContinuousVariables(3)
         X = prog.NewSymmetricContinuousVariables(3)

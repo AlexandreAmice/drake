@@ -5,8 +5,6 @@
 #include "drake/common/test_utilities/eigen_matrix_compare.h"
 #include "drake/solvers/mathematical_program.h"
 #include "drake/solvers/solve.h"
-#include "drake/common/ssize.h"
-
 namespace drake {
 namespace solvers {
 namespace {
