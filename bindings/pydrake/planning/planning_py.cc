@@ -27,6 +27,7 @@ and/or trajectories of dynamical systems.
   internal::DefinePlanningTrajectoryOptimization(m);
   internal::DefinePlanningGraphAlgorithms(m);
   internal::DefinePlanningVisibilityGraph(m);
+  internal::DefinePlanningIrisFromCliqueCover(m);
 }
 
 }  // namespace pydrake

@@ -32,6 +32,9 @@ void DefinePlanningGraphAlgorithms(py::module m);
 /* Defines bindings per planning_py_visibility_graph.cc. */
 void DefinePlanningVisibilityGraph(py::module m);
 
+/* Defines bindings per planning_py_iris_from_clique_cover.cc. */
+void DefinePlanningIrisFromCliqueCover(py::module m);
+
 }  // namespace internal
 }  // namespace pydrake
 }  // namespace drake
