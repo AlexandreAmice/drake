@@ -70,6 +70,12 @@ struct IrisFromCliqueCoverOptions {
    * The rank tolerance used for the MinimumVolumeCircumscribedEllipsoid.
    */
   double rank_tol_for_lowner_john_ellipse{1e-6};
+
+  /**
+   * The random generator used as the source of randomness across the whole run
+   * of the method.
+   */
+  RandomGenerator generator{};
 };
 
 void IrisFromCliqueCover(const ConvexSets& obstacles, const HPolyhedron& domain,

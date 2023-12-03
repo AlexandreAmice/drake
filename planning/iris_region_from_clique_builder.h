@@ -45,9 +45,6 @@ class IrisRegionFromCliqueBuilder final
           DefaultIrisOptionsForIrisRegionFromCliqueBuilder(),
       const double rank_tol_for_lowner_john_ellipse = 1e-6);
 
-  copyable_unique_ptr<ConvexSet> DoBuildConvexSet(
-      const Eigen::Ref<const Eigen::MatrixXd>& clique_points) override;
-
   [[nodiscard]] ConvexSets get_obstacles() const { return obstacles_; }
 
   void set_obstacles(const ConvexSets& obstacles) { obstacles_ = obstacles; }
@@ -70,6 +67,9 @@ class IrisRegionFromCliqueBuilder final
   }
 
  private:
+  copyable_unique_ptr<ConvexSet> DoBuildConvexSet(
+      const Eigen::Ref<const Eigen::MatrixXd>& clique_points) override;
+
   ConvexSets obstacles_;
   HPolyhedron domain_;
   IrisOptions options_;

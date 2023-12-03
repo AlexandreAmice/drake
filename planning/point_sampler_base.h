@@ -12,7 +12,6 @@ namespace planning {
  */
 class PointSamplerBase {
  public:
-  PointSamplerBase() = default;
   /**
    * Sample num_points from the underlying space and return these points as a
    * matrix where each column represents an underlying point.
@@ -27,7 +26,9 @@ class PointSamplerBase {
   // slicing. The inherited final subclasses should put them in public
   // functions.
   DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(PointSamplerBase);
+  PointSamplerBase() = default;
 
+ private:
   virtual Eigen::MatrixXd DoSamplePoints(int num_points) = 0;
 };
 
