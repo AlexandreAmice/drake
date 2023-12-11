@@ -20,6 +20,7 @@ using Eigen::Triplet;
 using Eigen::VectorXd;
 using symbolic::Expression;
 using symbolic::Variable;
+using symbolic::Variables;
 
 namespace {
 
@@ -28,7 +29,8 @@ const double kInf = std::numeric_limits<double>::infinity();
 }  // namespace
 
 std::unique_ptr<MathematicalProgram> MakeSemidefiniteRelaxation(
-    const MathematicalProgram& prog) {
+    const MathematicalProgram& prog,
+    const std::optional<std::vector<Variables>> variable_groups) {
   std::string unsupported_message{};
   const ProgramAttributes supported_attributes(
       std::initializer_list<ProgramAttribute>{
@@ -116,12 +118,85 @@ std::unique_ptr<MathematicalProgram> MakeSemidefiniteRelaxation(
   }
 
   // Linear constraints
-  // lb ≤ Ay ≤ ub => lb ≤ Ay ≤ ub
-  for (const auto& binding : prog.linear_constraints()) {
-    relaxation->AddConstraint(binding);
+  // lb ≤ Ay ≤ ub => lb ≤ Ay ≤ ub.
+  // TODO(Alexandre.Amice) annotate what you're doing here.
+  std::vector<Triplet<double>> A_triplets;
+  // The performance of constructing a std::vector is much better than the
+  // performance of constructing an Eigen::VectorXd so we first construct the
+  // std::vector which we later will convert.
+  std::vector<double> b_vector;
+  // Worst case we store a quadratic number of coefficients for b.
+  b_vector.reserve(ssize(prog.linear_constraints()) *
+                   ssize(prog.linear_constraints()));
+  // A map from the variable groups to all the linear constraints for which the
+  // variable group intersects the variables of the linear constraint.
+
+  std::map<Variables, std::vector<solvers::Binding<solvers::LinearConstraint>>>
+      variable_groups_to_linear_constraints;
+  std::map<Variables, std::vector<Triplet<double>>>
+      variable_groups_to_A_triplets;
+  std::map<Variables, std::vector<double>> variable_groups_to_b_vector;
+  if (!variable_groups.has_value()) {
+    variable_groups_to_linear_constraints.emplace(
+        Variables(prog.decision_variables()),
+        std::vector<solvers::Binding<solvers::LinearConstraint>>{});
+  } else {
+    for (const auto& group : variable_groups.value()) {
+      variable_groups_to_linear_constraints.emplace(
+          group, std::vector<solvers::Binding<solvers::LinearConstraint>>{});
+    }
+  }
+  for (const auto& [group, _] : variable_groups_to_linear_constraints) {
+    variable_groups_to_A_triplets.emplace(group,
+                                          std::vector<Triplet<double>>{});
+    variable_groups_to_b_vector.emplace(group, std::vector<double>{});
   }
 
-  {  // Now assemble one big Ay <= b matrix from all bounding box constraints
+  for (const auto& binding : prog.linear_constraints()) {
+    relaxation->AddConstraint(binding);
+    for (const auto& [group, constraints] :
+         variable_groups_to_linear_constraints) {
+      Variables binding_vars{binding.variables()};
+      if (Variables(binding_vars).IsSubsetOf(group)) {
+        variable_groups_to_linear_constraints.at(group).emplace_back(binding);
+
+        int cur_row_count = ssize(variable_groups_to_b_vector.at(group));
+        std::map<Variable, int> local_variable_to_group_index;
+        for (int k = 0; k < binding.evaluator()->get_sparse_A().outerSize();
+             ++k) {
+          for (Eigen::SparseMatrix<double>::InnerIterator it(
+                   binding.evaluator()->get_sparse_A(), k);
+               it; ++it) {
+            const Variable cur_var{binding.variables()(it.col())};
+            if (!local_variable_to_group_index.contains(cur_var)) {
+              local_variable_to_group_index.at(cur_var) = static_cast<int>(
+                  std::distance(group.begin(), group.find(cur_var)));
+            }
+            if (std::isfinite(binding.evaluator()->lower_bound()[it.row()])) {
+              variable_groups_to_A_triplets.at(group).emplace_back(
+                  cur_row_count, local_variable_to_group_index.at(cur_var),
+                  -it.value());
+              variable_groups_to_b_vector.at(group).emplace_back(
+                  binding.evaluator()->lower_bound()[it.row()]);
+              ++cur_row_count;
+            }
+            if (std::isfinite(binding.evaluator()->upper_bound()[it.row()])) {
+              variable_groups_to_A_triplets.at(group).emplace_back(
+                  cur_row_count, local_variable_to_group_index.at(cur_var),
+                  it.value());
+              variable_groups_to_b_vector.at(group).emplace_back(
+                  binding.evaluator()->upper_bound()[it.row()]);
+              ++cur_row_count;
+            }
+          }
+        }
+      }
+    }
+  }
+  // NOW WE SHOULD HAVE Ay <= b for each variable group.
+
+  {
+    // Now assemble one big Ay <= b matrix from all bounding box constraints
     // and linear constraints
     // TODO(bernhardpg): Consider special-casing linear equality constraints
     // that are added as bounding box or linear constraints with lb == ub
@@ -150,7 +225,7 @@ std::unique_ptr<MathematicalProgram> MakeSemidefiniteRelaxation(
       nnz += binding.evaluator()->get_sparse_A().nonZeros();
     }
 
-    std::vector<Triplet<double>> A_triplets;
+    //    std::vector<Triplet<double>> A_triplets;
     A_triplets.reserve(nnz);
     SparseMatrix<double> A(num_constraints, prog.num_vars());
     VectorXd b(num_constraints);
