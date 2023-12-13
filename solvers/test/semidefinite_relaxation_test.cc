@@ -240,18 +240,27 @@ GTEST_TEST(MakeSemidefiniteRelaxationTest, LinearEqualityConstraint) {
   const Vector2d y_test(1.3, 0.24);
   SetRelaxationInitialGuess(y_test, relaxation.get());
 
-  for (int i = 0; i < 2; ++i) {
-    // Linear constraints are (Ay - b)*y_i = 0.
-    MatrixXd expected = (A * y_test - b) * y_test[i];
+  for (int i = 0; i < ssize(prog.linear_equality_constraints()); ++i) {
+    const auto cur_constraints =
+        relaxation->linear_equality_constraints().at(i);
+    EXPECT_TRUE(CompareMatrices(A, cur_constraints.evaluator()->GetDenseA()));
+    EXPECT_TRUE(CompareMatrices(b, cur_constraints.evaluator()->lower_bound()));
+    for (int col = 0; col < A.cols(); ++col) {
+      EXPECT_TRUE(cur_constraints.variables()(col).equal_to(
+          prog.linear_equality_constraints().at(i).variables()(col)));
+    }
+    MatrixXd expected = A * y_test;
     VectorXd value = relaxation->EvalBindingAtInitialGuess(
         relaxation->linear_equality_constraints()[i]);
     EXPECT_TRUE(CompareMatrices(value, expected, 1e-12));
   }
-  // Last constraint is (Ay-b)=0.
-  MatrixXd expected = A * y_test - b;
-  VectorXd value = relaxation->EvalBindingAtInitialGuess(
-      relaxation->linear_equality_constraints()[2]);
-  EXPECT_TRUE(CompareMatrices(value, expected, 1e-12));
+  for (int i = 1; i < 3; ++i) {
+    // Linear constraints are (Ay - b)*y_i = 0.
+    MatrixXd expected = (A * y_test - b) * y_test[i-1];
+    VectorXd value = relaxation->EvalBindingAtInitialGuess(
+        relaxation->linear_equality_constraints()[i]);
+        EXPECT_TRUE(CompareMatrices(value, expected, 1e-12));
+  }
 }
 
 GTEST_TEST(MakeSemidefiniteRelaxationTest, QuadraticConstraint) {
