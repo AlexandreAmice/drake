@@ -1224,6 +1224,7 @@ drake_cc_googletest(
 drake_cc_googletest(
     name = "semidefinite_relaxation_test",
     deps = [
+        ":mathematical_program_test_util",
         ":semidefinite_relaxation",
         "//common/test_utilities:eigen_matrix_compare",
         "//common/test_utilities:expect_throws_message",

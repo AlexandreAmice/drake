@@ -1,6 +1,8 @@
 #pragma once
 
 #include <memory>
+#include <optional>
+#include <vector>
 
 #include "drake/solvers/mathematical_program.h"
 
@@ -27,13 +29,14 @@ namespace solvers {
 
  The optional parameter variable_groups can be used to make a cheaper relaxation
  with fewer linear constraints. Specifically, only linear constraints whose
- variables intersect the same entry in variable_groups will be multiplied. For
- example, if there are three linear constraints Ax ≥ 0, By ≥ 0, Cz ≥ 0, and
+ variables are a subset the same entry in variable_groups will be multiplied.
+ For example, if there are three linear constraints Ax ≥ 0, By ≥ 0, Cz ≥ 0, and
  variables_groups = [{x,y}, {y,z}], then the semidefinite relaxation will
  include the linear constraints AxyᵀB ≥ 0 and ByzᵀC ≥ 0, but not AxzᵀC ≥ 0.
  Additionally, if there are linear equalities Dx = d, Ey = e, and Fz = f, the
  linear constraints will include (Dx - d)[x,y]ᵀ, (Ey - e)[x,y]ᵀ,  (Ey -
  e)[y,z]ᵀ, and (Fz-f)[y,z]ᵀ only.
+
  If variable_groups is an empty vector, then no
  linear constraints will be multiplied. If variable_groups is nullopt, then all
  linear constraints will be multiplied.

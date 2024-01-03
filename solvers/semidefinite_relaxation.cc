@@ -1,11 +1,15 @@
 #include "drake/solvers/semidefinite_relaxation.h"
 
 #include <initializer_list>
+#include <iostream>
 #include <limits>
+#include <map>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "drake/common/fmt_eigen.h"
 #include "drake/common/ssize.h"
 #include "drake/common/text_logging.h"
 #include "drake/math/matrix_util.h"
@@ -111,57 +115,90 @@ std::unique_ptr<MathematicalProgram> MakeSemidefiniteRelaxation(
     relaxation->AddLinearCost(a, binding.evaluator()->c(), vars);
   }
 
-  // Bounding Box constraints
-  // lb ≤ y ≤ ub => lb ≤ y ≤ ub
-  for (const auto& binding : prog.bounding_box_constraints()) {
-    relaxation->AddConstraint(binding);
-  }
-
-  // Linear constraints
+  // Linear constraints and bounding box constraints
   // lb ≤ Ay ≤ ub => lb ≤ Ay ≤ ub.
-  // TODO(Alexandre.Amice) annotate what you're doing here.
-  std::vector<Triplet<double>> A_triplets;
-  // The performance of constructing a std::vector is much better than the
-  // performance of constructing an Eigen::VectorXd so we first construct the
-  // std::vector which we later will convert.
-  std::vector<double> b_vector;
-  // Worst case we store a quadratic number of coefficients for b.
-  b_vector.reserve(ssize(prog.linear_constraints()) *
-                   ssize(prog.linear_constraints()));
+
   // A map from the variable groups to all the linear constraints for which the
   // variable group intersects the variables of the linear constraint.
-
-  std::map<Variables, std::vector<solvers::Binding<solvers::LinearConstraint>>>
-      variable_groups_to_linear_constraints;
   std::map<Variables, std::vector<Triplet<double>>>
       variable_groups_to_A_triplets;
   std::map<Variables, std::vector<double>> variable_groups_to_b_vector;
+  std::map<Variables, std::set<int>> group_to_submatrix_indices;
   if (!variable_groups.has_value()) {
-    variable_groups_to_linear_constraints.emplace(
-        Variables(prog.decision_variables()),
-        std::vector<solvers::Binding<solvers::LinearConstraint>>{});
+    const Variables vars{prog.decision_variables()};
+    variable_groups_to_A_triplets.emplace(vars, std::vector<Triplet<double>>{});
+    variable_groups_to_b_vector.emplace(vars, std::vector<double>{});
+
+    variable_groups_to_A_triplets.at(vars).reserve(
+        ssize(prog.linear_constraints()));
+    variable_groups_to_b_vector.at(vars).reserve(
+        ssize(prog.linear_constraints()));
+    group_to_submatrix_indices.emplace(vars, std::set<int>{});
+    for (const auto& var : vars) {
+      group_to_submatrix_indices.at(vars).emplace(
+          prog.FindDecisionVariableIndex(var));
+    }
   } else {
     for (const auto& group : variable_groups.value()) {
-      variable_groups_to_linear_constraints.emplace(
-          group, std::vector<solvers::Binding<solvers::LinearConstraint>>{});
+      variable_groups_to_A_triplets.emplace(group,
+                                            std::vector<Triplet<double>>{});
+      variable_groups_to_b_vector.emplace(group, std::vector<double>{});
+      group_to_submatrix_indices.emplace(group, std::set<int>{});
+      for (const auto& var : group) {
+        group_to_submatrix_indices.at(group).emplace(
+            prog.FindDecisionVariableIndex(var));
+      }
     }
   }
-  for (const auto& [group, _] : variable_groups_to_linear_constraints) {
-    variable_groups_to_A_triplets.emplace(group,
-                                          std::vector<Triplet<double>>{});
-    variable_groups_to_b_vector.emplace(group, std::vector<double>{});
-  }
 
-  for (const auto& binding : prog.linear_constraints()) {
+  // Adds all the linear constraints and build up the sparse matrices for
+  // representing Az ≤ b where z is each variable group. Later we will need
+  // these sparse matrices in order to represent the products 0 ≤ (Az-b)(Az-b)ᵀ.
+
+  // First we do the bounding box constraints.
+  // TODO(bernhardpg): Consider special-casing linear equality constraints
+  // that are added as bounding box or linear constraints with lb == ub
+  for (const auto& binding : prog.bounding_box_constraints()) {
     relaxation->AddConstraint(binding);
-    for (const auto& [group, constraints] :
-         variable_groups_to_linear_constraints) {
-      Variables binding_vars{binding.variables()};
-      if (Variables(binding_vars).IsSubsetOf(group)) {
-        variable_groups_to_linear_constraints.at(group).emplace_back(binding);
-
+    for (auto& [group, triplets] : variable_groups_to_A_triplets) {
+      const Variables binding_vars{binding.variables()};
+      if (binding_vars.IsSubsetOf(group)) {
         int cur_row_count = ssize(variable_groups_to_b_vector.at(group));
         std::map<Variable, int> local_variable_to_group_index;
+        for (int i = 0; i < binding.evaluator()->num_constraints(); ++i) {
+          const Variable cur_var{binding.variables()(i)};
+          int group_index = static_cast<int>(
+              std::distance(group.begin(), group.find(cur_var)));
+          if (std::isfinite(binding.evaluator()->lower_bound()[i])) {
+            triplets.push_back(
+                Triplet<double>(cur_row_count, group_index, -1.0));
+            variable_groups_to_b_vector.at(group).push_back(
+                -binding.evaluator()->lower_bound()[i]);
+            ++cur_row_count;
+          }
+          if (std::isfinite(binding.evaluator()->upper_bound()[i])) {
+            triplets.push_back(
+                Triplet<double>(cur_row_count, group_index, 1.0));
+            variable_groups_to_b_vector.at(group).push_back(
+                binding.evaluator()->upper_bound()[i]);
+            ++cur_row_count;
+          }
+        }
+      }
+    }
+  }
+
+  // Now we do the linear constraints.
+  for (const auto& binding : prog.linear_constraints()) {
+    relaxation->AddConstraint(binding);
+    for (auto& [group, triplets] : variable_groups_to_A_triplets) {
+      Variables binding_vars{binding.variables()};
+      if (binding_vars.IsSubsetOf(group)) {
+        int cur_row_count = ssize(variable_groups_to_b_vector.at(group));
+        std::map<Variable, int> local_variable_to_group_index;
+        std::map<int, int> A_row_to_triplet_row_lower_bound;
+        std::map<int, int> A_row_to_triplet_row_upper_bound;
+
         for (int k = 0; k < binding.evaluator()->get_sparse_A().outerSize();
              ++k) {
           for (Eigen::SparseMatrix<double>::InnerIterator it(
@@ -169,129 +206,70 @@ std::unique_ptr<MathematicalProgram> MakeSemidefiniteRelaxation(
                it; ++it) {
             const Variable cur_var{binding.variables()(it.col())};
             if (!local_variable_to_group_index.contains(cur_var)) {
-              local_variable_to_group_index.at(cur_var) = static_cast<int>(
-                  std::distance(group.begin(), group.find(cur_var)));
+              local_variable_to_group_index.emplace(
+                  cur_var, static_cast<int>(std::distance(
+                               group.begin(), group.find(cur_var))));
             }
             if (std::isfinite(binding.evaluator()->lower_bound()[it.row()])) {
-              variable_groups_to_A_triplets.at(group).emplace_back(
-                  cur_row_count, local_variable_to_group_index.at(cur_var),
-                  -it.value());
-              variable_groups_to_b_vector.at(group).emplace_back(
-                  binding.evaluator()->lower_bound()[it.row()]);
-              ++cur_row_count;
+              if (!A_row_to_triplet_row_lower_bound.contains(it.row())) {
+                A_row_to_triplet_row_lower_bound.emplace(it.row(),
+                                                         cur_row_count);
+                variable_groups_to_b_vector.at(group).emplace_back(
+                    -binding.evaluator()->lower_bound()[it.row()]);
+                cur_row_count = ssize(variable_groups_to_b_vector.at(group));
+              }
+              triplets.emplace_back(
+                  A_row_to_triplet_row_lower_bound.at(it.row()),
+                  local_variable_to_group_index.at(cur_var), -it.value());
             }
             if (std::isfinite(binding.evaluator()->upper_bound()[it.row()])) {
-              variable_groups_to_A_triplets.at(group).emplace_back(
-                  cur_row_count, local_variable_to_group_index.at(cur_var),
-                  it.value());
-              variable_groups_to_b_vector.at(group).emplace_back(
-                  binding.evaluator()->upper_bound()[it.row()]);
-              ++cur_row_count;
+              if (!A_row_to_triplet_row_upper_bound.contains(it.row())) {
+                A_row_to_triplet_row_upper_bound.emplace(it.row(),
+                                                         cur_row_count);
+                variable_groups_to_b_vector.at(group).emplace_back(
+                    binding.evaluator()->upper_bound()[it.row()]);
+                cur_row_count = ssize(variable_groups_to_b_vector.at(group));
+              }
+              triplets.emplace_back(
+                  A_row_to_triplet_row_upper_bound.at(it.row()),
+                  local_variable_to_group_index.at(cur_var), it.value());
             }
           }
         }
       }
     }
   }
-  // NOW WE SHOULD HAVE Ay <= b for each variable group.
 
-  {
-    // Now assemble one big Ay <= b matrix from all bounding box constraints
-    // and linear constraints
-    // TODO(bernhardpg): Consider special-casing linear equality constraints
-    // that are added as bounding box or linear constraints with lb == ub
-    int num_constraints = 0;
-    int nnz = 0;
-    for (const auto& binding : prog.bounding_box_constraints()) {
-      for (int i = 0; i < binding.evaluator()->num_constraints(); ++i) {
-        if (std::isfinite(binding.evaluator()->lower_bound()[i])) {
-          ++num_constraints;
-        }
-        if (std::isfinite(binding.evaluator()->upper_bound()[i])) {
-          ++num_constraints;
-        }
-      }
-      nnz += binding.evaluator()->get_sparse_A().nonZeros();
+  for (const auto& [group, triplets] : variable_groups_to_A_triplets) {
+    if (ssize(triplets) == 0) {
+      continue;
     }
-    for (const auto& binding : prog.linear_constraints()) {
-      for (int i = 0; i < binding.evaluator()->num_constraints(); ++i) {
-        if (std::isfinite(binding.evaluator()->lower_bound()[i])) {
-          ++num_constraints;
-        }
-        if (std::isfinite(binding.evaluator()->upper_bound()[i])) {
-          ++num_constraints;
-        }
-      }
-      nnz += binding.evaluator()->get_sparse_A().nonZeros();
+    // 0 ≤ (Az-b)(Az-b)ᵀ, implemented with
+    // -bbᵀ ≤ AZAᵀ - b(Az)ᵀ - (Az)bᵀ.
+    // where z is the local variable group and Z is [z,1]ᵀ[z,1].
+
+    const std::vector<double> b_vec(variable_groups_to_b_vector.at(group));
+    SparseMatrix<double> A(ssize(b_vec), ssize(group));
+    A.setFromTriplets(triplets.begin(), triplets.end());
+    const Eigen::Map<const VectorXd> b(b_vec.data(), ssize(b_vec));
+
+    VectorX<Variable> z(ssize(group_to_submatrix_indices.at(group)));
+    int count = 0;
+    for (const int& i : group_to_submatrix_indices.at(group)) {
+      z(count) = x(i);
+      ++count;
     }
+    MatrixX<Variable> Z = math::ExtractPrincipalSubmatrix(
+        X, group_to_submatrix_indices.at(group));
 
-    //    std::vector<Triplet<double>> A_triplets;
-    A_triplets.reserve(nnz);
-    SparseMatrix<double> A(num_constraints, prog.num_vars());
-    VectorXd b(num_constraints);
-
-    int constraint_idx = 0;
-    for (const auto& binding : prog.bounding_box_constraints()) {
-      const std::vector<int> indices =
-          prog.FindDecisionVariableIndices(binding.variables());
-      for (int i = 0; i < binding.evaluator()->num_constraints(); ++i) {
-        if (std::isfinite(binding.evaluator()->lower_bound()[i])) {
-          A_triplets.push_back(
-              Triplet<double>(constraint_idx, indices[i], -1.0));
-          b(constraint_idx++) = -binding.evaluator()->lower_bound()[i];
-        }
-        if (std::isfinite(binding.evaluator()->upper_bound()[i])) {
-          A_triplets.push_back(
-              Triplet<double>(constraint_idx, indices[i], 1.0));
-          b(constraint_idx++) = binding.evaluator()->upper_bound()[i];
-        }
-      }
-    }
-
-    for (const auto& binding : prog.linear_constraints()) {
-      const std::vector<int> indices =
-          prog.FindDecisionVariableIndices(binding.variables());
-      // TODO(hongkai-dai): Consider using the SparseMatrix iterators.
-      for (int i = 0; i < binding.evaluator()->num_constraints(); ++i) {
-        if (std::isfinite(binding.evaluator()->lower_bound()[i])) {
-          for (int j = 0; j < binding.evaluator()->num_vars(); ++j) {
-            if (binding.evaluator()->get_sparse_A().coeff(i, j) != 0) {
-              A_triplets.push_back(Triplet<double>(
-                  constraint_idx, indices[j],
-                  -binding.evaluator()->get_sparse_A().coeff(i, j)));
-            }
-          }
-          b(constraint_idx++) = -binding.evaluator()->lower_bound()[i];
-        }
-        if (std::isfinite(binding.evaluator()->upper_bound()[i])) {
-          for (int j = 0; j < binding.evaluator()->num_vars(); ++j) {
-            if (binding.evaluator()->get_sparse_A().coeff(i, j) != 0) {
-              A_triplets.push_back(Triplet<double>(
-                  constraint_idx, indices[j],
-                  binding.evaluator()->get_sparse_A().coeff(i, j)));
-            }
-          }
-          b(constraint_idx++) = binding.evaluator()->upper_bound()[i];
-        }
-      }
-    }
-    A.setFromTriplets(A_triplets.begin(), A_triplets.end());
-
-    // 0 ≤ (Ay-b)(Ay-b)ᵀ, implemented with
-    // -bbᵀ ≤ AYAᵀ - b(Ay)ᵀ - (Ay)bᵀ.
     // TODO(russt): Avoid the symbolic computation here.
-    // TODO(russt): Avoid the dense matrix.
-
-    const MatrixX<Expression> AYAT =
-        A * X.topLeftCorner(prog.num_vars(), prog.num_vars()) * A.transpose();
-    const VectorX<Variable> y = x.head(prog.num_vars());
+    const MatrixX<Expression> AZAT = A * Z * A.transpose();
 
     const VectorX<Expression> rhs_flat_tril =
         math::ToLowerTriangularColumnsFromMatrix(
-            AYAT - b * (A * y).transpose() - A * y * b.transpose());
+            AZAT - b * (A * z).transpose() - A * z * b.transpose());
     const VectorXd bbT_flat_tril =
         math::ToLowerTriangularColumnsFromMatrix(-b * b.transpose());
-
     relaxation->AddLinearConstraint(
         rhs_flat_tril, bbT_flat_tril,
         VectorXd::Constant(bbT_flat_tril.size(), kInf));
@@ -300,24 +278,78 @@ std::unique_ptr<MathematicalProgram> MakeSemidefiniteRelaxation(
   // Linear equality constraints.
   // Ay = b => (Ay-b)xᵀ = Ayxᵀ - bxᵀ = 0.
   // Note that this contains Ay=b since x contains 1.
+  std::map<Variables, std::vector<Triplet<double>>>
+      variable_groups_to_Ab_eq_triplets;
+  std::map<Variables, int> variable_groups_to_Ab_eq_triplets_row_count;
+  if (!variable_groups.has_value()) {
+    const Variables vars{prog.decision_variables()};
+    variable_groups_to_Ab_eq_triplets.emplace(vars,
+                                              std::vector<Triplet<double>>{});
+    variable_groups_to_Ab_eq_triplets.at(vars).reserve(
+        ssize(prog.linear_equality_constraints()));
+    variable_groups_to_Ab_eq_triplets_row_count.emplace(vars, 0);
+  } else {
+    for (const auto& group : variable_groups.value()) {
+      variable_groups_to_Ab_eq_triplets.emplace(group,
+                                                std::vector<Triplet<double>>{});
+      variable_groups_to_Ab_eq_triplets_row_count.emplace(group, 0);
+    }
+  }
+
   for (const auto& binding : prog.linear_equality_constraints()) {
-    const int N = binding.variables().size();
-    const std::vector<int> indices =
-        prog.FindDecisionVariableIndices(binding.variables());
-    VectorX<Variable> vars(N + 1);
-    // Add the constraints one column at a time:
-    // Ayx_j - bx_j = 0.
-    MatrixX<double> Ab(binding.evaluator()->num_constraints(), N + 1);
-    // TODO(Alexandre.Amice) make this only access the sparse matrix.
-    Ab.leftCols(N) = binding.evaluator()->GetDenseA();
-    Ab.col(N) = -binding.evaluator()->lower_bound();
-    for (int j = 0; j < static_cast<int>(x.size()); ++j) {
-      for (int i = 0; i < N; ++i) {
-        vars[i] = X(indices[i], j);
+    relaxation->AddConstraint(binding);
+    for (auto& [group, triplets] : variable_groups_to_Ab_eq_triplets) {
+      const Variables binding_vars{binding.variables()};
+      if (binding_vars.IsSubsetOf(group)) {
+        int cur_row_count =
+            variable_groups_to_Ab_eq_triplets_row_count.at(group);
+        std::map<Variable, int> local_variable_to_group_index;
+        std::map<int, int> Ab_eq_row_to_triplet_row;
+
+        for (int k = 0; k < binding.evaluator()->get_sparse_A().outerSize();
+             ++k) {
+          for (Eigen::SparseMatrix<double>::InnerIterator it(
+                   binding.evaluator()->get_sparse_A(), k);
+               it; ++it) {
+            const Variable cur_var{binding.variables()(it.col())};
+            if (!local_variable_to_group_index.contains(cur_var)) {
+              local_variable_to_group_index.emplace(
+                  cur_var, static_cast<int>(std::distance(
+                               group.begin(), group.find(cur_var))));
+            }
+            if (!Ab_eq_row_to_triplet_row.contains(it.row())) {
+              Ab_eq_row_to_triplet_row.emplace(it.row(), cur_row_count);
+              triplets.emplace_back(
+                  cur_row_count, ssize(group),
+                  -binding.evaluator()->lower_bound()[it.row()]);
+              ++cur_row_count;
+            }
+            triplets.emplace_back(Ab_eq_row_to_triplet_row.at(it.row()),
+                                  local_variable_to_group_index.at(cur_var),
+                                  it.value());
+          }
+        }
+        variable_groups_to_Ab_eq_triplets_row_count.at(group) = cur_row_count;
       }
-      vars[N] = x[j];
-      relaxation->AddLinearEqualityConstraint(
-          Ab, VectorXd::Zero(binding.evaluator()->num_constraints()), vars);
+    }
+  }
+  // Now add the constraint AZ-bz = 0.
+  for (const auto& [group, triplets] : variable_groups_to_Ab_eq_triplets) {
+    SparseMatrix<double> Ab(
+        variable_groups_to_Ab_eq_triplets_row_count.at(group),
+        ssize(group) + 1);
+    Ab.setFromTriplets(triplets.begin(), triplets.end());
+    // Add the constraints one column at a time.
+    for (const int& j : group_to_submatrix_indices.at(group)) {
+      VectorX<Variable> vars(Ab.cols());
+      int count = 0;
+      for (const int& i : group_to_submatrix_indices.at(group)) {
+        vars[count] = X(i, j);
+        ++count;
+      }
+      vars[ssize(group)] = x[j];
+      relaxation->AddLinearEqualityConstraint(Ab, VectorXd::Zero(Ab.rows()),
+                                              vars);
     }
   }
 
