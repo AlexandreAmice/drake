@@ -1602,7 +1602,7 @@ int MathematicalProgram::FindDecisionVariableIndex(const Variable& var) const {
     ostringstream oss;
     oss << var
         << " is not a decision variable in the mathematical program, "
-           "when caalling FindDecisionVariableIndex.\n";
+           "when calling FindDecisionVariableIndex.\n";
     throw runtime_error(oss.str());
   }
   return it->second;

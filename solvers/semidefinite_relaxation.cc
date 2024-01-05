@@ -276,29 +276,43 @@ std::unique_ptr<MathematicalProgram> MakeSemidefiniteRelaxation(
   }
 
   // Linear equality constraints.
-  // Ay = b => (Ay-b)xᵀ = Ayxᵀ - bxᵀ = 0.
-  // Note that this contains Ay=b since x contains 1.
-  std::map<Variables, std::vector<Triplet<double>>>
-      variable_groups_to_Ab_eq_triplets;
+  // Az = b => (Az-b)[z,1]ᵀ = A[Z,z] - b[z,1]ᵀ = 0.
+  // Note that this contains Az=b.
+  //  std::map<Variables, std::vector<Triplet<double>>>
+  //      variable_groups_to_Ab_eq_triplets;
   std::map<Variables, int> variable_groups_to_Ab_eq_triplets_row_count;
+
+  std::map<Variables,
+           std::pair<std::vector<Triplet<double>>, std::vector<double>>>
+      variable_groups_to_Ab_eq_triplets;
+
   if (!variable_groups.has_value()) {
     const Variables vars{prog.decision_variables()};
-    variable_groups_to_Ab_eq_triplets.emplace(vars,
-                                              std::vector<Triplet<double>>{});
-    variable_groups_to_Ab_eq_triplets.at(vars).reserve(
+    variable_groups_to_Ab_eq_triplets.emplace(
+        vars,
+        std::make_pair(std::vector<Triplet<double>>{}, std::vector<double>{}));
+    variable_groups_to_Ab_eq_triplets.at(vars).first.reserve(
         ssize(prog.linear_equality_constraints()));
+    variable_groups_to_Ab_eq_triplets.at(vars).second.reserve(
+        ssize(prog.linear_equality_constraints()));
+
     variable_groups_to_Ab_eq_triplets_row_count.emplace(vars, 0);
+
   } else {
     for (const auto& group : variable_groups.value()) {
-      variable_groups_to_Ab_eq_triplets.emplace(group,
-                                                std::vector<Triplet<double>>{});
+      variable_groups_to_Ab_eq_triplets.emplace(
+          group, std::make_pair(std::vector<Triplet<double>>{},
+                                std::vector<double>{}));
       variable_groups_to_Ab_eq_triplets_row_count.emplace(group, 0);
     }
   }
 
   for (const auto& binding : prog.linear_equality_constraints()) {
+    // Add Az = b.
     relaxation->AddConstraint(binding);
-    for (auto& [group, triplets] : variable_groups_to_Ab_eq_triplets) {
+    for (auto& [group, Ab_triplets] : variable_groups_to_Ab_eq_triplets) {
+      std::vector<Triplet<double>>* cur_A_triplets{&Ab_triplets.first};
+      std::vector<double>* cur_b{&Ab_triplets.second};
       const Variables binding_vars{binding.variables()};
       if (binding_vars.IsSubsetOf(group)) {
         int cur_row_count =
@@ -319,39 +333,84 @@ std::unique_ptr<MathematicalProgram> MakeSemidefiniteRelaxation(
             }
             if (!Ab_eq_row_to_triplet_row.contains(it.row())) {
               Ab_eq_row_to_triplet_row.emplace(it.row(), cur_row_count);
-              triplets.emplace_back(
-                  cur_row_count, ssize(group),
+              cur_b->emplace_back(
                   -binding.evaluator()->lower_bound()[it.row()]);
               ++cur_row_count;
             }
-            triplets.emplace_back(Ab_eq_row_to_triplet_row.at(it.row()),
-                                  local_variable_to_group_index.at(cur_var),
-                                  it.value());
+            cur_A_triplets->emplace_back(
+                Ab_eq_row_to_triplet_row.at(it.row()),
+                local_variable_to_group_index.at(cur_var), it.value());
           }
         }
         variable_groups_to_Ab_eq_triplets_row_count.at(group) = cur_row_count;
       }
     }
   }
-  // Now add the constraint AZ-bz = 0.
-  for (const auto& [group, triplets] : variable_groups_to_Ab_eq_triplets) {
-    SparseMatrix<double> Ab(
-        variable_groups_to_Ab_eq_triplets_row_count.at(group),
-        ssize(group) + 1);
-    Ab.setFromTriplets(triplets.begin(), triplets.end());
-    // Add the constraints one column at a time.
-    for (const int& j : group_to_submatrix_indices.at(group)) {
-      VectorX<Variable> vars(Ab.cols());
+  // Now add the constraint AZ-bzᵀ = 0. This is implemented as a sparse matrix
+  // to avoid allocating heap memory for each column in the variable group.
+  for (const auto& [group, Ab_triplets] : variable_groups_to_Ab_eq_triplets) {
+    const int A_num_rows{variable_groups_to_Ab_eq_triplets_row_count.at(group)};
+    if (A_num_rows > 0) {
+      const std::vector<Triplet<double>>& cur_A_triplets{Ab_triplets.first};
+      const std::vector<double>& cur_b{Ab_triplets.second};
+      std::vector<Triplet<double>> Aeq_triplets;
+
+      // Reserve nnz(A) * k + nnz(b) non-zero entries for Aeq.
+      Aeq_triplets.reserve(ssize(cur_A_triplets) * ssize(group) + ssize(cur_b));
+      for (int i = 0; i < ssize(group); ++i) {
+        for (int r = 0; r < ssize(cur_b); ++r) {
+          Aeq_triplets.emplace_back(
+              i * A_num_rows + r, ssize(group) * ssize(group) + i, cur_b.at(r));
+        }
+        for (const auto& A_triplet : cur_A_triplets) {
+          const int row = A_triplet.row();
+          const int col = A_triplet.col();
+          const double val = A_triplet.value();
+          Aeq_triplets.emplace_back(row + i * A_num_rows,
+                                    col + i * ssize(group), val);
+        }
+      }
+
+      SparseMatrix<double> Aeq(
+          variable_groups_to_Ab_eq_triplets_row_count.at(group) * ssize(group),
+          ssize(group) * (ssize(group) + 1));
+      Aeq.setFromTriplets(Aeq_triplets.begin(), Aeq_triplets.end());
+
+      VectorX<Variable> vars(ssize(group) * (ssize(group) + 1));
       int count = 0;
+      for (const int& j : group_to_submatrix_indices.at(group)) {
+        for (const int& i : group_to_submatrix_indices.at(group)) {
+          vars[count] = X(i, j);
+          ++count;
+        }
+      }
       for (const int& i : group_to_submatrix_indices.at(group)) {
-        vars[count] = X(i, j);
+        vars[count] = x[i];
         ++count;
       }
-      vars[ssize(group)] = x[j];
-      relaxation->AddLinearEqualityConstraint(Ab, VectorXd::Zero(Ab.rows()),
+      relaxation->AddLinearEqualityConstraint(Aeq, VectorXd::Zero(Aeq.rows()),
                                               vars);
     }
   }
+
+  //
+  //    SparseMatrix<double> Ab(
+  //        variable_groups_to_Ab_eq_triplets_row_count.at(group),
+  //        ssize(group) + 1);
+  //    Ab.setFromTriplets(triplets.begin(), triplets.end());
+  //    // Add the constraints one column at a time.
+  //    for (const int& j : group_to_submatrix_indices.at(group)) {
+  //      VectorX<Variable> vars(Ab.cols());
+  //      int count = 0;
+  //      for (const int& i : group_to_submatrix_indices.at(group)) {
+  //        vars[count] = X(i, j);
+  //        ++count;
+  //      }
+  //      vars[ssize(group)] = x[j];
+  //      relaxation->AddLinearEqualityConstraint(Ab,
+  //      VectorXd::Zero(Ab.rows()),
+  //                                              vars);
+  //    }
 
   // Quadratic constraints.
   // lb ≤ 0.5 y'Qy + b'y ≤ ub => lb ≤ 0.5 tr(QY) + b'y ≤ ub

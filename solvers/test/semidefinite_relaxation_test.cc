@@ -691,7 +691,7 @@ GTEST_TEST(MakeSemidefiniteRelaxationTest, LinearEqualityConstraint) {
   EXPECT_EQ(relaxation->num_vars(), 6);
   EXPECT_EQ(relaxation->positive_semidefinite_constraints().size(), 1);
   EXPECT_EQ(relaxation->bounding_box_constraints().size(), 1);
-  EXPECT_EQ(relaxation->linear_equality_constraints().size(), 3);
+  EXPECT_EQ(relaxation->linear_equality_constraints().size(), 2);
 
   const Vector2d y_test(1.3, 0.24);
   SetRelaxationInitialGuess(y_test, relaxation.get());
@@ -710,13 +710,12 @@ GTEST_TEST(MakeSemidefiniteRelaxationTest, LinearEqualityConstraint) {
         relaxation->linear_equality_constraints()[i]);
     EXPECT_TRUE(CompareMatrices(value, expected, 1e-12));
   }
-  for (int i = 1; i < 3; ++i) {
-    // Linear constraints are (Ay - b)*y_i = 0.
-    MatrixXd expected = (A * y_test - b) * y_test[i - 1];
-    VectorXd value = relaxation->EvalBindingAtInitialGuess(
-        relaxation->linear_equality_constraints()[i]);
-    EXPECT_TRUE(CompareMatrices(value, expected, 1e-12));
-  }
+  // The linear constraint is (Ay-b)yᵀ = 0
+  MatrixXd expected = (A * y_test - b) * y_test.transpose();
+  VectorXd value = relaxation->EvalBindingAtInitialGuess(
+      relaxation->linear_equality_constraints()[1]);
+  EXPECT_TRUE(CompareMatrices(
+      value, Eigen::Map<VectorXd>(expected.data(), expected.size()), 1e-12));
 }
 
 GTEST_TEST(MakeSemidefiniteRelaxationTest, QuadraticConstraint) {
