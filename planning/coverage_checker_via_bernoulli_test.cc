@@ -42,7 +42,7 @@ double CoverageCheckerViaBernoulliTest::GetSampledCoverageFraction(
       }
     }
   }
-  std::cout << "current coverage = " << num_in_sets / num_points_per_check_ << std::endl;
+  std::cout << "current coverage = " << static_cast<double>(num_in_sets.load()) / num_points_per_check_ << std::endl;
   return static_cast<double>(num_in_sets.load()) / num_points_per_check_;
 }
 

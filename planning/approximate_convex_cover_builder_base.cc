@@ -199,7 +199,10 @@ void ApproximateConvexCoverFromCliqueCover(
         set_builders,
     const ApproximateConvexCoverFromCliqueCoverOptions& options,
     ConvexSets* convex_sets) {
-  while (!coverage_checker->CheckCoverage(*convex_sets)) {
+      int num_sets = -1;
+  while (!coverage_checker->CheckCoverage(*convex_sets) && !(num_sets == ssize(*convex_sets))) {
+    num_sets = ssize(*convex_sets);
+    std::cout << "Current number of sets = " << ssize(*convex_sets) << std::endl;
     const Eigen::MatrixXd points =
         point_sampler->SamplePoints(options.num_sampled_points);
     Eigen::SparseMatrix<bool> adjacency_matrix =
