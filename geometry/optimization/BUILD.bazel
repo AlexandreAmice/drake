@@ -245,6 +245,7 @@ drake_cc_library(
         "//solvers:choose_best_solver",
         "//solvers:ipopt_solver",
         "//solvers:snopt_solver",
+        "//solvers:solve",
     ],
 )
 
