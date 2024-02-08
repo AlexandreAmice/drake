@@ -560,7 +560,7 @@ std::pair<Eigen::VectorXd, int> CollisionLineSearch(const MultibodyPlant<double>
       plant.SetPositions(context, configuration);
       // plant.SetPositions(context.get(), configuration);
       auto query_object =
-          plant.get_geometry_query_input_port().Eval<QueryObject<double>>(context);
+          plant.get_geometry_query_input_port().Eval<QueryObject<double>>(*context);
       const double distance =
       query_object.ComputeSignedDistancePairClosestPoints(pair.geomA, pair.geomB)
           .distance;
@@ -618,7 +618,7 @@ HPolyhedron IrisInConfigurationSpace(const MultibodyPlant<double>& plant,
           fmt::format("The seed point is in configuration obstacle {}", i));
     }
   }
-
+  log()->info("Running ray shooting IRIS");
   if (options.prog_with_additional_constraints) {
     DRAKE_DEMAND(options.prog_with_additional_constraints->num_vars() == nq);
     DRAKE_DEMAND(options.num_additional_constraint_infeasible_samples >= 0);
@@ -817,7 +817,7 @@ HPolyhedron IrisInConfigurationSpace(const MultibodyPlant<double>& plant,
   auto mutable_context = plant.CreateDefaultContext();
   mutable_context->SetTimeStateAndParametersFrom(context);
   while (true) {
-    log()->info("IrisInConfigurationSpace iteration {} (custom install)", iteration);
+    log()->info("IrisInConfigurationSpace iteration {}", iteration);
     int num_constraints = num_initial_constraints;
     HPolyhedron P_candidate = HPolyhedron(A.topRows(num_initial_constraints),
                                           b.head(num_initial_constraints));
