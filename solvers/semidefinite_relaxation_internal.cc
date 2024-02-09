@@ -7,6 +7,9 @@
 #include "drake/common/symbolic/decompose.h"
 #include "drake/math/matrix_util.h"
 
+#include <iostream>
+#include "drake/common/fmt_eigen.h"
+
 namespace drake {
 namespace solvers {
 namespace internal {
@@ -206,7 +209,7 @@ void DoAddMatrixIsLorentzByLorentzSeparableConstraint(
     VectorX<Variable> yx(y.size() + x.size());
     yx << y, x;
     prog->AddLinearEqualityConstraint(CoefficientMat,
-                                      Eigen::VectorXd::Zero(x.size()), yx);
+                                      Eigen::VectorXd::Zero(CoefficientMat.rows()), yx);
   }
 }
 }  // namespace
@@ -240,7 +243,7 @@ void AddMatrixIsLorentzByLorentzSeparableConstraint(
       vector_vars(i++) = v;
     }
 
-    Eigen::MatrixXd A;
+    Eigen::MatrixXd A(X.size(), vars.size());
     symbolic::DecomposeLinearExpressions(
         Eigen::Map<const VectorX<Expression>>(X.data(), X.size()), vector_vars,
         &A);
