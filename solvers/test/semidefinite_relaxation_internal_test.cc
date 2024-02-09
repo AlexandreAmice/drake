@@ -167,7 +167,7 @@ GTEST_TEST(MakeSemidefiniteRelaxationInternalTest,
   const int n = 4;
 
   auto X = prog.NewContinuousVariables(m, n, "X");
-  AddMatrixIsLorentzSeparableConstraint(X, &prog);
+  AddMatrixIsLorentzByLorentzSeparableConstraint(X, &prog);
 
   EXPECT_EQ(ssize(prog.positive_semidefinite_constraints()), 1);
   EXPECT_EQ(ssize(prog.linear_equality_constraints()), 1);
@@ -241,7 +241,7 @@ GTEST_TEST(MakeSemidefiniteRelaxationInternalTest,
   const int n = 3;
 
   auto X = prog.NewContinuousVariables(m, n, "X");
-  AddMatrixIsLorentzSeparableConstraint(X, &prog);
+  AddMatrixIsLorentzByLorentzSeparableConstraint(X, &prog);
 
   EXPECT_EQ(ssize(prog.positive_semidefinite_constraints()), 1);
   EXPECT_EQ(ssize(prog.linear_equality_constraints()), 1);
