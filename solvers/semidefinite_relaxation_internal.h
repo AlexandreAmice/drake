@@ -104,7 +104,7 @@ void AddMatrixIsLorentzByLorentzSeparableConstraint(
 // Rotated Lorentz-Lorentz separable tensors. Namely X = ∑ᵢ λᵢxᵢyᵢᵀ where λᵢ ≥
 // 0, xᵢ is in the Rotated Lorentz cone of size X.rows() and y is in the Lorentz
 // cone of size X.cols().
-// @throw if X.rows() < 3.
+// This method demands that X.rows() ≥ 3.
 void AddMatrixIsRotatedLorentzByLorentzSeparableConstraint(
     const Eigen::Ref<const MatrixX<symbolic::Variable>>& X,
     MathematicalProgram* prog);
@@ -113,7 +113,7 @@ void AddMatrixIsRotatedLorentzByLorentzSeparableConstraint(
 // of Rotated Lorentz-Lorentz separable tensors. Namely X = ∑ᵢ λᵢxᵢyᵢᵀ where λᵢ
 // ≥ 0, xᵢ is in the Rotated Lorentz cone of size X.rows() and y is in the
 // Lorentz cone of size X.cols().
-// @throw if X.rows() < 3.
+// This method demands that X.rows() ≥ 3.
 void AddMatrixIsRotatedLorentzByLorentzSeparableConstraint(
     const Eigen::Ref<const MatrixX<symbolic::Expression>>& X,
     MathematicalProgram* prog);
@@ -122,7 +122,7 @@ void AddMatrixIsRotatedLorentzByLorentzSeparableConstraint(
 // Lorentz-Rotated Lorentz separable tensors. Namely X = ∑ᵢ λᵢxᵢyᵢᵀ where
 // λᵢ ≥ 0, xᵢ is in the Lorentz cone of size X.rows() and y is in the Rotated
 // Lorentz cone of size X.cols().
-// @throw if X.cols() < 3.
+// This method demands that X.cols() ≥ 3.
 void AddMatrixIsLorentzByRotatedLorentzSeparableConstraint(
     const Eigen::Ref<const MatrixX<symbolic::Variable>>& X,
     MathematicalProgram* prog);
@@ -131,7 +131,7 @@ void AddMatrixIsLorentzByRotatedLorentzSeparableConstraint(
 // of Lorentz-Rotated Lorentz separable tensors. Namely X = ∑ᵢ λᵢxᵢyᵢᵀ where λᵢ
 // ≥ 0, xᵢ is in the Lorentz cone of size X.rows() and y is in the Rotated
 // Lorentz cone of size X.cols().
-// @throw if X.cols() < 3.
+// This method demands that X.cols() ≥ 3.
 void AddMatrixIsLorentzByRotatedLorentzSeparableConstraint(
     const Eigen::Ref<const MatrixX<symbolic::Expression>>& X,
     MathematicalProgram* prog);
@@ -140,7 +140,7 @@ void AddMatrixIsLorentzByRotatedLorentzSeparableConstraint(
 // Rotated-Lorentz separable tensors. Namely X = ∑ᵢ λᵢxᵢyᵢᵀ where λᵢ ≥ 0, xᵢ is
 // in the Lorentz cone of size X.rows() and y is in the Lorentz cone of size
 // X.cols().
-// @throw if X.rows() < 3 or X.cols() < 3.
+// This method demands that X.rows() ≥ 3 or X.cols() ≥ 3.
 void AddMatrixIsRotatedLorentzByRotatedLorentzSeparableConstraint(
     const Eigen::Ref<const MatrixX<symbolic::Variable>>& X,
     MathematicalProgram* prog);
@@ -149,7 +149,7 @@ void AddMatrixIsRotatedLorentzByRotatedLorentzSeparableConstraint(
 // of Rotated-Lorentz separable tensors. Namely X = ∑ᵢ λᵢxᵢyᵢᵀ where λᵢ ≥ 0, xᵢ
 // is in the Lorentz cone of size X.rows() and y is in the Lorentz cone of size
 // X.cols().
-// @throw if X.rows() < 3 or X.cols() < 3.
+// This method demands that X.rows() ≥ 3 or X.cols() ≥ 3.
 void AddMatrixIsRotatedLorentzByRotatedLorentzSeparableConstraint(
     const Eigen::Ref<const MatrixX<symbolic::Expression>>& X,
     MathematicalProgram* prog);

@@ -17,6 +17,10 @@ using symbolic::Variable;
 using symbolic::Variables;
 
 namespace {
+const double kInf = std::numeric_limits<double>::infinity();
+
+// Extract all the variables which appear in a matrix of expressions. This is
+// useful for taking calling DecomposeLinearExpressions.
 Variables GetVariablesInMatrixExpression(
     const Eigen::Ref<const MatrixX<Expression>>& X) {
   Variables vars;
@@ -91,47 +95,35 @@ void DoAddMatrixIsLorentzByPositiveOrthantSeparableConstraint(
     prog->AddLorentzConeConstraint(x);
   }
 }
-
-template <typename T,
-          typename = std::enable_if_t<std::is_same_v<T, Expression> ||
-                                      std::is_same_v<T, Variable>>>
-void DoAddMatrixIsPositiveOrthantByLorentzSeparableConstraint(
-    const Eigen::Ref<const MatrixX<T>>& X, MathematicalProgram* prog) {
-  for (int i = 0; i < X.rows(); ++i) {
-    VectorX<T> x = X.row(i);
-    // TODO(Alexandre.Amice) figure out why we need to make this temporary copy
-    // rather than being able to directly call
-    // prog->AddLorentzConeConstraint(X.row(i)).
-    prog->AddLorentzConeConstraint(x);
-  }
-}
 }  //  namespace
 
 void AddMatrixIsLorentzByPositiveOrthantSeparableConstraint(
     const Eigen::Ref<const MatrixX<Variable>>& X, MathematicalProgram* prog) {
-  DoAddMatrixIsLorentzByPositiveOrthantSeparableConstraint(X, prog);
+  DoAddMatrixIsLorentzByPositiveOrthantSeparableConstraint<Variable>(X, prog);
 }
 
 void AddMatrixIsLorentzByPositiveOrthantSeparableConstraint(
     const Eigen::Ref<const MatrixX<Expression>>& X, MathematicalProgram* prog) {
-  DoAddMatrixIsLorentzByPositiveOrthantSeparableConstraint(X, prog);
+  DoAddMatrixIsLorentzByPositiveOrthantSeparableConstraint<Expression>(X, prog);
 }
 
 void AddMatrixIsPositiveOrthantByLorentzSeparableConstraint(
     const Eigen::Ref<const MatrixX<Variable>>& X, MathematicalProgram* prog) {
-  DoAddMatrixIsPositiveOrthantByLorentzSeparableConstraint(X, prog);
+  DoAddMatrixIsLorentzByPositiveOrthantSeparableConstraint<Variable>(
+      X.transpose(), prog);
 }
 
 void AddMatrixIsPositiveOrthantByLorentzSeparableConstraint(
     const Eigen::Ref<const MatrixX<Expression>>& X, MathematicalProgram* prog) {
-  DoAddMatrixIsPositiveOrthantByLorentzSeparableConstraint(X, prog);
+  DoAddMatrixIsLorentzByPositiveOrthantSeparableConstraint<Expression>(
+      X.transpose(), prog);
 }
 
 namespace {
 
 // Special case when min(X.rows(), X.cols()) ≤ 2. In this case, the Lorentz cone
-// is just the positive orthant in two dimensions, and therefore this is just
-// the product of the positive orthant with the lorentz cone.
+// is just a linear transformation of the positive orthant , and therefore this
+// is just the tensor product of the positive orthant with the lorentz cone.
 template <typename T,
           typename = std::enable_if_t<std::is_same_v<T, Expression> ||
                                       std::is_same_v<T, Variable>>>
@@ -146,16 +138,18 @@ void DoAddMatrixIsLorentzByLorentzSeparableConstraintSimplicialCase(
     X_expr = A * X_expr;
   }
   if (X.cols() == 2) {
-    X_expr = X_expr * A;
+    X_expr = X_expr * A.transpose();
   }
 
   if (X.rows() <= 2 && X.cols() <= 2) {
-    prog->AddLinearConstraint(X_expr, Eigen::Matrix2d::Zero(),
-                              Eigen::Matrix2d::Zero());
+    // In this case, we have that X_expr must be Positive Orthant separable,
+    // i.e. pointwise positive.
+    prog->AddLinearConstraint(X_expr, Eigen::MatrixXd::Zero(X_expr.rows(), X_expr.cols()),
+                              kInf * Eigen::MatrixXd::Ones(X_expr.rows(), X_expr.cols()));
   } else if (X.rows() > 2) {
-    AddMatrixIsLorentzByPositiveOrthantSeparableConstraint(X, prog);
+    AddMatrixIsLorentzByPositiveOrthantSeparableConstraint(X_expr, prog);
   } else if (X.cols() > 2) {
-    AddMatrixIsPositiveOrthantByLorentzSeparableConstraint(X, prog);
+    AddMatrixIsPositiveOrthantByLorentzSeparableConstraint(X_expr, prog);
   } else {
     DRAKE_UNREACHABLE();
   }
@@ -257,17 +251,35 @@ void AddMatrixIsLorentzByLorentzSeparableConstraint(
 
 namespace {
 
+// Returns the matrix
+//     [1,  1,  0]
+// R = [1, -1,  0]
+//     [0,  0, 2I]
+// This matrix has the property that x is in the Rotated Lorentz cone if and
+// only if Rx is in the Lorentz cone.
 SparseMatrix<double> GetRotatedLorentzToLorentzMap(const int n) {
-  // TODO(Alexandre.Amice) do this
-  SparseMatrix<double> I(n * n, n * n);
-  I.setIdentity();
-  return I;
+  // clang-format off
+  std::vector<Triplet<double>> R_triplets{
+    {0, 0, -1},
+    {0, 1,  1},
+    {1, 0,  1},
+    {1, 1,  1}
+  };
+  // clang-format on
+  R_triplets.reserve(ssize(R_triplets) + n - 2);
+  for (int r = 3; r < n; ++r) {
+    R_triplets.emplace_back(r, r, 2);
+  }
+
+  SparseMatrix<double> R(n * n, n * n);
+  R.setFromTriplets(R_triplets.begin(), R_triplets.end());
+  return R;
 }
 }  // namespace
 
 void AddMatrixIsRotatedLorentzByLorentzSeparableConstraint(
     const Eigen::Ref<const MatrixX<Variable>>& X, MathematicalProgram* prog) {
-  DRAKE_THROW_UNLESS(X.rows() >= 3);
+  DRAKE_DEMAND(X.rows() >= 3);
   SparseMatrix<double> R = GetRotatedLorentzToLorentzMap(X.rows());
   SparseMatrix<double> I(R.cols(), R.cols());
   I.setIdentity();
@@ -280,7 +292,7 @@ void AddMatrixIsRotatedLorentzByLorentzSeparableConstraint(
 
 void AddMatrixIsRotatedLorentzByLorentzSeparableConstraint(
     const Eigen::Ref<const MatrixX<Expression>>& X, MathematicalProgram* prog) {
-  DRAKE_THROW_UNLESS(X.rows() >= 3);
+  DRAKE_DEMAND(X.rows() >= 3);
   SparseMatrix<double> R = GetRotatedLorentzToLorentzMap(X.rows());
   AddMatrixIsLorentzByLorentzSeparableConstraint(R * X, prog);
 }
@@ -297,7 +309,7 @@ void AddMatrixIsLorentzByRotatedLorentzSeparableConstraint(
 
 void AddMatrixIsRotatedLorentzByRotatedLorentzSeparableConstraint(
     const Eigen::Ref<const MatrixX<Variable>>& X, MathematicalProgram* prog) {
-  DRAKE_THROW_UNLESS(X.rows() >= 3 && X.cols() >= 3);
+  DRAKE_DEMAND(X.rows() >= 3 && X.cols() >= 3);
   SparseMatrix<double> R_rows = GetRotatedLorentzToLorentzMap(X.rows());
   SparseMatrix<double> R_cols = GetRotatedLorentzToLorentzMap(X.cols());
   const Eigen::Ref<const VectorX<Variable>> x{
@@ -310,8 +322,8 @@ void AddMatrixIsRotatedLorentzByRotatedLorentzSeparableConstraint(
 
 void AddMatrixIsRotatedLorentzByRotatedLorentzSeparableConstraint(
     const Eigen::Ref<const MatrixX<Expression>>& X, MathematicalProgram* prog) {
-  DRAKE_THROW_UNLESS(X.rows() >= 3 && X.cols() >= 3);
-  DRAKE_THROW_UNLESS(X.rows() >= 3);
+  DRAKE_DEMAND(X.rows() >= 3 && X.cols() >= 3);
+  DRAKE_DEMAND(X.rows() >= 3);
   const SparseMatrix<double> R_rows = GetRotatedLorentzToLorentzMap(X.rows());
   const SparseMatrix<double> R_cols = GetRotatedLorentzToLorentzMap(X.cols());
   AddMatrixIsLorentzByLorentzSeparableConstraint(R_rows * X * R_cols, prog);
