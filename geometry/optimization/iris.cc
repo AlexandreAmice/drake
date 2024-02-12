@@ -547,13 +547,16 @@ std::vector<int> revolute_joint_indices(const multibody::Joint<double>& joint) {
 }  // namespace
 
 namespace {
-std::pair<Eigen::VectorXd, int> CollisionLineSearch(const MultibodyPlant<double>& plant, Context<double>* context,const std::vector<GeometryPairWithDistance>& sorted_pairs, const HPolyhedron& P, const Eigen::VectorXd& center, const Eigen::VectorXd& direction, const int num_steps = 100) {
+// std::pair<Eigen::VectorXd, int> CollisionLineSearch(const MultibodyPlant<double>& plant, Context<double>* context, const QueryObject<double>& query_object, const std::vector<GeometryPairWithDistance>& sorted_pairs, const HPolyhedron& P, const Eigen::VectorXd& center, const Eigen::VectorXd& direction, const int num_steps = 10) {
+std::pair<Eigen::VectorXd, int> CollisionLineSearch(const MultibodyPlant<double>& plant, Context<double>* context, const std::vector<GeometryPairWithDistance>& sorted_pairs, const HPolyhedron& P, const Eigen::VectorXd& center, const Eigen::VectorXd& direction, const int num_steps = 10) {
   // Find where line hits polytope.
   MathematicalProgram prog;
   solvers::VectorXDecisionVariable d = prog.NewContinuousVariables(1);
   prog.AddLinearCost(-d[0]); // Maximize distance along direction.
   solvers::VectorXDecisionVariable x = prog.NewContinuousVariables(direction.size());
-  prog.AddLinearEqualityConstraint(center + d * direction - x, Eigen::VectorXd::Zero(P.ambient_dimension())); // x is distance d from center, along direction.
+  // log()->info("{}",(center + d * direction - x).size());
+  // log()->info("{}",(Eigen::VectorXd::Zero(P.ambient_dimension())).size());
+  prog.AddLinearEqualityConstraint(center + d[0] * direction - x, Eigen::VectorXd::Zero(P.ambient_dimension())); // x is distance d from center, along direction.
   P.AddPointInSetConstraints(&prog, x);
   auto result = solvers::Solve(prog);
   double d_max = - result.get_optimal_cost();
@@ -573,10 +576,11 @@ std::pair<Eigen::VectorXd, int> CollisionLineSearch(const MultibodyPlant<double>
       plant.SetPositions(context, configuration);
       // plant.SetPositions(context.get(), configuration);
       auto query_object =
-          plant.get_geometry_query_input_port().Eval<QueryObject<double>>(*context);
+          plant.get_geometry_query_input_port().template Eval<QueryObject<double>>(*context);
       const double distance =
       query_object.ComputeSignedDistancePairClosestPoints(pair.geomA, pair.geomB)
           .distance;
+      // log()->info("{}",distance);
       if (distance < 0.0) {
         pair_in_collision = i_pair;
         collision_configuration = configuration;
@@ -591,7 +595,7 @@ std::pair<Eigen::VectorXd, int> CollisionLineSearch(const MultibodyPlant<double>
 }  // namespace
 
 HPolyhedron IrisInConfigurationSpace(const MultibodyPlant<double>& plant,
-                                     const Context<double>& context,
+                                     const Context<double>& context, Context<double>* mutable_context,
                                      const IrisOptions& options) {
   // Check the inputs.
   plant.ValidateContext(context);
@@ -686,6 +690,7 @@ HPolyhedron IrisInConfigurationSpace(const MultibodyPlant<double>& plant,
   log()->info("IrisInConfigurationSpace: Before MakeHypersphere for starting ellipse.");
   Hyperellipsoid E = options.starting_ellipse.value_or(
       Hyperellipsoid::MakeHypersphere(kEpsilonEllipsoid, seed));
+  log()->info("here1");
 
   // Make all of the convex sets and supporting quantities.
   auto query_object =
@@ -706,6 +711,7 @@ HPolyhedron IrisInConfigurationSpace(const MultibodyPlant<double>& plant,
     sets.emplace(geom_id, std::move(temp_set));
     frames.emplace(geom_id, &plant.GetBodyFromFrameId(frame_id)->body_frame());
   }
+  log()->info("here2");
 
   auto pairs = inspector.GetCollisionCandidates();
   const int n = static_cast<int>(pairs.size());
@@ -713,12 +719,12 @@ HPolyhedron IrisInConfigurationSpace(const MultibodyPlant<double>& plant,
       std::make_shared<internal::SamePointConstraint>(&plant, context);
   std::map<std::pair<GeometryId, GeometryId>, std::vector<VectorXd>>
       counter_examples;
-
-  // As a surrogate for the true objective, the pairs are sorted by the
-  // distance between each collision pair from the seed point configuration.
-  // This could improve computation times and produce regions with fewer
-  // faces.
+  log()->info("here3");
+  // As a surrogate for the true objective, the pairs are sorted by the distance
+  // between each collision pair from the seed point configuration. This could
+  // improve computation times and produce regions with fewer faces.
   std::vector<GeometryPairWithDistance> sorted_pairs;
+  log()->info("here4");
   for (const auto& [geomA, geomB] : pairs) {
     const double distance =
         query_object.ComputeSignedDistancePairClosestPoints(geomA, geomB)
@@ -732,17 +738,17 @@ HPolyhedron IrisInConfigurationSpace(const MultibodyPlant<double>& plant,
     sorted_pairs.emplace_back(geomA, geomB, distance);
   }
   std::sort(sorted_pairs.begin(), sorted_pairs.end());
-
-  // On each iteration, we will build the collision-free polytope represented
-  // as {x | A * x <= b}.  Here we pre-allocate matrices with a generous
-  // maximum size.
+  log()->info("here5");
+  // On each iteration, we will build the collision-free polytope represented as
+  // {x | A * x <= b}.  Here we pre-allocate matrices with a generous maximum
+  // size.
   Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> A(
       P.A().rows() + 2 * n + nc, nq);
   VectorXd b(P.A().rows() + 2 * n + nc);
   A.topRows(P.A().rows()) = P.A();
   b.head(P.A().rows()) = P.b();
   int num_initial_constraints = P.A().rows();
-
+  log()->info("here6");
   std::shared_ptr<CounterExampleConstraint> counter_example_constraint{};
   std::unique_ptr<CounterExampleProgram> counter_example_prog{};
   std::vector<Binding<Constraint>> additional_constraint_bindings{};
@@ -815,7 +821,7 @@ HPolyhedron IrisInConfigurationSpace(const MultibodyPlant<double>& plant,
   }
 
   DRAKE_THROW_UNLESS(P.PointInSet(seed, 1e-12));
-
+  log()->info("here7");
   double best_volume = E.Volume();
   int iteration = 0;
   VectorXd closest(nq);
@@ -827,14 +833,15 @@ HPolyhedron IrisInConfigurationSpace(const MultibodyPlant<double>& plant,
       {solvers::SnoptSolver::id(), solvers::IpoptSolver::id()});
 
 
-  auto mutable_context = plant.CreateDefaultContext();
-  mutable_context->SetTimeStateAndParametersFrom(context);
+  // auto mutable_context = plant.CreateDefaultContext();
+  // mutable_context->SetTimeStateAndParametersFrom(context);
+
   VectorXd guess = seed;
 
   // For debugging visualization.
   // Vector3d point_to_draw = Vector3d::Zero();
   // int num_points_drawn = 0;
-
+  log()->info("here8");
   const std::string seed_point_error_msg =
       "IrisInConfigurationSpace: require_sample_point_is_contained is true but "
       "the seed point exited the initial region. Does the provided "
@@ -850,7 +857,12 @@ HPolyhedron IrisInConfigurationSpace(const MultibodyPlant<double>& plant,
       "IrisInConfigurationSpace: terminating iterations because "
       "options.termination_func returned false.";
 
+  // const auto query_object_mutable_context =
+  //         plant.get_geometry_query_input_port().template Eval<QueryObject<double>>(*mutable_context);
   while (true) {
+    for (int i = 0; i < E.center().size(); ++i) {
+      log()->info("ellipsoid center ind {}: {}", i, E.center()[i]);
+    }
     log()->info("IrisInConfigurationSpace iteration {}", iteration);
     int num_constraints = num_initial_constraints;
     HPolyhedron P_candidate = HPolyhedron(A.topRows(num_initial_constraints),
@@ -902,26 +914,25 @@ HPolyhedron IrisInConfigurationSpace(const MultibodyPlant<double>& plant,
           HPolyhedron(A.topRows(num_constraints), b.head(num_constraints));
       MakeGuessFeasible(P_candidate, &guess);
     }
-
+    log()->info("here9");
     int consecutive__sample_failures = 0;
     
     
     while (consecutive__sample_failures < options.num_collision_infeasible_samples) {
       Eigen::VectorXd direction = SampleFromEllipsoid(E.A(), &generator);
-      
-      std::pair<Eigen::VectorXd, int> closest_collision_info = CollisionLineSearch(plant, mutable_context.get(), sorted_pairs, P_candidate, E.center(), direction);
+      // std::pair<Eigen::VectorXd, int> closest_collision_info = CollisionLineSearch(plant, mutable_context, query_object_mutable_context, sorted_pairs, P_candidate, E.center(), direction);
+      std::pair<Eigen::VectorXd, int> closest_collision_info = CollisionLineSearch(plant, mutable_context, sorted_pairs, P_candidate, E.center(), direction);
       Eigen::VectorXd collision_configuration = closest_collision_info.first;
       int collision_pair_index = closest_collision_info.second;
       auto pair_iterator = std::next(sorted_pairs.begin(), collision_pair_index);
       const auto collision_pair = *pair_iterator;
       if (collision_pair_index >= 0) { // pair is actually in collision
         // const auto collision_pair = pairs[collision_pair_index];
-        
         internal::ClosestCollisionProgram prog(
           same_point_constraint, *frames.at(collision_pair.geomA), *frames.at(collision_pair.geomB),
           *sets.at(collision_pair.geomA), *sets.at(collision_pair.geomB), E,
           A.topRows(num_constraints), b.head(num_constraints));
-
+        log()->info("solving SNOPT problem");
         if (prog.Solve(*solver, collision_configuration, &closest)) {
           AddTangentToPolytope(E, closest, options.configuration_space_margin,
                               &A, &b, &num_constraints);

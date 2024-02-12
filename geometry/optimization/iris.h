@@ -266,7 +266,7 @@ IrisOptions.termination_func for more details.
 */
 HPolyhedron IrisInConfigurationSpace(
     const multibody::MultibodyPlant<double>& plant,
-    const systems::Context<double>& context,
+    const systems::Context<double>& context, systems::Context<double>* mutable_context,
     const IrisOptions& options = IrisOptions());
 
 /** Modifies the @p iris_options to facilitate finding a region that contains
