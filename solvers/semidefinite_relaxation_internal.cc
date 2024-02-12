@@ -1,14 +1,13 @@
 #include "drake/solvers/semidefinite_relaxation_internal.h"
 
 #include <algorithm>
+#include <iostream>
 #include <vector>
 
 #include "drake/common/drake_assert.h"
+#include "drake/common/fmt_eigen.h"
 #include "drake/common/symbolic/decompose.h"
 #include "drake/math/matrix_util.h"
-
-#include <iostream>
-#include "drake/common/fmt_eigen.h"
 
 namespace drake {
 namespace solvers {
@@ -147,8 +146,9 @@ void DoAddMatrixIsLorentzByLorentzSeparableConstraintSimplicialCase(
   if (X.rows() <= 2 && X.cols() <= 2) {
     // In this case, we have that X_expr must be Positive Orthant separable,
     // i.e. pointwise positive.
-    prog->AddLinearConstraint(X_expr, Eigen::MatrixXd::Zero(X_expr.rows(), X_expr.cols()),
-                              kInf * Eigen::MatrixXd::Ones(X_expr.rows(), X_expr.cols()));
+    prog->AddLinearConstraint(
+        X_expr, Eigen::MatrixXd::Zero(X_expr.rows(), X_expr.cols()),
+        kInf * Eigen::MatrixXd::Ones(X_expr.rows(), X_expr.cols()));
   } else if (X.rows() > 2) {
     AddMatrixIsLorentzByPositiveOrthantSeparableConstraint(X_expr, prog);
   } else if (X.cols() > 2) {
@@ -164,8 +164,9 @@ void DoAddMatrixIsLorentzByLorentzSeparableConstraint(
   DRAKE_DEMAND(A.rows() == n * m);
   DRAKE_DEMAND(A.cols() == x.rows());
   if (std::min(m, n) <= 2) {
-    DoAddMatrixIsLorentzByLorentzSeparableConstraintSimplicialCase<Variable>(
-        Eigen::Map<const MatrixX<Variable>>(x.data(), n, m), prog);
+    MatrixX<Expression> X = A.toDense() * Eigen::Map<const MatrixX<Variable>>(x.data(), m, n);
+    DoAddMatrixIsLorentzByLorentzSeparableConstraintSimplicialCase<Expression>(
+        X, prog);
   } else {
     // The lower triagular part of Y ∈ S⁽ⁿ⁻¹⁾ ⊗ S⁽ᵐ⁻¹⁾
     auto y = prog->NewContinuousVariables((n * (n - 1) * m * (m - 1)) / 4, "y");
@@ -208,8 +209,8 @@ void DoAddMatrixIsLorentzByLorentzSeparableConstraint(
                                    CoefficientMat_triplets.end());
     VectorX<Variable> yx(y.size() + x.size());
     yx << y, x;
-    prog->AddLinearEqualityConstraint(CoefficientMat,
-                                      Eigen::VectorXd::Zero(CoefficientMat.rows()), yx);
+    prog->AddLinearEqualityConstraint(
+        CoefficientMat, Eigen::VectorXd::Zero(CoefficientMat.rows()), yx);
   }
 }
 }  // namespace
