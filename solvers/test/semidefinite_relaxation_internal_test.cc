@@ -219,44 +219,39 @@ class PositiveOrthantLorentzSeparabilityTest
     int m, n;
     std::tie(m, n) = GetParam();
     X_ = prog_.NewContinuousVariables(m, n, "X");
-    Y_ = prog_.NewContinuousVariables(m, n, "Y");
 
-    xm_positive_ = MakeRandomPositiveOrthantVector(m, scale);
-    xn_positive_ = MakeRandomPositiveOrthantVector(n, scale);
-    ym_positive_ = MakeRandomPositiveOrthantVector(m, scale);
-    yn_positive_ = MakeRandomPositiveOrthantVector(n, scale);
+    xr_positive_ = MakeRandomPositiveOrthantVector(m, scale);
+    xc_positive_ = MakeRandomPositiveOrthantVector(n, scale);
+    yr_positive_ = MakeRandomPositiveOrthantVector(m, scale);
+    yc_positive_ = MakeRandomPositiveOrthantVector(n, scale);
 
-    xr_lorentz = MakeRandomLorentzVector(m, scale);
-    xc_lorentz = MakeRandomLorentzVector(n, scale);
-    yr_lorentz = MakeRandomLorentzVector(m, scale);
-    yc_lorentz = MakeRandomLorentzVector(n, scale);
-
-    xy_positive_lorentz_separable_ = xm_positive_ * yc_lorentz;
-    yx_positive_lorentz_separable_ = ym_positive_ * xc_lorentz;
-    xy_lorentz_positive_separable_ = xr_lorentz * yn_positive_;
-    yx_lorentz_positive_separable_ = yr_lorentz * xn_positive_;
+    xr_lorentz_ = MakeRandomLorentzVector(m, scale);
+    xc_lorentz_ = MakeRandomLorentzVector(n, scale);
+    yr_lorentz_ = MakeRandomLorentzVector(m, scale);
+    yc_lorentz_ = MakeRandomLorentzVector(n, scale);
   }
+
+  void DoTest(const std::optional<Eigen::MatrixXd>& A = std::nullopt,
+              const std::optional<Eigen::MatrixXd>& B = std::nullopt)
 
  protected:
   MathematicalProgram prog_;
   MatrixX<Variable> X_;
   MatrixX<Expression> Y_;
 
-  Eigen::VectorXd xm_positive_;
-  Eigen::VectorXd xn_positive_;
-  Eigen::VectorXd ym_positive_;
-  Eigen::VectorXd yn_positive_;
+  Eigen::VectorXd xr_positive_;
+  Eigen::VectorXd xc_positive_;
+  Eigen::VectorXd yr_positive_;
+  Eigen::VectorXd yc_positive_;
 
-  Eigen::VectorXd xr_lorentz;
-  Eigen::VectorXd xc_lorentz;
-  Eigen::VectorXd yr_lorentz;
-  Eigen::VectorXd yc_lorentz;
-
-  Eigen::MatrixXd xy_lorentz_positive_separable_;
-  Eigen::MatrixXd yx_lorentz_positive_separable_;
-  Eigen::MatrixXd xy_positive_lorentz_separable_;
-  Eigen::MatrixXd yx_positive_lorentz_separable_;
+  Eigen::VectorXd xr_lorentz_;
+  Eigen::VectorXd xc_lorentz_;
+  Eigen::VectorXd yr_lorentz_;
+  Eigen::VectorXd yc_lorentz_;
 };
+
+
+
 
 class LorentzLorentzSeparabilityTest
     : public ::testing::TestWithParam<std::tuple<int, int>> {
@@ -272,9 +267,6 @@ class LorentzLorentzSeparabilityTest
   // Tests the function AddMatrixIsLorentzByLorentzSeparableConstraint by
   // checking whether Y is Lorentz separable. The argument Y should either by
   // the local variable X_, or a linear function of X_.
-  template <typename T,
-            typename = std::enable_if_t<std::is_same_v<T, Expression> ||
-                                        std::is_same_v<T, Variable>>>
   void DoTest(const std::optional<Eigen::MatrixXd>& A = std::nullopt,
               const std::optional<Eigen::MatrixXd>& B = std::nullopt) {
     MatrixX<Expression> Y;
@@ -400,14 +392,9 @@ class LorentzLorentzSeparabilityTest
     }
   }
 
-  //  template <typename T,
-  //            typename = std::enable_if_t<std::is_same_v<T, Expression> ||
-  //                                        std::is_same_v<T, Variable>>>
   void DoTestCase(const Eigen::Ref<const MatrixX<Expression>>& Y,
                   const Eigen::Ref<const Eigen::MatrixXd>& test_mat,
                   bool expected_outcome) {
-//    std::cout << fmt::format("Test mat size = ({},{})", test_mat.rows(), test_mat.cols()) << std::endl;
-//    std::cout << fmt::format("Y size = ({},{})", Y.rows(), Y.cols()) << std::endl;
     auto constraint = prog_.AddLinearEqualityConstraint(Y == test_mat);
     auto result = Solve(prog_);
     if (result.is_success() != expected_outcome) {
@@ -444,7 +431,7 @@ TEST_P(LorentzLorentzSeparabilityTest,
   this->DoTest<Expression>(A, B);
 }
 //
-//TEST_P(LorentzLorentzSeparabilityTest,
+// TEST_P(LorentzLorentzSeparabilityTest,
 //       AddMatrixIsLorentzByLorentzSeparableConstraintExpressionChangeSize) {
 //  int m, n;
 //  std::tie(m, n) = GetParam();
@@ -456,7 +443,8 @@ TEST_P(LorentzLorentzSeparabilityTest,
 //  unused(j);
 //  unused(k);
 //  unused(l);
-//  // These all need to be Lorentz Positive Maps. We achieve this by making them
+//  // These all need to be Lorentz Positive Maps. We achieve this by making
+//  them
 //  // all either embedding maps, or projections of the latter r-1 entries and
 //  // ensure that the norm of the transformed vector decreases.
 //  Eigen::MatrixXd A1 = Eigen::MatrixXd::Zero(i, m);
@@ -505,226 +493,6 @@ INSTANTIATE_TEST_SUITE_P(
                       std::pair<int, int>{3, 1},  // special case m ≥ 3, n = 1
                       std::pair<int, int>{7, 2}   // special case m ≥ 3, n = 2
                       ));
-
-// GTEST_TEST(MakeSemidefiniteRelaxationInternalTest,
-//           AddMatrixIsLorentzSeparableConstraint3by4) {
-//  MathematicalProgram prog;
-//  const int m = 3;
-//  const int n = 4;
-//
-//  auto X = prog.NewContinuousVariables(m, n, "X");
-//  AddMatrixIsLorentzByLorentzSeparableConstraint(X, &prog);
-//
-//  EXPECT_EQ(ssize(prog.positive_semidefinite_constraints()), 1);
-//  EXPECT_EQ(ssize(prog.linear_equality_constraints()), 1);
-//  EXPECT_EQ(ssize(prog.GetAllConstraints()), 2);
-//
-//  const Binding<PositiveSemidefiniteConstraint> psd_constraint =
-//      prog.positive_semidefinite_constraints()[0];
-//  EXPECT_EQ(psd_constraint.evaluator()->matrix_rows(), (m - 1) * (n - 1));
-//
-//  Eigen::VectorXd xm_lorentz(m);
-//  xm_lorentz << 4, -1.7, 0.1;
-//  Eigen::VectorXd xn_lorentz(n);
-//  xn_lorentz << 13, -0.1, 5, -2.3;
-//  Eigen::MatrixXd X_tensor_lorentz = xm_lorentz * xn_lorentz.transpose();
-//  auto X_equal_lorentz_tensor_constraint =
-//      prog.AddLinearEqualityConstraint(X == X_tensor_lorentz);
-//  auto result = Solve(prog);
-//  // X is required to be equal to a simple lorentz separable tensor therefore
-//  // this program should be feasible.
-//  EXPECT_TRUE(result.is_success());
-//
-//  prog.RemoveConstraint(X_equal_lorentz_tensor_constraint);
-//  Eigen::VectorXd ym_lorentz(m);
-//  ym_lorentz << 9.1, 1.3, 4.2;
-//  Eigen::VectorXd yn_lorentz(n);
-//  yn_lorentz << 2, -0.1, 0.5, -0.3;
-//  Eigen::MatrixXd Y_tensor_lorentz = 2 * xm_lorentz * xn_lorentz.transpose() +
-//                                     4 * ym_lorentz * yn_lorentz.transpose();
-//  auto Y_equal_lorentz_tensor_constraint =
-//      prog.AddLinearEqualityConstraint(X == Y_tensor_lorentz);
-//  result = Solve(prog);
-//  // X is required to be equal to a lorentz separable tensor therefore this
-//  // program should be feasible.
-//  EXPECT_TRUE(result.is_success());
-//
-//  // Two non-lorentz vectors.
-//  Eigen::VectorXd zm(m);
-//  zm << -1.1, 2.3, 7.9;
-//  Eigen::VectorXd zn(n);
-//  zn << 0.1, 10.3, -0.2, 7.7;
-//
-//  prog.RemoveConstraint(Y_equal_lorentz_tensor_constraint);
-//  auto bad_constraint =
-//      prog.AddLinearEqualityConstraint(X == zm * zn.transpose());
-//  result = Solve(prog);
-//  // X is required to be equal to something not that is not lorentz separable
-//  // therefore this should be infeasible.
-//  EXPECT_FALSE(result.is_success());
-//
-//  prog.RemoveConstraint(bad_constraint);
-//  bad_constraint =
-//      prog.AddLinearEqualityConstraint(X == zm * xn_lorentz.transpose());
-//  result = Solve(prog);
-//  // X is required to be equal to something not that is not lorentz separable
-//  // therefore this should be infeasible.
-//  EXPECT_FALSE(result.is_success());
-//
-//  prog.RemoveConstraint(bad_constraint);
-//  bad_constraint =
-//      prog.AddLinearEqualityConstraint(X == ym_lorentz * zn.transpose());
-//  result = Solve(prog);
-//  // X is required to be equal to something not that is not lorentz separable
-//  // therefore this should be infeasible.
-//  EXPECT_FALSE(result.is_success());
-//}
-
-// class LorentzRotatedLorentzSeparabilityTest
-//    : public ::testing::TestWithParam<std::tuple<int, int>> {
-// public:
-//  LorentzLorentzSeparabilityTest() : prog_() {
-//    int m, n;
-//    std::tie(m, n) = GetParam();
-//    X_ = prog_.NewContinuousVariables(m, n, "X");
-//
-//    // Seed the random generator used by Eigen.
-//    std::srand(99);
-//    const double scale = 5;
-//
-//    auto MakeRandomPositiveOrthantVector = [&scale](int r) {
-//      return scale * (Eigen::VectorXd::Random(r) + Eigen::VectorXd::Ones(r));
-//    };
-//    xm_positive_ = MakeRandomPositiveOrthantVector(m);
-//    xn_positive_ = MakeRandomPositiveOrthantVector(n);
-//    ym_positive_ = MakeRandomPositiveOrthantVector(m);
-//    yn_positive_ = MakeRandomPositiveOrthantVector(n);
-//
-//    auto MakeRandomLorentzVector = [&scale](int r) {
-//      Eigen::VectorXd ret(r);
-//      ret.tail(r - 1) = scale * Eigen::VectorXd::Random(r - 1);
-//      // Ensures that ret(0) ≥ norm(ret(r-1)) and that ret(0) ≥ 0.
-//      const double shift = std::max(ret.tail(r - 1).norm() / scale, 1.0);
-//      ret(0) = scale * (std::rand() + shift);
-//      return ret;
-//    };
-//    xr_lorentz = MakeRandomPositiveOrthantVector(m);
-//    xc_lorentz = MakeRandomPositiveOrthantVector(n);
-//    yr_lorentz = MakeRandomPositiveOrthantVector(m);
-//    yc_lorentz = MakeRandomPositiveOrthantVector(n);
-//
-//    auto MakeRandomRotatedLorentzVector = [&scale](int r) {
-//      DRAKE_DEMAND(r >= 3);
-//      Eigen::VectorXd ret(r);
-//      ret.tail(r - 2) = scale * Eigen::VectorXd::Random(r - 2);
-//      // Ensures that ret(0) * ret(1) ≥ norm(ret(r-2)) and that ret(0), ret(1)
-//      ≥
-//      // 0.
-//      const double shift = std::max(ret.tail(r - 2).norm() / scale, 1.0);
-//      ret(0) = scale * (std::rand() + shift);
-//      ret(1) = scale * (std::rand() + shift);
-//      return ret;
-//    };
-//    int max_n_3 = n >= 3 ? n : 3;
-//    int max_m_3 = n >= 3 ? n : 3;
-//    xm_rotated_lorentz_ = MakeRandomRotatedLorentzVector(max_m_3);
-//    xn_rotated_lorentz_ = MakeRandomRotatedLorentzVector(max_n_3);
-//    ym_rotated_lorentz_ = MakeRandomRotatedLorentzVector(max_m_3);
-//    yn_rotated_lorentz_ = MakeRandomRotatedLorentzVector(max_n_3);
-//  }
-//
-// protected:
-//  MathematicalProgram prog_;
-//  MatrixX<Variable> X_;
-//
-//  Eigen::VectorXd xm_positive_;
-//  Eigen::VectorXd xn_positive_;
-//  Eigen::VectorXd ym_positive_;
-//  Eigen::VectorXd yn_positive_;
-//
-//  Eigen::VectorXd xr_lorentz;
-//  Eigen::VectorXd xc_lorentz;
-//  Eigen::VectorXd yr_lorentz;
-//  Eigen::VectorXd yc_lorentz;
-//
-//  Eigen::VectorXd xm_rotated_lorentz_;
-//  Eigen::VectorXd xn_rotated_lorentz_;
-//  Eigen::VectorXd ym_rotated_lorentz_;
-//  Eigen::VectorXd yn_rotated_lorentz_;
-//};
-//
-// class RotatedLorentzRotatedLorentzSeparabilityTest
-//    : public ::testing::TestWithParam<std::tuple<int, int>> {
-// public:
-//  RotatedLorentzRotatedLorentzSeparabilityTest() : prog_() {
-//    int m, n;
-//    std::tie(m, n) = GetParam();
-//    X_ = prog_.NewContinuousVariables(m, n, "X");
-//
-//    // Seed the random generator used by Eigen.
-//    std::srand(99);
-//    const double scale = 5;
-//
-//    auto MakeRandomPositiveOrthantVector = [&scale](int r) {
-//      return scale * (Eigen::VectorXd::Random(r) + Eigen::VectorXd::Ones(r));
-//    };
-//    xm_positive_ = MakeRandomPositiveOrthantVector(m);
-//    xn_positive_ = MakeRandomPositiveOrthantVector(n);
-//    ym_positive_ = MakeRandomPositiveOrthantVector(m);
-//    yn_positive_ = MakeRandomPositiveOrthantVector(n);
-//
-//    auto MakeRandomLorentzVector = [&scale](int r) {
-//      Eigen::VectorXd ret(r);
-//      ret.tail(r - 1) = scale * Eigen::VectorXd::Random(r - 1);
-//      // Ensures that ret(0) ≥ norm(ret(r-1)) and that ret(0) ≥ 0.
-//      const double shift = std::max(ret.tail(r - 1).norm() / scale, 1.0);
-//      ret(0) = scale * (std::rand() + shift);
-//      return ret;
-//    };
-//    xr_lorentz = MakeRandomPositiveOrthantVector(m);
-//    xc_lorentz = MakeRandomPositiveOrthantVector(n);
-//    yr_lorentz = MakeRandomPositiveOrthantVector(m);
-//    yc_lorentz = MakeRandomPositiveOrthantVector(n);
-//
-//    auto MakeRandomRotatedLorentzVector = [&scale](int r) {
-//      DRAKE_DEMAND(r >= 3);
-//      Eigen::VectorXd ret(r);
-//      ret.tail(r - 2) = scale * Eigen::VectorXd::Random(r - 2);
-//      // Ensures that ret(0) * ret(1) ≥ norm(ret(r-2)) and that ret(0), ret(1)
-//      ≥
-//      // 0.
-//      const double shift = std::max(ret.tail(r - 2).norm() / scale, 1.0);
-//      ret(0) = scale * (std::rand() + shift);
-//      ret(1) = scale * (std::rand() + shift);
-//      return ret;
-//    };
-//    int max_n_3 = n >= 3 ? n : 3;
-//    int max_m_3 = n >= 3 ? n : 3;
-//    xm_rotated_lorentz_ = MakeRandomRotatedLorentzVector(max_m_3);
-//    xn_rotated_lorentz_ = MakeRandomRotatedLorentzVector(max_n_3);
-//    ym_rotated_lorentz_ = MakeRandomRotatedLorentzVector(max_m_3);
-//    yn_rotated_lorentz_ = MakeRandomRotatedLorentzVector(max_n_3);
-//  }
-//
-// protected:
-//  MathematicalProgram prog_;
-//  MatrixX<Variable> X_;
-//
-//  Eigen::VectorXd xm_positive_;
-//  Eigen::VectorXd xn_positive_;
-//  Eigen::VectorXd ym_positive_;
-//  Eigen::VectorXd yn_positive_;
-//
-//  Eigen::VectorXd xr_lorentz;
-//  Eigen::VectorXd xc_lorentz;
-//  Eigen::VectorXd yr_lorentz;
-//  Eigen::VectorXd yc_lorentz;
-//
-//  Eigen::VectorXd xm_rotated_lorentz_;
-//  Eigen::VectorXd xn_rotated_lorentz_;
-//  Eigen::VectorXd ym_rotated_lorentz_;
-//  Eigen::VectorXd yn_rotated_lorentz_;
-//};
 
 }  // namespace internal
 }  // namespace solvers
