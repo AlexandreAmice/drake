@@ -81,6 +81,14 @@ void AddMatrixIsPositiveOrthantByLorentzSeparableConstraint(
 // Adds the constraint that the matrix of expressions X is a conic combination
 // of Lorentz-positive orthant tensors. Namely X = ∑ᵢ λᵢxᵢyᵢᵀ where λᵢ ≥ 0, xᵢ
 // is in the Lorentz cone of size X.rows() and y ≥ 0 componentwise. This
+// condition is equivalent to each row of X being in the Lorentz cone.
+void AddMatrixIsPositiveOrthantByLorentzSeparableConstraint(
+    const Eigen::Ref<const MatrixX<symbolic::Expression>>& X,
+    MathematicalProgram* prog);
+
+// Adds the constraint that the matrix of expressions X is a conic combination
+// of Lorentz-positive orthant tensors. Namely X = ∑ᵢ λᵢxᵢyᵢᵀ where λᵢ ≥ 0, xᵢ
+// is in the Lorentz cone of size X.rows() and y ≥ 0 componentwise. This
 // condition is equivalent to each column of X being in the Lorentz cone.
 void AddMatrixIsLorentzByPositiveOrthantSeparableConstraint(
     const Eigen::Ref<const MatrixX<symbolic::Expression>>& X,
