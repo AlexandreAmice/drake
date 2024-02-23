@@ -117,12 +117,23 @@ TEST_P(YamlNodeParamaterizedTest, JsonSchemaTag) {
   Node dut = MakeEmptyDut();
   dut.SetTag(JsonSchemaTag::kNull);
   EXPECT_EQ(dut.GetTag(), Node::kTagNull);
+  EXPECT_FALSE(dut.IsTagImportant());
   dut.SetTag(JsonSchemaTag::kBool);
   EXPECT_EQ(dut.GetTag(), Node::kTagBool);
+  EXPECT_FALSE(dut.IsTagImportant());
   dut.SetTag(JsonSchemaTag::kInt);
   EXPECT_EQ(dut.GetTag(), Node::kTagInt);
+  EXPECT_FALSE(dut.IsTagImportant());
   dut.SetTag(JsonSchemaTag::kFloat);
   EXPECT_EQ(dut.GetTag(), Node::kTagFloat);
+  EXPECT_FALSE(dut.IsTagImportant());
+  dut.SetTag(JsonSchemaTag::kStr);
+  EXPECT_EQ(dut.GetTag(), Node::kTagStr);
+  EXPECT_FALSE(dut.IsTagImportant());
+  // Make sure `important = true` makes it all the way through.
+  dut.SetTag(JsonSchemaTag::kBool, true);
+  EXPECT_EQ(dut.GetTag(), Node::kTagBool);
+  EXPECT_TRUE(dut.IsTagImportant());
 }
 
 // Check mark getting and setting.
@@ -280,7 +291,7 @@ struct VisitorThatCopies {
 
   std::optional<std::string> scalar;
   std::optional<std::vector<Node>> sequence;
-  std::optional<std::map<std::string, Node>> mapping;
+  std::optional<string_map<Node>> mapping;
 };
 
 // Check visiting.
@@ -305,7 +316,7 @@ TEST_P(YamlNodeParamaterizedTest, Visiting) {
       return;
     }
     case NodeType::kMapping: {
-      const std::map<std::string, Node> empty;
+      const string_map<Node> empty;
       ASSERT_EQ(visitor.mapping.value_or(empty).size(), 1);
       EXPECT_EQ(visitor.mapping->begin()->first, "key");
       EXPECT_EQ(visitor.mapping->at("key").GetScalar(), "value");

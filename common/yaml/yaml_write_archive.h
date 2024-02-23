@@ -110,8 +110,9 @@ class YamlWriteArchive final {
   // This version applies when `value` is a std::map from std::string to
   // Serializable.  The map's values must be serializable, but there is no
   // Serialize function required for the map itself.
-  template <typename Serializable>
-  void DoAccept(std::map<std::string, Serializable>* value, int32_t) {
+  template <typename Serializable, typename Compare, typename Allocator>
+  void DoAccept(std::map<std::string, Serializable, Compare, Allocator>* value,
+                int32_t) {
     root_ = VisitMapDirectly(value);
   }
 
@@ -155,14 +156,17 @@ class YamlWriteArchive final {
   }
 
   // For std::map.
-  template <typename NVP, typename K, typename V, typename C>
-  void DoVisit(const NVP& nvp, const std::map<K, V, C>&, int32_t) {
+  template <typename NVP, typename K, typename V, typename C, typename A>
+  void DoVisit(const NVP& nvp, const std::map<K, V, C, A>&, int32_t) {
     this->VisitMap<K, V>(nvp);
   }
 
   // For std::unordered_map.
-  template <typename NVP, typename K, typename V, typename C>
-  void DoVisit(const NVP& nvp, const std::unordered_map<K, V, C>&, int32_t) {
+  template <typename NVP, typename K, typename V, typename Hash,
+            typename KeyEqual, typename Allocator>
+  void DoVisit(const NVP& nvp,
+               const std::unordered_map<K, V, Hash, KeyEqual, Allocator>&,
+               int32_t) {
     this->VisitMap<K, V>(nvp);
   }
 
@@ -268,17 +272,28 @@ class YamlWriteArchive final {
     // setting a YAML type tag iff required.
     const char* const name = nvp.name();
     auto& variant = *nvp.value();
-    const size_t index = variant.index();
+    const bool needs_tag = variant.index() > 0;
     std::visit(
-        [this, name, index](auto&& unwrapped) {
+        [this, name, needs_tag](auto&& unwrapped) {
           this->Visit(drake::MakeNameValue(name, &unwrapped));
-          if (index != 0) {
-            using T = decltype(unwrapped);
-            root_.At(name).SetTag(YamlWriteArchive::GetVariantTag<T>());
+          if (needs_tag) {
+            // TODO(jwnimmer-tri) Spell this as remove_cvref_t in C++20.
+            using T = std::decay_t<decltype(unwrapped)>;
+            Node& node = root_.At(name);
+            if constexpr (std::is_same_v<T, bool>) {
+              node.SetTag(JsonSchemaTag::kBool, /* important = */ true);
+            } else if constexpr (std::is_integral_v<T>) {
+              node.SetTag(JsonSchemaTag::kInt, /* important = */ true);
+            } else if constexpr (std::is_floating_point_v<T>) {
+              node.SetTag(JsonSchemaTag::kFloat, /* important = */ true);
+            } else if constexpr (std::is_same_v<T, std::string>) {
+              node.SetTag(JsonSchemaTag::kStr, /* important = */ true);
+            } else {
+              node.SetTag(YamlWriteArchive::GetVariantTag<T>());
+            }
           }
         },
         variant);
-
     // The above call to this->Visit() for the *unwrapped* value pushed our
     // name onto the visit_order a second time, duplicating work performed by
     // the Visit() for the *wrapped* value.  We'll undo that duplication now.
@@ -288,17 +303,6 @@ class YamlWriteArchive final {
   template <typename T>
   static std::string GetVariantTag() {
     const std::string full_name = NiceTypeName::GetFromStorage<T>();
-    if ((full_name == "std::string") || (full_name == "double") ||
-        (full_name == "int")) {
-      // TODO(jwnimmer-tri) Add support for well-known YAML primitive types
-      // within variants (when placed other than at the 0'th index).  To do
-      // that, we need to emit the tag as "!!str" instead of "!string" or
-      // !!float instead of "!double", etc., but our libyaml-cpp writer
-      // does not yet offer the ability to produce that kind of output.
-      throw std::invalid_argument(fmt::format(
-          "Cannot YamlWriteArchive the variant type {} with a non-zero index",
-          full_name));
-    }
     std::string short_name = NiceTypeName::RemoveNamespaces(full_name);
     auto angle = short_name.find('<');
     if (angle != std::string::npos) {

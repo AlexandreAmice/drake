@@ -14,7 +14,6 @@ officially supports:
 
 | Operating System ⁽¹⁾               | Architecture | Python ⁽²⁾ | Bazel | CMake | C/C++ Compiler ⁽³⁾           | Java                          |
 |------------------------------------|--------------|------------|-------|-------|------------------------------|-------------------------------|
-| Ubuntu 20.04 LTS (Focal Fossa)     | x86_64       | 3.8        | 6.4   | 3.16  | GCC 9 (default) or Clang 12  | OpenJDK 11                    |
 | Ubuntu 22.04 LTS (Jammy Jellyfish) | x86_64       | 3.10       | 6.4   | 3.22  | GCC 11 (default) or Clang 12 | OpenJDK 11                    |
 | macOS Monterey (12)                | x86_64       | 3.11       | 6.4   | 3.25  | Apple LLVM 14 (Xcode 14)     | AdoptOpenJDK 16 (HotSpot JVM) |
 | macOS Ventura (13)                 | arm64        | 3.11       | 6.4   | 3.26  | Apple LLVM 14 (Xcode 14)     | AdoptOpenJDK 16 (HotSpot JVM) |
@@ -24,7 +23,7 @@ officially supports:
 notice regressions, so if it doesn't work for you then please file a bug report.
 
 Unofficially, Drake is also likely to be compatible with newer versions of
-Ubuntu or macOS than what are listed, or with Ubuntu 22.04 running on arm64, or
+Ubuntu or macOS than what are listed, or with Ubuntu running on arm64, or
 with other versions of Python or Java. However, these are not supported so if it
 doesn't work for you then please file a pull request with the fix, not a bug
 report.
@@ -115,7 +114,7 @@ git clone https://github.com/RobotLocomotion/drake.git
 mkdir drake-build
 cd drake-build
 cmake ../drake
-make -j
+make install
 ```
 
 Note that a concurrency limit passed to `make` (e.g., `make -j 2`) has almost no
@@ -123,13 +122,13 @@ effect on the Drake build. You might need to add a bazel configuration dotfile
 to your home directory if your build is running out of memory. See the
 [troubleshooting](/troubleshooting.html#build-oom) page for details.
 
-Be aware that repeatedly running `make` will install the recompiled version of
-Drake *on top of* the prior version. This will lead to disaster unless the set
-of installed filenames is exactly the same (because old files will be hanging
-around polluting your PYTHONPATH). It is safe if you are merely tweaking a
-source code file and repeatedly installing, without any changes to the build
-system. For any kind of larger change (e.g., upgrading to a newer Drake), we
-strongly advise that you delete the prior tree (within the `install`
+Be aware that repeatedly running `make install` will install the recompiled
+version of Drake *on top of* the prior version. This will lead to disaster
+unless the set of installed filenames is exactly the same (because old files
+will be hanging around polluting your PYTHONPATH). It is safe if you are merely
+tweaking a source code file and repeatedly installing, without any changes to
+the build system. For any kind of larger change (e.g., upgrading to a newer
+Drake), we strongly advise that you delete the prior tree (within the `install`
 sub-directory) before running `make`.
 
 Please note the additional CMake options which affect the Python bindings:
@@ -148,13 +147,6 @@ cmake -DWITH_GUROBI=ON -DWITH_MOSEK=ON ../drake
 
 You will also need to have your ``PYTHONPATH`` configured correctly.
 
-*Ubuntu 20.04 (Focal):*
-
-```bash
-cd drake-build
-export PYTHONPATH=${PWD}/install/lib/python3.8/site-packages:${PYTHONPATH}
-```
-
 *Ubuntu 22.04 (Jammy):*
 
 ```bash
@@ -166,5 +158,5 @@ export PYTHONPATH=${PWD}/install/lib/python3.10/site-packages:${PYTHONPATH}
 
 ```bash
 cd drake-build
-export PYTHONPATH=${PWD}/install/lib/python3.9/site-packages:${PYTHONPATH}
+export PYTHONPATH=${PWD}/install/lib/python3.11/site-packages:${PYTHONPATH}
 ```

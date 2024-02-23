@@ -30,7 +30,6 @@
 #include "drake/multibody/tree/multibody_tree_topology.h"
 #include "drake/multibody/tree/position_kinematics_cache.h"
 #include "drake/multibody/tree/spatial_inertia.h"
-#include "drake/multibody/tree/string_view_map_key.h"
 #include "drake/multibody/tree/velocity_kinematics_cache.h"
 #include "drake/systems/framework/context.h"
 
@@ -1040,7 +1039,7 @@ class MultibodyTree {
       const systems::Context<T>& context, systems::State<T>* state) const;
 
   // See MultibodyPlant::SetFreeBodyRandomPositionDistribution.
-  void SetFreeBodyRandomPositionDistributionOrThrow(
+  void SetFreeBodyRandomTranslationDistributionOrThrow(
       const RigidBody<T>& body,
       const Vector3<symbolic::Expression>& position);
 

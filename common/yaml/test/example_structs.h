@@ -14,6 +14,8 @@
 
 #include "drake/common/fmt_eigen.h"
 #include "drake/common/name_value.h"
+#include "drake/common/string_map.h"
+#include "drake/common/string_unordered_map.h"
 
 namespace drake {
 namespace yaml {
@@ -129,9 +131,9 @@ struct MapStruct {
   MapStruct() { value["kNominalDouble"] = kNominalDouble; }
 
   explicit MapStruct(const std::map<std::string, double>& value_in)
-      : value(value_in) {}
+      : value(value_in.begin(), value_in.end()) {}
 
-  std::map<std::string, double> value;
+  string_map<double> value;
 };
 
 struct UnorderedMapStruct {
@@ -144,9 +146,9 @@ struct UnorderedMapStruct {
 
   explicit UnorderedMapStruct(
       const std::unordered_map<std::string, double>& value_in)
-      : value(value_in) {}
+      : value(value_in.begin(), value_in.end()) {}
 
-  std::unordered_map<std::string, double> value;
+  string_unordered_map<double> value;
 };
 
 struct OptionalStruct {
@@ -262,6 +264,18 @@ struct VariantWrappingStruct {
   }
 
   VariantStruct inner;
+};
+
+using PrimitiveVariant =
+    std::variant<std::vector<double>, bool, int, double, std::string>;
+
+struct PrimitiveVariantStruct {
+  template <typename Archive>
+  void Serialize(Archive* a) {
+    a->Visit(DRAKE_NVP(value));
+  }
+
+  PrimitiveVariant value = kNominalDouble;
 };
 
 struct OuterStruct {

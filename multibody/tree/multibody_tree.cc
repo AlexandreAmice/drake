@@ -203,7 +203,7 @@ const auto& GetElementByIndex(
 
 // Shorthand type name for our name_to_index multimaps.
 template <typename ElementIndex>
-using NameToIndex = std::unordered_multimap<StringViewMapKey, ElementIndex>;
+using NameToIndex = string_unordered_multimap<ElementIndex>;
 
 // In service of error messages, returns a string listing the names of all
 // model instances that contain an element of the given name.
@@ -309,8 +309,7 @@ const auto& GetElementByName(
         names_by_model_instance;
     for (const auto& [element_name, element_index] : name_to_index) {
       const auto& element = GetElementByIndex(tree, element_index);
-      names_by_model_instance[element.model_instance()].push_back(
-          element_name.view());
+      names_by_model_instance[element.model_instance()].push_back(element_name);
     }
     if (names_by_model_instance.empty()) {
       message =
@@ -577,7 +576,7 @@ ModelInstanceIndex MultibodyTree<T>::GetModelInstanceByName(
     std::vector<std::string_view> valid_names;
     valid_names.reserve(names.size());
     for (const auto& [valid_name, _] : names) {
-      valid_names.push_back(valid_name.view());
+      valid_names.push_back(valid_name);
     }
     std::sort(valid_names.begin(), valid_names.end());
     throw std::logic_error(fmt::format(
@@ -833,17 +832,9 @@ void MultibodyTree<T>::FinalizeInternals() {
     auto& joint = joints_.get_mutable_element(i);
     const RigidBody<T>& body = joint.child_body();
     if (body.is_floating()) {
-      // Set default positions for the floating joints.
-      // TODO(xuchenhan-tri): This assumes that the only type of floating
-      //  joint is the quaternion floating joint. This may change pending
-      //  the resolution of #14949.
-      auto* quaternion_floating_joint =
-          dynamic_cast<QuaternionFloatingJoint<T>*>(&joint);
-      DRAKE_DEMAND(quaternion_floating_joint != nullptr);
       const auto [quaternion, translation] =
           GetDefaultFreeBodyPoseAsQuaternionVec3Pair(body);
-      quaternion_floating_joint->set_default_quaternion(quaternion);
-      quaternion_floating_joint->set_default_position(translation);
+      joint.SetDefaultPosePair(quaternion, translation);
       default_body_poses_[body.index()] = joint.index();
     }
   }
@@ -1010,7 +1001,7 @@ RigidTransform<T> MultibodyTree<T>::GetFreeBodyPoseOrThrow(
   const QuaternionFloatingMobilizer<T>& mobilizer =
       GetFreeBodyMobilizerOrThrow(body);
   return RigidTransform<T>(mobilizer.get_quaternion(context),
-                           mobilizer.get_position(context));
+                           mobilizer.get_translation(context));
 }
 
 template <typename T>
@@ -1054,11 +1045,7 @@ MultibodyTree<T>::GetDefaultFreeBodyPoseAsQuaternionVec3Pair(
   if (std::holds_alternative<JointIndex>(default_body_pose)) {
     const auto& joint =
         joints_.get_element(std::get<JointIndex>(default_body_pose));
-    const QuaternionFloatingJoint<T>* quaternion_floating_joint =
-        dynamic_cast<const QuaternionFloatingJoint<T>*>(&joint);
-    DRAKE_DEMAND(quaternion_floating_joint != nullptr);
-    return std::make_pair(quaternion_floating_joint->get_default_quaternion(),
-                          quaternion_floating_joint->get_default_position());
+    return joint.GetDefaultPosePair();
   }
   return std::get<std::pair<Eigen::Quaternion<double>, Vector3<double>>>(
       default_body_pose);
@@ -1090,7 +1077,7 @@ void MultibodyTree<T>::SetFreeBodyPoseOrThrow(
       GetFreeBodyMobilizerOrThrow(body);
   const RotationMatrix<T>& R_WB = X_WB.rotation();
   mobilizer.set_quaternion(context, R_WB.ToQuaternion(), state);
-  mobilizer.set_position(context, X_WB.translation(), state);
+  mobilizer.set_translation(context, X_WB.translation(), state);
 }
 
 template <typename T>
@@ -1105,12 +1092,13 @@ void MultibodyTree<T>::SetFreeBodySpatialVelocityOrThrow(
 }
 
 template <typename T>
-void MultibodyTree<T>::SetFreeBodyRandomPositionDistributionOrThrow(
-    const RigidBody<T>& body, const Vector3<symbolic::Expression>& position) {
+void MultibodyTree<T>::SetFreeBodyRandomTranslationDistributionOrThrow(
+    const RigidBody<T>& body,
+    const Vector3<symbolic::Expression>& translation) {
   DRAKE_MBT_THROW_IF_NOT_FINALIZED();
   QuaternionFloatingMobilizer<T>& mobilizer =
       get_mutable_variant(GetFreeBodyMobilizerOrThrow(body));
-  mobilizer.set_random_position_distribution(position);
+  mobilizer.set_random_translation_distribution(translation);
 }
 
 template <typename T>

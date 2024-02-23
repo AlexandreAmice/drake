@@ -747,7 +747,8 @@ HPolyhedron IrisInConfigurationSpace(const MultibodyPlant<double>& plant,
           guess = prev_counter_examples[counter_example_searches_for_this_pair];
         } else {
           MakeGuessFeasible(P_candidate, &guess);
-          guess = P_candidate.UniformSample(&generator, guess);
+          guess = P_candidate.UniformSample(&generator, guess,
+                                            options.mixing_steps);
         }
         ++counter_example_searches_for_this_pair;
         if (do_debugging_visualization) {
@@ -883,7 +884,8 @@ HPolyhedron IrisInConfigurationSpace(const MultibodyPlant<double>& plant,
               } else {
                 ++consecutive_failures;
               }
-              guess = P_candidate.UniformSample(&generator, guess);
+              guess = P_candidate.UniformSample(&generator, guess,
+                                                options.mixing_steps);
             }
           }
         }

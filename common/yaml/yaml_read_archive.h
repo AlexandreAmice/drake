@@ -20,6 +20,7 @@
 #include "drake/common/drake_throw.h"
 #include "drake/common/name_value.h"
 #include "drake/common/nice_type_name.h"
+#include "drake/common/string_unordered_set.h"
 #include "drake/common/unused.h"
 #include "drake/common/yaml/yaml_io_options.h"
 #include "drake/common/yaml/yaml_node.h"
@@ -127,8 +128,9 @@ class YamlReadArchive final {
   // This version applies when `value` is a std::map from std::string to
   // Serializable.  The map's values must be serializable, but there is no
   // Serialize function required for the map itself.
-  template <typename Serializable>
-  void DoAccept(std::map<std::string, Serializable>* value, int32_t) {
+  template <typename Serializable, typename Compare, typename Allocator>
+  void DoAccept(std::map<std::string, Serializable, Compare, Allocator>* value,
+                int32_t) {
     VisitMapDirectly<Serializable>(*root_, value);
     for (const auto& [name, ignored] : *value) {
       unused(ignored);
@@ -312,7 +314,7 @@ class YamlReadArchive final {
     // For the first type declared in the variant<> (I == 0), the tag can be
     // absent; otherwise, the tag must match one of the variant's types.
     if (((I == 0) && (tag.empty() || (tag == "?") || (tag == "!"))) ||
-        IsTagMatch(drake::NiceTypeName::GetFromStorage<T>(), tag)) {
+        IsTagMatch<T>(tag)) {
       T& typed_storage = storage->index() == I ? std::get<I>(*storage)
                                                : storage->template emplace<I>();
       this->Visit(drake::MakeNameValue(name, &typed_storage));
@@ -328,19 +330,26 @@ class YamlReadArchive final {
         "has unsupported type tag {} while selecting a variant<>", tag));
   }
 
-  // Checks if a NiceTypeName matches the yaml type tag.
-  bool IsTagMatch(std::string_view name, std::string_view tag) const {
-    // Check for the "fail safe schema" YAML types and similar.
-    if (name == "std::string") {
-      return tag == internal::Node::kTagStr;
-    }
-    if (name == "double") {
-      return tag == internal::Node::kTagFloat;
-    }
-    if (name == "int") {
+  // Checks if the given yaml type `tag` matches the C++ type `T`.
+  template <typename T>
+  static bool IsTagMatch(std::string_view tag) {
+    // Check against the JSON schema tags.
+    if constexpr (std::is_same_v<T, bool>) {
+      return tag == internal::Node::kTagBool;
+    } else if constexpr (std::is_integral_v<T>) {
       return tag == internal::Node::kTagInt;
+    } else if constexpr (std::is_floating_point_v<T>) {
+      return tag == internal::Node::kTagFloat;
+    } else if constexpr (std::is_same_v<T, std::string>) {
+      return tag == internal::Node::kTagStr;
+    } else {
+      // Not a JSON schema. Check the drake-specific tag.
+      return IsTagMatch(drake::NiceTypeName::GetFromStorage<T>(), tag);
     }
+  }
 
+  // Checks if a NiceTypeName matches the yaml type tag.
+  static bool IsTagMatch(std::string_view name, std::string_view tag) {
     // Check for an "application specific" tag such as "!MyClass", which we
     // will match to our variant item's name such as "my_namespace::MyClass"
     // ignoring the namespace and any template parameters.
@@ -571,7 +580,7 @@ class YamlReadArchive final {
 
   // The set of NameValue::name keys that have been Visited by the current
   // Serializable's Accept method so far.
-  std::unordered_set<std::string> visited_names_;
+  string_unordered_set visited_names_;
 
   // These are only used for error messages.  The two `debug_...` members are
   // non-nullptr only during Visit()'s lifetime.

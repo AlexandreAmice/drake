@@ -571,7 +571,7 @@ Assign to auto, and use the named public fields:
   items.plant.DoFoo(...);
   items.scene_graph.DoBar(...);
 @endcode
-or taking advantage of C++17's structured binding
+or taking advantage of C++'s structured binding:
 @code
   auto [plant, scene_graph] = AddMultibodyPlantSceneGraph(&builder, 0.0);
   ...
@@ -3139,14 +3139,16 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
                                                       state);
   }
 
+  // TODO(sherm1) Rename this SetFreeBodyRandomTranslationDistribution()
+
   /// Sets the distribution used by SetRandomState() to populate the free
   /// body's x-y-z `position` with respect to World.
   /// @throws std::exception if `body` is not a free body in the model.
   /// @throws std::exception if called pre-finalize.
   void SetFreeBodyRandomPositionDistribution(
       const RigidBody<T>& body, const Vector3<symbolic::Expression>& position) {
-    this->mutable_tree().SetFreeBodyRandomPositionDistributionOrThrow(body,
-                                                                      position);
+    this->mutable_tree().SetFreeBodyRandomTranslationDistributionOrThrow(
+        body, position);
   }
 
   /// Sets the distribution used by SetRandomState() to populate the free
@@ -4396,6 +4398,13 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
   /// applications this cost can be neglected but it could become significant
   /// for very large systems.
   MatrixX<T> MakeActuationMatrix() const;
+
+  /// Creates the pseudoinverse of the actuation matrix B directly (without
+  /// requiring an explicit inverse calculation). See MakeActuationMatrix().
+  ///
+  /// Notably, when B is full row rank (the system is fully actuated), then the
+  /// pseudoinverse is a true inverse.
+  Eigen::SparseMatrix<double> MakeActuationMatrixPseudoinverse() const;
 
   /// Alternative signature to build an actuation selector matrix `Su` such
   /// that `u = Su⋅uₛ`, where u is the vector of actuation values for the full
@@ -5916,7 +5925,7 @@ struct AddMultibodyPlantSceneGraphResult final {
   // Returns the N-th member referenced by this struct.
   // If N = 0, returns the reference to the MultibodyPlant.
   // If N = 1, returns the reference to the geometry::SceneGraph.
-  // Provided to support C++17's structured binding.
+  // Provided to support C++'s structured binding.
   template <std::size_t N>
   decltype(auto) get() const {
     if constexpr (N == 0)
@@ -6001,7 +6010,7 @@ void MultibodyPlant<symbolic::Expression>::CalcHydroelasticWithFallback(
 }  // namespace drake
 
 #ifndef DRAKE_DOXYGEN_CXX
-// Specializations provided to support C++17's structured binding for
+// Specializations provided to support C++'s structured binding for
 // AddMultibodyPlantSceneGraphResult.
 namespace std {
 // The GCC standard library defines tuple_size as class and struct which

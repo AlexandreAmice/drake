@@ -83,6 +83,17 @@ void DefineGeometryOptimization(py::module m) {
 
   py::module::import("pydrake.solvers");
 
+  // SampledVolume. This struct must be declared before ConvexSet as methods in
+  // ConvexSet depend on this struct.
+  {
+    py::class_<SampledVolume>(m, "SampledVolume", doc.SampledVolume.doc)
+        .def_readwrite(
+            "volume", &SampledVolume::volume, doc.SampledVolume.volume.doc)
+        .def_readwrite("rel_accuracy", &SampledVolume::rel_accuracy,
+            doc.SampledVolume.rel_accuracy.doc)
+        .def_readwrite("num_samples", &SampledVolume::num_samples,
+            doc.SampledVolume.num_samples.doc);
+  }
   // ConvexSet
   {
     const auto& cls_doc = doc.ConvexSet;
@@ -127,7 +138,11 @@ void DefineGeometryOptimization(py::module m) {
             cls_doc.AddPointInNonnegativeScalingConstraints.doc_7args)
         .def("ToShapeWithPose", &ConvexSet::ToShapeWithPose,
             cls_doc.ToShapeWithPose.doc)
-        .def("CalcVolume", &ConvexSet::CalcVolume, cls_doc.CalcVolume.doc);
+        .def("CalcVolume", &ConvexSet::CalcVolume, cls_doc.CalcVolume.doc)
+        .def("CalcVolumeViaSampling", &ConvexSet::CalcVolumeViaSampling,
+            py::arg("generator"), py::arg("desired_rel_accuracy") = 1e-2,
+            py::arg("max_num_samples") = 1e4,
+            cls_doc.CalcVolumeViaSampling.doc);
   }
   // There is a dependency cycle between Hyperellipsoid and AffineBall, so we
   // need to "forward declare" the Hyperellipsoid class here.
@@ -492,6 +507,8 @@ void DefineGeometryOptimization(py::module m) {
             cls_doc.num_additional_constraint_infeasible_samples.doc)
         .def_readwrite(
             "random_seed", &IrisOptions::random_seed, cls_doc.random_seed.doc)
+        .def_readwrite("mixing_steps", &IrisOptions::mixing_steps,
+            cls_doc.mixing_steps.doc)
         .def("__repr__", [](const IrisOptions& self) {
           return py::str(
               "IrisOptions("
@@ -504,7 +521,8 @@ void DefineGeometryOptimization(py::module m) {
               "configuration_obstacles {}, "
               "prog_with_additional_constraints {}, "
               "num_additional_constraint_infeasible_samples={}, "
-              "random_seed={}"
+              "random_seed={}, "
+              "mixing_steps={}"
               ")")
               .format(self.require_sample_point_is_contained,
                   self.iteration_limit, self.termination_threshold,
@@ -515,7 +533,7 @@ void DefineGeometryOptimization(py::module m) {
                   self.prog_with_additional_constraints ? "is set"
                                                         : "is not set",
                   self.num_additional_constraint_infeasible_samples,
-                  self.random_seed);
+                  self.random_seed, self.mixing_steps);
         });
 
     DefReadWriteKeepAlive(&iris_options, "prog_with_additional_constraints",
@@ -580,7 +598,7 @@ void DefineGeometryOptimization(py::module m) {
     const auto& cls_doc = doc.GraphOfConvexSetsOptions;
     py::class_<GraphOfConvexSetsOptions> gcs_options(
         m, "GraphOfConvexSetsOptions", cls_doc.doc);
-    gcs_options.def(py::init<>(), cls_doc.ctor.doc)
+    gcs_options.def(py::init<>())
         .def_readwrite("convex_relaxation",
             &GraphOfConvexSetsOptions::convex_relaxation,
             cls_doc.convex_relaxation.doc)

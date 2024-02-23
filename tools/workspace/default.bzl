@@ -22,7 +22,6 @@ load("//tools/workspace/curl_internal:repository.bzl", "curl_internal_repository
 load("//tools/workspace/doxygen:repository.bzl", "doxygen_repository")
 load("//tools/workspace/dm_control_internal:repository.bzl", "dm_control_internal_repository")  # noqa
 load("//tools/workspace/drake_models:repository.bzl", "drake_models_repository")  # noqa
-load("//tools/workspace/drake_visualizer:repository.bzl", "drake_visualizer_repository")  # noqa
 load("//tools/workspace/eigen:repository.bzl", "eigen_repository")
 load("//tools/workspace/fcl_internal:repository.bzl", "fcl_internal_repository")  # noqa
 load("//tools/workspace/fmt:repository.bzl", "fmt_repository")
@@ -61,9 +60,11 @@ load("//tools/workspace/nasm:repository.bzl", "nasm_repository")
 load("//tools/workspace/net_sf_jchart2d:repository.bzl", "net_sf_jchart2d_repository")  # noqa
 load("//tools/workspace/nlohmann_internal:repository.bzl", "nlohmann_internal_repository")  # noqa
 load("//tools/workspace/nlopt_internal:repository.bzl", "nlopt_internal_repository")  # noqa
+load("//tools/workspace/onetbb_internal:repository.bzl", "onetbb_internal_repository")  # noqa
 load("//tools/workspace/openblas:repository.bzl", "openblas_repository")
 load("//tools/workspace/opencl:repository.bzl", "opencl_repository")
 load("//tools/workspace/opengl:repository.bzl", "opengl_repository")
+load("//tools/workspace/openusd_internal:repository.bzl", "openusd_internal_repository")  # noqa
 load("//tools/workspace/org_apache_xmlgraphics_commons:repository.bzl", "org_apache_xmlgraphics_commons_repository")  # noqa
 load("//tools/workspace/osqp_internal:repository.bzl", "osqp_internal_repository")  # noqa
 load("//tools/workspace/picosha2_internal:repository.bzl", "picosha2_internal_repository")  # noqa
@@ -161,8 +162,6 @@ def add_default_repositories(excludes = [], mirrors = DEFAULT_MIRRORS):
         os_repository(name = "drake_detected_os")
     if "drake_models" not in excludes:
         drake_models_repository(name = "drake_models", mirrors = mirrors)
-    if "drake_visualizer" not in excludes:
-        drake_visualizer_repository(name = "drake_visualizer", mirrors = mirrors)  # noqa
     if "eigen" not in excludes:
         eigen_repository(name = "eigen")
     if "fcl_internal" not in excludes:
@@ -239,12 +238,16 @@ def add_default_repositories(excludes = [], mirrors = DEFAULT_MIRRORS):
         nlohmann_internal_repository(name = "nlohmann_internal", mirrors = mirrors)  # noqa
     if "nlopt_internal" not in excludes:
         nlopt_internal_repository(name = "nlopt_internal", mirrors = mirrors)
+    if "onetbb_internal" not in excludes:
+        onetbb_internal_repository(name = "onetbb_internal", mirrors = mirrors)
     if "openblas" not in excludes:
         openblas_repository(name = "openblas")
     if "opencl" not in excludes:
         opencl_repository(name = "opencl")
     if "opengl" not in excludes:
         opengl_repository(name = "opengl")
+    if "openusd_internal" not in excludes:
+        openusd_internal_repository(name = "openusd_internal", mirrors = mirrors)  # noqa
     if "org_apache_xmlgraphics_commons" not in excludes:
         org_apache_xmlgraphics_commons_repository(name = "org_apache_xmlgraphics_commons", mirrors = mirrors)  # noqa
     if "osqp_internal" not in excludes:

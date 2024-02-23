@@ -34,9 +34,17 @@ void RecursiveEmit(const internal::Node& node, YAML::EmitFromEvents* sink) {
   if ((tag == internal::Node::kTagNull) || (tag == internal::Node::kTagBool) ||
       (tag == internal::Node::kTagInt) || (tag == internal::Node::kTagFloat) ||
       (tag == internal::Node::kTagStr)) {
-    // We don't need to emit the "JSON Schema" tags for YAML data. They are
-    // implied by default.
-    tag.clear();
+    // In most cases we don't need to emit the "JSON Schema" tags for YAML data,
+    // because they are implied by default. However, YamlWriteArchive on variant
+    // types sometimes marks the tag as important.
+    if (node.IsTagImportant()) {
+      DRAKE_DEMAND(tag.size() > 0);
+      // The `internal::Node::kTagFoo` all look like "tag:yaml.org,2002:foo".
+      // We only want the "foo" part (after the second colon).
+      tag = "!!" + tag.substr(18);
+    } else {
+      tag.clear();
+    }
   }
   node.Visit(overloaded{
       [&](const internal::Node::ScalarData& data) {
@@ -271,7 +279,7 @@ void DoEraseMatchingMaps(internal::Node* x, const internal::Node* y) {
   if (!(y->IsMapping())) {
     return;
   }
-  const std::map<std::string, internal::Node>& y_map = y->GetMapping();
+  const string_map<internal::Node>& y_map = y->GetMapping();
 
   // Both x are y are maps.  Remove from x any key-value pair that is identical
   // within both x and y.

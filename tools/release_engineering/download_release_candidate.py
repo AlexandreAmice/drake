@@ -130,21 +130,21 @@ def _download_binaries(*, timestamp, staging, version):
         binaries = {
             "https://drake-packages.csail.mit.edu/drake/staging": [
                 # Wheel filenames.
-                f"drake-{version[1:]}-cp38-cp38-manylinux_2_31_x86_64.whl",
-                f"drake-{version[1:]}-cp39-cp39-manylinux_2_31_x86_64.whl",
-                f"drake-{version[1:]}-cp310-cp310-manylinux_2_31_x86_64.whl",
-                f"drake-{version[1:]}-cp311-cp311-manylinux_2_31_x86_64.whl",
-                f"drake-{version[1:]}-cp312-cp312-manylinux_2_31_x86_64.whl",
+                f"drake-{version[1:]}-cp310-cp310-manylinux_2_35_x86_64.whl",
+                f"drake-{version[1:]}-cp311-cp311-manylinux_2_35_x86_64.whl",
+                f"drake-{version[1:]}-cp312-cp312-manylinux_2_35_x86_64.whl",
                 f"drake-{version[1:]}-cp311-cp311-macosx_12_0_x86_64.whl",
-                f"drake-{version[1:]}-cp311-cp312-macosx_12_0_x86_64.whl",
+                f"drake-{version[1:]}-cp312-cp312-macosx_12_0_x86_64.whl",
                 f"drake-{version[1:]}-cp311-cp311-macosx_13_0_arm64.whl",
-                f"drake-{version[1:]}-cp311-cp312-macosx_13_0_arm64.whl",
+                f"drake-{version[1:]}-cp312-cp312-macosx_13_0_arm64.whl",
                 # Deb filenames.
-                f"drake-dev_{version[1:]}-1_amd64-focal.deb",
                 f"drake-dev_{version[1:]}-1_amd64-jammy.deb",
+                # TODO(jwnimmer-tri) This package is not yet available.
+                # f"drake-dev_{version[1:]}-1_amd64-noble.deb",
                 # Tarball filenames.
-                f"drake-{version[1:]}-focal.tar.gz",
                 f"drake-{version[1:]}-jammy.tar.gz",
+                # TODO(jwnimmer-tri) This package is not yet available.
+                # f"drake-{version[1:]}-noble.tar.gz",
                 f"drake-{version[1:]}-mac.tar.gz",
                 f"drake-{version[1:]}-mac-arm64.tar.gz",
             ],
@@ -155,8 +155,9 @@ def _download_binaries(*, timestamp, staging, version):
 
         binaries = {
             "https://drake-packages.csail.mit.edu/drake/nightly": [
-                f"drake-{timestamp}-focal.tar.gz",
                 f"drake-{timestamp}-jammy.tar.gz",
+                # TODO(jwnimmer-tri) This package is not yet available.
+                # f"drake-{timestamp}-noble.tar.gz",
                 f"drake-{timestamp}-mac.tar.gz",
                 f"drake-{timestamp}-mac-arm64.tar.gz",
             ],

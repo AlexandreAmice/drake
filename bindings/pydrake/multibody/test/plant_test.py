@@ -49,6 +49,7 @@ from pydrake.multibody.tree import (
     RigidBody,
     RigidBody_,
     RotationalInertia_,
+    RpyFloatingJoint_,
     ScopedName,
     ScrewJoint,
     ScrewJoint_,
@@ -1896,6 +1897,15 @@ class TestPlant(unittest.TestCase):
                 damping=damping,
             )
 
+        def make_rpy_floating_joint(plant, P, C):
+            return RpyFloatingJoint_[T](
+                name="rpy_floating",
+                frame_on_parent=P,
+                frame_on_child=C,
+                angular_damping=damping,
+                translational_damping=damping,
+            )
+
         def make_screw_joint(plant, P, C):
             # First, check that the no-axis overload works.
             ScrewJoint_[T](
@@ -1937,6 +1947,7 @@ class TestPlant(unittest.TestCase):
             make_prismatic_joint,
             make_quaternion_floating_joint,
             make_revolute_joint,
+            make_rpy_floating_joint,
             make_screw_joint,
             make_universal_joint,
             make_weld_joint,
@@ -2087,7 +2098,12 @@ class TestPlant(unittest.TestCase):
                 joint.get_default_pose()
                 joint.set_default_quaternion(q_FM=Quaternion_[float]())
                 joint.set_default_position(p_FM=[0, 0, 0])
+                # Check that the base class supports these for this joint.
                 joint.SetDefaultPose(X_FM=RigidTransform_[float]())
+                joint.SetDefaultPosePair(q_FM=Quaternion_[float](),
+                                         p_FM=[0, 0, 0])
+                joint.GetDefaultPose()
+                joint.GetDefaultPosePair()
             elif joint.name() == "revolute":
                 numpy_compare.assert_equal(joint.revolute_axis(), x_axis)
                 self.assertEqual(joint.damping(), damping)
@@ -2115,6 +2131,35 @@ class TestPlant(unittest.TestCase):
                 joint.AddInOneForce(
                     context=context, joint_dof=0, joint_tau=0.0, forces=forces)
                 joint.AddInDamping(context=context, forces=forces)
+            elif joint.name() == "rpy_floating":
+                self.assertEqual(joint.type_name(), "rpy_floating")
+                self.assertEqual(joint.angular_damping(), damping)
+                self.assertEqual(joint.translational_damping(), damping)
+                joint.get_angles(context=context)
+                joint.set_angles(context=context, angles=[0, 0, 0])
+                joint.SetOrientation(context=context,
+                                     R_FM=RotationMatrix_[T]())
+                joint.get_translation(context=context)
+                joint.set_translation(context=context, p_FM=[0, 0, 0])
+                joint.GetPose(context=context)
+                joint.SetPose(context=context, X_FM=RigidTransform_[T]())
+                joint.get_angular_velocity(context=context)
+                joint.set_angular_velocity(context=context, w_FM=[0, 0, 0])
+                joint.get_translational_velocity(context=context)
+                joint.set_translational_velocity(context=context,
+                                                 v_FM=[0, 0, 0])
+                joint.set_random_angles_distribution(angles=[0, 0, 0])
+                joint.set_random_translation_distribution(p_FM=[0, 0, 0])
+                joint.get_default_angles()
+                joint.set_default_angles(angles=[0, 0, 0])
+                joint.get_default_translation()
+                joint.set_default_translation(p_FM=[0, 0, 0])
+                # Check that the base class supports these for this joint.
+                joint.SetDefaultPose(X_FM=RigidTransform_[float]())
+                joint.SetDefaultPosePair(q_FM=Quaternion_[float](),
+                                         p_FM=[0, 0, 0])
+                joint.GetDefaultPose()
+                joint.GetDefaultPosePair()
             elif joint.name() == "screw":
                 self.assertEqual(joint.damping(), damping)
                 joint.damping()
@@ -2159,6 +2204,24 @@ class TestPlant(unittest.TestCase):
             with self.subTest(make_joint=make_joint):
                 loop_body(make_joint, 0.0)
                 loop_body(make_joint, 0.001)
+
+    def test_actuation_matrix(self):
+        iiwa_sdf_path = FindResourceOrThrow(
+            "drake/manipulation/models/"
+            "iiwa_description/sdf/iiwa14_no_collision.sdf")
+
+        plant = MultibodyPlant_[float](0.0)
+        parser = Parser(plant)
+        iiwa_model, = parser.AddModels(file_name=iiwa_sdf_path)
+        plant.WeldFrames(
+            frame_on_parent_F=plant.world_frame(),
+            frame_on_child_M=plant.GetFrameByName("iiwa_link_0", iiwa_model))
+        plant.Finalize()
+
+        B = plant.MakeActuationMatrix()
+        np.testing.assert_array_equal(B, np.eye(7))
+        B_inv = plant.MakeActuationMatrixPseudoinverse()
+        np.testing.assert_array_equal(B_inv.todense(), np.eye(7))
 
     def test_deprecated_weld_joint_api(self):
         plant = MultibodyPlant_[float](0.01)
