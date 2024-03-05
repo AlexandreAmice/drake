@@ -1131,6 +1131,19 @@ Binding<PositiveSemidefiniteConstraint> MathematicalProgram::AddConstraint(
   return positive_semidefinite_constraint_.back();
 }
 
+Binding<LinearMatrixInequalityConstraint> MathematicalProgram::AddConstraint(
+    const Binding<LinearMatrixInequalityConstraint>& binding) {
+  if (!CheckBinding(binding)) {
+    return binding;
+  }
+  DRAKE_ASSERT(static_cast<int>(binding.evaluator()->F().size()) ==
+               static_cast<int>(binding.GetNumElements()) + 1);
+  required_capabilities_.insert(
+      ProgramAttribute::kPositiveSemidefiniteConstraint);
+  linear_matrix_inequality_constraint_.push_back(binding);
+  return linear_matrix_inequality_constraint_.back();
+}
+
 Binding<PositiveSemidefiniteConstraint> MathematicalProgram::AddConstraint(
     shared_ptr<PositiveSemidefiniteConstraint> con,
     const Eigen::Ref<const MatrixXDecisionVariable>& symmetric_matrix_var) {
@@ -1155,19 +1168,20 @@ Binding<LinearMatrixInequalityConstraint> AddPositiveSemidefiniteConstraint(
   VectorXDecisionVariable variables;
   symbolic::DecomposeAffineExpressions(
       Eigen::Map<const VectorX<symbolic::Expression>>(
-          MatrixX<symbolic::Expression>(e.triangularView<Eigen::Lower>()).data(),
+          MatrixX<symbolic::Expression>(e.triangularView<Eigen::Lower>())
+              .data(),
           (e.rows() * (e.rows() + 1)) / 2),
       &A, &b, &variables);
   // A*variables + b represents the lower triangular part of the matrix which we
   // want to make Psd. At this point, we write this as a standard form Lmi.
-   vector<Eigen::Ref<const Eigen::MatrixXd>> F;
-   F.reserve(A.rows() +1);
-   F.push_back(math::ToSymmetricMatrixFromLowerTriangularColumns(b));
-   for(int i = 0; i < A.cols(); ++i){
-     F.push_back(math::ToSymmetricMatrixFromLowerTriangularColumns(A.col(i)));
-   }
-   auto constraint = make_shared<LinearMatrixInequalityConstraint>(F);
-   return AddConstraint(constraint, variables);
+  vector<Eigen::Ref<const Eigen::MatrixXd>> F;
+  F.reserve(A.rows() + 1);
+  F.push_back(math::ToSymmetricMatrixFromLowerTriangularColumns(b));
+  for (int i = 0; i < A.cols(); ++i) {
+    F.push_back(math::ToSymmetricMatrixFromLowerTriangularColumns(A.col(i)));
+  }
+  const vector<Eigen::Ref<const Eigen::MatrixXd>> F2{F};
+  return AddLinearMatrixInequalityConstraint(F2, variables);
 }
 
 Binding<PositiveSemidefiniteConstraint>
@@ -1188,19 +1202,6 @@ MathematicalProgram::AddPrincipalSubmatrixIsPsdConstraint(
   // documented symmetry prerequisite.
   return AddPositiveSemidefiniteConstraint(
       math::ExtractPrincipalSubmatrix(e, minor_indices));
-}
-
-Binding<LinearMatrixInequalityConstraint> MathematicalProgram::AddConstraint(
-    const Binding<LinearMatrixInequalityConstraint>& binding) {
-  if (!CheckBinding(binding)) {
-    return binding;
-  }
-  DRAKE_ASSERT(static_cast<int>(binding.evaluator()->F().size()) ==
-               static_cast<int>(binding.GetNumElements()) + 1);
-  required_capabilities_.insert(
-      ProgramAttribute::kPositiveSemidefiniteConstraint);
-  linear_matrix_inequality_constraint_.push_back(binding);
-  return linear_matrix_inequality_constraint_.back();
 }
 
 Binding<LinearMatrixInequalityConstraint>
