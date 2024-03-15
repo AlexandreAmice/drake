@@ -921,8 +921,11 @@ HPolyhedron IrisInConfigurationSpace(const MultibodyPlant<double>& plant,
                               &A, &b, &num_constraints);
           P_candidate =
               HPolyhedron(A.topRows(num_constraints), b.head(num_constraints));
+          // for (int i = 0; i < P_candidate.A().rows(); ++i) {
+          //   log()->info("Hyperplanes 2: {}x + {}y < {}", P_candidate.A().row(i)(0), P_candidate.A().row(i)(1), P_candidate.b()(i));
+          // }
           for (int i = 0; i < P_candidate.A().rows(); ++i) {
-            log()->info("Hyperplanes 2: {}x + {}y < {}", P_candidate.A().row(i)(0), P_candidate.A().row(i)(1), P_candidate.b()(i));
+            log()->info("Hyperplanes 2: {}x + {}y < {}", A.topRows(num_constraints).row(i)(0), P_candidate.A().row(i)(1), b.head(num_constraints)(i));
           }
           if (options.require_sample_point_is_contained) {
             const bool seed_point_requirement =
