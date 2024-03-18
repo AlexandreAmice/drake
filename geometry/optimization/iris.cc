@@ -9,6 +9,8 @@
 #include <utility>
 #include <vector>
 
+#include <common_robotics_utilities/parallelism.hpp>
+
 #include "drake/common/symbolic/expression.h"
 #include "drake/common/text_logging.h"
 #include "drake/geometry/optimization/affine_ball.h"
@@ -32,6 +34,11 @@
 namespace drake {
 namespace geometry {
 namespace optimization {
+
+using common_robotics_utilities::parallelism::DegreeOfParallelism;
+using common_robotics_utilities::parallelism::DynamicParallelForIndexLoop;
+using common_robotics_utilities::parallelism::ParallelForBackend;
+using common_robotics_utilities::parallelism::StaticParallelForIndexLoop;
 
 using Eigen::MatrixXd;
 using Eigen::Ref;
@@ -548,7 +555,7 @@ std::vector<int> revolute_joint_indices(const multibody::Joint<double>& joint) {
 
 namespace {
 // std::pair<Eigen::VectorXd, int> CollisionLineSearch(const MultibodyPlant<double>& plant, Context<double>* context, QueryObject<double>* query_object, const std::vector<GeometryPairWithDistance>& sorted_pairs, const HPolyhedron& P, const Eigen::VectorXd& center, const Eigen::VectorXd& direction, const int num_steps = 10) {
-std::pair<Eigen::VectorXd, int> CollisionLineSearch(const MultibodyPlant<double>& plant, Context<double>* context, const std::vector<GeometryPairWithDistance>& sorted_pairs, const HPolyhedron& P, const Eigen::VectorXd& center, const Eigen::VectorXd& direction, const int num_steps = 10) {
+std::pair<Eigen::VectorXd, int> CollisionLineSearch(const MultibodyPlant<double>& plant, const Parallelism& parallelism, const planning::CollisionChecker& checker, Context<double>* context, const std::vector<GeometryPairWithDistance>& sorted_pairs, const HPolyhedron& P, const Eigen::VectorXd& center, const Eigen::VectorXd& direction, const int num_steps = 10) {
   // Find where line hits polytope.
   MathematicalProgram prog; // TODO change to constant step size and quit once out of polytope
   solvers::VectorXDecisionVariable d = prog.NewContinuousVariables(1);
@@ -567,27 +574,34 @@ std::pair<Eigen::VectorXd, int> CollisionLineSearch(const MultibodyPlant<double>
   int pair_in_collision = -1;
   // VectorXd collision_configuration(P.ambient_dimension());
   VectorXd collision_configuration = Eigen::VectorXd::Zero(P.ambient_dimension());
+  std::vector<Eigen::VectorXd> configs_to_check(1);
   while (i <= num_steps && pair_in_collision < 0) {
     const Eigen::VectorXd configuration = center + ((i) * d_max / num_steps) * direction;
+    configs_to_check[0] = configuration;
+    std::vector<uint8_t> col_free =
+        checker.CheckConfigsCollisionFree(configs_to_check,
+                                          parallelism);
     int i_pair = 0;
-    for (const auto& pair : sorted_pairs) {
-      // Context<double>& mutable_context =
-      //     plant.GetMyMutableContextFromRoot(const_cast<Context<double>*>(context));
-      // auto mutable_state = symbolic_context_.get_mutable_state();
-      plant.SetPositions(context, configuration);
-      // plant.SetPositions(context.get(), configuration);
-      auto query_object =
-          plant.get_geometry_query_input_port().template Eval<QueryObject<double>>(*context);
-      const double distance =
-      query_object.ComputeSignedDistancePairClosestPoints(pair.geomA, pair.geomB)
-          .distance;
-      // log()->info("{}",distance);
-      if (distance < 0.0) {
-        pair_in_collision = i_pair;
-        collision_configuration = configuration;
-        break;
+    if (col_free[0]) { // Have to check which pair is in collision via signed distance pair
+      for (const auto& pair : sorted_pairs) {
+        // Context<double>& mutable_context =
+        //     plant.GetMyMutableContextFromRoot(const_cast<Context<double>*>(context));
+        // auto mutable_state = symbolic_context_.get_mutable_state();
+        plant.SetPositions(context, configuration);
+        // plant.SetPositions(context.get(), configuration);
+        auto query_object =
+            plant.get_geometry_query_input_port().template Eval<QueryObject<double>>(*context);
+        const double distance =
+        query_object.ComputeSignedDistancePairClosestPoints(pair.geomA, pair.geomB)
+            .distance;
+        // log()->info("{}",distance);
+        if (distance < 0.0) {
+          pair_in_collision = i_pair;
+          collision_configuration = configuration;
+          break;
+        }
+        ++i_pair;
       }
-      ++i_pair;
     }
     ++i;
   }
@@ -596,7 +610,7 @@ std::pair<Eigen::VectorXd, int> CollisionLineSearch(const MultibodyPlant<double>
 }  // namespace
 
 HPolyhedron IrisInConfigurationSpace(const MultibodyPlant<double>& plant,
-                                     const Context<double>& context, Context<double>* mutable_context,
+                                     const Context<double>& context, Context<double>* mutable_context, const planning::CollisionChecker& checker,
                                      const IrisOptions& options) {
   // Check the inputs.
   plant.ValidateContext(context);
@@ -837,6 +851,7 @@ HPolyhedron IrisInConfigurationSpace(const MultibodyPlant<double>& plant,
 
   // auto query_object_mutable_context =
   //         plant.get_geometry_query_input_port().template Eval<QueryObject<double>>(*mutable_context);
+  const Parallelism parallelism = Parallelism::Max();
   while (true) {
     for (int i = 0; i < E.center().size(); ++i) {
       log()->info("ellipsoid center ind {}: {}", i, E.center()[i]);
@@ -901,7 +916,7 @@ HPolyhedron IrisInConfigurationSpace(const MultibodyPlant<double>& plant,
       // std::pair<Eigen::VectorXd, int> closest_collision_info = CollisionLineSearch(plant, mutable_context, &query_object_mutable_context, sorted_pairs, P_candidate, E.center(), direction);
       // if consecutive__sample_failures >= options.num_collision_infeasible_samples, in a "final pass"
       int num_steps = consecutive__sample_failures < options.num_collision_infeasible_samples ? 10 : 1;
-      std::pair<Eigen::VectorXd, int> closest_collision_info = CollisionLineSearch(plant, mutable_context, sorted_pairs, P_candidate, E.center(), direction, num_steps = num_steps);
+      std::pair<Eigen::VectorXd, int> closest_collision_info = CollisionLineSearch(plant, parallelism, checker, mutable_context, sorted_pairs, P_candidate, E.center(), direction, num_steps = num_steps);
       Eigen::VectorXd collision_configuration = closest_collision_info.first;
       int collision_pair_index = closest_collision_info.second;
       auto pair_iterator = std::next(sorted_pairs.begin(), collision_pair_index);

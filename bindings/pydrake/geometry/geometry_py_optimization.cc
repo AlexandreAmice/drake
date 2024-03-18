@@ -659,9 +659,9 @@ void DefineIris(py::module m) {
 
   m.def("IrisInConfigurationSpace",
       py::overload_cast<const multibody::MultibodyPlant<double>&,
-          const systems::Context<double>&, systems::Context<double>*, const IrisOptions&>(
+          const systems::Context<double>&, systems::Context<double>*, const planning::CollisionChecker&, const IrisOptions&>(
           &IrisInConfigurationSpace),
-      py::arg("plant"), py::arg("context"), py::arg("mutable_context"), py::arg("options") = IrisOptions(),
+      py::arg("plant"), py::arg("context"), py::arg("mutable_context"), py::arg("checker"), py::arg("options") = IrisOptions(),
       doc.IrisInConfigurationSpace.doc);
 
   // TODO(#19597) Deprecate and remove these functions once Python

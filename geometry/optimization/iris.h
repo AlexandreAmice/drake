@@ -11,6 +11,7 @@
 #include "drake/geometry/optimization/convex_set.h"
 #include "drake/geometry/optimization/hpolyhedron.h"
 #include "drake/multibody/plant/multibody_plant.h"
+#include "drake/planning/collision_checker.h"
 
 namespace drake {
 namespace geometry {
@@ -266,7 +267,7 @@ IrisOptions.termination_func for more details.
 */
 HPolyhedron IrisInConfigurationSpace(
     const multibody::MultibodyPlant<double>& plant,
-    const systems::Context<double>& context, systems::Context<double>* mutable_context,
+    const systems::Context<double>& context, systems::Context<double>* mutable_context, const planning::CollisionChecker& checker,
     const IrisOptions& options = IrisOptions());
 
 /** Modifies the @p iris_options to facilitate finding a region that contains
