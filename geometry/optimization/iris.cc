@@ -423,6 +423,15 @@ void AddTangentToPolytope(
   (*b)[*num_constraints] =
       A->row(*num_constraints) * point - configuration_space_margin;
   if (A->row(*num_constraints) * E.center() > (*b)[*num_constraints]) {
+    for (int i = 0; i < E.center().size(); ++i) {
+      for (int j = 0; j < E.center().size(); ++j) {
+        log()->info("ellipsoid A ind {},{}: {}", i, j, E.A()(i, j));
+      }
+    }
+    for (int i = 0; i < E.center().size(); ++i) {
+      log()->info("ellipsoid center ind {}: {}", i, E.center()[i]);
+    }
+    log()->info("q = {}, {}, {}, {}, {}, {}, {}", point[0], point[1], point[2], point[3], point[4], point[5], point[6]);
     throw std::logic_error(
         "The current center of the IRIS region is within "
         "options.configuration_space_margin of being infeasible.  Check your "
@@ -554,35 +563,68 @@ std::vector<int> revolute_joint_indices(const multibody::Joint<double>& joint) {
 }  // namespace
 
 namespace {
-// std::pair<Eigen::VectorXd, int> CollisionLineSearch(const MultibodyPlant<double>& plant, Context<double>* context, QueryObject<double>* query_object, const std::vector<GeometryPairWithDistance>& sorted_pairs, const HPolyhedron& P, const Eigen::VectorXd& center, const Eigen::VectorXd& direction, const int num_steps = 10) {
-std::pair<Eigen::VectorXd, int> CollisionLineSearch(const MultibodyPlant<double>& plant, const Parallelism& parallelism, const planning::CollisionChecker& checker, Context<double>* context, const std::vector<GeometryPairWithDistance>& sorted_pairs, const HPolyhedron& P, const Eigen::VectorXd& center, const Eigen::VectorXd& direction, const int num_steps = 10) {
+std::pair<Eigen::VectorXd, int> CheckRayPolytopeIntersection(const MultibodyPlant<double>& plant, 
+    const Parallelism& parallelism, const planning::CollisionChecker& checker, Context<double>* context, 
+    const std::vector<GeometryPairWithDistance>& sorted_pairs, const HPolyhedron& P, 
+    const Eigen::VectorXd& center, const Eigen::VectorXd& direction) {
   // Find where line hits polytope.
-  MathematicalProgram prog; // TODO change to constant step size and quit once out of polytope
+  MathematicalProgram prog;
   solvers::VectorXDecisionVariable d = prog.NewContinuousVariables(1);
   prog.AddLinearCost(-d[0]); // Maximize distance along direction.
   solvers::VectorXDecisionVariable x = prog.NewContinuousVariables(direction.size());
-  // log()->info("{}",(center + d * direction - x).size());
-  // log()->info("{}",(Eigen::VectorXd::Zero(P.ambient_dimension())).size());
   prog.AddLinearEqualityConstraint(center + d[0] * direction - x, Eigen::VectorXd::Zero(P.ambient_dimension())); // x is distance d from center, along direction.
   P.AddPointInSetConstraints(&prog, x);
   auto result = solvers::Solve(prog);
-  double d_max = - result.get_optimal_cost();
-  // log()->info("ray direction: {}, {}", direction(0), direction(1));
+  const Eigen::VectorXd configuration = result.GetSolution(x);
 
+  // check if configuration is in collision
+  std::vector<Eigen::VectorXd> configs_to_check(1);
+  configs_to_check[0] = configuration;
+  std::vector<uint8_t> col_free =
+      checker.CheckConfigsCollisionFree(configs_to_check,
+                                        parallelism);
+  int i_pair = 0;
+  int pair_in_collision = -1;
+  VectorXd collision_configuration = Eigen::VectorXd::Zero(P.ambient_dimension());
+  if (!col_free[0]) { // Have to check which pair is in collision via signed distance pair
+    // log()->info("found collision");
+    for (const auto& pair : sorted_pairs) {
+      plant.SetPositions(context, configuration);
+      auto query_object =
+          plant.get_geometry_query_input_port().template Eval<QueryObject<double>>(*context);
+      const double distance =
+      query_object.ComputeSignedDistancePairClosestPoints(pair.geomA, pair.geomB)
+          .distance;
+      if (distance < 0.0) {
+        pair_in_collision = i_pair;
+        collision_configuration = configuration;
+        break;
+      }
+      ++i_pair;
+    }
+  }
+
+  return std::make_pair(collision_configuration, pair_in_collision);
+}
+}
+
+namespace {
+std::pair<Eigen::VectorXd, int> CollisionLineSearch(const MultibodyPlant<double>& plant, const Parallelism& parallelism, const planning::CollisionChecker& checker, Context<double>* context, const std::vector<GeometryPairWithDistance>& sorted_pairs, const HPolyhedron& P, const Eigen::VectorXd& center, const Eigen::VectorXd& direction, const double step_size = 0.05) {
   // Do a line search for closest collision to center, along direction vector.
   int i = 1;
   int pair_in_collision = -1;
   // VectorXd collision_configuration(P.ambient_dimension());
   VectorXd collision_configuration = Eigen::VectorXd::Zero(P.ambient_dimension());
   std::vector<Eigen::VectorXd> configs_to_check(1);
-  while (i <= num_steps && pair_in_collision < 0) {
-    const Eigen::VectorXd configuration = center + ((i) * d_max / num_steps) * direction;
+  while (P.PointInSet(center + i * step_size * direction)) {
+    const Eigen::VectorXd configuration = center + i * step_size * direction;
     configs_to_check[0] = configuration;
     std::vector<uint8_t> col_free =
         checker.CheckConfigsCollisionFree(configs_to_check,
                                           parallelism);
     int i_pair = 0;
-    if (col_free[0]) { // Have to check which pair is in collision via signed distance pair
+    if (!col_free[0]) { // Have to check which pair is in collision via signed distance pair
+      // log()->info("found collision");
       for (const auto& pair : sorted_pairs) {
         // Context<double>& mutable_context =
         //     plant.GetMyMutableContextFromRoot(const_cast<Context<double>*>(context));
@@ -596,6 +638,7 @@ std::pair<Eigen::VectorXd, int> CollisionLineSearch(const MultibodyPlant<double>
             .distance;
         // log()->info("{}",distance);
         if (distance < 0.0) {
+          // log()->info("found collision pair");
           pair_in_collision = i_pair;
           collision_configuration = configuration;
           break;
@@ -688,6 +731,10 @@ HPolyhedron IrisInConfigurationSpace(const MultibodyPlant<double>& plant,
   log()->info("IrisInConfigurationSpace: Before MakeHypersphere for starting ellipse.");
   Hyperellipsoid E = options.starting_ellipse.value_or(
       Hyperellipsoid::MakeHypersphere(kEpsilonEllipsoid, seed));
+
+  // Step size for collision line search
+  const double collision_search_step_size = (plant.GetPositionUpperLimits() - 
+      plant.GetPositionLowerLimits()).maxCoeff()/200;
 
   // Make all of the convex sets and supporting quantities.
   auto query_object =
@@ -911,37 +958,49 @@ HPolyhedron IrisInConfigurationSpace(const MultibodyPlant<double>& plant,
     //   log()->info("Hyperplanes 1: {}x + {}y < {}", P_candidate.A().row(i)(0), P_candidate.A().row(i)(1), P_candidate.b()(i));
     // }
     // loop through more times, going straight to the polytope boundary
+    // log()->info("num faces in P_candidate, in while(true): {}", P_candidate.A().rows());
     while (consecutive__sample_failures < 2 * options.num_collision_infeasible_samples) {
       Eigen::VectorXd direction = SampleFromEllipsoid(E.A(), &generator);
       // std::pair<Eigen::VectorXd, int> closest_collision_info = CollisionLineSearch(plant, mutable_context, &query_object_mutable_context, sorted_pairs, P_candidate, E.center(), direction);
       // if consecutive__sample_failures >= options.num_collision_infeasible_samples, in a "final pass"
-      int num_steps = consecutive__sample_failures < options.num_collision_infeasible_samples ? 10 : 1;
-      std::pair<Eigen::VectorXd, int> closest_collision_info = CollisionLineSearch(plant, parallelism, checker, mutable_context, sorted_pairs, P_candidate, E.center(), direction, num_steps = num_steps);
+      std::pair<Eigen::VectorXd, int> closest_collision_info;
+      if (consecutive__sample_failures < options.num_collision_infeasible_samples) {
+        closest_collision_info = CollisionLineSearch(plant, parallelism, checker, mutable_context, sorted_pairs, P_candidate, E.center(), direction, collision_search_step_size);
+      } else { // In final pass
+        closest_collision_info = CheckRayPolytopeIntersection(plant, parallelism, checker, mutable_context, sorted_pairs, P_candidate, E.center(), direction);
+      }
+      
       Eigen::VectorXd collision_configuration = closest_collision_info.first;
       int collision_pair_index = closest_collision_info.second;
       auto pair_iterator = std::next(sorted_pairs.begin(), collision_pair_index);
       const auto collision_pair = *pair_iterator;
       if (collision_pair_index >= 0) { // pair is actually in collision
+        log()->info("solving SNOPT problem...");
+        if (consecutive__sample_failures > options.num_collision_infeasible_samples) {
+          log()->info("solving SNOPT problem in final pass");
+        }
         consecutive__sample_failures = 0;
+        
         // log()->info("Collision found on ray: {}, {}", collision_configuration(0), collision_configuration(1));
         // const auto collision_pair = pairs[collision_pair_index];
         internal::ClosestCollisionProgram prog(
           same_point_constraint, *frames.at(collision_pair.geomA), *frames.at(collision_pair.geomB),
           *sets.at(collision_pair.geomA), *sets.at(collision_pair.geomB), E,
           A.topRows(num_constraints), b.head(num_constraints));
-        log()->info("solving SNOPT problem");
+        
         if (prog.Solve(*solver, collision_configuration, &closest)) {
           // log()->info("SNOPT collision: {}, {}", closest(0), closest(1));
           AddTangentToPolytope(E, closest, options.configuration_space_margin,
                               &A, &b, &num_constraints);
           P_candidate =
               HPolyhedron(A.topRows(num_constraints), b.head(num_constraints));
+          // log()->info("num faces in P_candidate, after adding face: {}", P_candidate.A().rows());
           // for (int i = 0; i < P_candidate.A().rows(); ++i) {
           //   log()->info("Hyperplanes 2: {}x + {}y < {}", P_candidate.A().row(i)(0), P_candidate.A().row(i)(1), P_candidate.b()(i));
           // }
-          for (int i = 0; i < P_candidate.A().rows(); ++i) {
-            log()->info("Hyperplanes 2: {}x + {}y < {}", A.topRows(num_constraints).row(i)(0), P_candidate.A().row(i)(1), b.head(num_constraints)(i));
-          }
+          // for (int i = 0; i < P_candidate.A().rows(); ++i) {
+          //   log()->info("Hyperplanes 2: {}x + {}y < {}", A.topRows(num_constraints).row(i)(0), P_candidate.A().row(i)(1), b.head(num_constraints)(i));
+          // }
           if (options.require_sample_point_is_contained) {
             const bool seed_point_requirement =
                 A.row(num_constraints - 1) * seed <= b(num_constraints - 1);
@@ -957,14 +1016,17 @@ HPolyhedron IrisInConfigurationSpace(const MultibodyPlant<double>& plant,
           //                    termination_msg, iteration == 0)) {
           //   return P;
           // }
-          prog.UpdatePolytope(A.topRows(num_constraints),
-                              b.head(num_constraints));
+          // prog.UpdatePolytope(A.topRows(num_constraints),
+          //                     b.head(num_constraints));
         } else {
           log()->info("seeded SNOPT with feasible guess but did not get feasible soln"); // TODO(rhjiang) remove after debugging
         }
       } else {
         ++consecutive__sample_failures;
       }
+    }
+    for (int i = 0; i < num_constraints; ++i) {
+      log()->info("Hyperplanes 3: {}x + {}y < {}", A.topRows(num_constraints).row(i)(0), A.topRows(num_constraints).row(i)(1), b.head(num_constraints)(i));
     }
 
     // // Use the fast nonlinear optimizer until it fails
