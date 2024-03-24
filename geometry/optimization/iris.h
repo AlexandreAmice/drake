@@ -35,9 +35,8 @@ struct IrisOptions {
     a->Visit(DRAKE_NVP(num_collision_infeasible_samples));
     a->Visit(DRAKE_NVP(num_additional_constraint_infeasible_samples));
     a->Visit(DRAKE_NVP(random_seed));
-    a->Visit(DRAKE_NVP(mixing_steps));
-    a->Visit(DRAKE_NVP(convexity_radius_stepback));
-    a->Visit(DRAKE_NVP(verify_domain_boundedness));
+    a->Visit(DRAKE_NVP(face_ray_steps));
+    a->Visit(DRAKE_NVP(vertex_ray_steps));
   }
 
   /** The initial polytope is guaranteed to contain the point if that point is
@@ -134,6 +133,10 @@ struct IrisOptions {
   counter-examples for the additional constraints using in
   IrisInConfigurationSpace. Use this option to set the initial seed. */
   int random_seed{1234};
+
+  int face_ray_steps{100};
+
+  int vertex_ray_steps{20};
 
   /** Passing a meshcat instance may enable debugging visualizations; this
   currently only happens in IrisInConfigurationSpace and when the
