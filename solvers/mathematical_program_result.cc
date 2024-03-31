@@ -33,7 +33,7 @@ bool MathematicalProgramResult::is_success() const {
   return solution_result_ == SolutionResult::kSolutionFound;
 }
 
-bool MathematicalProgramResult::solved_without_errors() const {
+bool MathematicalProgramResult::solver_is_confident() const {
   return solution_result_ == SolutionResult::kSolutionFound ||
   solution_result_ == SolutionResult::kInfeasibleConstraints ||
   solution_result_ == SolutionResult::kInfeasibleConstraints ||

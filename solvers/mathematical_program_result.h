@@ -95,7 +95,7 @@ class MathematicalProgramResult final {
    * could call get_solver_details() to obtain the solver-specific solution
    * status.
    */
-  [[nodiscard]] bool solved_without_errors() const;
+  [[nodiscard]] bool solver_is_confident() const;
 
   /**
    * Sets decision_variable_index mapping, that maps each decision variable to
