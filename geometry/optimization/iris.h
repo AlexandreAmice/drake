@@ -138,6 +138,8 @@ struct IrisOptions {
 
   int vertex_ray_steps{20};
 
+  int particle_batch_size{1000};
+
   /** Passing a meshcat instance may enable debugging visualizations; this
   currently only happens in IrisInConfigurationSpace and when the
   configuration space is <= 3 dimensional.*/

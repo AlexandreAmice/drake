@@ -600,7 +600,9 @@ void DefineIris(py::module m) {
         .def_readwrite(
             "face_ray_steps", &IrisOptions::face_ray_steps, cls_doc.face_ray_steps.doc)
         .def_readwrite(
-            "vertex_ray_steps", &IrisOptions::face_ray_steps, cls_doc.face_ray_steps.doc)  
+            "vertex_ray_steps", &IrisOptions::face_ray_steps, cls_doc.face_ray_steps.doc)
+        .def_readwrite(
+            "particle_batch_size", &IrisOptions::face_ray_steps, cls_doc.particle_batch_size.doc)  
         .def("__repr__", [](const IrisOptions& self) {
           return py::str(
               "IrisOptions("
