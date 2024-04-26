@@ -108,7 +108,7 @@ GTEST_TEST(TestConstraint, LinearConstraintInfiniteEntries) {
   DRAKE_EXPECT_THROWS_MESSAGE(LinearConstraint(A_sparse_bad, lb, ub),
                               ".*IsFinite().*");
   DRAKE_EXPECT_THROWS_MESSAGE(LinearConstraint(A_sparse_bad.toDense(), lb, ub),
-               ".*allFinite().*");
+                              ".*allFinite().*");
 }
 
 GTEST_TEST(TestConstraint, LinearEqualityConstraintSparse) {
@@ -143,10 +143,8 @@ GTEST_TEST(TestConstraint, LinearEqualityConstraintInfiniteEntries) {
   A_sparse_bad.setFromTriplets(A_triplets.begin(), A_triplets.end());
   Eigen::Vector2d bound(0, 1);
   Eigen::Vector3d bound_bad(0, 1, kInf);
-  EXPECT_THROW(LinearEqualityConstraint(A_sparse_bad, bound),
-               std::exception);
-  EXPECT_THROW(LinearEqualityConstraint(A_sparse, bound_bad),
-               std::exception);
+  EXPECT_THROW(LinearEqualityConstraint(A_sparse_bad, bound), std::exception);
+  EXPECT_THROW(LinearEqualityConstraint(A_sparse, bound_bad), std::exception);
   EXPECT_THROW(LinearEqualityConstraint(A_sparse_bad.toDense(), bound),
                std::exception);
   EXPECT_THROW(LinearEqualityConstraint(A_sparse.toDense(), bound_bad),
@@ -427,6 +425,7 @@ void TestRotatedLorentzConeEval(const Eigen::Ref<const Eigen::MatrixXd> A,
                                 const Eigen::Ref<const Eigen::VectorXd> b,
                                 const VectorXd& x_test, bool is_in_cone) {
   RotatedLorentzConeConstraint cnstr(A, b);
+
   VectorXd y;
   cnstr.Eval(x_test, &y);
   Eigen::VectorXd z = A * x_test + b;
@@ -536,7 +535,7 @@ GTEST_TEST(testConstraint, LorentzConeConstraintUpdateCoefficients) {
   b *= 3;
   constraint.UpdateCoefficients(A, b);
   EXPECT_TRUE(CompareMatrices(constraint.A().toDense(), A));
-  EXPECT_TRUE(CompareMatrices(constraint.A_dense(), A));
+  EXPECT_TRUE(CompareMatrices(constraint.GetDenseA(), A));
   EXPECT_TRUE(CompareMatrices(constraint.b(), b));
 
   // Now try A with different number of rows. UpdateCoefficients should still
@@ -559,7 +558,6 @@ GTEST_TEST(testConstraint, testRotatedLorentzConeConstraint) {
   // [1;2;1] is in the interior of the rotated lorentz cone.
   TestRotatedLorentzConeEval(Eigen::Matrix3d::Identity(),
                              Eigen::Vector3d::Zero(), Vector3d(1, 2, 1), true);
-
   // [1;2;1;1] is on the boundary of the rotated Lorentz cone.
   Eigen::Vector2d x2(1, 2);
   Eigen::Matrix<double, 4, 2> A2;
@@ -601,7 +599,7 @@ GTEST_TEST(testConstraint, RotatedLorentzConeConstraintUpdateCoefficients) {
   b *= 3;
   constraint.UpdateCoefficients(A, b);
   EXPECT_TRUE(CompareMatrices(constraint.A().toDense(), A));
-  EXPECT_TRUE(CompareMatrices(constraint.A_dense(), A));
+  EXPECT_TRUE(CompareMatrices(constraint.GetDenseA(), A));
   EXPECT_TRUE(CompareMatrices(constraint.b(), b));
   EXPECT_EQ(constraint.num_vars(), 2);
 

@@ -579,7 +579,7 @@ CheckParseQuadraticAsRotatedLorentzConeConstraint(
       internal::ParseQuadraticAsRotatedLorentzConeConstraint(Q, b, c, zero_tol);
   // Make sure that dut.A() * x + dub.t() in rotated Lorentz cone is the same
   // expression as 0.5xᵀQx + bᵀx + c<=0.
-  const Eigen::MatrixXd A_dense = dut->A_dense();
+  const Eigen::MatrixXd A_dense = dut->GetDenseA();
   EXPECT_TRUE(
       CompareMatrices(A_dense.row(1), Eigen::RowVectorXd::Zero(Q.rows())));
   EXPECT_EQ(dut->b()(1), 1);

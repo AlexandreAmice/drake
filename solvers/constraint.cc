@@ -98,11 +98,11 @@ std::string ToLatexConstraint(const Constraint& constraint,
                               int precision) {
   VectorX<symbolic::Expression> y(constraint.num_constraints());
   constraint.Eval(vars, &y);
-  return fmt::format(
-      "{}{}{}", ToLatexLowerBound(constraint, precision),
-      constraint.num_constraints() == 1 ? symbolic::ToLatex(y[0], precision)
-                                        : symbolic::ToLatex(y, precision),
-      ToLatexUpperBound(constraint, precision));
+  return fmt::format("{}{}{}", ToLatexLowerBound(constraint, precision),
+                     constraint.num_constraints() == 1
+                         ? symbolic::ToLatex(y[0], precision)
+                         : symbolic::ToLatex(y, precision),
+                     ToLatexUpperBound(constraint, precision));
 }
 
 }  // namespace
@@ -134,6 +134,68 @@ symbolic::Formula Constraint::DoCheckSatisfied(
     }
   }
   return f;
+}
+
+AffineInConeConstraint::AffineInConeConstraint(
+    int num_constraints, const Eigen::Ref<const Eigen::MatrixXd>& A,
+    const Eigen::Ref<const Eigen::VectorXd>& b, const std::string& description)
+    : Constraint(num_constraints, A.cols(),
+                 Eigen::VectorXd::Zero(num_constraints),
+                 Eigen::VectorXd::Constant(
+                     num_constraints, std::numeric_limits<double>::infinity()),
+                 description),
+      A_(A),
+      b_(b) {}
+
+void AffineInConeConstraint::UpdateCoefficients(
+    const Eigen::Ref<const Eigen::MatrixXd>& new_A,
+    const Eigen::Ref<const Eigen::VectorXd>& new_b) {
+  if (A().cols() != new_A.cols()) {
+    throw std::invalid_argument(
+        fmt::format("UpdateCoefficients uses new_A with "
+                    "{} columns to update a constraint with {} variables.",
+                    new_A.cols(), num_vars()));
+  }
+  A_ = new_A;
+  b_ = new_b;
+  CheckCoefficientInvariants();
+}
+
+void AffineInConeConstraint::UpdateCoefficients(
+    const Eigen::SparseMatrix<double>& new_A,
+    const Eigen::Ref<const Eigen::VectorXd>& new_b) {
+  DRAKE_THROW_UNLESS(A().cols() == new_A.cols());
+  A_ = new_A;
+  b_ = new_b;
+  DRAKE_THROW_UNLESS(A_.IsFinite());
+  CheckCoefficientInvariants();
+}
+
+void AffineInConeConstraint::RemoveTinyCoefficient(double tol) {
+  if (tol < 0) {
+    throw std::invalid_argument(
+        "RemoveTinyCoefficient: tol should be non-negative");
+  }
+  std::vector<Eigen::Triplet<double>> new_A_triplets;
+  const auto& A_sparse = A_.get_as_sparse();
+  new_A_triplets.reserve(A_sparse.nonZeros());
+  for (int i = 0; i < A_sparse.outerSize(); ++i) {
+    for (Eigen::SparseMatrix<double>::InnerIterator it(A_sparse, i); it; ++it) {
+      if (std::abs(it.value()) > tol) {
+        new_A_triplets.emplace_back(it.row(), it.col(), it.value());
+      }
+    }
+  }
+  Eigen::SparseMatrix<double> new_A(A_sparse.rows(), A_sparse.cols());
+  new_A.setFromTriplets(new_A_triplets.begin(), new_A_triplets.end());
+  UpdateCoefficients(new_A, b_);
+}
+
+void AffineInConeConstraint::CheckCoefficientInvariants() const {
+  DRAKE_THROW_UNLESS(A().rows() == b_.rows());
+  DRAKE_THROW_UNLESS(A_.IsFinite());
+  DRAKE_THROW_UNLESS(b_.allFinite());
+  DoCheckCoefficientInvariants();
 }
 
 bool QuadraticConstraint::is_convex() const {
@@ -221,38 +283,14 @@ int get_lorentz_cone_constraint_size(
 LorentzConeConstraint::LorentzConeConstraint(
     const Eigen::Ref<const Eigen::MatrixXd>& A,
     const Eigen::Ref<const Eigen::VectorXd>& b, EvalType eval_type)
-    : Constraint(
-          get_lorentz_cone_constraint_size(eval_type), A.cols(),
-          Eigen::VectorXd::Zero(get_lorentz_cone_constraint_size(eval_type)),
-          Eigen::VectorXd::Constant(get_lorentz_cone_constraint_size(eval_type),
-                                    kInf)),
-      A_(A.sparseView()),
-      A_dense_(A),
-      b_(b),
+    : AffineInConeConstraint(get_lorentz_cone_constraint_size(eval_type), A,
+                             b),
       eval_type_{eval_type} {
-  DRAKE_DEMAND(A_.rows() >= 2);
-  DRAKE_ASSERT(A_.rows() == b_.rows());
+  CheckCoefficientInvariants();
 }
 
-void LorentzConeConstraint::UpdateCoefficients(
-    const Eigen::Ref<const Eigen::MatrixXd>& new_A,
-    const Eigen::Ref<const Eigen::VectorXd>& new_b) {
-  if (new_A.cols() != num_vars()) {
-    throw std::invalid_argument(
-        fmt::format("LorentzConeConstraint::UpdateCoefficients uses new_A with "
-                    "{} columns to update a constraint with {} variables.",
-                    new_A.cols(), num_vars()));
-  }
-  A_ = new_A.sparseView();
-  A_dense_ = new_A;
-  b_ = new_b;
-  DRAKE_DEMAND(A_.rows() >= 2);
-  DRAKE_DEMAND(A_.rows() == b_.rows());
-  // Note that we don't need to update the lower and upper bounds as the
-  // constraints lower/upper bounds are fixed (independent of A and b). The
-  // bounds only depend on EvalType. When EvalType=kNonconvex, the lower/upper
-  // bound is [0, 0]/[inf, inf] respectively; otherwise, the lower/upper bound
-  // is 0/inf respectively.
+void LorentzConeConstraint::DoCheckCoefficientInvariants() const {
+  DRAKE_DEMAND(A().rows() >= 2);
 }
 
 namespace {
@@ -281,7 +319,7 @@ void LorentzConeConstraint::DoEvalGeneric(const Eigen::MatrixBase<DerivedX>& x,
                                           VectorX<ScalarY>* y) const {
   using std::pow;
 
-  const VectorX<ScalarY> z = A_dense_ * x.template cast<ScalarY>() + b_;
+  const VectorX<ScalarY> z = GetDenseA() * x.template cast<ScalarY>() + b_;
   y->resize(num_constraints());
   switch (eval_type_) {
     case EvalType::kConvex: {
@@ -290,7 +328,7 @@ void LorentzConeConstraint::DoEvalGeneric(const Eigen::MatrixBase<DerivedX>& x,
     }
     case EvalType::kConvexSmooth: {
       if constexpr (std::is_same_v<ScalarY, AutoDiffXd>) {
-        LorentzConeConstraintEvalConvex2Autodiff(A_dense_, b_, x, y);
+        LorentzConeConstraintEvalConvex2Autodiff(GetDenseA(), b_, x, y);
       } else {
         (*y)(0) = z(0) - z.tail(z.rows() - 1).norm();
       }
@@ -327,34 +365,16 @@ std::ostream& LorentzConeConstraint::DoDisplay(
 
 std::string LorentzConeConstraint::DoToLatex(
     const VectorX<symbolic::Variable>& vars, int precision) const {
-  VectorX<symbolic::Expression> z = A_ * vars + b_;
+  VectorX<symbolic::Expression> z = GetDenseA() * vars + b_;
   return fmt::format("\\left|{}\\right|_2 \\le {}",
                      symbolic::ToLatex(z.tail(z.size() - 1).eval(), precision),
                      symbolic::ToLatex(z(0), precision));
 }
 
-void RotatedLorentzConeConstraint::UpdateCoefficients(
-    const Eigen::Ref<const Eigen::MatrixXd>& new_A,
-    const Eigen::Ref<const Eigen::VectorXd>& new_b) {
-  if (new_A.cols() != num_vars()) {
-    throw std::invalid_argument(fmt::format(
-        "RotatedLorentzConeConstraint::UpdateCoefficients uses new_A with "
-        "{} columns to update a constraint with {} variables.",
-        new_A.cols(), num_vars()));
-  }
-  A_ = new_A.sparseView();
-  A_dense_ = new_A;
-  b_ = new_b;
-  DRAKE_DEMAND(A_.rows() >= 3);
-  DRAKE_DEMAND(A_.rows() == b_.rows());
-  // Note that we don't need to update the lower and upper bounds as the
-  // constraints lower/upper bounds are fixed (independent of A and b).
-}
-
 template <typename DerivedX, typename ScalarY>
 void RotatedLorentzConeConstraint::DoEvalGeneric(
     const Eigen::MatrixBase<DerivedX>& x, VectorX<ScalarY>* y) const {
-  const VectorX<ScalarY> z = A_dense_ * x.template cast<ScalarY>() + b_;
+  const VectorX<ScalarY> z = A() * x.template cast<ScalarY>() + b_;
   y->resize(num_constraints());
   (*y)(0) = z(0);
   (*y)(1) = z(1);
@@ -385,12 +405,16 @@ std::ostream& RotatedLorentzConeConstraint::DoDisplay(
 
 std::string RotatedLorentzConeConstraint::DoToLatex(
     const VectorX<symbolic::Variable>& vars, int precision) const {
-  VectorX<symbolic::Expression> z = A_ * vars + b_;
+  VectorX<symbolic::Expression> z = A() * vars + b_;
   return fmt::format(
       "0 \\le {},\\\\ 0 \\le {},\\\\ \\left|{}\\right|_2^2 \\le {}",
       symbolic::ToLatex(z(0), precision), symbolic::ToLatex(z(1), precision),
       symbolic::ToLatex(z.tail(z.size() - 2).eval(), precision),
       symbolic::ToLatex(z(0) * z(1), precision));
+}
+
+void RotatedLorentzConeConstraint::DoCheckCoefficientInvariants() const {
+  DRAKE_DEMAND(A().rows() >= 3);
 }
 
 LinearConstraint::LinearConstraint(const Eigen::Ref<const Eigen::MatrixXd>& A,
@@ -500,18 +524,18 @@ std::ostream& LinearConstraint::DoDisplay(
   return DisplayConstraint(*this, os, "LinearConstraint", vars, false);
 }
 
-std::string LinearConstraint::DoToLatex(
-    const VectorX<symbolic::Variable>& vars, int precision) const {
+std::string LinearConstraint::DoToLatex(const VectorX<symbolic::Variable>& vars,
+                                        int precision) const {
   if (num_constraints() == 1) {
     return fmt::format(
         "{}{}{}", ToLatexLowerBound(*this, precision),
         symbolic::ToLatex((A_.get_as_sparse() * vars)[0], precision),
         ToLatexUpperBound(*this, precision));
   }
-  return fmt::format(
-      "{}{} {}{}", ToLatexLowerBound(*this, precision),
-      symbolic::ToLatex(GetDenseA(), precision), symbolic::ToLatex(vars),
-      ToLatexUpperBound(*this, precision));
+  return fmt::format("{}{} {}{}", ToLatexLowerBound(*this, precision),
+                     symbolic::ToLatex(GetDenseA(), precision),
+                     symbolic::ToLatex(vars),
+                     ToLatexUpperBound(*this, precision));
 }
 
 std::ostream& LinearEqualityConstraint::DoDisplay(
@@ -666,8 +690,8 @@ void PositiveSemidefiniteConstraint::DoEval(
 
 std::string PositiveSemidefiniteConstraint::DoToLatex(
     const VectorX<symbolic::Variable>& vars, int precision) const {
-  Eigen::Map<const MatrixX<symbolic::Variable>> S(
-      vars.data(), matrix_rows(), matrix_rows());
+  Eigen::Map<const MatrixX<symbolic::Variable>> S(vars.data(), matrix_rows(),
+                                                  matrix_rows());
   return fmt::format("{} \\succeq 0", symbolic::ToLatex(S.eval(), precision));
 }
 

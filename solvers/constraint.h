@@ -16,6 +16,7 @@
 
 #include "drake/common/drake_assert.h"
 #include "drake/common/drake_copyable.h"
+#include "drake/common/drake_deprecated.h"
 #include "drake/common/eigen_types.h"
 #include "drake/common/polynomial.h"
 #include "drake/common/symbolic/expression.h"
@@ -187,54 +188,75 @@ class Constraint : public EvaluatorBase {
  *
  * @ingroup solver_evaluators
  */
-class AbstractConicConstraint : public Constraint {
+class AffineInConeConstraint : public Constraint {
  public:
-  DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(ConicConstraint)
+  DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(AbstractConicConstraint)
+
+  AffineInConeConstraint(int num_constraints,
+                         const Eigen::Ref<const Eigen::MatrixXd>& A,
+                         const Eigen::Ref<const Eigen::VectorXd>& b,
+                         const std::string& description = "");
+
+  AffineInConeConstraint(int num_constraints,
+                         const Eigen::SparseMatrix<double>& A,
+                         const Eigen::Ref<const Eigen::VectorXd>& b,
+                         const std::string& description = "");
 
   /** Returns true iff this constraint already has a dense representation, i.e,
    * if GetDenseA() will be cheap. */
-  bool is_dense_A_constructed() const;
+  bool is_dense_A_constructed() const { return A_.is_dense_constructed(); }
 
   /** Getter for A. */
-  const Eigen::SparseMatrix<double>& A() const { return A_; }
+  const Eigen::SparseMatrix<double>& A() const { return A_.get_as_sparse(); }
 
-  /** Getter for dense version of A. */
-  const Eigen::MatrixXd& GetDenseA() const { return A_dense_; }
+  /**
+   * Getter for dense version of A.
+   * @note this might involve memory allocation to convert a sparse matrix to a
+   * dense one, for better performance you should call get_sparse_A() which
+   * returns a sparse matrix.
+   * */
+  const Eigen::MatrixXd& GetDenseA() const { return A_.GetAsDense(); }
 
   /** Getter for b. */
   const Eigen::VectorXd& b() const { return b_; }
 
-  ~AbstractConicConstraint() override {}
-
+  /**
+   * Sets A(i, j) to zero if abs(A(i, j)) <= tol.
+   * Oftentimes the coefficient A is computed numerically with round-off errors.
+   * Such small round-off errors can cause numerical issues for certain
+   * optimization solvers. Hence it is recommended to remove the tiny
+   * coefficients to achieve numerical robustness.
+   * @param tol The entries in A with absolute value <= tol will be set to 0.
+   * @note tol>= 0.
+   */
+  void RemoveTinyCoefficient(double tol);
 
   /**
    * Updates the coefficients, the updated constraint is new_A * x + new_b in
    * the Cone.
    * @throw std::exception if the new_A.cols() != A.cols(), namely the variable
    * size should not change.
+   * @throw std::exception unless every entry of new_A is finite.
    */
   void UpdateCoefficients(const Eigen::Ref<const Eigen::MatrixXd>& new_A,
                           const Eigen::Ref<const Eigen::VectorXd>& new_b);
 
+  void UpdateCoefficients(const Eigen::SparseMatrix<double>& new_A,
+                          const Eigen::Ref<const Eigen::VectorXd>& new_b);
+
+  /**
+   * Check that A.rows() == b.rows(). Some abstract conic constraints require
+   * additional invariants on the A and b matrices which are also checked by
+   * this method.
+   */
+  void CheckCoefficientInvariants() const;
+
  protected:
   /**
-   * Allows a derived class to check any preconditions before updating the
-   * coefficients of this constraint.
-   * @param new_A
-   * @param new_b
-   * @return
+   * Some abstract conic constraints require invariants on the A and b matrices.
+   * This non-virtual interface checks that A_ and b_ satisfy these invariants.
    */
-  bool CheckVariableUpdatePreconditions(
-      const Eigen::Ref<const Eigen::MatrixXd>& new_A,
-      const Eigen::Ref<const Eigen::VectorXd>& new_b) const {
-    unused(new_A);
-    unused(new_b);
-    return true;
-  }
-
-  virtual void DoUpdateCoefficients(
-      const Eigen::Ref<const Eigen::MatrixXd>& new_A,
-      const Eigen::Ref<const Eigen::VectorXd>& new_b) = 0;
+  virtual void DoCheckCoefficientInvariants() const = 0;
 
   internal::SparseAndDenseMatrix A_;
   Eigen::VectorXd b_;
@@ -394,7 +416,7 @@ class QuadraticConstraint : public Constraint {
 
  @ingroup solver_evaluators
  */
-class LorentzConeConstraint : public Constraint {
+class LorentzConeConstraint : public AffineInConeConstraint {
  public:
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(LorentzConeConstraint)
 
@@ -421,27 +443,14 @@ class LorentzConeConstraint : public Constraint {
 
   ~LorentzConeConstraint() override {}
 
-  /** Getter for A. */
-  const Eigen::SparseMatrix<double>& A() const { return A_; }
-
   /** Getter for dense version of A. */
-  const Eigen::MatrixXd& A_dense() const { return A_dense_; }
-
-  /** Getter for b. */
-  const Eigen::VectorXd& b() const { return b_; }
+  DRAKE_DEPRECATED("2024-09-01",
+                   "LorentzCone has been consolidated to "
+                   "AffineInConeConstraint. Use GetDenseA() instead.")
+  const Eigen::MatrixXd& A_dense() const { return GetDenseA(); }
 
   /** Getter for eval type. */
   EvalType eval_type() const { return eval_type_; }
-
-  /**
-   * Updates the coefficients, the updated constraint is z=new_A * x + new_b in
-   * the Lorentz cone.
-   * @throws std::exception if the new_A.cols() != A.cols(), namely the variable
-   * size should not change.
-   * @pre `new_A` has to have at least 2 rows and new_A.rows() == new_b.rows().
-   */
-  void UpdateCoefficients(const Eigen::Ref<const Eigen::MatrixXd>& new_A,
-                          const Eigen::Ref<const Eigen::VectorXd>& new_b);
 
  private:
   template <typename DerivedX, typename ScalarY>
@@ -462,11 +471,11 @@ class LorentzConeConstraint : public Constraint {
 
   std::string DoToLatex(const VectorX<symbolic::Variable>&, int) const override;
 
-  Eigen::SparseMatrix<double> A_;
-  // We need to store a dense matrix of A_, so that we can compute the gradient
-  // using AutoDiffXd, and return the gradient as a dense matrix.
-  Eigen::MatrixXd A_dense_;
-  Eigen::VectorXd b_;
+  /**
+   * A has to have at least 2 rows.
+   */
+  void DoCheckCoefficientInvariants() const override;
+
   const EvalType eval_type_;
 };
 
@@ -490,42 +499,23 @@ class LorentzConeConstraint : public Constraint {
  *
  * @ingroup solver_evaluators
  */
-class RotatedLorentzConeConstraint : public Constraint {
+class RotatedLorentzConeConstraint : public AffineInConeConstraint {
  public:
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(RotatedLorentzConeConstraint)
 
   RotatedLorentzConeConstraint(const Eigen::Ref<const Eigen::MatrixXd>& A,
                                const Eigen::Ref<const Eigen::VectorXd>& b)
-      : Constraint(
-            3, A.cols(), Eigen::Vector3d::Constant(0.0),
-            Eigen::Vector3d::Constant(std::numeric_limits<double>::infinity())),
-        A_(A.sparseView()),
-        A_dense_(A),
-        b_(b) {
-    DRAKE_DEMAND(A_.rows() >= 3);
-    DRAKE_ASSERT(A_.rows() == b_.rows());
+      : AbstractConicConstraint(3, A, b) {
+    CheckCoefficientInvariants();
   }
 
-  /** Getter for A. */
-  const Eigen::SparseMatrix<double>& A() const { return A_; }
-
   /** Getter for dense version of A. */
-  const Eigen::MatrixXd& A_dense() const { return A_dense_; }
-
-  /** Getter for b. */
-  const Eigen::VectorXd& b() const { return b_; }
+  DRAKE_DEPRECATED("2024-09-01",
+                   "RotatedLorentzCone has been consolidated to "
+                   "AffineInConeConstraint. Use GetDenseA() instead.")
+  const Eigen::MatrixXd& A_dense() const { return GetDenseA(); }
 
   ~RotatedLorentzConeConstraint() override {}
-
-  /**
-   * Updates the coefficients, the updated constraint is z=new_A * x + new_b in
-   * the rotated Lorentz cone.
-   * @throw std::exception if the new_A.cols() != A.cols(), namely the variable
-   * size should not change.
-   * @pre new_A.rows() >= 3 and new_A.rows() == new_b.rows().
-   */
-  void UpdateCoefficients(const Eigen::Ref<const Eigen::MatrixXd>& new_A,
-                          const Eigen::Ref<const Eigen::VectorXd>& new_b);
 
  private:
   template <typename DerivedX, typename ScalarY>
@@ -546,11 +536,10 @@ class RotatedLorentzConeConstraint : public Constraint {
 
   std::string DoToLatex(const VectorX<symbolic::Variable>&, int) const override;
 
-  Eigen::SparseMatrix<double> A_;
-  // We need to store a dense matrix of A_, so that we can compute the gradient
-  // using AutoDiffXd, and return the gradient as a dense matrix.
-  Eigen::MatrixXd A_dense_;
-  Eigen::VectorXd b_;
+  /**
+   * @pre A has to have at least 3 rows.
+   */
+  void DoCheckCoefficientInvariants() const override;
 };
 
 /**
@@ -653,6 +642,8 @@ class PolynomialConstraint : public EvaluatorConstraint<PolynomialEvaluator> {
 /**
  * Implements a constraint of the form @f$ lb <= Ax <= ub @f$
  *
+ * The conic form of this constraint [A;-A]*x >= [lb, -ub].
+ *
  * @ingroup solver_evaluators
  */
 class LinearConstraint : public Constraint {
@@ -660,7 +651,7 @@ class LinearConstraint : public Constraint {
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(LinearConstraint)
 
   /**
-   * Construct the linear constraint lb <= A*x <= ub
+   * Construct the linear constraint lb <= A*x <= ub.
    *
    * Throws if A has any entry which is not finite.
    * @pydrake_mkdoc_identifier{dense_A}
@@ -972,6 +963,8 @@ class LinearComplementarityConstraint : public Constraint {
  * @ingroup solver_evaluators
  */
 class PositiveSemidefiniteConstraint : public Constraint {
+  // TODO(Alexandre.Amice) consolidate this and LinearMatrixInequalityConstraint
+  // into conic form.
  public:
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(PositiveSemidefiniteConstraint)
 
@@ -1081,6 +1074,8 @@ class PositiveSemidefiniteConstraint : public Constraint {
  * @ingroup solver_evaluators
  */
 class LinearMatrixInequalityConstraint : public Constraint {
+  // TODO(Alexandre.Amice) consolidate this and PositiveSemidefiniteConstraint
+  // into conic form.
  public:
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(LinearMatrixInequalityConstraint)
 
@@ -1203,7 +1198,7 @@ class ExpressionConstraint : public Constraint {
  * generic nonlinear optimization. It is possible that the nonlinear solver
  * can accidentally set z₁ = 0, where the constraint is not well defined.
  * Instead, the user should consider to solve the program through conic solvers
- * that can exploit exponential cone, such as MOSEK™ and SCS.
+ * that can exploit exponential cones, such as MOSEK™ and SCS.
  *
  * @ingroup solver_evaluators
  */
@@ -1216,6 +1211,8 @@ class ExponentialConeConstraint : public Constraint {
    * Constrains A * x + b to be in the exponential cone.
    * @pre A has 3 rows.
    */
+  //  ExponentialConeConstraint(const Eigen::Ref<const Eigen::MatrixXd>& A,
+  //                            const Eigen::Ref<const Eigen::Vector3d>& b);
   ExponentialConeConstraint(
       const Eigen::Ref<const Eigen::SparseMatrix<double>>& A,
       const Eigen::Ref<const Eigen::Vector3d>& b);

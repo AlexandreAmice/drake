@@ -516,7 +516,8 @@ void SdpaFreeFormat::AddLorentzConeConstraints(
     // lorentz_cone_constraint.evaluator()->A().row(0) *
     // lorentz_cone_constraint.variables()
     for (int i = 0; i < num_decision_vars; ++i) {
-      const double coeff = lorentz_cone_constraint.evaluator()->A_dense()(0, i);
+      const double coeff =
+          lorentz_cone_constraint.evaluator()->GetDenseA()(0, i);
       a.push_back(coeff);
     }
 
@@ -538,7 +539,7 @@ void SdpaFreeFormat::AddLorentzConeConstraints(
       a.reserve(num_decision_vars);
       for (int j = 0; j < num_decision_vars; ++j) {
         const double coeff =
-            lorentz_cone_constraint.evaluator()->A_dense()(i, j);
+            lorentz_cone_constraint.evaluator()->GetDenseA()(i, j);
         a.push_back(coeff);
       }
       // Add the term -new_block(0, i)
@@ -593,7 +594,7 @@ void SdpaFreeFormat::AddRotatedLorentzConeConstraints(
       a.reserve(num_decision_vars);
       const int j = i == 0 ? 0 : i + 1;
       for (int k = 0; k < num_decision_vars; ++k) {
-        a.push_back(rotated_lorentz_constraint.evaluator()->A_dense()(j, k));
+        a.push_back(rotated_lorentz_constraint.evaluator()->GetDenseA()(j, k));
       }
       // Add the term -new_X(0, i)
       AddLinearEqualityConstraint(
@@ -609,7 +610,7 @@ void SdpaFreeFormat::AddRotatedLorentzConeConstraints(
     std::vector<double> a;
     a.reserve(num_decision_vars);
     for (int i = 0; i < num_decision_vars; ++i) {
-      a.push_back(rotated_lorentz_constraint.evaluator()->A_dense()(1, i));
+      a.push_back(rotated_lorentz_constraint.evaluator()->GetDenseA()(1, i));
     }
     for (int i = 1; i < num_block_rows; ++i) {
       // Add the term -new_block(i, i).
