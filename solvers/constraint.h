@@ -183,6 +183,64 @@ class Constraint : public EvaluatorBase {
 };
 
 /**
+ * Represents the constraint Ax + b ∈ Cone.
+ *
+ * @ingroup solver_evaluators
+ */
+class AbstractConicConstraint : public Constraint {
+ public:
+  DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(ConicConstraint)
+
+  /** Returns true iff this constraint already has a dense representation, i.e,
+   * if GetDenseA() will be cheap. */
+  bool is_dense_A_constructed() const;
+
+  /** Getter for A. */
+  const Eigen::SparseMatrix<double>& A() const { return A_; }
+
+  /** Getter for dense version of A. */
+  const Eigen::MatrixXd& GetDenseA() const { return A_dense_; }
+
+  /** Getter for b. */
+  const Eigen::VectorXd& b() const { return b_; }
+
+  ~AbstractConicConstraint() override {}
+
+
+  /**
+   * Updates the coefficients, the updated constraint is new_A * x + new_b in
+   * the Cone.
+   * @throw std::exception if the new_A.cols() != A.cols(), namely the variable
+   * size should not change.
+   */
+  void UpdateCoefficients(const Eigen::Ref<const Eigen::MatrixXd>& new_A,
+                          const Eigen::Ref<const Eigen::VectorXd>& new_b);
+
+ protected:
+  /**
+   * Allows a derived class to check any preconditions before updating the
+   * coefficients of this constraint.
+   * @param new_A
+   * @param new_b
+   * @return
+   */
+  bool CheckVariableUpdatePreconditions(
+      const Eigen::Ref<const Eigen::MatrixXd>& new_A,
+      const Eigen::Ref<const Eigen::VectorXd>& new_b) const {
+    unused(new_A);
+    unused(new_b);
+    return true;
+  }
+
+  virtual void DoUpdateCoefficients(
+      const Eigen::Ref<const Eigen::MatrixXd>& new_A,
+      const Eigen::Ref<const Eigen::VectorXd>& new_b) = 0;
+
+  internal::SparseAndDenseMatrix A_;
+  Eigen::VectorXd b_;
+};
+
+/**
  * lb ≤ .5 xᵀQx + bᵀx ≤ ub
  * Without loss of generality, the class stores a symmetric matrix Q.
  * For a non-symmetric matrix Q₀, we can define Q = (Q₀ + Q₀ᵀ) / 2, since
