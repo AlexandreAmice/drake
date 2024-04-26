@@ -1131,6 +1131,18 @@ drake_cc_library(
     ],
 )
 
+drake_cc_library(
+    name="conic_standard_forms",
+    srcs =["conic_standard_forms.cc"],
+    hdrs =["conic_standard_forms.h"],
+    interface_deps = [
+        ":mathematical_program",
+        "//math:matrix_util",
+        ":aggregate_costs_constraints"
+    ],
+    deps = [],
+)
+
 drake_cc_optional_library(
     name = "csdp_solver_error_handling",
     opt_in_condition = "//tools/workspace/csdp_internal:enabled",
