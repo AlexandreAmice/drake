@@ -1252,35 +1252,35 @@ class ExponentialConeConstraint : public Constraint {
  *
  * @ingroup solver_evaluators
  */
-class CompositeAffineInConeConstraint : AffineInConeConstraint {
- public:
-  /**
-   * cone_partition is a set of indices denoting the non-inclusive end of the
-   * rows of A which correspond to membership in the cone.
-   * @param cone_partition and cone_types need to be the same length.
-   * @param cone_types
-   * @param description
-   */
-  CompositeAffineInConeConstraint(const Eigen::SparseMatrix<double>& A,
-                                  const Eigen::Ref<const Eigen::VectorXd>& b,
-                                  const std::vector<int> cone_partition,
-                                  const std::vector<SupportedCones> cone_types,
-                                  const std::string& description = "");
-
-  CompositeAffineInConeConstraint(
-      const std::vector<std::unique_ptr<AffineInConeConstraint>>&
-          cone_constraints,
-      const std::string& description = "");
-
-  enum SupportedCones {
-    kLorentzCone,
-    kRotatedLorentzCone,
-  };
-
- private:
-  std::vector<std::unique_ptr<AffineInConeConstraint>> cone_constraints_;
-  std::map<int, SupportedCones> index_to_cone_type_;
-}
+//class CompositeAffineInConeConstraint : AffineInConeConstraint {
+// public:
+//  /**
+//   * cone_partition is a set of indices denoting the non-inclusive end of the
+//   * rows of A which correspond to membership in the cone.
+//   * @param cone_partition and cone_types need to be the same length.
+//   * @param cone_types
+//   * @param description
+//   */
+//  CompositeAffineInConeConstraint(const Eigen::SparseMatrix<double>& A,
+//                                  const Eigen::Ref<const Eigen::VectorXd>& b,
+//                                  const std::vector<int> cone_partition,
+//                                  const std::vector<SupportedCones> cone_types,
+//                                  const std::string& description = "");
+//
+//  CompositeAffineInConeConstraint(
+//      const std::vector<std::unique_ptr<AffineInConeConstraint>>&
+//          cone_constraints,
+//      const std::string& description = "");
+//
+//  enum SupportedCones {
+//    kLorentzCone,
+//    kRotatedLorentzCone,
+//  };
+//
+// private:
+//  std::vector<std::unique_ptr<AffineInConeConstraint>> cone_constraints_;
+//  std::map<int, SupportedCones> index_to_cone_type_;
+//};
 
 }  // namespace solvers
 }  // namespace drake
