@@ -270,9 +270,14 @@ run-time of the algorithm. The same goes for
 IrisOptions.termination_func for more details.
 @ingroup geometry_optimization
 */
-HPolyhedron IrisInConfigurationSpace(
+HPolyhedron RayIris(
     const multibody::MultibodyPlant<double>& plant,
     const systems::Context<double>& context, systems::Context<double>* mutable_context, const planning::CollisionChecker& checker,
+    const IrisOptions& options = IrisOptions());
+
+HPolyhedron IrisInConfigurationSpace(
+    const multibody::MultibodyPlant<double>& plant,
+    const systems::Context<double>& context,
     const IrisOptions& options = IrisOptions());
 
 /** Modifies the @p iris_options to facilitate finding a region that contains

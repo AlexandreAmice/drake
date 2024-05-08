@@ -584,7 +584,7 @@ std::pair<Eigen::VectorXd, int> CollisionLineSearch(const MultibodyPlant<double>
 }
 }  // namespace
 
-HPolyhedron IrisInConfigurationSpace(const MultibodyPlant<double>& plant,
+HPolyhedron RayIris(const MultibodyPlant<double>& plant,
                                      const Context<double>& context, Context<double>* mutable_context, const planning::CollisionChecker& checker,
                                      const IrisOptions& options) {
   // Check the inputs.
@@ -832,14 +832,6 @@ HPolyhedron IrisInConfigurationSpace(const MultibodyPlant<double>& plant,
     int num_constraints = num_initial_constraints;
     HPolyhedron P_candidate = P_initial;
     DRAKE_ASSERT(best_volume > 0);
-
-    // program for sampling vertices
-    std::normal_distribution<double> gaussian;
-    MathematicalProgram sample_vertices_prog;
-    solvers::VectorXDecisionVariable qvar = sample_vertices_prog.NewContinuousVariables(nq, "q");
-    auto P_constraint_vertices = sample_vertices_prog.AddLinearConstraint(A.topRows(num_constraints), VectorXd::Constant(num_constraints, -std::numeric_limits<double>::infinity()), b.head(num_constraints), qvar);
-    auto cost = sample_vertices_prog.AddLinearCost(0 * P_candidate.A().row(0), qvar);
-
     // Find separating hyperplanes
 
     // Add constraints from configuration space obstacles to reduce the domain
@@ -887,11 +879,7 @@ HPolyhedron IrisInConfigurationSpace(const MultibodyPlant<double>& plant,
     }
     
     int consecutive__sample_failures = 0;
-    // for (int i = 0; i < P_candidate.A().rows(); ++i) {
-    //   log()->info("Hyperplanes 1: {}x + {}y < {}", P_candidate.A().row(i)(0), P_candidate.A().row(i)(1), P_candidate.b()(i));
-    // }
-    // loop through more times, going straight to the polytope boundary
-    // log()->info("num faces in P_candidate, in while(true): {}", P_candidate.A().rows());
+
     int i_particle = std::numeric_limits<int>::max();
     while (consecutive__sample_failures < 2 * options.num_collision_infeasible_samples) {
       if (i_particle >= options.particle_batch_size) { // time to sample another batch
@@ -904,8 +892,6 @@ HPolyhedron IrisInConfigurationSpace(const MultibodyPlant<double>& plant,
       Eigen::VectorXd direction = (particles.at(i_particle) - E.center()).normalized();
       ++ i_particle;
 
-      // std::pair<Eigen::VectorXd, int> closest_collision_info = CollisionLineSearch(plant, mutable_context, &query_object_mutable_context, sorted_pairs, P_candidate, E.center(), direction);
-      // if consecutive__sample_failures >= options.num_collision_infeasible_samples, in a "final pass"
       std::pair<Eigen::VectorXd, int> closest_collision_info;
       closest_collision_info = CollisionLineSearch(plant, parallelism, checker, mutable_context, sorted_pairs, P_candidate, E.center(), direction, collision_search_step_size);
 
@@ -925,7 +911,7 @@ HPolyhedron IrisInConfigurationSpace(const MultibodyPlant<double>& plant,
           *sets.at(collision_pair.geomA), *sets.at(collision_pair.geomB), E,
           A.topRows(num_constraints), b.head(num_constraints));
         
-        if (prog.Solve(*solver, closest_collision_info.first, &closest)) {
+        if (prog.Solve(*solver, closest_collision_info.first, options.solver_options, &closest)) {
           // log()->info("SNOPT collision: {}, {}", closest(0), closest(1));
           AddTangentToPolytope(E, closest, options.configuration_space_margin,
                               &A, &b, &num_constraints);
@@ -949,240 +935,477 @@ HPolyhedron IrisInConfigurationSpace(const MultibodyPlant<double>& plant,
               return P;
             }
           }
-          // update vertex sampling program constraints
-          P_constraint_vertices.evaluator()->UpdateCoefficients(A.topRows(num_constraints), VectorXd::Constant(num_constraints, -std::numeric_limits<double>::infinity()),b.head(num_constraints));
-          // if (CheckTerminate(options, P_candidate, termination_error_msg,
-          //                    termination_msg, iteration == 0)) {
-          //   return P;
-          // log()->info("solved SNOPT problem");
+     
         } else {
           // log()->info("seeded SNOPT with feasible guess but did not get feasible soln"); // TODO(rhjiang) remove after debugging
         }
-      // } else {
-      //   // First try with vertex sample at direction `direction`
-      //   cost.evaluator().UpdateCoefficients(direction);
-      //   auto result = Solve(sample_vertices_prog);
-      //   DRAKE_ASSERT(result.is_success());
-      //   VectorXd vertex_direction = result.GetSolution(qvar) - E.center();
-      //   std::pair<Eigen::VectorXd, int> closest_collision_info = CollisionLineSearch(plant, parallelism, checker, mutable_context, sorted_pairs, P_candidate, E.center(), vertex_direction, collision_search_step_size);
-
-      //   Eigen::VectorXd collision_configuration = closest_collision_info.first;
-      //   int collision_pair_index = closest_collision_info.second;
-      //   auto pair_iterator = std::next(sorted_pairs.begin(), collision_pair_index);
-      //   const auto collision_pair = *pair_iterator;
-      //   if (collision_pair_index >= 0) { // pair is actually in collision
-      //     log()->info("solving SNOPT problem in vertex pass");
-      //     consecutive__sample_failures = 0;
-          
-      //     internal::ClosestCollisionProgram prog(
-      //       same_point_constraint, *frames.at(collision_pair.geomA), *frames.at(collision_pair.geomB),
-      //       *sets.at(collision_pair.geomA), *sets.at(collision_pair.geomB), E,
-      //       A.topRows(num_constraints), b.head(num_constraints));
-          
-      //     if (prog.Solve(*solver, collision_configuration, &closest)) {
-      //       AddTangentToPolytope(E, closest, options.configuration_space_margin,
-      //                           &A, &b, &num_constraints);
-      //       P_candidate =
-      //           HPolyhedron(A.topRows(num_constraints), b.head(num_constraints));
-            
-      //       if (options.require_sample_point_is_contained) {
-      //         const bool seed_point_requirement =
-      //             A.row(num_constraints - 1) * seed <= b(num_constraints - 1);
-      //         if (!seed_point_requirement) {
-      //           if (iteration == 0) {
-      //             throw std::runtime_error(seed_point_error_msg);
-      //           }
-      //           log()->info(seed_point_msg);
-      //           return P;
-      //         }
-      //       }
-      //       P_constraint_vertices.evaluator()->UpdateCoefficients(A.topRows(num_constraints), VectorXd::Constant(num_constraints, -std::numeric_limits<double>::infinity()),b.head(num_constraints));
-      //     } else {
-      //       log()->info("seeded SNOPT with feasible guess but did not get feasible soln"); // TODO(rhjiang) remove after debugging
-      //     }
       } else {
         ++consecutive__sample_failures;
       }
       // }
     }
 
-    // // Do a pass of sampling vertices
-    // consecutive__sample_failures = 0;
-    // std::normal_distribution<double> gaussian;
-    // MathematicalProgram sample_vertices_prog;
-    // solvers::VectorXDecisionVariable qvar = sample_vertices_prog.NewContinuousVariables(nq, "q");
-    // auto P_constraint_vertices = sample_vertices_prog.AddLinearConstraint(A.topRows(num_constraints), VectorXd::Constant(num_constraints, -std::numeric_limits<double>::infinity()), b.head(num_constraints), qvar);
-    // auto cost = sample_vertices_prog.AddLinearCost(0 * P_candidate.A().row(0), qvar);
-    // while (consecutive__sample_failures < options.num_collision_infeasible_samples) {
-    //   VectorXd cost_direction = gaussian(generator);
-    //   cost.evaluator().UpdateCoefficients(cost_direction);
-
-    //   auto result = Solve(sample_vertices_prog);
-    //   DRAKE_ASSERT(result.is_success());
-
-    //   VectorXd q = result.GetSolution(qvar);
-    //   VectorXd direction = q - E.center();
-
-    //   std::pair<Eigen::VectorXd, int> closest_collision_info = CollisionLineSearch(plant, parallelism, checker, mutable_context, sorted_pairs, P_candidate, E.center(), direction, collision_search_step_size);
-
-    //   Eigen::VectorXd collision_configuration = closest_collision_info.first;
-    //   int collision_pair_index = closest_collision_info.second;
-    //   auto pair_iterator = std::next(sorted_pairs.begin(), collision_pair_index);
-    //   const auto collision_pair = *pair_iterator;
-    //   if (collision_pair_index >= 0) { // pair is actually in collision
-    //     log()->info("solving SNOPT problem in vertex pass");
-    //     consecutive__sample_failures = 0;
-        
-    //     internal::ClosestCollisionProgram prog(
-    //       same_point_constraint, *frames.at(collision_pair.geomA), *frames.at(collision_pair.geomB),
-    //       *sets.at(collision_pair.geomA), *sets.at(collision_pair.geomB), E,
-    //       A.topRows(num_constraints), b.head(num_constraints));
-        
-    //     if (prog.Solve(*solver, collision_configuration, &closest)) {
-    //       AddTangentToPolytope(E, closest, options.configuration_space_margin,
-    //                           &A, &b, &num_constraints);
-    //       P_candidate =
-    //           HPolyhedron(A.topRows(num_constraints), b.head(num_constraints));
-          
-    //       if (options.require_sample_point_is_contained) {
-    //         const bool seed_point_requirement =
-    //             A.row(num_constraints - 1) * seed <= b(num_constraints - 1);
-    //         if (!seed_point_requirement) {
-    //           if (iteration == 0) {
-    //             throw std::runtime_error(seed_point_error_msg);
-    //           }
-    //           log()->info(seed_point_msg);
-    //           return P;
-    //         }
-    //       }
-    //       P_constraint_vertices.evaluator()->UpdateCoefficients(A.topRows(num_constraints), VectorXd::Constant(num_constraints, -std::numeric_limits<double>::infinity()),b.head(num_constraints));
-    //     } else {
-    //       log()->info("seeded SNOPT with feasible guess but did not get feasible soln"); // TODO(rhjiang) remove after debugging
-    //     }
-    //   } else {
-    //     ++consecutive__sample_failures;
-    //   }
-    // }
-    // for (int i = 0; i < num_constraints; ++i) {
-    //   log()->info("Hyperplanes 3: {}x + {}y < {}", A.topRows(num_constraints).row(i)(0), A.topRows(num_constraints).row(i)(1), b.head(num_constraints)(i));
-    // }
-
     
-    // // Use the fast nonlinear optimizer until it fails
-    // // num_collision_infeasible_samples consecutive times.
-    // for (const auto& pair_w_distance : sorted_pairs) {
-    //   std::pair<GeometryId, GeometryId> geom_pair(pair_w_distance.geomA,
-    //                                               pair_w_distance.geomB);
-    //   int consecutive_failures = 0;
-    //   internal::ClosestCollisionProgram prog(
-    //       same_point_constraint, *frames.at(pair_w_distance.geomA),
-    //       *frames.at(pair_w_distance.geomB), *sets.at(pair_w_distance.geomA),
-    //       *sets.at(pair_w_distance.geomB), E, A.topRows(num_constraints),
-    //       b.head(num_constraints));
-    //   std::vector<VectorXd> prev_counter_examples =
-    //       std::move(counter_examples[geom_pair]);
-    //   // Sort by the current ellipsoid metric.
-    //   std::sort(prev_counter_examples.begin(), prev_counter_examples.end(),
-    //             [&E](const VectorXd& x, const VectorXd& y) {
-    //               return (E.A() * x - E.center()).squaredNorm() <
-    //                      (E.A() * y - E.center()).squaredNorm();
-    //             });
-    //   std::vector<VectorXd> new_counter_examples;
-    //   int counter_example_searches_for_this_pair = 0;
-    //   bool warned_many_searches = false;
-    //   while (consecutive_failures < options.num_collision_infeasible_samples) {
-    //     // First use previous counter-examples for this pair as the seeds.
-    //     if (counter_example_searches_for_this_pair <
-    //         ssize(prev_counter_examples)) {
-    //       guess = prev_counter_examples[counter_example_searches_for_this_pair];
-    //     } else {
-    //       MakeGuessFeasible(P_candidate, &guess);
-    //       guess = P_candidate.UniformSample(&generator, guess);
-    //     }
-    //     ++counter_example_searches_for_this_pair;
-    //     if (options.meshcat && nq <= 3) {
-    //       ++num_points_drawn;
-    //       point_to_draw.head(nq) = guess;
-    //       std::string path = fmt::format("iteration{:02}/{:03}/guess",
-    //                                      iteration, num_points_drawn);
-    //       options.meshcat->SetObject(path, Sphere(0.01),
-    //                                  geometry::Rgba(0.1, 0.1, 0.1, 1.0));
-    //       options.meshcat->SetTransform(path,
-    //                                     RigidTransform<double>(point_to_draw));
-    //     }
-    //     if (prog.Solve(*solver, guess, &closest)) {
-    //       if (options.meshcat && nq <= 3) {
-    //         point_to_draw.head(nq) = closest;
-    //         std::string path = fmt::format("iteration{:02}/{:03}/found",
-    //                                        iteration, num_points_drawn);
-    //         options.meshcat->SetObject(path, Sphere(0.01),
-    //                                    geometry::Rgba(0.8, 0.1, 0.8, 1.0));
-    //         options.meshcat->SetTransform(
-    //             path, RigidTransform<double>(point_to_draw));
-    //       }
-    //       consecutive_failures = 0;
-    //       new_counter_examples.emplace_back(closest);
-    //       AddTangentToPolytope(E, closest, options.configuration_space_margin,
-    //                            &A, &b, &num_constraints);
-    //       P_candidate =
-    //           HPolyhedron(A.topRows(num_constraints), b.head(num_constraints));
-    //       MakeGuessFeasible(P_candidate, &guess);
-    //       if (options.require_sample_point_is_contained) {
-    //         const bool seed_point_requirement =
-    //             A.row(num_constraints - 1) * seed <= b(num_constraints - 1);
-    //         if (!seed_point_requirement) {
-    //           if (iteration == 0) {
-    //             throw std::runtime_error(seed_point_error_msg);
-    //           }
-    //           log()->info(seed_point_msg);
-    //           return P;
-    //         }
-    //       }
-    //       if (CheckTerminate(options, P_candidate, termination_error_msg,
-    //                          termination_msg, iteration == 0)) {
-    //         return P;
-    //       }
-    //       prog.UpdatePolytope(A.topRows(num_constraints),
-    //                           b.head(num_constraints));
-    //     } else {
-    //       if (options.meshcat && nq <= 3) {
-    //         point_to_draw.head(nq) = closest;
-    //         std::string path = fmt::format("iteration{:02}/{:03}/closest",
-    //                                        iteration, num_points_drawn);
-    //         options.meshcat->SetObject(path, Sphere(0.01),
-    //                                    geometry::Rgba(0.1, 0.8, 0.8, 1.0));
-    //         options.meshcat->SetTransform(
-    //             path, RigidTransform<double>(point_to_draw));
-    //       }
-    //       if (counter_example_searches_for_this_pair >
-    //           ssize(counter_examples[geom_pair])) {
-    //         // Only count the failures once we start the random guesses.
-    //         ++consecutive_failures;
-    //       }
-    //     }
-    //     if (!warned_many_searches &&
-    //         counter_example_searches_for_this_pair -
-    //                 ssize(counter_examples[geom_pair]) >=
-    //             10 * options.num_collision_infeasible_samples) {
-    //       warned_many_searches = true;
-    //       log()->info(
-    //           " Checking {} against {} has already required {} counter-example "
-    //           "searches; still searching...",
-    //           inspector.GetName(pair_w_distance.geomA),
-    //           inspector.GetName(pair_w_distance.geomB),
-    //           counter_example_searches_for_this_pair);
-    //     }
-    //   }
-      // counter_examples[geom_pair] = std::move(new_counter_examples);
-      // if (warned_many_searches) {
-      //   log()->info(
-      //       " Finished checking {} against {} after {} counter-example "
-      //       "searches.",
-      //       inspector.GetName(pair_w_distance.geomA),
-      //       inspector.GetName(pair_w_distance.geomB),
-      //       counter_example_searches_for_this_pair);
-      // }
-    // }
+    if (options.prog_with_additional_constraints) {
+      counter_example_prog->UpdatePolytope(A.topRows(num_constraints),
+                                           b.head(num_constraints));
+      for (const auto& binding : additional_constraint_bindings) {
+        for (int index = 0; index < binding.evaluator()->num_constraints();
+             ++index) {
+          for (bool falsify_lower_bound : {true, false}) {
+            int consecutive_failures = 0;
+            if (falsify_lower_bound &&
+                std::isinf(binding.evaluator()->lower_bound()[index])) {
+              continue;
+            }
+            if (!falsify_lower_bound &&
+                std::isinf(binding.evaluator()->upper_bound()[index])) {
+              continue;
+            }
+            counter_example_constraint->set(&binding, index,
+                                            falsify_lower_bound);
+            while (consecutive_failures <
+                   options.num_additional_constraint_infeasible_samples) {
+              if (counter_example_prog->Solve(
+                      *solver, guess, options.solver_options, &closest)) {
+                consecutive_failures = 0;
+                AddTangentToPolytope(E, closest,
+                                     options.configuration_space_margin, &A, &b,
+                                     &num_constraints);
+                P_candidate = HPolyhedron(A.topRows(num_constraints),
+                                          b.head(num_constraints));
+                MakeGuessFeasible(P_candidate, &guess);
+                if (options.require_sample_point_is_contained) {
+                  const bool seed_point_requirement =
+                      A.row(num_constraints - 1) * seed <=
+                      b(num_constraints - 1);
+                  if (!seed_point_requirement) {
+                    if (iteration == 0) {
+                      throw std::runtime_error(seed_point_error_msg);
+                    }
+                    log()->info(seed_point_msg);
+                    return P;
+                  }
+                }
+                if (CheckTerminate(options, P_candidate, termination_error_msg,
+                                   termination_msg, iteration == 0)) {
+                  return P;
+                }
+                counter_example_prog->UpdatePolytope(A.topRows(num_constraints),
+                                                     b.head(num_constraints));
+              } else {
+                ++consecutive_failures;
+              }
+              guess = P_candidate.UniformSample(&generator, guess,
+                                                options.mixing_steps);
+            }
+          }
+        }
+      }
+    }
+
+    P = HPolyhedron(A.topRows(num_constraints), b.head(num_constraints));
+
+    iteration++;
+    if (iteration >= options.iteration_limit) {
+      log()->info(
+          "IrisInConfigurationSpace: Terminating because the iteration limit "
+          "{} has been reached.",
+          options.iteration_limit);
+      break;
+    }
+
+    E = P.MaximumVolumeInscribedEllipsoid();
+    const double volume = E.Volume();
+    const double delta_volume = volume - best_volume;
+    if (delta_volume <= options.termination_threshold) {
+      log()->info(
+          "IrisInConfigurationSpace: Terminating because the hyperellipsoid "
+          "volume change {} is below the threshold {}.",
+          delta_volume, options.termination_threshold);
+      break;
+    } else if (delta_volume / best_volume <=
+               options.relative_termination_threshold) {
+      log()->info(
+          "IrisInConfigurationSpace: Terminating because the hyperellipsoid "
+          "relative volume change {} is below the threshold {}.",
+          delta_volume / best_volume, options.relative_termination_threshold);
+      break;
+    }
+    best_volume = volume;
+  }
+  return P;
+}
+
+HPolyhedron IrisInConfigurationSpace(const MultibodyPlant<double>& plant,
+                                     const Context<double>& context,
+                                     const IrisOptions& options) {
+  // Check the inputs.
+  plant.ValidateContext(context);
+  const int nq = plant.num_positions();
+  const Eigen::VectorXd seed = plant.GetPositions(context);
+  const int nc = static_cast<int>(options.configuration_obstacles.size());
+  // Note: We require finite joint limits to define the bounding box for the
+  // IRIS algorithm.
+  DRAKE_DEMAND(plant.GetPositionLowerLimits().array().isFinite().all());
+  DRAKE_DEMAND(plant.GetPositionUpperLimits().array().isFinite().all());
+  DRAKE_DEMAND(options.num_collision_infeasible_samples >= 0);
+  for (int i = 0; i < nc; ++i) {
+    DRAKE_DEMAND(options.configuration_obstacles[i]->ambient_dimension() == nq);
+    if (options.configuration_obstacles[i]->PointInSet(seed)) {
+      throw std::runtime_error(
+          fmt::format("The seed point is in configuration obstacle {}", i));
+    }
+  }
+
+  if (options.prog_with_additional_constraints) {
+    DRAKE_DEMAND(options.prog_with_additional_constraints->num_vars() == nq);
+    DRAKE_DEMAND(options.num_additional_constraint_infeasible_samples >= 0);
+  }
+
+  // Make the polytope and ellipsoid.
+  HPolyhedron P = HPolyhedron::MakeBox(plant.GetPositionLowerLimits(),
+                                       plant.GetPositionUpperLimits());
+  DRAKE_DEMAND(P.A().rows() == 2 * nq);
+
+  if (options.bounding_region) {
+    DRAKE_DEMAND(options.bounding_region->ambient_dimension() == nq);
+    P = P.Intersection(*options.bounding_region);
+  }
+
+  const double kEpsilonEllipsoid = 1e-2;
+  Hyperellipsoid E = options.starting_ellipse.value_or(
+      Hyperellipsoid::MakeHypersphere(kEpsilonEllipsoid, seed));
+
+  // Make all of the convex sets and supporting quantities.
+  auto query_object =
+      plant.get_geometry_query_input_port().Eval<QueryObject<double>>(context);
+  const SceneGraphInspector<double>& inspector = query_object.inspector();
+  IrisConvexSetMaker maker(query_object, inspector.world_frame_id());
+  std::unordered_map<GeometryId, copyable_unique_ptr<ConvexSet>> sets{};
+  std::unordered_map<GeometryId, const multibody::Frame<double>*> frames{};
+  const std::vector<GeometryId> geom_ids =
+      inspector.GetAllGeometryIds(Role::kProximity);
+  copyable_unique_ptr<ConvexSet> temp_set;
+  for (GeometryId geom_id : geom_ids) {
+    // Make all sets in the local geometry frame.
+    FrameId frame_id = inspector.GetFrameId(geom_id);
+    maker.set_reference_frame(frame_id);
+    maker.set_geometry_id(geom_id);
+    inspector.GetShape(geom_id).Reify(&maker, &temp_set);
+    sets.emplace(geom_id, std::move(temp_set));
+    frames.emplace(geom_id, &plant.GetBodyFromFrameId(frame_id)->body_frame());
+  }
+
+  auto pairs = inspector.GetCollisionCandidates();
+  const int n = static_cast<int>(pairs.size());
+  auto same_point_constraint =
+      std::make_shared<internal::SamePointConstraint>(&plant, context);
+  std::map<std::pair<GeometryId, GeometryId>, std::vector<VectorXd>>
+      counter_examples;
+
+  // As a surrogate for the true objective, the pairs are sorted by the distance
+  // between each collision pair from the seed point configuration. This could
+  // improve computation times and produce regions with fewer faces.
+  std::vector<GeometryPairWithDistance> sorted_pairs;
+  for (const auto& [geomA, geomB] : pairs) {
+    const double distance =
+        query_object.ComputeSignedDistancePairClosestPoints(geomA, geomB)
+            .distance;
+    if (distance < 0.0) {
+      throw std::runtime_error(
+          fmt::format("The seed point is in collision; geometry {} is in "
+                      "collision with geometry {}",
+                      inspector.GetName(geomA), inspector.GetName(geomB)));
+    }
+    sorted_pairs.emplace_back(geomA, geomB, distance);
+  }
+  std::sort(sorted_pairs.begin(), sorted_pairs.end());
+
+  // On each iteration, we will build the collision-free polytope represented as
+  // {x | A * x <= b}.  Here we pre-allocate matrices with a generous maximum
+  // size.
+  Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> A(
+      P.A().rows() + 2 * n + nc, nq);
+  VectorXd b(P.A().rows() + 2 * n + nc);
+  A.topRows(P.A().rows()) = P.A();
+  b.head(P.A().rows()) = P.b();
+  int num_initial_constraints = P.A().rows();
+
+  std::shared_ptr<CounterExampleConstraint> counter_example_constraint{};
+  std::unique_ptr<CounterExampleProgram> counter_example_prog{};
+  std::vector<Binding<Constraint>> additional_constraint_bindings{};
+  if (options.prog_with_additional_constraints) {
+    counter_example_constraint = std::make_shared<CounterExampleConstraint>(
+        options.prog_with_additional_constraints);
+    additional_constraint_bindings =
+        options.prog_with_additional_constraints->GetAllConstraints();
+    // Fail fast if the seed point is infeasible.
+    {
+      if (!options.prog_with_additional_constraints->CheckSatisfied(
+              additional_constraint_bindings, seed)) {
+        throw std::runtime_error(
+            "options.prog_with_additional_constraints is infeasible at the "
+            "seed point. The seed point must be feasible.");
+      }
+    }
+    // Handle bounding box and linear constraints as a special case (extracting
+    // them from the additional_constraint_bindings).
+    auto AddConstraint = [&](const Eigen::MatrixXd& new_A,
+                             const Eigen::VectorXd& new_b,
+                             const solvers::VectorXDecisionVariable& vars) {
+      while (num_initial_constraints + new_A.rows() >= A.rows()) {
+        // Increase pre-allocated polytope size.
+        A.conservativeResize(A.rows() * 2, A.cols());
+        b.conservativeResize(b.rows() * 2);
+      }
+      for (int i = 0; i < new_b.rows(); ++i) {
+        if (!std::isinf(new_b[i])) {
+          A.row(num_initial_constraints).setZero();
+          for (int j = 0; j < vars.rows(); ++j) {
+            const int index = options.prog_with_additional_constraints
+                                  ->FindDecisionVariableIndex(vars[j]);
+            A(num_initial_constraints, index) = new_A(i, j);
+          }
+          b[num_initial_constraints++] = new_b[i];
+        }
+      }
+    };
+    auto HandleLinearConstraints = [&](const auto& bindings) {
+      for (const auto& binding : bindings) {
+        AddConstraint(binding.evaluator()->get_sparse_A(),
+                      binding.evaluator()->upper_bound(), binding.variables());
+        AddConstraint(-binding.evaluator()->get_sparse_A(),
+                      -binding.evaluator()->lower_bound(), binding.variables());
+        auto pos = std::find(additional_constraint_bindings.begin(),
+                             additional_constraint_bindings.end(), binding);
+        DRAKE_ASSERT(pos != additional_constraint_bindings.end());
+        additional_constraint_bindings.erase(pos);
+      }
+    };
+    HandleLinearConstraints(
+        options.prog_with_additional_constraints->bounding_box_constraints());
+    HandleLinearConstraints(
+        options.prog_with_additional_constraints->linear_constraints());
+    counter_example_prog = std::make_unique<CounterExampleProgram>(
+        counter_example_constraint, E, A.topRows(num_initial_constraints),
+        b.head(num_initial_constraints));
+
+    P = HPolyhedron(A.topRows(num_initial_constraints),
+                    b.head(num_initial_constraints));
+  }
+
+  if (options.termination_func && options.termination_func(P)) {
+    throw std::runtime_error(
+        "IrisInConfigurationSpace: The options.termination_func() returned "
+        "true for the initial region (defined by the linear constraints in "
+        "prog_with_additional_constraints and bounding_region arguments).  "
+        "Please check the implementation of your termination_func.");
+  }
+
+  DRAKE_THROW_UNLESS(P.PointInSet(seed, 1e-12));
+
+  double best_volume = E.Volume();
+  int iteration = 0;
+  VectorXd closest(nq);
+  RandomGenerator generator(options.random_seed);
+  std::vector<std::pair<double, int>> scaling(nc);
+  MatrixXd closest_points(nq, nc);
+
+  auto solver = solvers::MakeFirstAvailableSolver(
+      {solvers::SnoptSolver::id(), solvers::IpoptSolver::id()});
+
+  VectorXd guess = seed;
+
+  // For debugging visualization.
+  Vector3d point_to_draw = Vector3d::Zero();
+  int num_points_drawn = 0;
+  bool do_debugging_visualization = options.meshcat && nq <= 3;
+
+  const std::string seed_point_error_msg =
+      "IrisInConfigurationSpace: require_sample_point_is_contained is true but "
+      "the seed point exited the initial region. Does the provided "
+      "options.starting_ellipse not contain the seed point?";
+  const std::string seed_point_msg =
+      "IrisInConfigurationSpace: terminating iterations because the seed point "
+      "is no longer in the region.";
+  const std::string termination_error_msg =
+      "IrisInConfigurationSpace: the termination function returned false on "
+      "the computation of the initial region. Are the provided "
+      "options.starting_ellipse and options.termination_func compatible?";
+  const std::string termination_msg =
+      "IrisInConfigurationSpace: terminating iterations because "
+      "options.termination_func returned false.";
+
+  while (true) {
+    log()->info("IrisInConfigurationSpace iteration {}", iteration);
+    int num_constraints = num_initial_constraints;
+    HPolyhedron P_candidate = HPolyhedron(A.topRows(num_initial_constraints),
+                                          b.head(num_initial_constraints));
+    DRAKE_ASSERT(best_volume > 0);
+    // Find separating hyperplanes
+
+    // Add constraints from configuration space obstacles to reduce the domain
+    // for later optimization.
+    if (options.configuration_obstacles.size() > 0) {
+      const ConvexSets& obstacles = options.configuration_obstacles;
+      for (int i = 0; i < nc; ++i) {
+        const auto touch = E.MinimumUniformScalingToTouch(*obstacles[i]);
+        scaling[i].first = touch.first;
+        scaling[i].second = i;
+        closest_points.col(i) = touch.second;
+      }
+      std::sort(scaling.begin(), scaling.end());
+
+      for (int i = 0; i < nc; ++i) {
+        // Only add a constraint if this obstacle still has overlap with the set
+        // that has been constructed so far on this iteration.
+        if (HPolyhedron(A.topRows(num_constraints), b.head(num_constraints))
+                .IntersectsWith(*obstacles[scaling[i].second])) {
+          const VectorXd point = closest_points.col(scaling[i].second);
+          AddTangentToPolytope(E, point, 0.0, &A, &b, &num_constraints);
+          if (options.require_sample_point_is_contained) {
+            const bool seed_point_requirement =
+                A.row(num_constraints - 1) * seed <= b(num_constraints - 1);
+            if (!seed_point_requirement) {
+              if (iteration == 0) {
+                throw std::runtime_error(seed_point_error_msg);
+              }
+              log()->info(seed_point_msg);
+              return P;
+            }
+          }
+          if (CheckTerminate(options,
+                             HPolyhedron(A.topRows(num_constraints),
+                                         b.head(num_constraints)),
+                             termination_error_msg, termination_msg,
+                             iteration == 0)) {
+            return P;
+          }
+        }
+      }
+
+      P_candidate =
+          HPolyhedron(A.topRows(num_constraints), b.head(num_constraints));
+      MakeGuessFeasible(P_candidate, &guess);
+    }
+
+    // Use the fast nonlinear optimizer until it fails
+    // num_collision_infeasible_samples consecutive times.
+    for (const auto& pair_w_distance : sorted_pairs) {
+      std::pair<GeometryId, GeometryId> geom_pair(pair_w_distance.geomA,
+                                                  pair_w_distance.geomB);
+      int consecutive_failures = 0;
+      internal::ClosestCollisionProgram prog(
+          same_point_constraint, *frames.at(pair_w_distance.geomA),
+          *frames.at(pair_w_distance.geomB), *sets.at(pair_w_distance.geomA),
+          *sets.at(pair_w_distance.geomB), E, A.topRows(num_constraints),
+          b.head(num_constraints));
+      std::vector<VectorXd> prev_counter_examples =
+          std::move(counter_examples[geom_pair]);
+      // Sort by the current ellipsoid metric.
+      std::sort(prev_counter_examples.begin(), prev_counter_examples.end(),
+                [&E](const VectorXd& x, const VectorXd& y) {
+                  return (E.A() * x - E.center()).squaredNorm() <
+                         (E.A() * y - E.center()).squaredNorm();
+                });
+      std::vector<VectorXd> new_counter_examples;
+      int counter_example_searches_for_this_pair = 0;
+      bool warned_many_searches = false;
+      while (consecutive_failures < options.num_collision_infeasible_samples) {
+        // First use previous counter-examples for this pair as the seeds.
+        if (counter_example_searches_for_this_pair <
+            ssize(prev_counter_examples)) {
+          guess = prev_counter_examples[counter_example_searches_for_this_pair];
+        } else {
+          MakeGuessFeasible(P_candidate, &guess);
+          guess = P_candidate.UniformSample(&generator, guess,
+                                            options.mixing_steps);
+        }
+        ++counter_example_searches_for_this_pair;
+        if (do_debugging_visualization) {
+          ++num_points_drawn;
+          point_to_draw.head(nq) = guess;
+          std::string path = fmt::format("iteration{:02}/{:03}/guess",
+                                         iteration, num_points_drawn);
+          options.meshcat->SetObject(path, Sphere(0.01),
+                                     geometry::Rgba(0.1, 0.1, 0.1, 1.0));
+          options.meshcat->SetTransform(path,
+                                        RigidTransform<double>(point_to_draw));
+        }
+        if (prog.Solve(*solver, guess, options.solver_options, &closest)) {
+          if (do_debugging_visualization) {
+            point_to_draw.head(nq) = closest;
+            std::string path = fmt::format("iteration{:02}/{:03}/found",
+                                           iteration, num_points_drawn);
+            options.meshcat->SetObject(path, Sphere(0.01),
+                                       geometry::Rgba(0.8, 0.1, 0.8, 1.0));
+            options.meshcat->SetTransform(
+                path, RigidTransform<double>(point_to_draw));
+          }
+          consecutive_failures = 0;
+          new_counter_examples.emplace_back(closest);
+          AddTangentToPolytope(E, closest, options.configuration_space_margin,
+                               &A, &b, &num_constraints);
+          P_candidate =
+              HPolyhedron(A.topRows(num_constraints), b.head(num_constraints));
+          MakeGuessFeasible(P_candidate, &guess);
+          if (options.require_sample_point_is_contained) {
+            const bool seed_point_requirement =
+                A.row(num_constraints - 1) * seed <= b(num_constraints - 1);
+            if (!seed_point_requirement) {
+              if (iteration == 0) {
+                throw std::runtime_error(seed_point_error_msg);
+              }
+              log()->info(seed_point_msg);
+              return P;
+            }
+          }
+          if (CheckTerminate(options, P_candidate, termination_error_msg,
+                             termination_msg, iteration == 0)) {
+            return P;
+          }
+          prog.UpdatePolytope(A.topRows(num_constraints),
+                              b.head(num_constraints));
+        } else {
+          if (do_debugging_visualization) {
+            point_to_draw.head(nq) = closest;
+            std::string path = fmt::format("iteration{:02}/{:03}/closest",
+                                           iteration, num_points_drawn);
+            options.meshcat->SetObject(path, Sphere(0.01),
+                                       geometry::Rgba(0.1, 0.8, 0.8, 1.0));
+            options.meshcat->SetTransform(
+                path, RigidTransform<double>(point_to_draw));
+          }
+          if (counter_example_searches_for_this_pair >
+              ssize(counter_examples[geom_pair])) {
+            // Only count the failures once we start the random guesses.
+            ++consecutive_failures;
+          }
+        }
+        if (!warned_many_searches &&
+            counter_example_searches_for_this_pair -
+                    ssize(counter_examples[geom_pair]) >=
+                10 * options.num_collision_infeasible_samples) {
+          warned_many_searches = true;
+          log()->info(
+              " Checking {} against {} has already required {} counter-example "
+              "searches; still searching...",
+              inspector.GetName(pair_w_distance.geomA),
+              inspector.GetName(pair_w_distance.geomB),
+              counter_example_searches_for_this_pair);
+        }
+      }
+      counter_examples[geom_pair] = std::move(new_counter_examples);
+      if (warned_many_searches) {
+        log()->info(
+            " Finished checking {} against {} after {} counter-example "
+            "searches.",
+            inspector.GetName(pair_w_distance.geomA),
+            inspector.GetName(pair_w_distance.geomB),
+            counter_example_searches_for_this_pair);
+      }
+    }
 
     if (options.prog_with_additional_constraints) {
       counter_example_prog->UpdatePolytope(A.topRows(num_constraints),

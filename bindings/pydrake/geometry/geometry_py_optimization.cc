@@ -630,7 +630,8 @@ void DefineIris(py::module m) {
                   self.num_additional_constraint_infeasible_samples,
                   self.random_seed,
                   self.face_ray_steps,
-                  self.vertex_ray_steps);
+                  self.vertex_ray_steps,
+                  self.random_seed, self.mixing_steps);
         });
 
     DefReadWriteKeepAlive(&iris_options, "prog_with_additional_constraints",
@@ -662,11 +663,18 @@ void DefineIris(py::module m) {
       py::arg("query_object"), py::arg("reference_frame") = std::nullopt,
       doc.MakeIrisObstacles.doc);
 
-  m.def("IrisInConfigurationSpace",
+  m.def("RayIris",
       py::overload_cast<const multibody::MultibodyPlant<double>&,
           const systems::Context<double>&, systems::Context<double>*, const planning::CollisionChecker&, const IrisOptions&>(
-          &IrisInConfigurationSpace),
+          &RayIris),
       py::arg("plant"), py::arg("context"), py::arg("mutable_context"), py::arg("checker"), py::arg("options") = IrisOptions(),
+      doc.RayIris.doc);
+
+  m.def("IrisInConfigurationSpace",
+      py::overload_cast<const multibody::MultibodyPlant<double>&,
+          const systems::Context<double>&, const IrisOptions&>(
+          &IrisInConfigurationSpace),
+      py::arg("plant"), py::arg("context"), py::arg("options") = IrisOptions(),
       doc.IrisInConfigurationSpace.doc);
 
   // TODO(#19597) Deprecate and remove these functions once Python
