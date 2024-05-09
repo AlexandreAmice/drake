@@ -36,7 +36,12 @@ struct IrisOptions {
     a->Visit(DRAKE_NVP(num_additional_constraint_infeasible_samples));
     a->Visit(DRAKE_NVP(random_seed));
     a->Visit(DRAKE_NVP(face_ray_steps));
-    a->Visit(DRAKE_NVP(vertex_ray_steps));
+    a->Visit(DRAKE_NVP(max_iterations_separating_planes));
+    a->Visit(DRAKE_NVP(verbose));
+    a->Visit(DRAKE_NVP(tau));
+    a->Visit(DRAKE_NVP(admissible_proportion_in_collision));
+    a->Visit(DRAKE_NVP(delta));
+    a->Visit(DRAKE_NVP(mixing_steps));
   }
 
   /** The initial polytope is guaranteed to contain the point if that point is
@@ -136,9 +141,17 @@ struct IrisOptions {
 
   int face_ray_steps{100};
 
-  int vertex_ray_steps{20};
-
   int particle_batch_size{1000};
+
+  int max_iterations_separating_planes{20};
+
+  bool verbose{true};
+
+  double tau = 0.5;
+
+  double delta = 5e-2;
+
+  double admissible_proportion_in_collision = 1e-2;
 
   /** Passing a meshcat instance may enable debugging visualizations; this
   currently only happens in IrisInConfigurationSpace and when the

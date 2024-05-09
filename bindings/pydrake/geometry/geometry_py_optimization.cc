@@ -600,7 +600,15 @@ void DefineIris(py::module m) {
         .def_readwrite(
             "face_ray_steps", &IrisOptions::face_ray_steps, cls_doc.face_ray_steps.doc)
         .def_readwrite(
-            "vertex_ray_steps", &IrisOptions::face_ray_steps, cls_doc.face_ray_steps.doc)
+            "max_iterations_separating_planes", &IrisOptions::max_iterations_separating_planes, cls_doc.max_iterations_separating_planes.doc)
+        .def_readwrite(
+            "verbose", &IrisOptions::verbose, cls_doc.verbose.doc)
+        .def_readwrite(
+            "tau", &IrisOptions::tau, cls_doc.tau.doc)
+        .def_readwrite(
+            "delta", &IrisOptions::delta, cls_doc.delta.doc)
+        .def_readwrite(
+            "admissible_proportion_in_collision", &IrisOptions::admissible_proportion_in_collision, cls_doc.admissible_proportion_in_collision.doc)
         .def_readwrite(
             "particle_batch_size", &IrisOptions::face_ray_steps, cls_doc.particle_batch_size.doc)  
         .def("__repr__", [](const IrisOptions& self) {
@@ -617,7 +625,12 @@ void DefineIris(py::module m) {
               "num_additional_constraint_infeasible_samples={}, "
               "random_seed={}, "
               "face_ray_steps={}, "
-              "vertex_ray_steps={}"
+              "max_iterations_separating_planes={},"
+              "verbose={},"
+              "tau={},"
+              "delta={},"
+              "admissible_proportion_in_collision={},"
+              "mixing_steps={}"
               ")")
               .format(self.require_sample_point_is_contained,
                   self.iteration_limit, self.termination_threshold,
@@ -630,7 +643,11 @@ void DefineIris(py::module m) {
                   self.num_additional_constraint_infeasible_samples,
                   self.random_seed,
                   self.face_ray_steps,
-                  self.vertex_ray_steps,
+                  self.max_iterations_separating_planes,
+                  self.verbose,
+                  self.tau,
+                  self.delta,
+                  self.admissible_proportion_in_collision,
                   self.random_seed, self.mixing_steps);
         });
 
