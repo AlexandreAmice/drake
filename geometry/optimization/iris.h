@@ -153,6 +153,8 @@ struct IrisOptions {
 
   double admissible_proportion_in_collision = 1e-2;
 
+  bool only_walk_toward_collisions = false;
+
   /** Passing a meshcat instance may enable debugging visualizations; this
   currently only happens in IrisInConfigurationSpace and when the
   configuration space is <= 3 dimensional.*/

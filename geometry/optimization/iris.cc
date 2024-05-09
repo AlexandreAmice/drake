@@ -532,7 +532,12 @@ std::pair<Eigen::VectorXd, int> CheckRayPolytopeIntersection(const MultibodyPlan
 }
 
 namespace {
-std::pair<Eigen::VectorXd, int> CollisionLineSearch(const MultibodyPlant<double>& plant, const Parallelism& parallelism, const planning::CollisionChecker& checker, Context<double>* context, const std::vector<GeometryPairWithDistance>& sorted_pairs, const HPolyhedron& P, const Eigen::VectorXd& center, const Eigen::VectorXd& direction, const double step_size = 0.05, const double constraint_tol = 1e-5) {
+std::pair<Eigen::VectorXd, int> CollisionLineSearch(const MultibodyPlant<double>& plant, 
+const Parallelism& parallelism, const planning::CollisionChecker& checker, 
+Context<double>* context, const std::vector<GeometryPairWithDistance>& sorted_pairs, 
+const HPolyhedron& P, const Eigen::VectorXd& center, const Eigen::VectorXd& direction, 
+const double step_size = 0.05, const bool assume_last_in_collision = false, 
+const int max_steps = std::numeric_limits<int>::max(), const double constraint_tol = 1e-5) {
   // Do a line search for closest collision to center, along direction vector.
   int i = 1;
   int pair_in_collision = -1;
@@ -542,11 +547,15 @@ std::pair<Eigen::VectorXd, int> CollisionLineSearch(const MultibodyPlant<double>
   while (P.PointInSet(center + i * step_size * direction, constraint_tol) && pair_in_collision < 0) {
     const Eigen::VectorXd configuration = center + i * step_size * direction;
     configs_to_check[0] = configuration;
-    std::vector<uint8_t> col_free =
-        checker.CheckConfigsCollisionFree(configs_to_check,
+    std::vector<uint8_t> col_free;
+    if (!(assume_last_in_collision && i == max_steps)){
+      col_free = checker.CheckConfigsCollisionFree(configs_to_check,
                                           parallelism);
+    }
+    
     int i_pair = 0;
-    if (!col_free[0]) { // Have to check which pair is in collision via signed distance pair
+    // log()->info("checking particle at: {}",configuration[0]);
+    if ((assume_last_in_collision && i == max_steps) || !col_free[0]) { // Have to check which pair is in collision via signed distance pair
       // log()->info("found collision");
       for (const auto& pair : sorted_pairs) {
         // Context<double>& mutable_context =
@@ -568,6 +577,7 @@ std::pair<Eigen::VectorXd, int> CollisionLineSearch(const MultibodyPlant<double>
         }
         ++i_pair;
       }
+      // log()->info("particle at collision: {}",configuration[0]);
     }
     ++i;
   }
@@ -642,7 +652,7 @@ HPolyhedron RayIris(const MultibodyPlant<double>& plant,
       Hyperellipsoid::MakeHypersphere(kEpsilonEllipsoid, seed));
 
   // Step size for collision line search
-  const double collision_search_step_size = (plant.GetPositionUpperLimits() - 
+  double collision_search_step_size = (plant.GetPositionUpperLimits() - 
       plant.GetPositionLowerLimits()).maxCoeff()/options.face_ray_steps;
 
   // Make all of the convex sets and supporting quantities.
@@ -835,9 +845,12 @@ HPolyhedron RayIris(const MultibodyPlant<double>& plant,
   }
 
   std::vector<Eigen::VectorXd> particles;
+  std::vector<Eigen::VectorXd> particles_in_collision;
   particles.reserve(std::max(N_max, options.particle_batch_size));
+  particles_in_collision.reserve(std::max(N_max, options.particle_batch_size));
   for (int i = 0; i < std::max(N_max, options.particle_batch_size); ++i) {
     particles.emplace_back(Eigen::VectorXd::Zero(nq));
+    particles_in_collision.emplace_back(Eigen::VectorXd::Zero(nq));
   }
   log()->info("particles at 0 {}, first", particles.at(0)[0]);
   while (true) {
@@ -873,21 +886,25 @@ HPolyhedron RayIris(const MultibodyPlant<double>& plant,
       int N_k = unadaptive_test_samples(
           options.admissible_proportion_in_collision, delta_k, options.tau);
 
-      particles.at(0) = P_candidate.UniformSample(&generator, E.center());
-      
+      particles.at(0) = P_candidate.UniformSample(&generator, E.center(), options.mixing_steps);
       // populate particles by uniform sampling
       for (int i = 1; i < std::max(N_k, options.particle_batch_size); ++i) {
-        particles.at(i) = P_candidate.UniformSample(&generator, particles.at(i - 1));
+        particles.at(i) = P_candidate.UniformSample(&generator, particles.at(i - 1), options.mixing_steps);
       }
       // Find all particles in collision
       std::vector<uint8_t> particle_col_free =
           checker.CheckConfigSliceCollisionFree(particles, 0, N_k, parallelism);
-      std::vector<Eigen::VectorXd> particles_in_collision;
       int number_particles_in_collision_unadaptive_test = 0;
       int number_particles_in_batch = 0;
+      int number_particles_in_collision = 0;
+      log()->info("here2.");
       for (size_t i = 0; i < particle_col_free.size(); ++i) {
         if (particle_col_free[i] == 0) {
           ++number_particles_in_collision_unadaptive_test;
+          if (options.only_walk_toward_collisions && number_particles_in_collision < options.particle_batch_size) {
+            particles_in_collision.at(number_particles_in_collision) = particles[i];
+            ++number_particles_in_collision;
+          }
         }
       }
       if (options.verbose) {
@@ -911,11 +928,30 @@ HPolyhedron RayIris(const MultibodyPlant<double>& plant,
             "passing the bernoulli test, this voids the probabilistic "
             "guarantees!");
       }
-      for (int i_particle = 0; i_particle < options.particle_batch_size; ++i_particle){
-        Eigen::VectorXd direction = (particles.at(i_particle) - E.center()).normalized();
+      int num_particles_to_walk_toward = options.particle_batch_size;
+      if (options.only_walk_toward_collisions) {
+        num_particles_to_walk_toward = number_particles_in_collision;
+      }
+
+      for (int i_particle = 0; i_particle < num_particles_to_walk_toward; ++i_particle){
+        Eigen::VectorXd direction;
+        if (options.only_walk_toward_collisions) {
+          direction = (particles_in_collision.at(i_particle) - E.center()).normalized();
+          collision_search_step_size = (particles_in_collision.at(i_particle) - E.center()).norm() / options.face_ray_steps;
+        } else {
+          direction = (particles.at(i_particle) - E.center()).normalized();
+        }
+        // log()->info("particle to arrive at: {}",particles_in_collision.at(i_particle)[0]);
 
         std::pair<Eigen::VectorXd, int> closest_collision_info;
-        closest_collision_info = CollisionLineSearch(plant, parallelism, checker, mutable_context, sorted_pairs, P_candidate, E.center(), direction, collision_search_step_size);
+        if (options.only_walk_toward_collisions) {
+          closest_collision_info = CollisionLineSearch(plant, parallelism, checker, mutable_context, 
+          sorted_pairs, P_candidate, E.center(), direction, collision_search_step_size, true, options.face_ray_steps);
+        } else {
+          closest_collision_info = CollisionLineSearch(plant, parallelism, checker, mutable_context, 
+          sorted_pairs, P_candidate, E.center(), direction, collision_search_step_size);
+        }
+        
 
         if (closest_collision_info.second >= 0) { // pair is actually in collision
           // log()->info("solving SNOPT problem {}", direction[0]);
@@ -962,6 +998,7 @@ HPolyhedron RayIris(const MultibodyPlant<double>& plant,
           }
         }
       }
+      
       ++num_iterations_separating_planes;
     }
 

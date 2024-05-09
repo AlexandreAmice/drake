@@ -610,7 +610,13 @@ void DefineIris(py::module m) {
         .def_readwrite(
             "admissible_proportion_in_collision", &IrisOptions::admissible_proportion_in_collision, cls_doc.admissible_proportion_in_collision.doc)
         .def_readwrite(
-            "particle_batch_size", &IrisOptions::face_ray_steps, cls_doc.particle_batch_size.doc)  
+            "particle_batch_size", &IrisOptions::particle_batch_size, cls_doc.particle_batch_size.doc)  
+        .def_readwrite(
+            "only_walk_toward_collisions", &IrisOptions::only_walk_toward_collisions, cls_doc.only_walk_toward_collisions.doc)  
+        .def_readwrite("mixing_steps", &IrisOptions::mixing_steps,
+            cls_doc.mixing_steps.doc)
+        .def_readwrite("solver_options", &IrisOptions::solver_options,
+            cls_doc.solver_options.doc)
         .def("__repr__", [](const IrisOptions& self) {
           return py::str(
               "IrisOptions("
@@ -630,6 +636,7 @@ void DefineIris(py::module m) {
               "tau={},"
               "delta={},"
               "admissible_proportion_in_collision={},"
+              "only_walk_toward_collisions={},"
               "mixing_steps={}"
               ")")
               .format(self.require_sample_point_is_contained,
@@ -648,6 +655,7 @@ void DefineIris(py::module m) {
                   self.tau,
                   self.delta,
                   self.admissible_proportion_in_collision,
+                  self.only_walk_toward_collisions,
                   self.random_seed, self.mixing_steps);
         });
 
