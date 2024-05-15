@@ -886,5 +886,12 @@ std::string ExponentialConeConstraint::DoToLatex(
                      symbolic::ToLatex(z(1) * exp(z(2) / z(1)), precision));
 }
 
+CompositeAffineInConeConstraint::CompositeAffineInConeConstraintconst Eigen::SparseMatrix<double>& A,
+                                  const Eigen::Ref<const Eigen::VectorXd>& b,
+                                  const std::vector<int> cone_partition,
+                                  const std::vector<SupportedCones> cone_types,
+                                  const std::string& description) : AffineInConeConstraint(A.rows(), A, b)
+
+
 }  // namespace solvers
 }  // namespace drake

@@ -190,7 +190,7 @@ class Constraint : public EvaluatorBase {
  */
 class AffineInConeConstraint : public Constraint {
  public:
-  DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(AbstractConicConstraint)
+  DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(AffineInConeConstraint)
 
   AffineInConeConstraint(int num_constraints,
                          const Eigen::Ref<const Eigen::MatrixXd>& A,
@@ -245,7 +245,7 @@ class AffineInConeConstraint : public Constraint {
                           const Eigen::Ref<const Eigen::VectorXd>& new_b);
 
   /**
-   * Check that A.rows() == b.rows(). Some abstract conic constraints require
+   * Check that A.rows() == b.rows(). Some affine conic constraints require
    * additional invariants on the A and b matrices which are also checked by
    * this method.
    */
@@ -253,7 +253,7 @@ class AffineInConeConstraint : public Constraint {
 
  protected:
   /**
-   * Some abstract conic constraints require invariants on the A and b matrices.
+   * Some affine conic constraints require invariants on the A and b matrices.
    * This non-virtual interface checks that A_ and b_ satisfy these invariants.
    */
   virtual void DoCheckCoefficientInvariants() const = 0;
@@ -505,7 +505,7 @@ class RotatedLorentzConeConstraint : public AffineInConeConstraint {
 
   RotatedLorentzConeConstraint(const Eigen::Ref<const Eigen::MatrixXd>& A,
                                const Eigen::Ref<const Eigen::VectorXd>& b)
-      : AbstractConicConstraint(3, A, b) {
+      : AffineInConeConstraint(3, A, b) {
     CheckCoefficientInvariants();
   }
 
@@ -1252,35 +1252,42 @@ class ExponentialConeConstraint : public Constraint {
  *
  * @ingroup solver_evaluators
  */
-//class CompositeAffineInConeConstraint : AffineInConeConstraint {
-// public:
-//  /**
-//   * cone_partition is a set of indices denoting the non-inclusive end of the
-//   * rows of A which correspond to membership in the cone.
-//   * @param cone_partition and cone_types need to be the same length.
-//   * @param cone_types
-//   * @param description
-//   */
+class CompositeAffineInConeConstraint : AffineInConeConstraint {
+ public:
+  enum SupportedCones {
+    kLorentzCone,
+    kRotatedLorentzCone,
+  };
+
+  /**
+   * cone_partition is a set of indices denoting the non-inclusive end of the
+   * rows of A which correspond to membership in the cone.
+   * @param cone_partition and cone_types need to be the same length.
+   * @param cone_types
+   * @param description
+   */
 //  CompositeAffineInConeConstraint(const Eigen::SparseMatrix<double>& A,
 //                                  const Eigen::Ref<const Eigen::VectorXd>& b,
 //                                  const std::vector<int> cone_partition,
 //                                  const std::vector<SupportedCones> cone_types,
 //                                  const std::string& description = "");
-//
-//  CompositeAffineInConeConstraint(
-//      const std::vector<std::unique_ptr<AffineInConeConstraint>>&
-//          cone_constraints,
-//      const std::string& description = "");
-//
-//  enum SupportedCones {
-//    kLorentzCone,
-//    kRotatedLorentzCone,
-//  };
-//
-// private:
-//  std::vector<std::unique_ptr<AffineInConeConstraint>> cone_constraints_;
-//  std::map<int, SupportedCones> index_to_cone_type_;
-//};
+
+  /**
+   * Stacks the affine in cone constraints into a single constraint.
+   * @param cone_constraints
+   * @param description
+   */
+  CompositeAffineInConeConstraint(
+      const std::vector<std::unique_ptr<AffineInConeConstraint>>&
+          cone_constraints,
+      const std::string& description = "");
+
+ private:
+  // Maps the cone index to the type of the cone.
+  std::map<int, SupportedCones> cone_index_to_cone_type_;
+  // Maps the cone index to the start and end (non-inclusive) of the rows of A.
+  std::map<int, std::pair<int, int>> cone_index_to_row_range_;
+};
 
 }  // namespace solvers
 }  // namespace drake
