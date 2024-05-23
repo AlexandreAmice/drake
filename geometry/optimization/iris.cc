@@ -566,9 +566,9 @@ const double step_size = 0.05, bool parallelize_check = false, const double cons
   // VectorXd collision_configuration(P.ambient_dimension());
   VectorXd collision_configuration = Eigen::VectorXd::Zero(P.ambient_dimension());
   
-  // int particle_chunk_size = parallelism.num_threads() - 2;
+  int particle_chunk_size = parallelism.num_threads() - 2;
   // const int particle_chunk_size = 16;
-  const int particle_chunk_size = 1;
+  // const int particle_chunk_size = 1;
   std::vector<Eigen::VectorXd> configs_to_check;
   while (P.PointInSet(center + i * step_size * direction, constraint_tol) && pair_in_collision < 0) {
     // log()->info("In collisionlinesearch loop");
@@ -619,7 +619,7 @@ int unadaptive_test_samples(double p, double delta, double tau) {
 
 HPolyhedron RayIris(const MultibodyPlant<double>& plant,
                                      const Context<double>& context, Context<double>* mutable_context, const planning::CollisionChecker& checker,
-                                     const IrisOptions& options) {
+                                     const IrisOptions& options, const int random_seed) {
   // Check the inputs.
   plant.ValidateContext(context);
   const int nq = plant.num_positions();
@@ -658,7 +658,6 @@ HPolyhedron RayIris(const MultibodyPlant<double>& plant,
           fmt::format("The seed point is in configuration obstacle {}", i));
     }
   }
-  log()->info("Running ray shooting IRIS");
   if (options.prog_with_additional_constraints) {
     DRAKE_DEMAND(options.prog_with_additional_constraints->num_vars() == nq);
     DRAKE_DEMAND(options.num_additional_constraint_infeasible_samples >= 0);
@@ -815,7 +814,8 @@ HPolyhedron RayIris(const MultibodyPlant<double>& plant,
   double best_volume = E.Volume();
   int iteration = 0;
   VectorXd closest(nq);
-  RandomGenerator generator(options.random_seed);
+  // RandomGenerator generator(options.random_seed);
+  RandomGenerator generator(random_seed);
   std::vector<std::pair<double, int>> scaling(nc);
   MatrixXd closest_points(nq, nc);
 
@@ -868,9 +868,9 @@ HPolyhedron RayIris(const MultibodyPlant<double>& plant,
 
   if (options.verbose) {
     log()->info(
-        "FastIris finding region that is {} collision free with {} certainty ",
+        "RayIris finding region that is {} collision free with {} certainty ",
         options.admissible_proportion_in_collision, 1 - options.delta);
-    log()->info("FastIris worst case test requires {} samples.", N_max);
+    log()->info("RayIris worst case test requires {} samples.", N_max);
   }
 
   std::vector<Eigen::VectorXd> particles;
@@ -886,7 +886,7 @@ HPolyhedron RayIris(const MultibodyPlant<double>& plant,
     // for (int i = 0; i < E.center().size(); ++i) {
     //   log()->info("ellipsoid center ind {}: {}", i, E.center()[i]);
     // }
-    log()->info("IrisInConfigurationSpace iteration {}", iteration);
+    log()->info("RayIris iteration {}", iteration);
     int num_constraints = num_initial_constraints;
     HPolyhedron P_candidate = P_initial;
     DRAKE_ASSERT(best_volume > 0);
@@ -950,7 +950,7 @@ HPolyhedron RayIris(const MultibodyPlant<double>& plant,
       if (num_iterations_separating_planes ==
           options.max_iterations_separating_planes - 1) {
         log()->warn(
-            "FastIris WARNING, separating planes hit max iterations without "
+            "RayIris WARNING, separating planes hit max iterations without "
             "passing the bernoulli test, this voids the probabilistic "
             "guarantees!");
       }

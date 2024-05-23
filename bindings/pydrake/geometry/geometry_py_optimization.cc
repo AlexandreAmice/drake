@@ -690,9 +690,10 @@ void DefineIris(py::module m) {
 
   m.def("RayIris",
       py::overload_cast<const multibody::MultibodyPlant<double>&,
-          const systems::Context<double>&, systems::Context<double>*, const planning::CollisionChecker&, const IrisOptions&>(
+          const systems::Context<double>&, systems::Context<double>*, const planning::CollisionChecker&, const IrisOptions&, const int>(
           &RayIris),
       py::arg("plant"), py::arg("context"), py::arg("mutable_context"), py::arg("checker"), py::arg("options") = IrisOptions(),
+      py::arg("random_seed") = 0,
       doc.RayIris.doc);
 
   m.def("IrisInConfigurationSpace",

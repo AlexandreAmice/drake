@@ -288,7 +288,7 @@ IrisOptions.termination_func for more details.
 HPolyhedron RayIris(
     const multibody::MultibodyPlant<double>& plant,
     const systems::Context<double>& context, systems::Context<double>* mutable_context, const planning::CollisionChecker& checker,
-    const IrisOptions& options = IrisOptions());
+    const IrisOptions& options = IrisOptions(), const int random_seed = 0);
 
 HPolyhedron IrisInConfigurationSpace(
     const multibody::MultibodyPlant<double>& plant,
