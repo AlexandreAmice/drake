@@ -262,7 +262,163 @@ void AggregateDuplicateVariables(const Eigen::SparseMatrix<double>& A,
   vars_new->conservativeResize(unique_var_count);
 }
 
+const Binding<QuadraticCost>* FindNonconvexQuadraticCost(
+    const std::vector<Binding<QuadraticCost>>& quadratic_costs) {
+  return internal::FindNonconvexQuadraticCost(quadratic_costs);
+}
+
+// void AggregateConvexConstraints(const MathematicalProgram& prog,
+//                                Eigen::SparseMatrix<double>* A,
+//                                Eigen::VectorXd* b) {
+//  std::vector<std::vector<std::pair<int, int>>>
+//      bounding_box_constraint_dual_indices;
+//  std::vector<std::vector<std::pair<int, int>>>
+//  linear_constraint_dual_indices; std::vector<int> second_order_cone_length;
+//  std::vector<int> lorentz_cone_y_start_indices;
+//  std::vector<int> rotated_lorentz_cone_y_start_indices;
+//  std::vector<int> psd_cone_length;
+//  internal::DoAggregateConvexConstraints(
+//      prog, A, b, &bounding_box_constraint_dual_indices,
+//      &linear_constraint_dual_indices, &second_order_cone_length,
+//      &lorentz_cone_y_start_indices, &rotated_lorentz_cone_y_start_indices,
+//      &psd_cone_length);
+//}
+
 namespace internal {
+void DoAggregateConvexConstraints(
+    const MathematicalProgram& prog, Eigen::SparseMatrix<double>* A,
+    Eigen::VectorXd* b, Eigen::SparseMatrix<double>* Aeq, Eigen::VectorXd* beq,
+    //    std::vector<std::vector<std::pair<int, int>>>*
+    //        bounding_box_constraint_dual_indices,
+    int* num_linear_constraint_rows,
+    std::vector<std::vector<std::pair<int, int>>>*
+        linear_constraint_dual_indices,
+    std::vector<int>* second_order_cone_length,
+    std::vector<int>* lorentz_cone_dual_variable_start_indices,
+    std::vector<int>* rotated_lorentz_cone_dual_variable_start_indices,
+    std::vector<int>* psd_cone_length,
+    std::vector<int>* linear_eq_dual_variable_start_indices) {
+  //  // Stores all the bounding box constraints of prog which are linear
+  //  // constraints (i.e. where lb < ub).
+  //  MathematicalProgram bb_linear_constraint_prog;
+  //  bb_linear_constraint_prog.AddDecisionVariables(prog.decision_variables());
+  //  // Stores all the bounding box constraints of prog which are linear
+  //  // constraints (i.e. where lb == ub).
+  //  MathematicalProgram bb_linear_equality_constraint_prog;
+  //  bb_linear_constraint_prog.AddDecisionVariables(prog.decision_variables());
+  //  // For each variable with lb <= x <= ub, we check the following
+  //  // 1. If lb == ub (and both are finite), then we add the constraint x + s
+  //  = ub
+  //  // with s in the zero cone.
+  //  // 2. Otherwise, if ub is finite, then we add the constraint x + s = ub
+  //  with s
+  //  // in the positive orthant cone. If lb is finite, then we add the
+  //  constraint
+  //  // -x + s = -lb with s in the positive orthant cone.
+  //
+  //  // Set the dual variable indices.
+  //  bounding_box_constraint_dual_indices->reserve(
+  //      ssize(prog.bounding_box_constraints()));
+  //  for (const auto& bb_constraint : prog.bounding_box_constraints()) {
+  //    const Eigen::VectorXd diff_bound =
+  //        bb_constraint.evaluator()->upper_bound() -
+  //        bb_constraint.evaluator()->lower_bound();
+  //    VariableVector equality_vars;
+  //    std::vector<double> equality_bounds;
+  //    VariableVector inequality_vars;
+  //    std::vector<double> lb;
+  //    std::vector<double> ub;
+  //    for (int i = 0; i < diff_bound.size(); ++i) {
+  //      if (std::isfinite(bb_constraint.evaluator()->upper_bound()(i)) &&
+  //          std::isfinite(bb_constraint.evaluator()->lower_bound()(i)) &&
+  //          diff_bound(i) == 0.0) {
+  //        equality_vars.GetOrAdd(bb_constraint.variables()[i]);
+  //        equality_bounds.emplace_back(
+  //            bb_constraint.evaluator()->lower_bound()(i));
+  //      } else {
+  //        inequality_vars.GetOrAdd(bb_constraint.variables()[i]);
+  //        lb.emplace_back(bb_constraint.evaluator()->lower_bound()(i));
+  //        ub.emplace_back(bb_constraint.evaluator()->upper_bound()(i));
+  //      }
+  //    }
+  //    if (equality_vars.size() > 0) {
+  //      bb_linear_equality_constraint_prog.AddLinearEqualityConstraint(
+  //          Eigen::MatrixXd::Identity(equality_vars.size(),
+  //          equality_vars.size()),
+  //          Eigen::Map<Eigen::VectorXd>(equality_bounds.data(),
+  //                                      equality_bounds.size()),
+  //          equality_vars.CopyToEigen());
+  //    }
+  //    if (inequality_vars.size() > 0) {
+  //      bb_linear_constraint_prog.AddLinearConstraint(
+  //          Eigen::MatrixXd::Identity(inequality_vars.size(),
+  //                                    inequality_vars.size()),
+  //          Eigen::Map<Eigen::VectorXd>(lb.data(), lb.size()),
+  //          Eigen::Map<Eigen::VectorXd>(ub.data(), ub.size()),
+  //          inequality_vars.CopyToEigen());
+  //    }
+  //  }
+
+  // We will build this sparse matrix from the triplets recording its non-zero
+  // entries.
+  std::vector<Eigen::Triplet<double>> A_triplets;
+  // A_row_count will increment, when we add each constraint.
+  int A_row_count = 0;
+  std::vector<double> b_std;
+
+  // Parse Linear Constraints
+  (*num_linear_constraint_rows) = 0;
+  internal::ParseLinearConstraints(prog, &A_triplets, &b_std, &A_row_count,
+                                   linear_constraint_dual_indices,
+                                   num_linear_constraint_rows);
+  //  internal::ParseLinearConstraints(
+  //      bb_linear_constraint_prog, &A_triplets, &b_std, &A_row_count,
+  //      bounding_box_constraint_dual_indices, &num_linear_constraint_rows);
+
+  // Parse Second-Order cone constraints
+  internal::ParseSecondOrderConeConstraints(
+      prog, &A_triplets, &b_std, &A_row_count, second_order_cone_length,
+      lorentz_cone_dual_variable_start_indices,
+      rotated_lorentz_cone_dual_variable_start_indices);
+
+  // Parse PSD cone constraints
+  internal::ParsePositiveSemidefiniteConstraints(
+      prog, /* upper triangular = */ true, &A_triplets, &b_std, &A_row_count,
+      psd_cone_length);
+
+  // Parse Exponential Cone Constraints
+  internal::ParseExponentialConeConstraints(prog, &A_triplets, &b_std,
+                                            &A_row_count);
+
+  A->resize(A_row_count, prog.num_vars());
+  A->setFromTriplets(A_triplets.begin(), A_triplets.end());
+  (*b) = Eigen::Map<Eigen::VectorXd>(b_std.data(), b_std.size());
+
+  // Now do the linear equality constraints.
+  // We will build this sparse matrix from the triplets recording its non-zero
+  // entries.
+  std::vector<Eigen::Triplet<double>> Aeq_triplets;
+  // A_row_count will increment, when we add each constraint.
+  int Aeq_row_count = 0;
+  std::vector<double> beq_std;
+  // Parse Linear Equality Constraints
+  int num_linear_equality_constraints_rows = 0;
+  internal::ParseLinearEqualityConstraints(
+      prog, &Aeq_triplets, &beq_std, &Aeq_row_count,
+      linear_eq_dual_variable_start_indices,
+      &num_linear_equality_constraints_rows);
+
+  // TODO(Alexandre.Amice) figure out what to do about these.
+  //  internal::ParseLinearEqualityConstraints(
+  //      bb_linear_equality_constraint_prog, &Aeq_triplets, &beq_std,
+  //      &Aeq_row_count, bounding_box_constraint_dual_indices,
+  //      &num_linear_constraint_rows);
+
+  Aeq->resize(Aeq_row_count, prog.num_vars());
+  Aeq->setFromTriplets(Aeq_triplets.begin(), Aeq_triplets.end());
+  (*beq) = Eigen::Map<Eigen::VectorXd>(beq_std.data(), beq_std.size());
+}
+
 const Binding<QuadraticCost>* FindNonconvexQuadraticCost(
     const std::vector<Binding<QuadraticCost>>& quadratic_costs) {
   for (const auto& cost : quadratic_costs) {
