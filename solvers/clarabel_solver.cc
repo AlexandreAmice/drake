@@ -10,7 +10,6 @@
 #include <Eigen/Eigen>
 #include <fmt/ranges.h>
 
-#include "drake/common/fmt_eigen.h"
 #include "drake/common/name_value.h"
 #include "drake/common/ssize.h"
 #include "drake/common/text_logging.h"
@@ -380,6 +379,7 @@ void ClarabelSolver::DoSolve2(const MathematicalProgram& prog,
   internal::ConvexConstraintAggregationInfo info;
   int expected_A_row_count = 0;
 
+  // TODO(Alexandre.Amice) Handle this special case more cleanly.
   std::vector<int> l2norm_costs_second_order_cone_length;
   std::vector<int> l2norm_costs_lorentz_cone_y_start_indices;
   std::vector<int> l2norm_costs_t_slack_indices;
