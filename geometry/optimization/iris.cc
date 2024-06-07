@@ -566,7 +566,7 @@ const double step_size = 0.05, bool parallelize_check = false, const double cons
   // VectorXd collision_configuration(P.ambient_dimension());
   VectorXd collision_configuration = Eigen::VectorXd::Zero(P.ambient_dimension());
   
-  int particle_chunk_size = parallelism.num_threads() - 2;
+  int particle_chunk_size = parallelism.num_threads();
   // const int particle_chunk_size = 16;
   // const int particle_chunk_size = 1;
   std::vector<Eigen::VectorXd> configs_to_check;
@@ -810,7 +810,6 @@ HPolyhedron RayIris(const MultibodyPlant<double>& plant,
   }
 
   DRAKE_THROW_UNLESS(P_initial.PointInSet(seed, 1e-12));
-  log()->info("here7");
   double best_volume = E.Volume();
   int iteration = 0;
   VectorXd closest(nq);
