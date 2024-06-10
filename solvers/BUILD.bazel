@@ -2174,6 +2174,7 @@ drake_cc_googletest(
         ":solve",
         "//common/test_utilities:eigen_matrix_compare",
         "//common/test_utilities:expect_throws_message",
+        ":aggregate_costs_constraints"
     ],
 )
 
