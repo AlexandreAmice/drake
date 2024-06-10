@@ -68,7 +68,6 @@ drake_cc_package_library(
         ":scs_solver",
         ":sdpa_free_format",
         ":semidefinite_relaxation",
-        ":phase_1_relaxation",
         ":semidefinite_relaxation_internal",
         ":snopt_solver",
         ":solution_result",

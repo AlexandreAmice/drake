@@ -6,7 +6,7 @@ import copy
 
 import numpy as np
 
-from pydrake.common import RandomGenerator, temp_directory
+from pydrake.common import RandomGenerator, temp_directory, Parallelism
 from pydrake.common.test_utilities.deprecation import catch_drake_warnings
 from pydrake.common.test_utilities.pickle_compare import assert_pickle
 from pydrake.geometry import (
@@ -25,6 +25,7 @@ from pydrake.solvers import (
     ScsSolver, MosekSolver
 )
 from pydrake.symbolic import Variable, Polynomial
+
 
 
 class TestGeometryOptimization(unittest.TestCase):
@@ -796,6 +797,7 @@ class TestGeometryOptimization(unittest.TestCase):
             MathematicalProgramResult)
         self.assertIsInstance(
             spp.SolveConvexRestrictions(active_edges=[[edge0, edge1]],
+                                        parallelism = Parallelism(2),
                                        options=options),
             MathematicalProgramResult)
         self.assertEqual(

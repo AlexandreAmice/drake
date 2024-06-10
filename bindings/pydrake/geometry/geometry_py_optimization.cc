@@ -899,7 +899,9 @@ void DefineGeometryOptimization(py::module m) {
         .def("SolveConvexRestrictions",
             &GraphOfConvexSets::SolveConvexRestrictions,
             py::arg("active_edges"),
+            py::arg("parallelism") = Parallelism::Max(),
             py::arg("options") = GraphOfConvexSetsOptions(),
+            py::call_guard<py::gil_scoped_release>(),
             cls_doc.SolveConvexRestriction.doc);
   }
   {

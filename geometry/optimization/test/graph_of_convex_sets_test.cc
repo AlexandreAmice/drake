@@ -2326,50 +2326,56 @@ GTEST_TEST(ShortestPathTest, RoundingBacktrack) {
              └────┘     └────┘     └────────┘
 
 */
-//GTEST_TEST(ShortestPathTest, SolveConvexRestrictions) {
-//  GraphOfConvexSets spp;
-//
-//  Vertex* source = spp.AddVertex(Point(Vector2d(-1.5, -1.5)));
-//  Vertex* target = spp.AddVertex(Point(Vector2d(1.5, 1.5)));
-//  Vertex* p1 =
-//      spp.AddVertex(HPolyhedron::MakeBox(Vector2d(-2, -2), Vector2d(2, -1)));
-//  Vertex* p2 =
-//      spp.AddVertex(HPolyhedron::MakeBox(Vector2d(-2, -2), Vector2d(-1, 2)));
-//  Vertex* p3 =
-//      spp.AddVertex(HPolyhedron::MakeBox(Vector2d(1, -2), Vector2d(2, 2)));
-//  Vertex* p4 =
-//      spp.AddVertex(HPolyhedron::MakeBox(Vector2d(-2, 1), Vector2d(2, 2)));
-//
-//  // Edges pointing towards target
-//  const Edge* e1 = spp.AddEdge(source, p1);
-//  const Edge* e2 = spp.AddEdge(source, p2);
-//  const Edge* e3 = spp.AddEdge(p1, p3);
-//  const Edge* e4 = spp.AddEdge(p2, p4);
-//  const Edge* e5 = spp.AddEdge(p3, target);
-//  const Edge* e6 = spp.AddEdge(p4, target);
-//
-//  // Edges between parallel vertices
-//  const Edge* e7 = spp.AddEdge(p1, p2);
-//  const Edge* e8 = spp.AddEdge(p2, p1);
-//  spp.AddEdge(p3, p4);
-//  spp.AddEdge(p4, p3);
-//
-//  // Edges pointing towards source
-//  spp.AddEdge(p3, p1);
-//  spp.AddEdge(p4, p2);
-//
-//  std::vector<std::vector<const Edge*>> paths;
-//  std::vector<const Edge*> path1 = {e1, e3, e5};
-//  std::vector<const Edge*> path2 = {e2, e4, e6};
-//  std::vector<const Edge*> path3 = {e1, e7, e4, e6};
-//  std::vector<const Edge*> path4 = {e2, e8, e3, e5};
-//
-//  paths.push_back(path1);
-//  paths.push_back(path2);
-//
-//  auto result = spp.SolveConvexRestrictions(paths);
-//  EXPECT_TRUE(result.first.is_success());
-//}
+GTEST_TEST(ShortestPathTest, SolveConvexRestrictions) {
+  GraphOfConvexSets spp;
+
+  Vertex* source = spp.AddVertex(Point(Vector2d(-1.5, -1.5)));
+  Vertex* target = spp.AddVertex(Point(Vector2d(1.5, 1.5)));
+  Vertex* p1 =
+      spp.AddVertex(HPolyhedron::MakeBox(Vector2d(-2, -2), Vector2d(2, -1)));
+  Vertex* p2 =
+      spp.AddVertex(HPolyhedron::MakeBox(Vector2d(-2, -2), Vector2d(-1, 2)));
+  Vertex* p3 =
+      spp.AddVertex(HPolyhedron::MakeBox(Vector2d(1, -2), Vector2d(2, 2)));
+  Vertex* p4 =
+      spp.AddVertex(HPolyhedron::MakeBox(Vector2d(-2, 1), Vector2d(2, 2)));
+
+  // Edges pointing towards target
+  const Edge* e1 = spp.AddEdge(source, p1);
+  const Edge* e2 = spp.AddEdge(source, p2);
+  const Edge* e3 = spp.AddEdge(p1, p3);
+  const Edge* e4 = spp.AddEdge(p2, p4);
+  const Edge* e5 = spp.AddEdge(p3, target);
+  const Edge* e6 = spp.AddEdge(p4, target);
+
+  // Edges between parallel vertices
+  const Edge* e7 = spp.AddEdge(p1, p2);
+  const Edge* e8 = spp.AddEdge(p2, p1);
+  spp.AddEdge(p3, p4);
+  spp.AddEdge(p4, p3);
+
+  // Edges pointing towards source
+  spp.AddEdge(p3, p1);
+  spp.AddEdge(p4, p2);
+
+  std::vector<std::vector<const Edge*>> paths;
+  std::vector<const Edge*> path1 = {e1, e3, e5};
+  std::vector<const Edge*> path2 = {e2, e4, e6};
+  std::vector<const Edge*> path3 = {e1, e7, e4, e6};
+  std::vector<const Edge*> path4 = {e2, e8, e3, e5};
+
+  paths.push_back(path1);
+  paths.push_back(path2);
+  paths.push_back(path3);
+  paths.push_back(path4);
+
+  auto results = spp.SolveConvexRestrictions(paths);
+  EXPECT_EQ(ssize(results), ssize(paths));
+  EXPECT_TRUE(results[0].is_success());
+  EXPECT_TRUE(results[1].is_success());
+  EXPECT_TRUE(results[2].is_success());
+  EXPECT_TRUE(results[3].is_success());
+}
 
 // Cover the case where there is no path from source to target.
 GTEST_TEST(ShortestPathTest, NoPath) {
