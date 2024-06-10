@@ -488,6 +488,5 @@ void ClarabelSolver::DoSolve2(const MathematicalProgram& prog,
   }
   result->set_solution_result(solution_result);
 }
-
 }  // namespace solvers
 }  // namespace drake
