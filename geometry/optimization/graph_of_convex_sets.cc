@@ -104,17 +104,17 @@ MathematicalProgramResult Solve(const MathematicalProgram& prog,
   return result;
 }
 
-struct VertexIdComparator {
-  bool operator()(const Vertex* lhs, const Vertex* rhs) const {
-    return lhs->id() < rhs->id();
-  }
-};
-
-struct EdgeIdComparator {
-  bool operator()(const Edge* lhs, const Edge* rhs) const {
-    return lhs->id() < rhs->id();
-  }
-};
+// struct VertexIdComparator {
+//  bool operator()(const Vertex* lhs, const Vertex* rhs) const {
+//    return lhs->id() < rhs->id();
+//  }
+//};
+//
+// struct EdgeIdComparator {
+//  bool operator()(const Edge* lhs, const Edge* rhs) const {
+//    return lhs->id() < rhs->id();
+//  }
+//};
 
 }  // namespace
 
@@ -1517,45 +1517,48 @@ void RewriteForConvexSolver(MathematicalProgram* prog) {
 
 }  // namespace
 
-MathematicalProgramResult GraphOfConvexSets::SolveConvexRestriction(
+std::unique_ptr<MathematicalProgram>
+GraphOfConvexSets::PrepareConvexRestriction(
     const std::vector<const Edge*>& active_edges,
-    const GraphOfConvexSetsOptions& options) const {
+    const GraphOfConvexSetsOptions& options,
+    GraphOfConvexSetsOptions* restriction_options,
+    std::set<const Vertex*, VertexIdComparator>* vertices) const {
   // Use the restriction solver and options if they are provided.
-  GraphOfConvexSetsOptions restriction_options = options;
-  if (restriction_options.restriction_solver) {
-    restriction_options.solver = restriction_options.restriction_solver;
+  *restriction_options = options;
+  if (restriction_options->restriction_solver) {
+    restriction_options->solver = restriction_options->restriction_solver;
   }
-  if (restriction_options.restriction_solver_options) {
-    restriction_options.solver_options =
-        *restriction_options.restriction_solver_options;
+  if (restriction_options->restriction_solver_options) {
+    restriction_options->solver_options =
+        *restriction_options->restriction_solver_options;
   }
-  MathematicalProgram prog;
+  std::unique_ptr<MathematicalProgram> prog =
+      std::make_unique<MathematicalProgram>();
 
-  std::set<const Vertex*, VertexIdComparator> vertices;
   for (const auto* e : active_edges) {
     if (!edges_.contains(e->id())) {
       throw std::runtime_error(
           fmt::format("Edge {} is not in the graph.", e->name()));
     }
-    vertices.emplace(&e->u());
-    vertices.emplace(&e->v());
+    vertices->emplace(&e->u());
+    vertices->emplace(&e->v());
   }
 
-  for (const auto* v : vertices) {
+  for (const auto* v : *vertices) {
     if (v->set().ambient_dimension() == 0) {
       continue;
     }
-    prog.AddDecisionVariables(v->x());
-    v->set().AddPointInSetConstraints(&prog, v->x());
+    prog->AddDecisionVariables(v->x());
+    v->set().AddPointInSetConstraints(prog.get(), v->x());
 
     // Vertex costs.
     for (const Binding<Cost>& b : v->costs_) {
-      prog.AddCost(b);
+      prog->AddCost(b);
     }
     // Vertex constraints.
     for (const auto& [b, transcriptions] : v->constraints_) {
       if (transcriptions.contains(Transcription::kRestriction)) {
-        prog.AddConstraint(b);
+        prog->AddConstraint(b);
       }
     }
   }
@@ -1563,19 +1566,25 @@ MathematicalProgramResult GraphOfConvexSets::SolveConvexRestriction(
   for (const auto* e : active_edges) {
     // Edge costs.
     for (const Binding<Cost>& b : e->costs_) {
-      prog.AddCost(b);
+      prog->AddCost(b);
     }
     // Edge constraints.
     for (const auto& [b, transcriptions] : e->constraints_) {
       if (transcriptions.contains(Transcription::kRestriction)) {
-        prog.AddConstraint(b);
+        prog->AddConstraint(b);
       }
     }
   }
 
-  RewriteForConvexSolver(&prog);
-  MathematicalProgramResult result = Solve(prog, restriction_options);
+  RewriteForConvexSolver(prog.get());
+  return prog;
+}
 
+void GraphOfConvexSets::ProcessGcsConvexRestrictionResult(
+    const std::vector<const Edge*>& active_edges,
+    const std::set<const Vertex*, VertexIdComparator>& vertices,
+    const solvers::MathematicalProgram& prog,
+    solvers::MathematicalProgramResult* result) const {
   // TODO(russt): Add the dual variables back in for the rewritten costs.
 
   // Add phi vars.
@@ -1589,9 +1598,9 @@ MathematicalProgramResult GraphOfConvexSets::SolveConvexRestriction(
       excluded_vertices.emplace_back(v);
     }
   }
-  int count = result.get_x_val().size();
+  int count = result->get_x_val().size();
   Eigen::VectorXd x_val(count + num_excluded_vars);
-  x_val.head(count) = result.get_x_val();
+  x_val.head(count) = result->get_x_val();
   std::unordered_map<symbolic::Variable::Id, int> decision_variable_index =
       prog.decision_variable_index();
   for (const auto& pair : edges_) {
@@ -1608,139 +1617,271 @@ MathematicalProgramResult GraphOfConvexSets::SolveConvexRestriction(
       x_val[count++] = std::numeric_limits<double>::quiet_NaN();
     }
   }
-  result.set_decision_variable_index(decision_variable_index);
-  result.set_x_val(x_val);
-
-  return result;
+  result->set_decision_variable_index(decision_variable_index);
+  result->set_x_val(x_val);
 }
 
-std::pair<
-    MathematicalProgramResult,
-    std::vector<std::unordered_map<symbolic::Variable::Id, symbolic::Variable>>>
-GraphOfConvexSets::SolveConvexRestrictions(
-    const std::vector<const std::vector<const Edge*>>& active_edges,
+MathematicalProgramResult GraphOfConvexSets::SolveConvexRestriction(
+    const std::vector<const Edge*>& active_edges,
     const GraphOfConvexSetsOptions& options) const {
   // Use the restriction solver and options if they are provided.
   GraphOfConvexSetsOptions restriction_options = options;
-  if (restriction_options.restriction_solver) {
-    restriction_options.solver = restriction_options.restriction_solver;
-  }
-  if (restriction_options.restriction_solver_options) {
-    restriction_options.solver_options =
-        *restriction_options.restriction_solver_options;
-  }
-  MathematicalProgram prog;
-  std::vector<int> num_vars_per_path;
-  std::vector<VectorXDecisionVariable> original_vars_for_each_path;
+  std::set<const Vertex*, VertexIdComparator> vertices;
+  const auto prog = PrepareConvexRestriction(active_edges, options,
+                                             &restriction_options, &vertices);
+  MathematicalProgramResult result = Solve(*prog, restriction_options);
+  ProcessGcsConvexRestrictionResult(active_edges, vertices, *prog, &result);
+  return result;
+}
 
-  // Build one big convex program, which the solver might be able to parallelize
-  for (const auto& edge_list : active_edges) {
-    std::set<const Vertex*, VertexIdComparator> vertices;
+namespace {
 
-    for (const auto* e : edge_list) {
-      if (!edges_.contains(e->id())) {
-        throw std::runtime_error(
-            fmt::format("Edge {} is not in the graph.", e->name()));
-      }
-      vertices.emplace(&e->u());
-      vertices.emplace(&e->v());
-    }
+// Given a convex program
+// min f(x) subject to
+// gᵢ(x) ≤ 0
+// relax to
+// min f(x) + 1ᵀs subject to
+// gᵢ(x) ≤ sᵢ
+// sᵢ sᵢ ≥ 0
+std::unique_ptr<MathematicalProgram> RelaxToPhase1Prog(
+    const MathematicalProgram& prog) {
+  const double kInf = std::numeric_limits<double>::infinity();
+  std::unique_ptr<MathematicalProgram> relaxed_prog =
+      std::make_unique<MathematicalProgram>();
+  relaxed_prog->AddDecisionVariables(prog.decision_variables());
 
-    MathematicalProgram temp_prog;  // Only used to look up variables
-    int num_vars_for_path = 0;
-
-    for (const auto* v : vertices) {
-      if (v->set().ambient_dimension() == 0) {
-        continue;
-      }
-      temp_prog.AddDecisionVariables(v->x());
-
-      // Create new decision variables
-      auto new_vars = prog.NewContinuousVariables(v->x().size(), v->name());
-      v->set().AddPointInSetConstraints(&prog, new_vars);
-
-      num_vars_for_path += new_vars.size();
-    }
-    num_vars_per_path.push_back(num_vars_for_path);
-    original_vars_for_each_path.push_back(temp_prog.decision_variables());
-
-    for (const auto* v : vertices) {
-      // Vertex costs.
-      for (const Binding<Cost>& b : v->costs_) {
-        // Find the corresponding new variables
-        auto indices = temp_prog.FindDecisionVariableIndices(b.variables());
-        VectorXDecisionVariable new_vars(indices.size());
-        for (size_t i = 0; i < indices.size(); ++i) {
-          new_vars[i] = prog.decision_variables()(indices[i]);
-        }
-
-        // Adjust the binding to use the new variables
-        prog.AddCost(b.evaluator(), new_vars);
-      }
-      // Vertex constraints.
-      for (const auto& [b, transcriptions] : v->constraints_) {
-        if (transcriptions.contains(Transcription::kRestriction)) {
-          // Find the corresponding new variables
-          auto indices = temp_prog.FindDecisionVariableIndices(b.variables());
-          VectorXDecisionVariable new_vars(indices.size());
-          for (size_t i = 0; i < indices.size(); ++i) {
-            new_vars[i] = prog.decision_variables()(indices[i]);
-          }
-          prog.AddConstraint(b.evaluator(), new_vars);
-        }
-      }
-    }
-
-    for (const auto* e : edge_list) {
-      // Edge costs.
-      for (const Binding<Cost>& b : e->costs_) {
-        auto indices = temp_prog.FindDecisionVariableIndices(b.variables());
-        VectorXDecisionVariable new_vars(indices.size());
-        for (size_t i = 0; i < indices.size(); ++i) {
-          new_vars[i] = prog.decision_variables()(indices[i]);
-        }
-
-        prog.AddCost(b.evaluator(), new_vars);
-      }
-      // Edge constraints.
-      for (const auto& [b, transcriptions] : e->constraints_) {
-        if (transcriptions.contains(Transcription::kRestriction)) {
-          auto indices = temp_prog.FindDecisionVariableIndices(b.variables());
-          VectorXDecisionVariable new_vars(indices.size());
-          for (size_t i = 0; i < indices.size(); ++i) {
-            new_vars[i] = prog.decision_variables()(indices[i]);
-          }
-
-          prog.AddConstraint(b.evaluator(), new_vars);
-        }
-      }
-    }
+  for (const auto& c : prog.GetAllCosts()) {
+    relaxed_prog->AddCost(c);
   }
 
-  RewriteForConvexSolver(&prog);
-  MathematicalProgramResult result = Solve(prog, restriction_options);
+  auto add_s_vars = [&relaxed_prog, &kInf](int num_new_s) {
+    const auto s = relaxed_prog->NewContinuousVariables(num_new_s);
+    relaxed_prog->AddBoundingBoxConstraint(
+        Eigen::VectorXd::Zero(num_new_s),
+        Eigen::VectorXd::Constant(num_new_s, kInf), s);
+    relaxed_prog->AddLinearCost(Eigen::VectorXd::Ones(num_new_s), 0, s);
+    return s;
+  };
 
-  std::vector<VectorXDecisionVariable> new_decision_vars;
-  for (size_t i = 0; i < active_edges.size(); ++i) {
-    int start_idx = std::accumulate(num_vars_per_path.begin(),
-                                    num_vars_per_path.begin() + i, 0);
+  for (const auto& c : prog.linear_equality_constraints()) {
+    // Ax = b converts to Ax - s = b
+    const int s_size = c.evaluator()->lower_bound().size();
+    const auto s = add_s_vars(s_size);
+    Eigen::MatrixXd A_new(c.evaluator()->GetDenseA().rows(),
+                          c.evaluator()->GetDenseA().cols() + s_size);
+    A_new.leftCols(c.evaluator()->GetDenseA().cols()) =
+        c.evaluator()->GetDenseA();
+    A_new.rightCols(s_size) = -Eigen::MatrixXd::Identity(s_size, s_size);
+    VectorXDecisionVariable xs(A_new.cols());
+    xs << c.variables(), s;
+    relaxed_prog->AddLinearEqualityConstraint(A_new,
+                                              c.evaluator()->lower_bound(), xs);
+  }
+  for (const auto& c : prog.bounding_box_constraints()) {
+    // lb ≤ x ≤ ub converts to x + s ≥ lb and x - s ≤ ub
+    const int s_size = c.evaluator()->lower_bound().size();
+    const auto sl = add_s_vars(s_size);
+    const auto su = add_s_vars(s_size);
+    Eigen::MatrixXd Al(s_size, s_size + s_size);
+    Al.leftCols(s_size) = Eigen::MatrixXd::Identity(s_size, s_size);
+    Al.rightCols(s_size) = Eigen::MatrixXd::Identity(s_size, s_size);
+    VectorXDecisionVariable xsl(s_size + s_size);
+    xsl << c.variables(), sl;
+    relaxed_prog->AddLinearConstraint(Al, c.evaluator()->lower_bound(),
+                                      Eigen::VectorXd::Constant(s_size, kInf),
+                                      xsl);
 
-    new_decision_vars.push_back(
-        prog.decision_variables().segment(start_idx, num_vars_per_path[i]));
+    Eigen::MatrixXd Au(s_size, s_size + s_size);
+    Au.leftCols(s_size) = Eigen::MatrixXd::Identity(s_size, s_size);
+    Au.rightCols(s_size) = -Eigen::MatrixXd::Identity(s_size, s_size);
+    VectorXDecisionVariable xsu(Au.cols());
+    xsu << c.variables(), su;
+    relaxed_prog->AddLinearConstraint(Au,
+                                      Eigen::VectorXd::Constant(s_size, -kInf),
+                                      c.evaluator()->upper_bound(), xsu);
+  }
+  for (const auto& c : prog.lorentz_cone_constraints()) {
+    // Ax + b ∈ Lorentz cone is relaxed to  Ax + b + [s, 0, ... 0] in Lorentz
+    // cone.
+    const auto s = add_s_vars(1);
+    Eigen::MatrixXd A_new(c.evaluator()->A().rows(),
+                          c.evaluator()->A().cols() + 1);
+    A_new.leftCols(c.evaluator()->A().cols()) = c.evaluator()->A();
+    A_new.rightCols(1) = Eigen::VectorXd::Zero(A_new.rows());
+    A_new(0, A_new.cols() - 1) = 1;
+    VectorXDecisionVariable xs(A_new.cols());
+    xs << c.variables(), s;
+    relaxed_prog->AddLorentzConeConstraint(A_new, c.evaluator()->b(), xs);
+  }
+  for (const auto& c : prog.rotated_lorentz_cone_constraints()) {
+    // Ax + b ∈ Rotated Lorentz cone is relaxed to  Ax + b + [s/2, s/2, ... 0]
+    // in Rotated Lorentz cone.
+    const auto s = add_s_vars(1);
+    Eigen::MatrixXd A_new(c.evaluator()->A().rows(),
+                          c.evaluator()->A().cols() + 1);
+    A_new.leftCols(c.evaluator()->A().cols()) = c.evaluator()->A();
+    A_new.rightCols(1) = Eigen::VectorXd::Zero(A_new.rows());
+    A_new(0, A_new.cols() - 1) = 0.5;
+    A_new(1, A_new.cols() - 1) = 0.5;
+    VectorXDecisionVariable xs(A_new.cols());
+    xs << c.variables(), s;
+    relaxed_prog->AddRotatedLorentzConeConstraint(A_new, c.evaluator()->b(), xs);
   }
 
-  std::vector<std::unordered_map<symbolic::Variable::Id, symbolic::Variable>>
-      old_to_new_maps;
-  for (size_t i = 0; i < active_edges.size(); ++i) {
-    std::unordered_map<symbolic::Variable::Id, symbolic::Variable>
-        old_to_new_map;
+  return relaxed_prog;
+}
 
-    for (int j = 0; j < new_decision_vars[i].size(); ++j) {
-      old_to_new_map.emplace(original_vars_for_each_path[i][j].get_id(),
-                             new_decision_vars[i][j]);
-    }
-    old_to_new_maps.push_back(old_to_new_map);
+}  // namespace
+//
+// std::pair<
+//    MathematicalProgramResult,
+//    std::vector<std::unordered_map<symbolic::Variable::Id,
+//    symbolic::Variable>>>
+void GraphOfConvexSets::SolveConvexRestrictions(
+    const std::vector<std::vector<const Edge*>>& active_edges,
+    const GraphOfConvexSetsOptions& options) const {
+  std::vector<std::unique_ptr<MathematicalProgram>> progs;
+  std::vector<GraphOfConvexSetsOptions> restriction_options;
+  std::vector<std::set<const Vertex*, VertexIdComparator>> vertices;
+  std::vector<std::unique_ptr<MathematicalProgram>> relaxed_progs;
+  progs.reserve(active_edges.size());
+  restriction_options.reserve(active_edges.size());
+  vertices.reserve(active_edges.size());
+  relaxed_progs.reserve(active_edges.size());
+  for (const auto& ae : active_edges) {
+    restriction_options.emplace_back();
+    vertices.emplace_back();
+    progs.emplace_back(PrepareConvexRestriction(
+        ae, options, &restriction_options.back(), &vertices.back()));
+    relaxed_progs.emplace_back(RelaxToPhase1Prog(*progs.back()));
   }
+
+  //
+  //
+  //  // Use the restriction solver and options if they are provided.
+  //  GraphOfConvexSetsOptions restriction_options = options;
+  //  if (restriction_options.restriction_solver) {
+  //    restriction_options.solver = restriction_options.restriction_solver;
+  //  }
+  //  if (restriction_options.restriction_solver_options) {
+  //    restriction_options.solver_options =
+  //        *restriction_options.restriction_solver_options;
+  //  }
+  //  MathematicalProgram prog;
+  //  std::vector<int> num_vars_per_path;
+  //  std::vector<VectorXDecisionVariable> original_vars_for_each_path;
+  //
+  //  // Build one big convex program, which the solver might be able to
+  //  parallelize for (const auto& edge_list : active_edges) {
+  //    std::set<const Vertex*, VertexIdComparator> vertices;
+  //
+  //    for (const auto* e : edge_list) {
+  //      if (!edges_.contains(e->id())) {
+  //        throw std::runtime_error(
+  //            fmt::format("Edge {} is not in the graph.", e->name()));
+  //      }
+  //      vertices.emplace(&e->u());
+  //      vertices.emplace(&e->v());
+  //    }
+  //
+  //    MathematicalProgram temp_prog;  // Only used to look up variables
+  //    int num_vars_for_path = 0;
+  //
+  //    for (const auto* v : vertices) {
+  //      if (v->set().ambient_dimension() == 0) {
+  //        continue;
+  //      }
+  //      temp_prog.AddDecisionVariables(v->x());
+  //
+  //      // Create new decision variables
+  //      auto new_vars = prog.NewContinuousVariables(v->x().size(), v->name());
+  //      v->set().AddPointInSetConstraints(&prog, new_vars);
+  //
+  //      num_vars_for_path += new_vars.size();
+  //    }
+  //    num_vars_per_path.push_back(num_vars_for_path);
+  //    original_vars_for_each_path.push_back(temp_prog.decision_variables());
+  //
+  //    for (const auto* v : vertices) {
+  //      // Vertex costs.
+  //      for (const Binding<Cost>& b : v->costs_) {
+  //        // Find the corresponding new variables
+  //        auto indices = temp_prog.FindDecisionVariableIndices(b.variables());
+  //        VectorXDecisionVariable new_vars(indices.size());
+  //        for (size_t i = 0; i < indices.size(); ++i) {
+  //          new_vars[i] = prog.decision_variables()(indices[i]);
+  //        }
+  //
+  //        // Adjust the binding to use the new variables
+  //        prog.AddCost(b.evaluator(), new_vars);
+  //      }
+  //      // Vertex constraints.
+  //      for (const auto& [b, transcriptions] : v->constraints_) {
+  //        if (transcriptions.contains(Transcription::kRestriction)) {
+  //          // Find the corresponding new variables
+  //          auto indices =
+  //          temp_prog.FindDecisionVariableIndices(b.variables());
+  //          VectorXDecisionVariable new_vars(indices.size());
+  //          for (size_t i = 0; i < indices.size(); ++i) {
+  //            new_vars[i] = prog.decision_variables()(indices[i]);
+  //          }
+  //          prog.AddConstraint(b.evaluator(), new_vars);
+  //        }
+  //      }
+  //    }
+  //
+  //    for (const auto* e : edge_list) {
+  //      // Edge costs.
+  //      for (const Binding<Cost>& b : e->costs_) {
+  //        auto indices = temp_prog.FindDecisionVariableIndices(b.variables());
+  //        VectorXDecisionVariable new_vars(indices.size());
+  //        for (size_t i = 0; i < indices.size(); ++i) {
+  //          new_vars[i] = prog.decision_variables()(indices[i]);
+  //        }
+  //
+  //        prog.AddCost(b.evaluator(), new_vars);
+  //      }
+  //      // Edge constraints.
+  //      for (const auto& [b, transcriptions] : e->constraints_) {
+  //        if (transcriptions.contains(Transcription::kRestriction)) {
+  //          auto indices =
+  //          temp_prog.FindDecisionVariableIndices(b.variables());
+  //          VectorXDecisionVariable new_vars(indices.size());
+  //          for (size_t i = 0; i < indices.size(); ++i) {
+  //            new_vars[i] = prog.decision_variables()(indices[i]);
+  //          }
+  //
+  //          prog.AddConstraint(b.evaluator(), new_vars);
+  //        }
+  //      }
+  //    }
+  //  }
+  //
+  //  RewriteForConvexSolver(&prog);
+  //  MathematicalProgramResult result = Solve(prog, restriction_options);
+  //
+  //  std::vector<VectorXDecisionVariable> new_decision_vars;
+  //  for (size_t i = 0; i < active_edges.size(); ++i) {
+  //    int start_idx = std::accumulate(num_vars_per_path.begin(),
+  //                                    num_vars_per_path.begin() + i, 0);
+  //
+  //    new_decision_vars.push_back(
+  //        prog.decision_variables().segment(start_idx, num_vars_per_path[i]));
+  //  }
+  //
+  //  std::vector<std::unordered_map<symbolic::Variable::Id,
+  //  symbolic::Variable>>
+  //      old_to_new_maps;
+  //  for (size_t i = 0; i < active_edges.size(); ++i) {
+  //    std::unordered_map<symbolic::Variable::Id, symbolic::Variable>
+  //        old_to_new_map;
+  //
+  //    for (int j = 0; j < new_decision_vars[i].size(); ++j) {
+  //      old_to_new_map.emplace(original_vars_for_each_path[i][j].get_id(),
+  //                             new_decision_vars[i][j]);
+  //    }
+  //    old_to_new_maps.push_back(old_to_new_map);
+  //  }
 
   // // Use the original decision variables in the results we return
   // std::vector<MathematicalProgramResult> results;
@@ -1759,7 +1900,7 @@ GraphOfConvexSets::SolveConvexRestrictions(
   //   results.push_back(result_copy);
   // }
 
-  return std::make_pair(result, old_to_new_maps);
+  //  return std::make_pair(result, old_to_new_maps);
 }
 
 }  // namespace optimization

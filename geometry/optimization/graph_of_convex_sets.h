@@ -644,16 +644,29 @@ class GraphOfConvexSets {
       const GraphOfConvexSetsOptions& options =
           GraphOfConvexSetsOptions()) const;
 
-  std::pair<solvers::MathematicalProgramResult,
-            std::vector<
-                std::unordered_map<symbolic::Variable::Id, symbolic::Variable>>>
+//  std::pair<solvers::MathematicalProgramResult,
+//            std::vector<
+//                std::unordered_map<symbolic::Variable::Id, symbolic::Variable>>>
+void
   SolveConvexRestrictions(
-      const std::vector<const std::vector<const Edge*>>& active_edges,
+      const std::vector<std::vector<const Edge*>>& active_edges,
       const GraphOfConvexSetsOptions& options =
           GraphOfConvexSetsOptions()) const;
 
  private: /* Facilitates testing. */
   friend class PreprocessShortestPathTest;
+
+  struct VertexIdComparator {
+    bool operator()(const Vertex* lhs, const Vertex* rhs) const {
+      return lhs->id() < rhs->id();
+    }
+  };
+
+  struct EdgeIdComparator {
+    bool operator()(const Edge* lhs, const Edge* rhs) const {
+      return lhs->id() < rhs->id();
+    }
+  };
 
   std::set<EdgeId> PreprocessShortestPath(
       VertexId source_id, VertexId target_id,
@@ -679,6 +692,18 @@ class GraphOfConvexSets {
       solvers::MathematicalProgram* prog,
       const solvers::Binding<solvers::Constraint>& binding,
       const solvers::VectorXDecisionVariable& vars) const;
+
+  std::unique_ptr<solvers::MathematicalProgram>  PrepareConvexRestriction(
+      const std::vector<const Edge*>& active_edges,
+      const GraphOfConvexSetsOptions& options,
+      GraphOfConvexSetsOptions* restriction_options,
+      std::set<const Vertex*, VertexIdComparator>* vertices) const;
+
+  void ProcessGcsConvexRestrictionResult(
+      const std::vector<const Edge*>& active_edges,
+      const std::set<const Vertex*, VertexIdComparator>& vertices,
+      const solvers::MathematicalProgram& prog,
+      solvers::MathematicalProgramResult* result) const;
 
   // Note: we use VertexId and EdgeId (vs e.g. Vertex* and Edge*) here to
   // provide consistent ordering of the vertices/edges. This is important for

@@ -68,6 +68,7 @@ drake_cc_package_library(
         ":scs_solver",
         ":sdpa_free_format",
         ":semidefinite_relaxation",
+        ":phase_1_relaxation",
         ":semidefinite_relaxation_internal",
         ":snopt_solver",
         ":solution_result",
@@ -1083,6 +1084,17 @@ drake_cc_library(
 )
 
 drake_cc_library(
+    name = "phase_1_relaxation",
+    srcs = ["phase_1_relaxation.cc"],
+    hdrs = ["phase_1_relaxation.h"],
+    interface_deps = [
+        ":mathematical_program",
+        "//math:matrix_util",
+    ],
+
+)
+
+drake_cc_library(
     name = "semidefinite_relaxation_internal",
     srcs = ["semidefinite_relaxation_internal.cc"],
     hdrs = ["semidefinite_relaxation_internal.h"],
@@ -1284,6 +1296,19 @@ drake_cc_googletest(
         ":semidefinite_relaxation",
         "//common/test_utilities:eigen_matrix_compare",
         "//common/test_utilities:expect_throws_message",
+    ],
+)
+
+drake_cc_googletest(
+    name = "phase_1_relaxation_test",
+    deps = [
+        ":phase_1_relaxation",
+        "//common/test_utilities:eigen_matrix_compare",
+                ":linear_program_examples",
+                ":mathematical_program",
+        ":mathematical_program_test_util",
+        ":solve",
+        ":second_order_cone_program_examples",
     ],
 )
 
@@ -2047,5 +2072,7 @@ drake_cc_googletest(
         "//common/test_utilities:eigen_matrix_compare",
     ],
 )
+
+
 
 add_lint_tests(enable_clang_format_lint = False)
