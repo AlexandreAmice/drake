@@ -1,5 +1,6 @@
 #include "drake/solvers/clarabel_solver.h"
 
+#include <iostream>
 #include <fstream>
 #include <iostream>
 #include <unordered_map>
@@ -10,6 +11,7 @@
 #include <Eigen/Eigen>
 #include <fmt/ranges.h>
 
+#include "drake/common/fmt_eigen.h"
 #include "drake/common/name_value.h"
 #include "drake/common/ssize.h"
 #include "drake/common/text_logging.h"
@@ -377,6 +379,7 @@ void ClarabelSolver::DoSolve2(const MathematicalProgram& prog,
   internal::ParseQuadraticCosts(prog, &P_upper_triplets, &q, &cost_constant);
 
   internal::ConvexConstraintAggregationInfo info;
+  internal::ConvexConstraintAggregationOptions aggregation_options;
   int expected_A_row_count = 0;
 
   // TODO(Alexandre.Amice) Handle this special case more cleanly.
@@ -398,7 +401,7 @@ void ClarabelSolver::DoSolve2(const MathematicalProgram& prog,
   Eigen::Map<Eigen::VectorXd> q_vec{q.data(), ssize(q)};
 
   // Now parse the constraints.
-  internal::DoAggregateConvexConstraints(prog, &info);
+  internal::DoAggregateConvexConstraints(prog, aggregation_options, &info);
 
   Eigen::SparseMatrix<double> A(info.A_row_count, num_x);
   A.setFromTriplets(info.A_triplets.begin(), info.A_triplets.end());
@@ -485,5 +488,6 @@ void ClarabelSolver::DoSolve2(const MathematicalProgram& prog,
   }
   result->set_solution_result(solution_result);
 }
+
 }  // namespace solvers
 }  // namespace drake
