@@ -44,7 +44,7 @@ void DefinePlanningIrisFromCliqueCover(py::module m) {
 
   m.def(
       "IrisInConfigurationSpaceFromCliqueCover",
-      [](const CollisionChecker& checker,
+      [](CollisionChecker& checker,
           const IrisFromCliqueCoverOptions& options, RandomGenerator generator,
           std::vector<geometry::optimization::HPolyhedron> sets,
           const planning::graph_algorithms::MaxCliqueSolverBase*

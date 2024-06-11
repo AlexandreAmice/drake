@@ -36,5 +36,41 @@ Eigen::SparseMatrix<bool> VisibilityGraph(
     const Eigen::Ref<const Eigen::MatrixXd>& points,
     Parallelism parallelize = Parallelism::Max());
 
+/** A more flexible variant of the function VisibilityGraph() above. This method
+also computes the "visibility graph" given a number of sampled points, but
+accepts addtional lambda function parameters that enable custom methods for
+collision checking (for example, to check collisions with user-defined obstacles
+that are not recognized by a CollisionChecker).
+
+`point_check_work` is used to determine whether points in `points` are in
+collision. Specifically, it must accept parameters `const int thread_num`,
+`const int64_t i`, and `std::vector<uint8_t>* points_free` and should set
+`points_free[i]` to contain a value 1 if `points.col(i)` is collision-free, or 0
+otherwise. `point_check_work` must be threadsafe with respect to the number of
+threads `parallelize` defines.
+
+`edge_check_work` is used to if edges from a given point are in collision.
+Specifically, it must accept parameters `const int thread_num`,
+`const int64_t i`, `const std::vector<uint8_t>& points_free`,
+`const int num_points`, and `std::vector<std::vector<int>>* edges`, and should
+append the value `j` to `edges[i]` for all `j` with `points_free[j] = 1` where
+the edge from `points_free[i]` to `points_free[j]` is collision-free.
+`edge_check_work` must be threadsafe with respect to the number of threads
+`parallelize` defines.
+
+@returns the adjacency matrix, A(i,j) == true iff points.col(i) is visible from
+points.col(j). A is always symmetric.
+
+@pre points.rows() == total number of positions in the collision checker plant.
+*/
+Eigen::SparseMatrix<bool> VisibilityGraph(
+    std::function<void(const int, const int64_t,
+        std::vector<uint8_t>*)> point_check_work,
+    std::function<void(const int, const int64_t,
+        const std::vector<uint8_t>&, const int,
+        std::vector<std::vector<int>>*)> edge_check_work,
+    const Eigen::Ref<const Eigen::MatrixXd>& points,
+    const Parallelism parallelize);
+
 }  // namespace planning
 }  // namespace drake

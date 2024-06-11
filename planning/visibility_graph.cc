@@ -104,57 +104,50 @@ class EdgesIterator {
   int inner_idx_{0};
   bool upper_triangle_{false};
 };
-
 }  // namespace
 
 Eigen::SparseMatrix<bool> VisibilityGraph(
-    const CollisionChecker& checker,
+    std::function<void(const int, const int64_t, std::vector<uint8_t>*)>
+        point_check_work,
+    std::function<void(const int, const int64_t, const std::vector<uint8_t>&,
+                       const int, std::vector<std::vector<int>>*)>
+        edge_check_work,
     const Eigen::Ref<const Eigen::MatrixXd>& points,
     const Parallelism parallelize) {
-  DRAKE_THROW_UNLESS(checker.plant().num_positions() == points.rows());
-
   const int num_points = points.cols();
-  const int num_threads_to_use =
-      checker.SupportsParallelChecking()
-          ? std::min(parallelize.num_threads(),
-                     checker.num_allocated_contexts())
-          : 1;
-  drake::log()->debug("Generating VisibilityGraph using {} threads",
-                      num_threads_to_use);
-
-  // Choose std::vector<uint8_t> as a thread-safe data structure for the
-  // parallel evaluations.
-  std::vector<uint8_t> points_free(num_points, 0x00);
-
-  const auto point_check_work = [&](const int thread_num, const int64_t i) {
-    points_free[i] = static_cast<uint8_t>(
-        checker.CheckConfigCollisionFree(points.col(i), thread_num));
-  };
-
-  StaticParallelForIndexLoop(DegreeOfParallelism(num_threads_to_use), 0,
-                             num_points, point_check_work,
-                             ParallelForBackend::BEST_AVAILABLE);
 
   // Choose std::vector as a thread-safe data structure for the parallel
   // evaluations.
+  std::vector<uint8_t> points_free(num_points, 0x00);
   std::vector<std::vector<int>> edges(num_points);
 
-  const auto edge_check_work = [&](const int thread_num, const int64_t index) {
-    const int i = static_cast<int>(index);
-    if (points_free[i] > 0) {
-      edges[i].push_back(i);
-      for (int j = i + 1; j < num_points; ++j) {
-        if (points_free[j] > 0 &&
-            checker.CheckEdgeCollisionFree(points.col(i), points.col(j),
-                                           thread_num)) {
-          edges[i].push_back(j);
-        }
-      }
-    }
+  const int num_threads_to_use = parallelize.num_threads();
+  // const int num_threads_to_use =
+  //     checker.SupportsParallelChecking()
+  //         ? std::min(parallelize.num_threads(),
+  //                    checker.num_allocated_contexts())
+  //         : 1;
+  drake::log()->debug("Generating VisibilityGraph using {} threads",
+                      num_threads_to_use);
+
+  // Partially evaluate `point_check_work` and `edge_check_work` with
+  // `points_free`, `num_points`, and `edges`. These lambdas functions are
+  // compabitible with DynamicParallelForIndexLoop().
+  const auto point_check_work_parallel = [&](const int thread_num,
+                                             const int64_t i) {
+    point_check_work(thread_num, i, &points_free);
+  };
+  const auto edge_check_work_parallel = [&](const int thread_num,
+                                            const int64_t i) {
+    edge_check_work(thread_num, i, points_free, num_points, &edges);
   };
 
   DynamicParallelForIndexLoop(DegreeOfParallelism(num_threads_to_use), 0,
-                              num_points, edge_check_work,
+                              num_points, point_check_work_parallel,
+                              ParallelForBackend::BEST_AVAILABLE);
+
+  DynamicParallelForIndexLoop(DegreeOfParallelism(num_threads_to_use), 0,
+                              num_points, edge_check_work_parallel,
                               ParallelForBackend::BEST_AVAILABLE);
 
   // Convert edges into the SparseMatrix format, using a custom iterator to
@@ -163,6 +156,43 @@ Eigen::SparseMatrix<bool> VisibilityGraph(
   EdgesIterator edges_iterator(edges);
   mat.setFromTriplets(edges_iterator.begin(), edges_iterator.end());
   return mat;
+}
+
+Eigen::SparseMatrix<bool> VisibilityGraph(
+    const CollisionChecker& checker,
+    const Eigen::Ref<const Eigen::MatrixXd>& points,
+    const Parallelism parallelize) {
+  const Parallelism parallelize_to_use = Parallelism(
+      std::min(parallelize.num_threads(), checker.num_allocated_contexts()));
+
+  // Define lambda functions to pass to VisibilityGraph
+  const auto point_check_work = [&](const int thread_num, const int64_t i,
+                                    std::vector<uint8_t>* points_free) {
+    (*points_free)[i] = static_cast<uint8_t>(
+        checker.CheckConfigCollisionFree(points.col(i), thread_num));
+  };
+
+  const auto edge_check_work = [&](const int thread_num, const int64_t index,
+                                   const std::vector<uint8_t>& points_free,
+                                   const int num_points,
+                                   std::vector<std::vector<int>>* edges) {
+    const int i = static_cast<int>(index);
+    if (points_free[i] > 0) {
+      (*edges)[i].push_back(i);
+      for (int j = i + 1; j < num_points; ++j) {
+        if (points_free[j] > 0 &&
+            checker.CheckEdgeCollisionFree(points.col(i), points.col(j),
+                                           thread_num)) {
+          (*edges)[i].push_back(j);
+        }
+      }
+    }
+  };
+
+  // Generate VisibilityGraph using point_check_work and edge_check_work defined
+  // above
+  return VisibilityGraph(point_check_work, edge_check_work, points,
+                         parallelize_to_use);
 }
 
 }  // namespace planning
