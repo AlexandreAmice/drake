@@ -10,7 +10,6 @@
 #include <clarabel.hpp>
 #include <fmt/ranges.h>
 
-#include "drake/common/fmt_eigen.h"
 #include "drake/common/name_value.h"
 #include "drake/common/ssize.h"
 #include "drake/common/text_logging.h"
