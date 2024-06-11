@@ -1614,7 +1614,6 @@ MathematicalProgramResult GraphOfConvexSets::SolveConvexRestriction(
   }
   result.set_decision_variable_index(decision_variable_index);
   result.set_x_val(x_val);
-
   return result;
 }
 
@@ -1623,10 +1622,7 @@ GraphOfConvexSets::SolveConvexRestrictions(
     const std::vector<std::vector<const Edge*>>& active_edges,
     const Parallelism& parallelism,
     const GraphOfConvexSetsOptions& options) const {
-  std::vector<MathematicalProgramResult> results;
-  for (int i = 0; i < ssize(active_edges); ++i) {
-    results.emplace_back();
-  }
+  std::vector<MathematicalProgramResult> results(active_edges.size());
   auto solve_convex_restriction = [&](const int thread_num,
                                       const int64_t index) {
     unused(thread_num);

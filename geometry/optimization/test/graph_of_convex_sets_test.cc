@@ -2371,10 +2371,11 @@ GTEST_TEST(ShortestPathTest, SolveConvexRestrictions) {
 
   auto results = spp.SolveConvexRestrictions(paths);
   EXPECT_EQ(ssize(results), ssize(paths));
-  EXPECT_TRUE(results[0].is_success());
-  EXPECT_TRUE(results[1].is_success());
-  EXPECT_TRUE(results[2].is_success());
-  EXPECT_TRUE(results[3].is_success());
+  for(int i = 0; i < ssize(results); ++i) {
+    EXPECT_TRUE(results[i].is_success());
+    EXPECT_GE(results[i].get_x_val().size(), 0);
+  }
+  EXPECT_TRUE(false);
 }
 
 // Cover the case where there is no path from source to target.
