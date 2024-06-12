@@ -55,6 +55,7 @@ drake_cc_package_library(
         ":choose_best_solver",
         ":clarabel_solver",
         ":clp_solver",
+        ":conic_standard_form",
         ":constraint",
         ":cost",
         ":create_constraint",
@@ -1144,6 +1145,19 @@ drake_cc_library(
 #    deps = [],
 #)
 
+drake_cc_library(
+    name = "conic_standard_form",
+    srcs = ["conic_standard_form.cc"],
+    hdrs = ["conic_standard_form.h"],
+    interface_deps = [
+        ":mathematical_program",
+    ],
+    deps = [
+        ":aggregate_costs_constraints",
+        "//math:matrix_util",
+    ],
+)
+
 drake_cc_optional_library(
     name = "csdp_solver_error_handling",
     opt_in_condition = "//tools/workspace/csdp_internal:enabled",
@@ -2194,6 +2208,24 @@ drake_cc_googletest(
         "//common/test_utilities:eigen_matrix_compare",
         "//common/test_utilities:expect_throws_message",
         ":aggregate_costs_constraints"
+    ],
+)
+
+drake_cc_googletest(
+    name = "conic_standard_form_test",
+    deps = [
+        ":aggregate_costs_constraints",
+        ":choose_best_solver",
+        ":conic_standard_form",
+        ":linear_program_examples",
+        ":mathematical_program",
+        ":mathematical_program_test_util",
+        ":second_order_cone_program_examples",
+        ":semidefinite_program_examples",
+        ":solve",
+        ":sos_examples",
+        "//common/test_utilities:eigen_matrix_compare",
+        "//common/test_utilities:expect_throws_message",
     ],
 )
 

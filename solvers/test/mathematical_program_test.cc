@@ -3004,21 +3004,37 @@ CheckAddedSymbolicPositiveSemidefiniteConstraint(
   // constraints are both incremented by 1.
   EXPECT_EQ(num_psd_cnstr + 1,
             prog->positive_semidefinite_constraints().size());
-  EXPECT_EQ(num_lin_eq_cnstr + 1, prog->linear_equality_constraints().size());
-  // Check if the returned binding is the correct one.
-  EXPECT_EQ(binding.evaluator().get(),
-            prog->positive_semidefinite_constraints().back().evaluator().get());
-  // Check if the added linear constraint is correct. M is the newly added
-  // variables representing the psd matrix.
-  const Eigen::Map<const MatrixX<Variable>> M(&binding.variables()(0), V.rows(),
-                                              V.cols());
-  // The linear equality constraint is only imposed on the lower triangular
-  // part of the psd matrix.
-  const auto& new_lin_eq_cnstr = prog->linear_equality_constraints().back();
-  auto V_minus_M = math::ToSymmetricMatrixFromLowerTriangularColumns(
-      new_lin_eq_cnstr.evaluator()->GetDenseA() * new_lin_eq_cnstr.variables() -
-      new_lin_eq_cnstr.evaluator()->lower_bound());
-  EXPECT_EQ(V_minus_M, V - M);
+  bool mat_is_variable = true;
+  for (int i = 0; i < V.rows(); ++i) {
+    for (int j = i; j < V.cols(); ++j) {
+      if (!symbolic::is_variable(V(i, j))) {
+        mat_is_variable = false;
+        break;
+      }
+    }
+    if (!mat_is_variable) break;
+  }
+  if (mat_is_variable) {
+    EXPECT_EQ(num_lin_eq_cnstr, prog->linear_equality_constraints().size());
+  } else {
+    EXPECT_EQ(num_lin_eq_cnstr + 1, prog->linear_equality_constraints().size());
+    // Check if the returned binding is the correct one.
+    EXPECT_EQ(
+        binding.evaluator().get(),
+        prog->positive_semidefinite_constraints().back().evaluator().get());
+    // Check if the added linear constraint is correct. M is the newly added
+    // variables representing the psd matrix.
+    const Eigen::Map<const MatrixX<Variable>> M(&binding.variables()(0),
+                                                V.rows(), V.cols());
+    // The linear equality constraint is only imposed on the lower triangular
+    // part of the psd matrix.
+    const auto& new_lin_eq_cnstr = prog->linear_equality_constraints().back();
+    auto V_minus_M = math::ToSymmetricMatrixFromLowerTriangularColumns(
+        new_lin_eq_cnstr.evaluator()->GetDenseA() *
+            new_lin_eq_cnstr.variables() -
+        new_lin_eq_cnstr.evaluator()->lower_bound());
+    EXPECT_EQ(V_minus_M, V - M);
+  }
 }
 }  // namespace
 
