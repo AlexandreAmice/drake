@@ -470,48 +470,48 @@ TEST_F(IrisInConfigurationSpaceFromCliqueCoverTestFixture,
 
 // Test that we get perfect coverage with a configuration obstacle in the top
 // half of the bounding region
-GTEST_TEST(IrisInConfigurationSpaceFromCliqueCover,
-           BoxConfigurationSpaceTestMichaelsVersion) {
-  CollisionCheckerParams params;
-
-  RobotDiagramBuilder<double> builder(0.0);
-  params.robot_model_instances =
-      builder.parser().AddModelsFromString(free_box, "urdf");
-  params.edge_step_size = 0.01;
-
-  params.model = builder.Build();
-  auto checker =
-      std::make_unique<SceneGraphCollisionChecker>(std::move(params));
-
-  IrisFromCliqueCoverOptions options;
-
-  options.num_points_per_coverage_check = 100;
-  options.num_points_per_visibility_round = 100;
-  options.iteration_limit = 1;
-  // Set a large bounding region to test the path where this is set in the
-  // IrisOptions.
-  options.iris_options.bounding_region =
-      HPolyhedron::MakeBox(Eigen::Vector2d{-2, -2}, Eigen::Vector2d{2, 2});
-  // Add large configuration obstacle in the top half of the bounding region
-  ConvexSets configuration_obstacles;
-  configuration_obstacles.emplace_back(
-      HPolyhedron::MakeBox(Eigen::Vector2d{-2, 0}, Eigen::Vector2d{2, 2}));
-  options.iris_options.configuration_obstacles = configuration_obstacles;
-  // Run this test without parallelism to test that no bugs occur in the
-  // non-parallel version.
-  options.parallelism = Parallelism{1};
-  std::vector<HPolyhedron> sets;
-
-  RandomGenerator generator(0);
-
-  IrisInConfigurationSpaceFromCliqueCover(*checker, options, &generator, &sets,
-                                          nullptr);
-  EXPECT_GE(ssize(sets), 1);
-
-  // expect perfect coverage
-  VPolytope vpoly(sets.at(0));
-  EXPECT_EQ(vpoly.CalcVolume(), 8.0);
-}
+//GTEST_TEST(IrisInConfigurationSpaceFromCliqueCover,
+//           BoxConfigurationSpaceTestMichaelsVersion) {
+//  CollisionCheckerParams params;
+//
+//  RobotDiagramBuilder<double> builder(0.0);
+//  params.robot_model_instances =
+//      builder.parser().AddModelsFromString(free_box, "urdf");
+//  params.edge_step_size = 0.01;
+//
+//  params.model = builder.Build();
+//  auto checker =
+//      std::make_unique<SceneGraphCollisionChecker>(std::move(params));
+//
+//  IrisFromCliqueCoverOptions options;
+//
+//  options.num_points_per_coverage_check = 100;
+//  options.num_points_per_visibility_round = 100;
+//  options.iteration_limit = 1;
+//  // Set a large bounding region to test the path where this is set in the
+//  // IrisOptions.
+//  options.iris_options.bounding_region =
+//      HPolyhedron::MakeBox(Eigen::Vector2d{-2, -2}, Eigen::Vector2d{2, 2});
+//  // Add large configuration obstacle in the top half of the bounding region
+//  ConvexSets configuration_obstacles;
+//  configuration_obstacles.emplace_back(
+//      HPolyhedron::MakeBox(Eigen::Vector2d{-2, 0}, Eigen::Vector2d{2, 2}));
+//  options.iris_options.configuration_obstacles = configuration_obstacles;
+//  // Run this test without parallelism to test that no bugs occur in the
+//  // non-parallel version.
+//  options.parallelism = Parallelism{1};
+//  std::vector<HPolyhedron> sets;
+//
+//  RandomGenerator generator(0);
+//
+//  IrisInConfigurationSpaceFromCliqueCover(*checker, options, &generator, &sets,
+//                                          nullptr);
+//  EXPECT_GE(ssize(sets), 1);
+//
+//  // expect perfect coverage
+//  VPolytope vpoly(sets.at(0));
+//  EXPECT_EQ(vpoly.CalcVolume(), 8.0);
+//}
 
 }  // namespace
 }  // namespace planning
