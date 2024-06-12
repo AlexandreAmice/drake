@@ -185,8 +185,6 @@ bool CheckConfigCollisionFreeWithConfigurationObstacles(
     const Eigen::VectorXd& q, const CollisionChecker& checker,
     const ConvexSets& configuration_obstacles, const bool check_margin,
     const double configuration_space_margin, const int thread_num) {
-  //TODO(mzheng) use.
-  unused(check_margin);
   // First check if the configuration is collision-free with the obstacles
   // defined by the collision checker.
   if (!checker.CheckConfigCollisionFree(q, thread_num)) {
@@ -197,16 +195,22 @@ bool CheckConfigCollisionFreeWithConfigurationObstacles(
   for (const auto& obstacle_ptr : configuration_obstacles) {
     const ConvexSet& obstacle = *obstacle_ptr;
 
-    // Calculate distance from q to obstacle
-    const std::optional<std::pair<std::vector<double>, Eigen::MatrixXd>>
-        projection_result = obstacle.Projection(q);
-
-    if (projection_result.has_value()) {
-      const std::vector<double>& distances = projection_result->first;
-      return distances[0] < configuration_space_margin;
-    } else {  // if Projection fails, assume there is a collision
-      return false;
+    if (check_margin) {
+      // Calculate distance from q to obstacle
+      const std::optional<std::pair<std::vector<double>, Eigen::MatrixXd>>
+          projection_result = obstacle.Projection(q);
+      // Check if if distance is greater than configuration space margin
+      if (projection_result.has_value()) {
+        const std::vector<double>& distances = projection_result->first;
+        return distances[0] < configuration_space_margin;
+      } else {  // if Projection fails, assume there is a collision
+        return false;
+      }
+    } else {
+      return !obstacle.PointInSet(q);
     }
+
+    
   }
 
   return true;

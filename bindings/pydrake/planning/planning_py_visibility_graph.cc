@@ -12,22 +12,25 @@ void DefinePlanningVisibilityGraph(py::module m) {
   constexpr auto& doc = pydrake_doc.drake.planning;
 
   m.def("VisibilityGraph",
-      py::overload_caset<const CollisionChecker&,
+      py::overload_cast<const CollisionChecker&,
           const Eigen::Ref<const Eigen::MatrixXd>&, const Parallelism>(
           &planning::VisibilityGraph),
-      py::arg("checker"), py::arg("points"), py::arg("parallelize") = Parallelism::Max(),
+      py::arg("checker"), py::arg("points"), 
+      py::arg("parallelize") = Parallelism::Max(),
       py::call_guard<py::gil_scoped_release>()
   , doc.VisibilityGraph.doc_3args);
 
   m.def("VisibilityGraph",
-      py::overload_caset<
+      py::overload_cast<
           std::function<void(const int, const int64_t, std::vector<uint8_t>*)>,
           std::function<void(const int, const int64_t,
               const std::vector<uint8_t>&, const int,
               std::vector<std::vector<int>>*)>,
-          const CollisionChecker&, const Eigen::Ref<const Eigen::MatrixXd>&,
-          const Parallelism>(&planning::VisibilityGraph), py::arg("point_check_work"), py::arg("edge_check_work"),
-      py::arg("checker"), py::arg("points"), py::arg("parallelize") = Parallelism::Max(),
+          const Eigen::Ref<const Eigen::MatrixXd>&,
+          const Parallelism>(&planning::VisibilityGraph), 
+          py::arg("point_check_work"), 
+          py::arg("edge_check_work"),
+      py::arg("points"), py::arg("parallelize") = Parallelism::Max(),
       py::call_guard<py::gil_scoped_release>()
    , doc.VisibilityGraph.doc_4args);
 }
