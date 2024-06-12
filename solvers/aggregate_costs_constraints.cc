@@ -341,7 +341,7 @@ void DoAggregateConvexConstraints(
   internal::ParsePositiveSemidefiniteConstraints(
       prog, options.parse_psd_using_upper_triangular,
       options.preserve_psd_inner_product_vectorization, &(info->A_triplets),
-      &(info->b_std), &(info->A_row_count), &(info->psd_cone_lengths));
+      &(info->b_std), &(info->A_row_count), &(info->psd_row_size));
 
   // Parse Exponential Cone Constraints
   internal::ParseExponentialConeConstraints(
