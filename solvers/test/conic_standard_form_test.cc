@@ -23,26 +23,9 @@ namespace test {
 namespace {
 const double kInf = std::numeric_limits<double>::infinity();
 void CheckParseToConicStandardForm(const MathematicalProgram& prog) {
-  Eigen::SparseVector<double> c;
-  double d{0};
-  Eigen::SparseMatrix<double> A;
-  Eigen::SparseVector<double> b;
-  std::unordered_map<ProgramAttribute, std::vector<std::pair<int, int>>>
-      attributes_to_start_end_pairs;
-
-  ParseToConicStandardForm(prog, &c, &d, &A, &b,
-                           &attributes_to_start_end_pairs);
-  std::cout << "ORIGINAL" << std::endl;
-  std::cout << prog << std::endl;
-
-  std::cout << fmt::format("A=\n{}", fmt_eigen(A.toDense())) << std::endl;
-  std::cout << fmt::format("b=\n{}", fmt_eigen(b.toDense())) << std::endl;
-  std::cout << fmt::format("c=\n{}", fmt_eigen(c.toDense())) << std::endl;
-  std::cout << fmt::format("d=\n{}", d) << std::endl;
-
-  MathematicalProgram prog_standard_form;
-  auto x = prog_standard_form.NewContinuousVariables(A.cols(), "x");
-  prog_standard_form.AddLinearCost(c.toDense(), d, x);
+  ConicStandardForm standard_form{prog};
+  std::unique_ptr<MathematicalProgram> prog_standard_form =
+      standard_form.MakeProgram();
 
   ProgramAttributes expected_output_constraint_attributes(
       std::initializer_list<ProgramAttribute>{
@@ -52,47 +35,9 @@ void CheckParseToConicStandardForm(const MathematicalProgram& prog) {
           ProgramAttribute::kLorentzConeConstraint,
           ProgramAttribute::kPositiveSemidefiniteConstraint,
       });
-  for (const auto& [attribute, index_pairs] : attributes_to_start_end_pairs) {
-    EXPECT_TRUE(expected_output_constraint_attributes.contains(attribute));
-    std::cout << "Attribute " << attribute << std::endl;
-    for (const auto& [start, end] : index_pairs) {
-      std::cout << fmt::format("(Start, end) = ({},{})", start, end)
-                << std::endl;
-      const int length = end - start;
-      if (attribute == ProgramAttribute::kLinearEqualityConstraint) {
-        prog_standard_form.AddLinearEqualityConstraint(
-            A.middleRows(start, length), -b.segment(start, length).toDense(),
-            x);
-      } else if (attribute == ProgramAttribute::kLinearConstraint) {
-        prog_standard_form.AddLinearConstraint(
-            A.middleRows(start, length), -b.segment(start, length).toDense(),
-            Eigen::VectorXd::Constant(length, kInf), x);
-      } else if (attribute == ProgramAttribute::kLorentzConeConstraint) {
-        prog_standard_form.AddLorentzConeConstraint(
-            A.middleRows(start, length).toDense(),
-            b.segment(start, length).toDense(), x);
-      } else if (attribute ==
-                 ProgramAttribute::kPositiveSemidefiniteConstraint) {
-        const MatrixX<symbolic::Expression> y_vec =
-            A.middleRows(start, length).toDense() *
-                x.cast<symbolic::Expression>() +
-            b.segment(start, length).toDense();
-        MatrixX<symbolic::Expression> Y =
-            math::ToSymmetricMatrixFromLowerTriangularColumns(y_vec);
-        const double sqrt2 = std::sqrt(2);
-        for (int i = 0; i < Y.rows(); ++i) {
-          for (int j = i + 1; j < Y.cols(); ++j) {
-            Y(i, j) = (Y(i, j) / sqrt2).Expand();
-            Y(j, i) = Y(i, j);
-          }
-        }
-        prog_standard_form.AddPositiveSemidefiniteConstraint(Y);
-      }
-    }
-  }
 
   auto original_result = Solve(prog);
-  auto standard_form_result = Solve(prog_standard_form);
+  auto standard_form_result = Solve(*prog_standard_form);
   EXPECT_EQ(original_result.get_solution_result(),
             standard_form_result.get_solution_result());
   if (original_result.get_solution_result() == SolutionResult::kSolutionFound) {
