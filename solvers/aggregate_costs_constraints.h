@@ -101,24 +101,12 @@ void AggregateDuplicateVariables(const Eigen::SparseMatrix<double>& A,
                                  Eigen::SparseMatrix<double>* A_new,
                                  VectorX<symbolic::Variable>* vars_new);
 
-/**
- * Aggregate all convex (conic) constraints into conic standard form i.e. a
- * single constraint Ax + b ∈ K where K is the product of cones.
- */
-void AggregateConvexConstraints(const MathematicalProgram& prog,
-                                Eigen::SparseMatrix<double>* A,
-                                Eigen::VectorXd* b,
-                                Eigen::SparseMatrix<double>* Aeq,
-                                Eigen::SparseMatrix<double>* beq);
-
 namespace internal {
-
 struct ConvexConstraintAggregationOptions {
   bool cast_rotated_lorentz_to_lorentz{true};
   bool preserve_psd_inner_product_vectorization{true};
   bool parse_psd_using_upper_triangular{true};
 };
-
 // Information required to aggregate the convex constraints of a program into
 // the form.
 //   A x + s = b
@@ -170,7 +158,7 @@ struct ConvexConstraintAggregationInfo {
   // prog.positive_semidefinite_constraints() and
   // prog.linear_matrix_inequality_constraints(). See
   // ParsePositiveSemidefiniteConstraints for more details.
-  std::vector<int> psd_cone_lengths;
+  std::vector<int> psd_row_size;
 };
 
 // Iterate over the convex (conic) constraints of prog and aggregate the
@@ -461,7 +449,7 @@ void ParseExponentialConeConstraints(
 // prog.linear_matrix_inequality_constraints() will be appended to b.
 // @param[in/out] A_row_count The number of rows in A before and after calling
 // this function.
-// @param[out] psd_cone_length The length of all the psd cones from
+// @param[out] psd_cone_length The number of rows in each psd matrix from
 // prog.positive_semidefinite_constraints() and
 // prog.linear_matrix_inequality_constraints().
 void ParsePositiveSemidefiniteConstraints(

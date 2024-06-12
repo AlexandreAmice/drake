@@ -8,6 +8,11 @@
 namespace drake {
 namespace solvers {
 
+struct MakeDualConvexProgramOptions {
+  bool cast_rotated_lorentz_to_lorentz{false};
+  bool preserve_psd_inner_product_vectorization{false};
+};
+
 /** Compute a dual of the convex program. In particular, given the convex
  * program
  * min c^T x + d s.t.
@@ -54,6 +59,12 @@ namespace solvers {
  * interpretation for linear equality constraints, which is the negative of the
  * dual formulation provided by this method.s
  */
+std::unique_ptr<MathematicalProgram> CreateDualConvexProgram(
+    const MathematicalProgram& prog,
+    const MakeDualConvexProgramOptions& options,
+    std::unordered_map<Binding<Constraint>, MatrixX<symbolic::Expression>>*
+        constraint_to_dual_variable_map);
+
 std::unique_ptr<MathematicalProgram> CreateDualConvexProgram(
     const MathematicalProgram& prog,
     std::unordered_map<Binding<Constraint>, MatrixX<symbolic::Expression>>*

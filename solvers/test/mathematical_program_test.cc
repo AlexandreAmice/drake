@@ -2910,21 +2910,37 @@ CheckAddedSymbolicPositiveSemidefiniteConstraint(
   // constraints are both incremented by 1.
   EXPECT_EQ(num_psd_cnstr + 1,
             prog->positive_semidefinite_constraints().size());
-  EXPECT_EQ(num_lin_eq_cnstr + 1, prog->linear_equality_constraints().size());
-  // Check if the returned binding is the correct one.
-  EXPECT_EQ(binding.evaluator().get(),
-            prog->positive_semidefinite_constraints().back().evaluator().get());
-  // Check if the added linear constraint is correct. M is the newly added
-  // variables representing the psd matrix.
-  const Eigen::Map<const MatrixX<Variable>> M(&binding.variables()(0), V.rows(),
-                                              V.cols());
-  // The linear equality constraint is only imposed on the lower triangular
-  // part of the psd matrix.
-  const auto& new_lin_eq_cnstr = prog->linear_equality_constraints().back();
-  auto V_minus_M = math::ToSymmetricMatrixFromLowerTriangularColumns(
-      new_lin_eq_cnstr.evaluator()->GetDenseA() * new_lin_eq_cnstr.variables() -
-      new_lin_eq_cnstr.evaluator()->lower_bound());
-  EXPECT_EQ(V_minus_M, V - M);
+  bool mat_is_variable = true;
+  for (int i = 0; i < V.rows(); ++i) {
+    for (int j = i; j < V.cols(); ++j) {
+      if (!symbolic::is_variable(V(i, j))) {
+        mat_is_variable = false;
+        break;
+      }
+    }
+    if (!mat_is_variable) break;
+  }
+  if (mat_is_variable) {
+    EXPECT_EQ(num_lin_eq_cnstr, prog->linear_equality_constraints().size());
+  } else {
+    EXPECT_EQ(num_lin_eq_cnstr + 1, prog->linear_equality_constraints().size());
+    // Check if the returned binding is the correct one.
+    EXPECT_EQ(
+        binding.evaluator().get(),
+        prog->positive_semidefinite_constraints().back().evaluator().get());
+    // Check if the added linear constraint is correct. M is the newly added
+    // variables representing the psd matrix.
+    const Eigen::Map<const MatrixX<Variable>> M(&binding.variables()(0),
+                                                V.rows(), V.cols());
+    // The linear equality constraint is only imposed on the lower triangular
+    // part of the psd matrix.
+    const auto& new_lin_eq_cnstr = prog->linear_equality_constraints().back();
+    auto V_minus_M = math::ToSymmetricMatrixFromLowerTriangularColumns(
+        new_lin_eq_cnstr.evaluator()->GetDenseA() *
+            new_lin_eq_cnstr.variables() -
+        new_lin_eq_cnstr.evaluator()->lower_bound());
+    EXPECT_EQ(V_minus_M, V - M);
+  }
 }
 }  // namespace
 
@@ -2987,8 +3003,7 @@ GTEST_TEST(TestMathematicalProgram,
   // clang-format on
 
   auto psd_cnstr =
-      prog.AddPrincipalSubmatrixIsPsdConstraint(X, minor_indices)
-          .evaluator();
+      prog.AddPrincipalSubmatrixIsPsdConstraint(X, minor_indices).evaluator();
   EXPECT_EQ(prog.positive_semidefinite_constraints().size(), 1);
   EXPECT_EQ(prog.GetAllConstraints().size(), 1);
   const auto& new_psd_cnstr = prog.positive_semidefinite_constraints().back();
@@ -3287,8 +3302,8 @@ GTEST_TEST(TestMathematicalProgram, AddL2NormCost) {
 
   auto obj1 =
       prog.AddCost(Binding<L2NormCost>(std::make_shared<L2NormCost>(A, b), x));
-  EXPECT_TRUE(prog.required_capabilities().contains(
-      ProgramAttribute::kL2NormCost));
+  EXPECT_TRUE(
+      prog.required_capabilities().contains(ProgramAttribute::kL2NormCost));
   EXPECT_EQ(prog.l2norm_costs().size(), 1u);
   EXPECT_EQ(prog.GetAllCosts().size(), 1u);
 
@@ -3308,19 +3323,19 @@ GTEST_TEST(TestMathematicalProgram, AddL2NormCost) {
   prog.RemoveCost(obj3);
   prog.RemoveCost(obj4);
   EXPECT_EQ(prog.l2norm_costs().size(), 0u);
-  EXPECT_FALSE(prog.required_capabilities().contains(
-      ProgramAttribute::kL2NormCost));
+  EXPECT_FALSE(
+      prog.required_capabilities().contains(ProgramAttribute::kL2NormCost));
 
   prog.AddL2NormCost(A, b, {x.head<1>(), x.tail<1>()});
   EXPECT_EQ(prog.l2norm_costs().size(), 1u);
-  EXPECT_TRUE(prog.required_capabilities().contains(
-      ProgramAttribute::kL2NormCost));
+  EXPECT_TRUE(
+      prog.required_capabilities().contains(ProgramAttribute::kL2NormCost));
 
   auto new_prog = prog.Clone();
   EXPECT_EQ(new_prog->l2norm_costs().size(), 1u);
 
   // AddL2NormCost(Expression) can throw.
-  e = (A*x + b).squaredNorm();
+  e = (A * x + b).squaredNorm();
   DRAKE_EXPECT_THROWS_MESSAGE(prog.AddL2NormCost(e), ".*is not an L2 norm.*");
 }
 

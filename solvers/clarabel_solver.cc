@@ -309,7 +309,7 @@ void ClarabelSolver::DoSolve(const MathematicalProgram& prog,
     expected_A_row_count += soc_length;
     cones.push_back(clarabel::SecondOrderConeT<double>(soc_length));
   }
-  for (const int length : info.psd_cone_lengths) {
+  for (const int length : info.psd_row_size) {
     expected_A_row_count += (length * (length + 1)) / 2;
     cones.push_back(clarabel::PSDTriangleConeT<double>(length));
   }
