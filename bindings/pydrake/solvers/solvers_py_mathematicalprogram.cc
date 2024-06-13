@@ -348,24 +348,6 @@ void BindSolverInterfaceAndFlags(py::module m) {
           },
           py::is_operator());
 
-  py::enum_<ProgramType>(m, "ProgramType", doc.ProgramType.doc)
-      .value("kLP", ProgramType::kLP, doc.ProgramType.kLP.doc)
-      .value("kQP", ProgramType::kQP, doc.ProgramType.kQP.doc)
-      .value("kSOCP", ProgramType::kSOCP, doc.ProgramType.kSOCP.doc)
-      .value("kSDP", ProgramType::kSDP, doc.ProgramType.kSDP.doc)
-      .value("kGP", ProgramType::kGP, doc.ProgramType.kGP.doc)
-      .value("kCGP", ProgramType::kCGP, doc.ProgramType.kCGP.doc)
-      .value("kMILP", ProgramType::kMILP, doc.ProgramType.kMILP.doc)
-      .value("kMIQP", ProgramType::kMIQP, doc.ProgramType.kMIQP.doc)
-      .value("kMISOCP", ProgramType::kMISOCP, doc.ProgramType.kMISOCP.doc)
-      .value("kMISDP", ProgramType::kMISDP, doc.ProgramType.kMISDP.doc)
-      .value("kQuadraticCostConicConstraint",
-          ProgramType::kQuadraticCostConicConstraint,
-          doc.ProgramType.kQuadraticCostConicConstraint.doc)
-      .value("kNLP", ProgramType::kNLP, doc.ProgramType.kNLP.doc)
-      .value("kLCP", ProgramType::kLCP, doc.ProgramType.kLCP.doc)
-      .value("kUnknown", ProgramType::kUnknown, doc.ProgramType.kUnknown.doc);
-
   py::enum_<SolverType> solver_type(m, "SolverType", doc.SolverType.doc);
   solver_type  // BR
       .value("kClp", SolverType::kClp, doc.SolverType.kClp.doc)
