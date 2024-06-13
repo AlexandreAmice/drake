@@ -280,7 +280,7 @@ std::queue<HPolyhedron> IrisWorker(
       Eigen::VectorXd pt = clique_points.col(i);
 
       // Check collision in context
-      if (!checker.CheckConfigCollisionFree(pt)) {
+      if (!checker.CheckConfigCollisionFree(pt, builder_id)) {
         log()->info("clique point in collision with context obstacle: {}",
                     fmt_eigen(pt));
         collision = true;
@@ -336,7 +336,7 @@ std::queue<HPolyhedron> IrisWorker(
       log()->info(
           "New starting ellipse center is in collision with context obstacle: "
           "{}",
-          !checker.CheckConfigCollisionFree(center));
+          !checker.CheckConfigCollisionFree(center, builder_id));
       log()->info(
           "New starting ellipse center is in collision with "
           "configuration_obstacle: {}",
