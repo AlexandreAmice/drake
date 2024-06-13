@@ -594,7 +594,7 @@ TEST_F(IrisInConfigurationSpaceFromCliqueCoverTestFixture,
 // Test that we get perfect coverage with a configuration obstacle in the top
 // half of the bounding region
 GTEST_TEST(IrisInConfigurationSpaceFromCliqueCover,
-           BoxConfigurationSpaceTestMichaelsVersion) {
+           BoxConfigurationSpaceHalfObstacleTest) {
   CollisionCheckerParams params;
 
   RobotDiagramBuilder<double> builder(0.0);
