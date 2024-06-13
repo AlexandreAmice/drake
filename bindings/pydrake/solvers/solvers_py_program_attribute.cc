@@ -2,7 +2,9 @@
 #include "drake/bindings/pydrake/common/eigen_pybind.h"
 #include "drake/bindings/pydrake/pydrake_pybind.h"
 #include "drake/bindings/pydrake/solvers/solvers_py.h"
+#include "drake/solvers/conic_standard_form.h"
 #include "drake/solvers/mathematical_program.h"
+
 
 namespace drake {
 namespace pydrake {

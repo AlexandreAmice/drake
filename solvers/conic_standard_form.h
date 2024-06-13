@@ -10,17 +10,6 @@
 namespace drake {
 namespace solvers {
 
-/** Given a convex program (specficially an LP, QP, SOCP, or SDP), construct an
- * equivalent program in standard primal conic form:
- * min        〈 c, x 〉+ d
- * subject to  Ax + b ∈ K
- * Where K is the product of cones.
- * @param prog
- * @return
- */
-// std::unique_ptr<MathematicalProgram> ParseToConicStandardForm(
-//    const MathematicalProgram& prog);
-
 /** Stores the information required to represent a convex program  (specficially
  * an LP, QP, SOCP, or SDP), in standard primal conic
  * form:
@@ -30,7 +19,7 @@ namespace solvers {
  * 1) Zero cone {x | x = 0 }
  * 2) Positive orthant {x | x ≥ 0 }
  * 3) Second-order cone {(t, x) | |x|₂ ≤ t }
- * 4) Positive semidefinite cone { X |  min(eig(X)) ≥ 0, X = Xᵀ }
+ * 4) Positive semidefinite cone { X |  min(eig(X)) ≥ 0, X = Xᵀ }g
  */
 class ConicStandardForm {
  public:
