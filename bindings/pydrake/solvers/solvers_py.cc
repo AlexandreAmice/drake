@@ -26,6 +26,7 @@ top-level documentation for :py:mod:`pydrake.math`.
   internal::DefineSolversAugmentedLagrangian(m);
   internal::DefineSolversBranchAndBound(m);
   internal::DefineSolversDualConvexProgram(m);
+  internal::DefineSolversConicStandardForm(m);
   internal::DefineSolversMixedIntegerOptimizationUtil(m);
   internal::DefineSolversMixedIntegerRotationConstraint(m);
   internal::DefineSolversSdpaFreeFormat(m);
