@@ -472,6 +472,41 @@ TEST_F(IrisInConfigurationSpaceFromCliqueCoverTestFixture,
 // half of the bounding region
 GTEST_TEST(IrisInConfigurationSpaceFromCliqueCover,
            BoxConfigurationSpaceHalfObstacleTest) {
+
+  std::shared_ptr<Meshcat> meshcat = std::make_shared<Meshcat>();
+  log()->info("made meshcat.");
+  meshcat->Delete("/drake");
+  meshcat->Set2dRenderMode(math::RigidTransformd(Eigen::Vector3d{0, 0, 1}),
+                            -3.25, 3.25, -3.25, 3.25);
+  meshcat->SetProperty("/Grid", "visible", true);
+  // Draw the true cspace.
+  Eigen::Matrix3Xd env_points(3, 5);
+  // clang-format off
+  env_points << -2, 2,  2, -2, -2,
+                  2, 2, -2, -2,  2,
+                  0, 0,  0,  0,  0;
+  // clang-format on
+  meshcat->SetLine("Domain", env_points, 8.0, Rgba(0, 0, 0));
+
+  log()->info("1");
+
+  // Draw the configuration obstacle.
+  Eigen::MatrixXd configuration_obstacle_points(2, 4);
+  log()->info("2");
+  // clang-format off
+  configuration_obstacle_points << -2, 2,  2, -2,
+                                    2, 2, 0,  0;
+  log()->info("3");
+  VPolytope vconfiguration_obstacle(configuration_obstacle_points);
+  log()->info("4");
+  // clang-format on
+  Eigen::Vector3d configuration_obstacle_color;
+  log()->info("5");
+  configuration_obstacle_color << 0.75, 0.0, 0.0;
+  log()->info("6");
+  Draw2dVPolytope(vconfiguration_obstacle, "configuration_obstacle", 
+      configuration_obstacle_color, meshcat);
+
   CollisionCheckerParams params;
 
   RobotDiagramBuilder<double> builder(0.0);
@@ -500,13 +535,75 @@ GTEST_TEST(IrisInConfigurationSpaceFromCliqueCover,
   // Run this test without parallelism to test that no bugs occur in the
   // non-parallel version.
   options.parallelism = Parallelism{1};
+  options.iris_options.meshcat = meshcat;
   std::vector<HPolyhedron> sets;
 
   RandomGenerator generator(0);
 
   IrisInConfigurationSpaceFromCliqueCover(*checker, options, &generator, &sets,
                                           nullptr);
+
   EXPECT_GE(ssize(sets), 1);
+
+  // Show the IrisFromCliqueCoverDecomposition
+  std::normal_distribution<double> gaussian;
+  Eigen::VectorXd color = Eigen::VectorXd::Zero(3);
+  for (int i = 0; i < ssize(sets); ++i) {
+    // Choose a random color.
+    for (int j = 0; j < color.size(); ++j) {
+      color[j] = abs(gaussian(generator));
+    }
+    color.normalize();
+    VPolytope vregion = VPolytope(sets.at(i)).GetMinimalRepresentation();
+    Draw2dVPolytope(vregion, fmt::format("iris_from_clique_cover{}", i),
+                    color, meshcat);
+  }
+
+  // expect perfect coverage
+  VPolytope vpoly(sets.at(0));
+  EXPECT_EQ(vpoly.CalcVolume(), 8.0);
+}
+
+// Test that we get perfect coverage with a configuration obstacle vertically
+// centered in the bounding region.
+GTEST_TEST(IrisInConfigurationSpaceFromCliqueCover,
+           BoxConfigurationSpaceCenteredHalfObstacleTest) {
+  CollisionCheckerParams params;
+
+  RobotDiagramBuilder<double> builder(0.0);
+  params.robot_model_instances =
+      builder.parser().AddModelsFromString(free_box, "urdf");
+  params.edge_step_size = 0.01;
+
+  params.model = builder.Build();
+  auto checker =
+      std::make_unique<SceneGraphCollisionChecker>(std::move(params));
+
+  IrisFromCliqueCoverOptions options;
+
+  options.num_points_per_coverage_check = 100;
+  options.num_points_per_visibility_round = 100;
+  options.iteration_limit = 1;
+  // Set a large bounding region to test the path where this is set in the
+  // IrisOptions.
+  options.iris_options.bounding_region =
+      HPolyhedron::MakeBox(Eigen::Vector2d{-2, -2}, Eigen::Vector2d{2, 2});
+  // Add large configuration obstacle in the top half of the bounding region
+  ConvexSets configuration_obstacles;
+  configuration_obstacles.emplace_back(
+      HPolyhedron::MakeBox(Eigen::Vector2d{-2, -1}, Eigen::Vector2d{2, 1}));
+  options.iris_options.configuration_obstacles = configuration_obstacles;
+  // Run this test without parallelism to test that no bugs occur in the
+  // non-parallel version.
+  options.parallelism = Parallelism{1};
+  std::vector<HPolyhedron> sets;
+
+  RandomGenerator generator(0);
+
+  IrisInConfigurationSpaceFromCliqueCover(*checker, options, &generator, &sets,
+                                          nullptr);
+  // Need at least two regions since the configuration obstacle is in the middle
+  EXPECT_GE(ssize(sets), 2);
 
   // expect perfect coverage
   VPolytope vpoly(sets.at(0));
