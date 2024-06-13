@@ -209,10 +209,7 @@ bool CheckConfigCollisionFreeWithConfigurationObstacles(
     } else {
       return !obstacle.PointInSet(q);
     }
-
-    
   }
-
   return true;
 }
 
