@@ -474,7 +474,6 @@ GTEST_TEST(IrisInConfigurationSpaceFromCliqueCover,
            BoxConfigurationSpaceHalfObstacleTest) {
 
   std::shared_ptr<Meshcat> meshcat = std::make_shared<Meshcat>();
-  log()->info("made meshcat.");
   meshcat->Delete("/drake");
   meshcat->Set2dRenderMode(math::RigidTransformd(Eigen::Vector3d{0, 0, 1}),
                             -3.25, 3.25, -3.25, 3.25);
@@ -488,22 +487,15 @@ GTEST_TEST(IrisInConfigurationSpaceFromCliqueCover,
   // clang-format on
   meshcat->SetLine("Domain", env_points, 8.0, Rgba(0, 0, 0));
 
-  log()->info("1");
-
   // Draw the configuration obstacle.
   Eigen::MatrixXd configuration_obstacle_points(2, 4);
-  log()->info("2");
   // clang-format off
   configuration_obstacle_points << -2, 2,  2, -2,
                                     2, 2, 0,  0;
-  log()->info("3");
   VPolytope vconfiguration_obstacle(configuration_obstacle_points);
-  log()->info("4");
   // clang-format on
   Eigen::Vector3d configuration_obstacle_color;
-  log()->info("5");
   configuration_obstacle_color << 0.75, 0.0, 0.0;
-  log()->info("6");
   Draw2dVPolytope(vconfiguration_obstacle, "configuration_obstacle", 
       configuration_obstacle_color, meshcat);
 
@@ -532,6 +524,7 @@ GTEST_TEST(IrisInConfigurationSpaceFromCliqueCover,
   configuration_obstacles.emplace_back(
       HPolyhedron::MakeBox(Eigen::Vector2d{-2, 0}, Eigen::Vector2d{2, 2}));
   options.iris_options.configuration_obstacles = configuration_obstacles;
+  options.iris_options.configuration_space_margin = 0.5;
   // Run this test without parallelism to test that no bugs occur in the
   // non-parallel version.
   options.parallelism = Parallelism{1};
@@ -543,7 +536,12 @@ GTEST_TEST(IrisInConfigurationSpaceFromCliqueCover,
   IrisInConfigurationSpaceFromCliqueCover(*checker, options, &generator, &sets,
                                           nullptr);
 
+  // expect a single IRIS region
   EXPECT_GE(ssize(sets), 1);
+
+  // Get IRIS region
+  HPolyhedron hpoly(sets.at(0));
+  VPolytope vpoly(sets.at(0));
 
   // Show the IrisFromCliqueCoverDecomposition
   std::normal_distribution<double> gaussian;
@@ -559,9 +557,14 @@ GTEST_TEST(IrisInConfigurationSpaceFromCliqueCover,
                     color, meshcat);
   }
 
+  // check that the iris region and configuration obstacle don't overlap
+  // slightly downscale the region to deal with double accuracy issues
+  HPolyhedron hpoly_scaled = hpoly.Scale(0.99999);
+  EXPECT_FALSE(hpoly_scaled.IntersectsWith(vconfiguration_obstacle));
+
   // expect perfect coverage
-  VPolytope vpoly(sets.at(0));
-  EXPECT_EQ(vpoly.CalcVolume(), 8.0);
+  constexpr double tol = 1e-10;
+  EXPECT_NEAR(vpoly.CalcVolume(), 8.0, tol);
 }
 
 // Test that we get perfect coverage with a configuration obstacle vertically
@@ -606,8 +609,9 @@ GTEST_TEST(IrisInConfigurationSpaceFromCliqueCover,
   EXPECT_GE(ssize(sets), 2);
 
   // expect perfect coverage
-  VPolytope vpoly(sets.at(0));
-  EXPECT_EQ(vpoly.CalcVolume(), 8.0);
+  VPolytope vpoly1(sets.at(0));
+  VPolytope vpoly2(sets.at(1));
+  EXPECT_EQ(vpoly1.CalcVolume() + vpoly2.CalcVolume(), 8.0);
 }
 
 }  // namespace
