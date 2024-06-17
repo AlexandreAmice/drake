@@ -272,7 +272,7 @@ class IrisInConfigurationSpaceFromCliqueCoverTestFixture
                    2, 2, -2, -2,  2,
                    0, 0,  0,  0,  0;
     // clang-format on
-    meshcat->SetLine("Domain", env_points, 8.0, Rgba(0, 0, 0));
+    meshcat->SetLine("Domain", env_points, 12.0, Rgba(0, 0, 0));
     Eigen::Matrix3Xd centers(3, 4);
     double c = 1.0;
     // clang-format off
@@ -485,7 +485,7 @@ GTEST_TEST(IrisInConfigurationSpaceFromCliqueCover,
                   2, 2, -2, -2,  2,
                   0, 0,  0,  0,  0;
   // clang-format on
-  meshcat->SetLine("Domain", env_points, 8.0, Rgba(0, 0, 0));
+  meshcat->SetLine("Domain", env_points, 12.0, Rgba(0, 0, 0));
 
   // Draw the configuration obstacle.
   Eigen::MatrixXd configuration_obstacle_points(2, 4);
@@ -582,7 +582,7 @@ GTEST_TEST(IrisInConfigurationSpaceFromCliqueCover,
                   2, 2, -2, -2,  2,
                   0, 0,  0,  0,  0;
   // clang-format on
-  meshcat->SetLine("Domain", env_points, 8.0, Rgba(0, 0, 0));
+  meshcat->SetLine("Domain", env_points, 12.0, Rgba(0, 0, 0));
 
   // Draw the configuration obstacle.
   Eigen::MatrixXd configuration_obstacle_points(2, 4);
@@ -666,6 +666,145 @@ GTEST_TEST(IrisInConfigurationSpaceFromCliqueCover,
   EXPECT_NEAR(vpoly1.CalcVolume() + vpoly2.CalcVolume(), 8.0, tol);
 }
 
+// /* A movable sphere in a box, with an obstacle in the top half, and a large
+// configuration space margin
+// ┌───────────────┐
+// │               │
+// │               │
+// │               │
+// │───────────────│
+// │///////////////│
+// │       o       │
+// │               │
+// └───────────────┘ */
+// const char free_half_box[] = R"""(
+// <robot name="boxes">
+//   <link name="fixed">
+//     <collision name="obstacle">
+//       <origin rpy="0 0 0" xyz="0 1 0"/>
+//       <geometry><box size="4.0 2.0 1.0"/></geometry>
+//     </collision>
+//   </link>
+//   <link name="movable">
+//     <collision name="sphere">
+//       <geometry><sphere radius="0.1"/></geometry>
+//     </collision>
+//   </link>
+//   <link name="for_joint"/>
+
+//   <joint name="x" type="prismatic">
+//     <axis xyz="1 0 0"/>
+//     <limit lower="-2" upper="2"/>
+//     <parent link="world"/>
+//     <child link="for_joint"/>
+//   </joint>
+//   <joint name="y" type="prismatic">
+//     <axis xyz="0 1 0"/>
+//     <limit lower="-2" upper="2"/>
+//     <parent link="for_joint"/>
+//     <child link="movable"/>
+//   </joint>
+// </robot>
+// )""";
+// // Test that all points sampled for the clique cover fall outside of the
+// // configuration space margin for that obstacle.
+// GTEST_TEST(IrisInConfigurationSpaceFromCliqueCover,
+//            BoxConfigurationSpaceMarginTest) {
+
+//   std::shared_ptr<Meshcat> meshcat = std::make_shared<Meshcat>();
+//   meshcat->Delete("/drake");
+//   meshcat->Set2dRenderMode(math::RigidTransformd(Eigen::Vector3d{0, 0, 1}),
+//                             -3.25, 3.25, -3.25, 3.25);
+//   meshcat->SetProperty("/Grid", "visible", true);
+//   // Draw the true cspace.
+//   Eigen::Matrix3Xd env_points(3, 5);
+//   // clang-format off
+//   env_points << -2, 2,  2, -2, -2,
+//                   2, 2, -2, -2,  2,
+//                   0, 0,  0,  0,  0;
+//   // clang-format on
+//   meshcat->SetLine("Domain", env_points, 12.0, Rgba(0, 0, 0));
+
+//   // Draw the obstacle.
+//   Eigen::MatrixXd obstacle_points(2, 4);
+//   // clang-format off
+//   obstacle_points << -2, 2, 2, -2,
+//                       2, 2, 0,  0;
+//   VPolytope v_obstacle(obstacle_points);
+//   // clang-format on
+//   Eigen::Vector3d configuration_obstacle_color;
+//   configuration_obstacle_color << 0.75, 0.0, 0.0;
+//   Draw2dVPolytope(v_obstacle, "obstacle", 
+//       configuration_obstacle_color, meshcat);
+
+//   CollisionCheckerParams params;
+
+//   RobotDiagramBuilder<double> builder(0.0);
+//   params.robot_model_instances =
+//       builder.parser().AddModelsFromString(free_box, "urdf");
+//   params.edge_step_size = 0.01;
+
+//   params.model = builder.Build();
+//   auto checker =
+//       std::make_unique<SceneGraphCollisionChecker>(std::move(params));
+
+//   IrisFromCliqueCoverOptions options;
+
+//   options.num_points_per_coverage_check = 100;
+//   options.num_points_per_visibility_round = 100;
+//   options.iteration_limit = 1;
+//   // Set a large bounding region to test the path where this is set in the
+//   // IrisOptions.
+//   options.iris_options.bounding_region =
+//       HPolyhedron::MakeBox(Eigen::Vector2d{-2, -2}, Eigen::Vector2d{2, 2});
+//   // Set configuration space margin of 0.5
+//   options.iris_options.configuration_space_margin = 0.5;
+//   // Ensure clique samples respect the configuration space margin
+//   options.sample_with_margin = true;
+//   // Run this test without parallelism to test that no bugs occur in the
+//   // non-parallel version.
+//   options.parallelism = Parallelism{1};
+//   options.iris_options.meshcat = meshcat;
+//   std::vector<HPolyhedron> sets;
+
+//   RandomGenerator generator(0);
+
+//   IrisInConfigurationSpaceFromCliqueCover(*checker, options, &generator, &sets,
+//                                           nullptr);
+
+//   // expect a single IRIS region
+//   EXPECT_GE(ssize(sets), 1);
+
+//   // Get IRIS region
+//   HPolyhedron hpoly(sets.at(0));
+//   VPolytope vpoly(sets.at(0));
+
+//   // Show the IrisFromCliqueCoverDecomposition
+//   std::normal_distribution<double> gaussian;
+//   Eigen::VectorXd color = Eigen::VectorXd::Zero(3);
+//   for (int i = 0; i < ssize(sets); ++i) {
+//     // Choose a random color.
+//     for (int j = 0; j < color.size(); ++j) {
+//       color[j] = abs(gaussian(generator));
+//     }
+//     color.normalize();
+//     VPolytope vregion = VPolytope(sets.at(i)).GetMinimalRepresentation();
+//     Draw2dVPolytope(vregion, fmt::format("iris_from_clique_cover{}", i),
+//                     color, meshcat);
+//   }
+
+//   // check that all sampled clique points are outside of the configuration space
+//   // margin
+
+//   // check that the iris region and configuration obstacle don't overlap
+//   // // slightly downscale the region to deal with double accuracy issues
+//   // HPolyhedron hpoly_scaled = hpoly.Scale(0.99999);
+//   EXPECT_FALSE(hpoly.IntersectsWith(v_obstacle));
+
+//   // expect perfect coverage outside of the configuration space margin
+//   constexpr double tol = 1e-8;
+//   EXPECT_NEAR(vpoly.CalcVolume(), 4.0, tol);
+// }
 }  // namespace
 }  // namespace planning
 }  // namespace drake
