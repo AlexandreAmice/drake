@@ -178,13 +178,11 @@ void ComputeGreedyTruncatedCliqueCover(
 }
 
 // Checks a configuration for collision against context obstacles and
-// configuration space obstacles (configuration_space_margin is used as a
-// minimum distance from configuration_obstacles). Returns true if collision
-// free, false if in collision.
+// configuration space obstacles Returns true if collision free, false if in 
+// collision.
 bool CheckConfigCollisionFreeWithConfigurationObstacles(
     const Eigen::VectorXd& q, const CollisionChecker& checker,
-    const ConvexSets& configuration_obstacles, const bool check_margin,
-    const double configuration_space_margin, const int thread_num) {
+    const ConvexSets& configuration_obstacles, const int thread_num) {
   // First check if the configuration is collision-free with the obstacles
   // defined by the collision checker.
   if (!checker.CheckConfigCollisionFree(q, thread_num)) {
@@ -194,21 +192,7 @@ bool CheckConfigCollisionFreeWithConfigurationObstacles(
   // Then, check collision with each configuration obstacle
   for (const auto& obstacle_ptr : configuration_obstacles) {
     const ConvexSet& obstacle = *obstacle_ptr;
-
-    if (check_margin) {
-      // Calculate distance from q to obstacle
-      const std::optional<std::pair<std::vector<double>, Eigen::MatrixXd>>
-          projection_result = obstacle.Projection(q);
-      // Check if if distance is greater than configuration space margin
-      if (projection_result.has_value()) {
-        const std::vector<double>& distances = projection_result->first;
-        return distances[0] < configuration_space_margin;
-      } else {  // if Projection fails, assume there is a collision
-        return false;
-      }
-    } else {
-      return !obstacle.PointInSet(q);
-    }
+    return !obstacle.PointInSet(q);
   }
   return true;
 }
@@ -316,8 +300,7 @@ std::queue<HPolyhedron> IrisWorker(
 
     if (CheckConfigCollisionFreeWithConfigurationObstacles(
             clique_ellipse.center(), checker,
-            iris_options.configuration_obstacles, options.sample_with_margin,
-            iris_options.configuration_space_margin, builder_id)) {
+            iris_options.configuration_obstacles, builder_id)) {
       iris_options.starting_ellipse = clique_ellipse;
       log()->info("clique_ellipse center is NOT in collision.");
     } else {
@@ -425,9 +408,9 @@ int ComputeMaxNumberOfCliquesInGreedyCliqueCover(
 double ApproximatelyComputeCoverage(
     const HPolyhedron& domain, const std::vector<HPolyhedron>& sets,
     const CollisionChecker& checker, const ConvexSets& configuration_obstacles,
-    const double configuration_space_margin, const int num_samples,
-    const double point_in_set_tol, const Parallelism& parallelism,
-    RandomGenerator* generator, Eigen::VectorXd* last_polytope_sample) {
+    const int num_samples, const double point_in_set_tol,
+    const Parallelism& parallelism, RandomGenerator* generator,
+    Eigen::VectorXd* last_polytope_sample) {
   double fraction_covered = 0.0;
   if (sets.empty()) {
     log()->info("Current Fraction of Domain Covered = 0");
@@ -441,8 +424,7 @@ double ApproximatelyComputeCoverage(
       *last_polytope_sample =
           domain.UniformSample(generator, *last_polytope_sample);
     } while (!CheckConfigCollisionFreeWithConfigurationObstacles(
-        *last_polytope_sample, checker, configuration_obstacles, false,
-        configuration_space_margin, 0));
+        *last_polytope_sample, checker, configuration_obstacles, 0));
     // Do not check for margin to obstacles when estimating coverage
     sampled_points.col(i) = *last_polytope_sample;
   }
@@ -541,7 +523,6 @@ void IrisInConfigurationSpaceFromCliqueCover(
   auto approximate_coverage = [&]() {
     return ApproximatelyComputeCoverage(
         domain, *sets, checker, options.iris_options.configuration_obstacles,
-        options.iris_options.configuration_space_margin,
         options.num_points_per_coverage_check, options.point_in_set_tol,
         options.parallelism, generator, &last_polytope_sample);
   };
@@ -560,9 +541,7 @@ void IrisInConfigurationSpaceFromCliqueCover(
           // While the last polytope sample is in collision.
           !CheckConfigCollisionFreeWithConfigurationObstacles(
               last_polytope_sample, checker,
-              options.iris_options.configuration_obstacles,
-              options.sample_with_margin,
-              options.iris_options.configuration_space_margin, 0) ||
+              options.iris_options.configuration_obstacles, 0) ||
           // While the last polytope sample is in any of the sets.
           std::any_of(sets->begin(), sets->end(),
                       [&last_polytope_sample](const HPolyhedron& set) -> bool {
@@ -592,9 +571,7 @@ void IrisInConfigurationSpaceFromCliqueCover(
       bool is_collision_free =
           CheckConfigCollisionFreeWithConfigurationObstacles(
               points.col(i), checker,
-              options.iris_options.configuration_obstacles,
-              options.sample_with_margin,
-              options.iris_options.configuration_space_margin, thread_num);
+              options.iris_options.configuration_obstacles, thread_num);
       (*points_free)[index] = static_cast<uint8_t>(is_collision_free);
     };
 
