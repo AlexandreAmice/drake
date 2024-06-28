@@ -436,6 +436,8 @@ Hyperellipsoid HPolyhedron::MaximumVolumeInscribedEllipsoid() const {
         "bounded and has an interior.",
         result.get_solver_id().name(), result.get_solution_result()));
   }
+  log()->info("MaximumVolumeInscribedEllipsoid ellipse A: {}", fmt_eigen(result.GetSolution(C).inverse()));
+  log()->info("MaximumVolumeInscribedEllipsoid center: {}", fmt_eigen(result.GetSolution(d)));
   return Hyperellipsoid(result.GetSolution(C).inverse(), result.GetSolution(d));
 }
 

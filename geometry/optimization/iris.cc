@@ -504,6 +504,7 @@ HPolyhedron IrisInConfigurationSpace(const MultibodyPlant<double>& plant,
   }
 
   const double kEpsilonEllipsoid = 1e-2;
+  log()->info("IrisInConfigurationSpace: Before MakeHypersphere for starting ellipse.");
   Hyperellipsoid E = options.starting_ellipse.value_or(
       Hyperellipsoid::MakeHypersphere(kEpsilonEllipsoid, seed));
 
@@ -668,7 +669,7 @@ HPolyhedron IrisInConfigurationSpace(const MultibodyPlant<double>& plant,
       "options.termination_func returned false.";
 
   while (true) {
-    log()->info("IrisInConfigurationSpace iteration {}", iteration);
+    log()->info("IrisInConfigurationSpace iteration {} (custom install)", iteration);
     int num_constraints = num_initial_constraints;
     HPolyhedron P_candidate = HPolyhedron(A.topRows(num_initial_constraints),
                                           b.head(num_initial_constraints));
@@ -933,6 +934,7 @@ void SetEdgeContainmentTerminationCondition(
     const Eigen::Ref<const Eigen::VectorXd>& x_2, const double epsilon,
     const double tol) {
   const auto ab = AffineBall::MakeAffineBallFromLineSegment(x_1, x_2, epsilon);
+  log()->info("SetEdgeContainmentTerminationCondition: Before Hyperellipsoid().");
   const auto hyperellipsoid = Hyperellipsoid(ab);
   options->starting_ellipse = hyperellipsoid;
   options->termination_func = [=](const HPolyhedron& polytope) {
