@@ -302,7 +302,6 @@ std::queue<HPolyhedron> IrisWorker(
             clique_ellipse.center(), checker,
             iris_options.configuration_obstacles, builder_id)) {
       iris_options.starting_ellipse = clique_ellipse;
-      log()->info("clique_ellipse center is NOT in collision.");
     } else {
       log()->info("clique_ellipse center is in collision: {}",
                   fmt_eigen(clique_ellipse.center()));
