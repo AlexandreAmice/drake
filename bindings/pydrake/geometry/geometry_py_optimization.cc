@@ -534,6 +534,22 @@ void DefineGeometryOptimization(py::module m) {
             cls_doc.num_additional_constraint_infeasible_samples.doc)
         .def_readwrite(
             "random_seed", &IrisOptions::random_seed, cls_doc.random_seed.doc)
+        .def_readwrite(
+            "face_ray_steps", &IrisOptions::face_ray_steps, cls_doc.face_ray_steps.doc)
+        .def_readwrite(
+            "max_iterations_separating_planes", &IrisOptions::max_iterations_separating_planes, cls_doc.max_iterations_separating_planes.doc)
+        .def_readwrite(
+            "verbose", &IrisOptions::verbose, cls_doc.verbose.doc)
+        .def_readwrite(
+            "tau", &IrisOptions::tau, cls_doc.tau.doc)
+        .def_readwrite(
+            "delta", &IrisOptions::delta, cls_doc.delta.doc)
+        .def_readwrite(
+            "admissible_proportion_in_collision", &IrisOptions::admissible_proportion_in_collision, cls_doc.admissible_proportion_in_collision.doc)
+        .def_readwrite(
+            "particle_batch_size", &IrisOptions::particle_batch_size, cls_doc.particle_batch_size.doc)  
+        .def_readwrite(
+            "only_walk_toward_collisions", &IrisOptions::only_walk_toward_collisions, cls_doc.only_walk_toward_collisions.doc)  
         .def_readwrite("mixing_steps", &IrisOptions::mixing_steps,
             cls_doc.mixing_steps.doc)
         .def_readwrite("solver_options", &IrisOptions::solver_options,
@@ -551,6 +567,13 @@ void DefineGeometryOptimization(py::module m) {
               "prog_with_additional_constraints {}, "
               "num_additional_constraint_infeasible_samples={}, "
               "random_seed={}, "
+              "face_ray_steps={}, "
+              "max_iterations_separating_planes={},"
+              "verbose={},"
+              "tau={},"
+              "delta={},"
+              "admissible_proportion_in_collision={},"
+              "only_walk_toward_collisions={},"
               "mixing_steps={}"
               ")")
               .format(self.require_sample_point_is_contained,
@@ -562,6 +585,14 @@ void DefineGeometryOptimization(py::module m) {
                   self.prog_with_additional_constraints ? "is set"
                                                         : "is not set",
                   self.num_additional_constraint_infeasible_samples,
+                  self.random_seed,
+                  self.face_ray_steps,
+                  self.max_iterations_separating_planes,
+                  self.verbose,
+                  self.tau,
+                  self.delta,
+                  self.admissible_proportion_in_collision,
+                  self.only_walk_toward_collisions,
                   self.random_seed, self.mixing_steps);
         });
 
@@ -593,6 +624,14 @@ void DefineGeometryOptimization(py::module m) {
       },
       py::arg("query_object"), py::arg("reference_frame") = std::nullopt,
       doc.MakeIrisObstacles.doc);
+
+  m.def("RayIris",
+      py::overload_cast<const multibody::MultibodyPlant<double>&,
+          const systems::Context<double>&, systems::Context<double>*, const planning::CollisionChecker&, const IrisOptions&, const int>(
+          &RayIris),
+      py::arg("plant"), py::arg("context"), py::arg("mutable_context"), py::arg("checker"), py::arg("options") = IrisOptions(),
+      py::arg("random_seed") = 0,
+      doc.RayIris.doc);
 
   m.def("IrisInConfigurationSpace",
       py::overload_cast<const multibody::MultibodyPlant<double>&,

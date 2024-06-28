@@ -11,6 +11,7 @@
 #include "drake/geometry/optimization/convex_set.h"
 #include "drake/geometry/optimization/hpolyhedron.h"
 #include "drake/multibody/plant/multibody_plant.h"
+#include "drake/planning/collision_checker.h"
 
 namespace drake {
 namespace geometry {
@@ -34,6 +35,12 @@ struct IrisOptions {
     a->Visit(DRAKE_NVP(num_collision_infeasible_samples));
     a->Visit(DRAKE_NVP(num_additional_constraint_infeasible_samples));
     a->Visit(DRAKE_NVP(random_seed));
+    a->Visit(DRAKE_NVP(face_ray_steps));
+    a->Visit(DRAKE_NVP(max_iterations_separating_planes));
+    a->Visit(DRAKE_NVP(verbose));
+    a->Visit(DRAKE_NVP(tau));
+    a->Visit(DRAKE_NVP(admissible_proportion_in_collision));
+    a->Visit(DRAKE_NVP(delta));
     a->Visit(DRAKE_NVP(mixing_steps));
   }
 
@@ -123,6 +130,22 @@ struct IrisOptions {
   counter-examples for the additional constraints using in
   IrisInConfigurationSpace. Use this option to set the initial seed. */
   int random_seed{1234};
+
+  int face_ray_steps{100};
+
+  int particle_batch_size{1000};
+
+  int max_iterations_separating_planes{20};
+
+  bool verbose{true};
+
+  double tau = 0.5;
+
+  double delta = 5e-2;
+
+  double admissible_proportion_in_collision = 1e-2;
+
+  bool only_walk_toward_collisions = false;
 
   /** Passing a meshcat instance may enable debugging visualizations; this
   currently only happens in IrisInConfigurationSpace and when the
@@ -243,6 +266,11 @@ run-time of the algorithm. The same goes for
 IrisOptions.termination_func for more details.
 @ingroup geometry_optimization
 */
+HPolyhedron RayIris(
+    const multibody::MultibodyPlant<double>& plant,
+    const systems::Context<double>& context, systems::Context<double>* mutable_context, const planning::CollisionChecker& checker,
+    const IrisOptions& options = IrisOptions(), const int random_seed = 0);
+
 HPolyhedron IrisInConfigurationSpace(
     const multibody::MultibodyPlant<double>& plant,
     const systems::Context<double>& context,
