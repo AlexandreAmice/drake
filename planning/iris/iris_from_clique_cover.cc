@@ -359,8 +359,18 @@ std::queue<HPolyhedron> IrisWorker(
                             builder_id);
     log()->debug("Iris builder thread {} is constructing a set.", builder_id);
     try {
-      ret.emplace(IrisInConfigurationSpace(
-          checker.plant(), checker.plant_context(builder_id), iris_options));
+      if(options.use_fast_iris){
+        HPolyhedron domain = options.iris_options.bounding_region.value_or(
+            HPolyhedron::MakeBox(checker.plant().GetPositionLowerLimits(),
+                                 checker.plant().GetPositionUpperLimits())
+        );
+        ret.emplace(FastIris(
+            checker, clique_ellipse, domain, options.fast_iris_options));
+      }
+      else {
+        ret.emplace(IrisInConfigurationSpace(
+            checker.plant(), checker.plant_context(builder_id), iris_options));
+      }
       log()->debug("Iris builder thread {} has constructed a set.", builder_id);
     } catch (const std::runtime_error& e) {
       log()->info(
@@ -610,7 +620,7 @@ void IrisInConfigurationSpaceFromCliqueCover(
     // The computed cliques from the max clique solver. These will get pulled
     // off the queue by the set builder workers to build the sets.
     AsyncQueue<VectorX<bool>> computed_cliques;
-    if (options.parallelism.num_threads() == 1) {
+    if (options.parallelism.num_threads() == 1 || options.use_fast_iris) {
       ComputeGreedyTruncatedCliqueCover(minimum_clique_size, *max_clique_solver,
                                         &visibility_graph, &computed_cliques);
       std::queue<HPolyhedron> new_set_queue =
