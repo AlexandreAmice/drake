@@ -34,9 +34,9 @@ struct IrisFromCliqueCoverOptions {
    */
   geometry::optimization::IrisOptions iris_options{.iteration_limit = 1};
 
-  FastIrisOptions fast_iris_options;
+  FastIrisOptions fast_iris_options{};
 
-  bool use_fast_iris{false};
+  bool use_fast_iris{true};
 
   /**
    * The fraction of the domain that must be covered before we terminate the
