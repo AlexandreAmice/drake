@@ -231,7 +231,7 @@ bool CheckEdgeCollisionFreeWithConfigurationObstacles(
 // provide an option to forcefully disable meshcat in IRIS. This must happen as
 // meshcat cannot be written to outside the main thread.
 std::queue<HPolyhedron> IrisWorker(
-    const CollisionChecker& checker,
+    CollisionChecker& checker,
     const Eigen::Ref<const Eigen::MatrixXd>& points, const int builder_id,
     const IrisFromCliqueCoverOptions& options,
     AsyncQueue<VectorX<bool>>* computed_cliques, bool disable_meshcat = true) {
@@ -360,8 +360,17 @@ std::queue<HPolyhedron> IrisWorker(
                             builder_id);
     log()->debug("Iris builder thread {} is constructing a set.", builder_id);
     try {
-      ret.emplace(IrisInConfigurationSpace(
-          checker.plant(), checker.plant_context(builder_id), iris_options));
+      if (options.ray_iris) {
+        ret.emplace(RayIris(checker.plant(), checker.plant_context(builder_id), &(checker.model_context(builder_id).mutable_plant_context()), checker, iris_options))
+
+        // RayIris(const MultibodyPlant<double>& plant,
+        //                              const Context<double>& context, Context<double>* mutable_context, const planning::CollisionChecker& checker,
+        //                              const IrisOptions& options, const int random_seed)
+
+      } else {
+        ret.emplace(IrisInConfigurationSpace(
+            checker.plant(), checker.plant_context(builder_id), iris_options));
+      }
       log()->debug("Iris builder thread {} has constructed a set.", builder_id);
     } catch (const std::runtime_error& e) {
       log()->info(

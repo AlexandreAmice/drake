@@ -486,49 +486,49 @@ bool CheckTerminate(const IrisOptions& options, const HPolyhedron& P,
 }  // namespace
 
 namespace {
-std::pair<Eigen::VectorXd, int> CheckRayPolytopeIntersection(const MultibodyPlant<double>& plant, 
-    const Parallelism& parallelism, const planning::CollisionChecker& checker, Context<double>* context, 
-    const std::vector<GeometryPairWithDistance>& sorted_pairs, const HPolyhedron& P, 
-    const Eigen::VectorXd& center, const Eigen::VectorXd& direction) {
-  // Find where line hits polytope.
-  MathematicalProgram prog;
-  solvers::VectorXDecisionVariable d = prog.NewContinuousVariables(1);
-  prog.AddLinearCost(-d[0]); // Maximize distance along direction.
-  solvers::VectorXDecisionVariable x = prog.NewContinuousVariables(direction.size());
-  prog.AddLinearEqualityConstraint(center + d[0] * direction - x, Eigen::VectorXd::Zero(P.ambient_dimension())); // x is distance d from center, along direction.
-  P.AddPointInSetConstraints(&prog, x);
-  auto result = solvers::Solve(prog);
-  const Eigen::VectorXd configuration = result.GetSolution(x);
+// std::pair<Eigen::VectorXd, int> CheckRayPolytopeIntersection(const MultibodyPlant<double>& plant, 
+//     const Parallelism& parallelism, const planning::CollisionChecker& checker, Context<double>* context, 
+//     const std::vector<GeometryPairWithDistance>& sorted_pairs, const HPolyhedron& P, 
+//     const Eigen::VectorXd& center, const Eigen::VectorXd& direction) {
+//   // Find where line hits polytope.
+//   MathematicalProgram prog;
+//   solvers::VectorXDecisionVariable d = prog.NewContinuousVariables(1);
+//   prog.AddLinearCost(-d[0]); // Maximize distance along direction.
+//   solvers::VectorXDecisionVariable x = prog.NewContinuousVariables(direction.size());
+//   prog.AddLinearEqualityConstraint(center + d[0] * direction - x, Eigen::VectorXd::Zero(P.ambient_dimension())); // x is distance d from center, along direction.
+//   P.AddPointInSetConstraints(&prog, x);
+//   auto result = solvers::Solve(prog);
+//   const Eigen::VectorXd configuration = result.GetSolution(x);
 
-  // check if configuration is in collision
-  std::vector<Eigen::VectorXd> configs_to_check(1);
-  configs_to_check[0] = configuration;
-  std::vector<uint8_t> col_free =
-      checker.CheckConfigsCollisionFree(configs_to_check,
-                                        parallelism);
-  int i_pair = 0;
-  int pair_in_collision = -1;
-  VectorXd collision_configuration = Eigen::VectorXd::Zero(P.ambient_dimension());
-  if (!col_free[0]) { // Have to check which pair is in collision via signed distance pair
-    // log()->info("found collision");
-    for (const auto& pair : sorted_pairs) {
-      plant.SetPositions(context, configuration);
-      auto query_object =
-          plant.get_geometry_query_input_port().template Eval<QueryObject<double>>(*context);
-      const double distance =
-      query_object.ComputeSignedDistancePairClosestPoints(pair.geomA, pair.geomB)
-          .distance;
-      if (distance < 0.0) {
-        pair_in_collision = i_pair;
-        collision_configuration = configuration;
-        break;
-      }
-      ++i_pair;
-    }
-  }
+//   // check if configuration is in collision
+//   std::vector<Eigen::VectorXd> configs_to_check(1);
+//   configs_to_check[0] = configuration;
+//   std::vector<uint8_t> col_free =
+//       checker.CheckConfigsCollisionFree(configs_to_check,
+//                                         parallelism);
+//   int i_pair = 0;
+//   int pair_in_collision = -1;
+//   VectorXd collision_configuration = Eigen::VectorXd::Zero(P.ambient_dimension());
+//   if (!col_free[0]) { // Have to check which pair is in collision via signed distance pair
+//     // log()->info("found collision");
+//     for (const auto& pair : sorted_pairs) {
+//       plant.SetPositions(context, configuration);
+//       auto query_object =
+//           plant.get_geometry_query_input_port().template Eval<QueryObject<double>>(*context);
+//       const double distance =
+//       query_object.ComputeSignedDistancePairClosestPoints(pair.geomA, pair.geomB)
+//           .distance;
+//       if (distance < 0.0) {
+//         pair_in_collision = i_pair;
+//         collision_configuration = configuration;
+//         break;
+//       }
+//       ++i_pair;
+//     }
+//   }
 
-  return std::make_pair(collision_configuration, pair_in_collision);
-}
+//   return std::make_pair(collision_configuration, pair_in_collision);
+// }
 }
 
 namespace {
@@ -589,7 +589,7 @@ const double step_size = 0.05, bool parallelize_check = false, const double cons
                                         parallelism);
     // log()->info("finished call");
     bool collision_in_chunk = false;
-    for (int i_in_chunk = 0; i_in_chunk < col_free.size(); ++i_in_chunk) {
+    for (int i_in_chunk = 0; i_in_chunk < static_cast<int>(col_free.size()); ++i_in_chunk) {
       // log()->info("checking i_in_chunk {}", i_in_chunk);
       if (!col_free[i_in_chunk]) {
         // log()->info("found collision 0");
@@ -828,8 +828,13 @@ HPolyhedron RayIris(const MultibodyPlant<double>& plant,
   VectorXd guess = seed;
 
   // For debugging visualization.
-  // Vector3d point_to_draw = Vector3d::Zero();
-  // int num_points_drawn = 0;
+  Vector3d point_to_draw = Vector3d::Zero();
+  unused(point_to_draw);
+  int num_points_drawn = 0;
+  unused(num_points_drawn);
+  bool do_debugging_visualization = options.meshcat && nq <= 3;
+  unused(do_debugging_visualization);
+
   const std::string seed_point_error_msg =
       "IrisInConfigurationSpace: require_sample_point_is_contained is true but "
       "the seed point exited the initial region. Does the provided "

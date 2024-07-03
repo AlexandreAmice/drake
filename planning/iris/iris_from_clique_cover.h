@@ -95,6 +95,11 @@ struct IrisFromCliqueCoverOptions {
    */
   bool sample_with_margin{false};
 
+  /**
+   * Use Ray IRIS algorithm instead of IRIS-NP. 
+   */
+  bool ray_iris{true};
+
   // TODO(AlexandreAmice): Implement a constructor/option that automatically
   // sets up the ILP solver and selects MaxCliqueViaMip
 };
