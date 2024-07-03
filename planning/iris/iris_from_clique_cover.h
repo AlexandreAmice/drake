@@ -34,7 +34,7 @@ struct IrisFromCliqueCoverOptions {
    */
   geometry::optimization::IrisOptions iris_options{.iteration_limit = 1};
 
-  FastIrisOptions fast_iris_options{};
+  FastIrisOptions fast_iris_options{.max_iterations = 1};
 
   bool use_fast_iris{true};
 
