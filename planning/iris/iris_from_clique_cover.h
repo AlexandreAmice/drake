@@ -12,6 +12,7 @@
 #include "drake/geometry/optimization/iris.h"
 #include "drake/planning/graph_algorithms/max_clique_solver_base.h"
 #include "drake/planning/graph_algorithms/max_clique_solver_via_greedy.h"
+#include "drake/planning/iris/fast_iris.h"
 #include "drake/planning/scene_graph_collision_checker.h"
 
 namespace drake {
@@ -32,6 +33,10 @@ struct IrisFromCliqueCoverOptions {
    * from outside the main thread.
    */
   geometry::optimization::IrisOptions iris_options{.iteration_limit = 1};
+
+  FastIrisOptions fast_iris_options;
+
+  bool use_fast_iris{false};
 
   /**
    * The fraction of the domain that must be covered before we terminate the
