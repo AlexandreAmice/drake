@@ -184,17 +184,19 @@ void ComputeGreedyTruncatedCliqueCover(
 bool CheckConfigCollisionFreeWithConfigurationObstacles(
     const Eigen::VectorXd& q, const CollisionChecker& checker,
     const ConvexSets& configuration_obstacles, const int thread_num) {
+  // Then, check collision with each configuration obstacle
+  for (const auto& obstacle_ptr : configuration_obstacles) {
+    if (obstacle_ptr->PointInSet(q)) {
+      return false;
+    }
+  }
+  
   // First check if the configuration is collision-free with the obstacles
   // defined by the collision checker.
   if (!checker.CheckConfigCollisionFree(q, thread_num)) {
     return false;
   }
 
-  // Then, check collision with each configuration obstacle
-  for (const auto& obstacle_ptr : configuration_obstacles) {
-    const ConvexSet& obstacle = *obstacle_ptr;
-    return !obstacle.PointInSet(q);
-  }
   return true;
 }
 
@@ -213,12 +215,11 @@ bool CheckEdgeCollisionFreeWithConfigurationObstacles(
         static_cast<double>(step) / static_cast<double>(num_steps);
     const Eigen::VectorXd qinterp =
         checker.InterpolateBetweenConfigurations(q1, q2, ratio);
-    if (!checker.CheckConfigCollisionFree(qinterp, thread_num) ||
-        std::any_of(configuration_obstacles.begin(),
-                    configuration_obstacles.end(),
-                    [&](const auto& configuration_obstacle) {
-                      return configuration_obstacle->PointInSet(qinterp);
-                    })) {
+    if (std::any_of(configuration_obstacles.begin(),
+            configuration_obstacles.end(),
+            [&](const auto& configuration_obstacle) {
+              return configuration_obstacle->PointInSet(qinterp);
+            }) || !checker.CheckConfigCollisionFree(qinterp, thread_num)) {
       return false;
     }
   }
@@ -360,7 +361,7 @@ std::queue<HPolyhedron> IrisWorker(
                             builder_id);
     log()->debug("Iris builder thread {} is constructing a set.", builder_id);
     try {
-      if(options.use_fast_iris){
+      if (options.use_fast_iris){
         HPolyhedron domain = options.iris_options.bounding_region.value_or(
             HPolyhedron::MakeBox(checker.plant().GetPositionLowerLimits(),
                                  checker.plant().GetPositionUpperLimits())

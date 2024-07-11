@@ -34,7 +34,7 @@ struct IrisFromCliqueCoverOptions {
    */
   geometry::optimization::IrisOptions iris_options{.iteration_limit = 1};
 
-  FastIrisOptions fast_iris_options{.max_iterations = 1};
+  FastIrisOptions fast_iris_options;
 
   bool use_fast_iris{true};
 
@@ -99,11 +99,6 @@ struct IrisFromCliqueCoverOptions {
    * obstacle, increasing computational load.
    */
   bool sample_with_margin{false};
-
-  /**
-   * Use Ray IRIS algorithm instead of IRIS-NP. 
-   */
-  bool ray_iris{true};
 
   // TODO(AlexandreAmice): Implement a constructor/option that automatically
   // sets up the ILP solver and selects MaxCliqueViaMip

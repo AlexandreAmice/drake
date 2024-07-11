@@ -92,7 +92,7 @@ void DefinePlanningFastIris(py::module m) {
 
   m.def("FastIris", &FastIris, py::arg("checker"),
       py::arg("starting_ellipsoid"), py::arg("domain"),
-      py::arg("options") = FastIrisOptions(), doc.FastIris.doc);
+      py::arg("options") = FastIrisOptions(), py::call_guard<py::gil_scoped_release>(), doc.FastIris.doc);
 }
 
 }  // namespace internal
