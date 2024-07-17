@@ -96,6 +96,17 @@ class TestCost(unittest.TestCase):
         binding = mp.Binding[mp.ExpressionCost](cost, cost.vars())
         self.assertEqual(binding.ToLatex(precision=1), "(y + \\sin{x})")
 
+    def test_eq(self):
+        x = sym.Variable("x")
+        y = sym.Variable("y")
+        e = np.sin(x) + y
+        cost = mp.ExpressionCost(e=e)
+        cost2 = cost
+        self.assertTrue(cost == cost)
+        self.assertEqual(cost, cost)
+        print("HERE")
+        # self.assertFalse(True)
+
 
 class TestConstraints(unittest.TestCase):
     def test_bounding_box_constraint(self):
