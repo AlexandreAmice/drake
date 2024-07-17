@@ -42,7 +42,7 @@ ln -s /usr/local/bin/python /usr/bin/python
 # keeping them up to date if they are?
 pip install \
     matplotlib \
-    numpy \
+    'numpy < 2' \
     pyyaml \
     semantic-version \
     setuptools \
