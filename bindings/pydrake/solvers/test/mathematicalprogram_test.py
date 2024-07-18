@@ -22,7 +22,7 @@ from pydrake.solvers import (
     SolverId,
     SolverInterface,
     SolverOptions,
-    SolverType,
+    SolverType
 )
 import pydrake.solvers as mp
 import pydrake.solvers._testing as mp_testing
@@ -1347,6 +1347,23 @@ class TestMathematicalProgram(unittest.TestCase):
         numpy_compare.assert_equal(prog.indeterminates()[0], x0)
         numpy_compare.assert_equal(prog.indeterminate(1), x1)
 
+    def test_required_capabilities(self):
+
+        prog = mp.MathematicalProgram()
+        X = prog.NewSymmetricContinuousVariables(3, "X")
+        prog.AddPositiveSemidefiniteConstraint(X)
+
+        prog.AddLinearConstraint(X[0,0] >= 0)
+        prog.AddLinearEqualityConstraint(X[1,0] == 1)
+        prog.AddLinearCost(X[0,0])
+        expected_attributes = [mp.ProgramAttribute.kLinearCost,
+                               mp.ProgramAttribute.kLinearEqualityConstraint,
+                               mp.ProgramAttribute.kLinearConstraint,
+                               mp.ProgramAttribute.kPositiveSemidefiniteConstraint]
+        for attribute in expected_attributes:
+            self.assertIn(attribute, prog.required_capabilities())
+        for attribute in prog.required_capabilities():
+            self.assertIn(attribute, expected_attributes)
     def test_make_first_available_solver(self):
         gurobi_solver = GurobiSolver()
         scs_solver = ScsSolver()

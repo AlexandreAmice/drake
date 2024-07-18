@@ -1556,6 +1556,8 @@ for every column of ``prog_var_vals``. )""")
           py_rvp::copy, doc.MathematicalProgram.indeterminates.doc)
       .def("indeterminate", &MathematicalProgram::indeterminate, py::arg("i"),
           doc.MathematicalProgram.indeterminate.doc)
+      .def("required_capabilities", &MathematicalProgram::required_capabilities,
+          doc.MathematicalProgram.required_capabilities.doc)
       .def("indeterminates_index", &MathematicalProgram::indeterminates_index,
           doc.MathematicalProgram.indeterminates_index.doc)
       .def("decision_variables", &MathematicalProgram::decision_variables,
