@@ -24,7 +24,7 @@ from pydrake.solvers import (
     SolverId,
     SolverInterface,
     SolverOptions,
-    SolverType,
+    SolverType
 )
 import pydrake.solvers._testing as mp_testing
 import pydrake.symbolic as sym
