@@ -22,7 +22,7 @@ from pydrake.solvers import (
     SolverId,
     SolverInterface,
     SolverOptions,
-    SolverType,
+    SolverType
 )
 import pydrake.solvers as mp
 import pydrake.solvers._testing as mp_testing
