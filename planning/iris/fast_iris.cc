@@ -107,6 +107,7 @@ HPolyhedron FastIris(const planning::CollisionChecker& checker,
   DRAKE_THROW_UNLESS(domain.ambient_dimension() == dim);
   DRAKE_THROW_UNLESS(domain.IsBounded());
   DRAKE_THROW_UNLESS(domain.PointInSet(current_ellipsoid_center));
+  DRAKE_THROW_UNLESS(checker.CheckConfigCollisionFree(current_ellipsoid_center));
 
   VPolytope cvxh_vpoly(options.containment_points);
   if (options.force_containment_points) {
