@@ -4,7 +4,6 @@
 
 #include "drake/bindings/pydrake/common/cpp_template_pybind.h"
 #include "drake/bindings/pydrake/common/default_scalars_pybind.h"
-#include "drake/bindings/pydrake/common/deprecation_pybind.h"
 #include "drake/bindings/pydrake/common/identifier_pybind.h"
 #include "drake/bindings/pydrake/common/serialize_pybind.h"
 #include "drake/bindings/pydrake/common/sorted_pair_pybind.h"
@@ -194,16 +193,7 @@ void DefineGeometryOptimization(py::module m) {
         .def("translation", &AffineSubspace::translation,
             py_rvp::reference_internal, cls_doc.translation.doc)
         .def("AffineDimension", &AffineSubspace::AffineDimension,
-            cls_doc.AffineDimension.doc);
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-    cls  // BR
-        .def("Project",
-            WrapDeprecated(
-                cls_doc.Project.doc_deprecated, &AffineSubspace::Project),
-            py::arg("x"), cls_doc.Project.doc_deprecated);
-#pragma GCC diagnostic pop
-    cls  // BR
+            cls_doc.AffineDimension.doc)
         .def("ToLocalCoordinates", &AffineSubspace::ToLocalCoordinates,
             py::arg("x"), cls_doc.ToLocalCoordinates.doc)
         .def("ToGlobalCoordinates", &AffineSubspace::ToGlobalCoordinates,
@@ -921,19 +911,22 @@ void DefineGeometryOptimization(py::module m) {
         .def("ClearAllPhiConstraints",
             &GraphOfConvexSets::ClearAllPhiConstraints,
             cls_doc.ClearAllPhiConstraints.doc)
-        .def("GetGraphvizString", &GraphOfConvexSets::GetGraphvizString,
-            py::arg("result") = std::nullopt,
+        .def("GetGraphvizString",
+            overload_cast_explicit<std::string,
+                const solvers::MathematicalProgramResult*,
+                const GcsGraphvizOptions&,
+                const std::vector<const GraphOfConvexSets::Edge*>*>(
+                &GraphOfConvexSets::GetGraphvizString),
+            py::arg("result") = nullptr,
             py::arg("options") = GcsGraphvizOptions(),
-            py::arg("active_path") = std::nullopt,
-            cls_doc.GetGraphvizString.doc)
+            py::arg("active_path") = nullptr, cls_doc.GetGraphvizString.doc)
         .def(
             "GetGraphvizString",
             [](const GraphOfConvexSets& self,
-                const std::optional<solvers::MathematicalProgramResult>& result,
+                const solvers::MathematicalProgramResult* result,
                 bool show_slacks, bool show_vars, bool show_flows,
                 bool show_costs, bool scientific, int precision,
-                const std::optional<
-                    std::vector<const GraphOfConvexSets::Edge*>>& active_path) {
+                std::vector<const GraphOfConvexSets::Edge*>* active_path) {
               const GcsGraphvizOptions options{.show_slacks = show_slacks,
                   .show_vars = show_vars,
                   .show_flows = show_flows,
@@ -942,12 +935,10 @@ void DefineGeometryOptimization(py::module m) {
                   .precision = precision};
               return self.GetGraphvizString(result, options, active_path);
             },
-            py::arg("result") =
-                std::optional<solvers::MathematicalProgramResult>(std::nullopt),
-            py::arg("show_slacks") = true, py::arg("show_vars") = true,
-            py::arg("show_flows") = true, py::arg("show_costs") = true,
-            py::arg("scientific") = false, py::arg("precision") = 3,
-            py::arg("active_path") = std::nullopt,
+            py::arg("result") = nullptr, py::arg("show_slacks") = true,
+            py::arg("show_vars") = true, py::arg("show_flows") = true,
+            py::arg("show_costs") = true, py::arg("scientific") = false,
+            py::arg("precision") = 3, py::arg("active_path") = nullptr,
             cls_doc.GetGraphvizString.doc)
         .def("SolveShortestPath",
             overload_cast_explicit<solvers::MathematicalProgramResult,
