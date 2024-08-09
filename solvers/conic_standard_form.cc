@@ -2,8 +2,8 @@
 
 #include <initializer_list>
 #include <limits>
-#include <string>
 #include <memory>
+#include <string>
 
 #include "drake/common/never_destroyed.h"
 #include "drake/common/ssize.h"
@@ -43,7 +43,8 @@ void CheckSupported(const MathematicalProgram& prog) {
 
 }  // namespace
 
-ConicStandardForm::ConicStandardForm(const MathematicalProgram& prog): x_{prog.decision_variables()} {
+ConicStandardForm::ConicStandardForm(const MathematicalProgram& prog)
+    : x_{prog.decision_variables()} {
   CheckSupported(prog);
 
   internal::ConvexConstraintAggregationInfo info;
@@ -132,7 +133,7 @@ ConicStandardForm::ConicStandardForm(const MathematicalProgram& prog): x_{prog.d
 std::unique_ptr<MathematicalProgram> ConicStandardForm::MakeProgram() const {
   std::unique_ptr<MathematicalProgram> prog_standard_form =
       std::make_unique<MathematicalProgram>();
-  prog_standard_form->	AddDecisionVariables(x_);
+  prog_standard_form->AddDecisionVariables(x_);
   prog_standard_form->AddLinearCost(c_.toDense(), d_, x_);
 
   for (const auto& [attribute, index_pairs] : attributes_to_start_end_pairs_) {

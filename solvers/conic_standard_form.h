@@ -1,9 +1,9 @@
 #pragma once
 
+#include <memory>
 #include <unordered_map>
 #include <utility>
 #include <vector>
-#include <memory>
 
 #include "drake/solvers/mathematical_program.h"
 #include "drake/solvers/program_attribute.h"
@@ -24,7 +24,7 @@ namespace solvers {
  */
 class ConicStandardForm {
  public:
-  ConicStandardForm(const MathematicalProgram& prog);
+  explicit ConicStandardForm(const MathematicalProgram& prog);
 
   const Eigen::SparseVector<double>& c() const { return c_; }
   double d() const { return d_; }
