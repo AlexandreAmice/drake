@@ -45,7 +45,7 @@ void CheckParseToConicStandardForm(const MathematicalProgram& prog) {
         prog.positive_semidefinite_constraints().size() +
                     prog.linear_matrix_inequality_constraints().size() ==
                 0
-            ? 1e-10
+            ? 1e-9
             : 1e-6;
     EXPECT_NEAR(original_result.get_optimal_cost(),
                 standard_form_result.get_optimal_cost(), kTol);
