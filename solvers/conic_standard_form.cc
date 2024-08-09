@@ -3,6 +3,7 @@
 #include <initializer_list>
 #include <limits>
 #include <string>
+#include <memory>
 
 #include "drake/common/never_destroyed.h"
 #include "drake/common/ssize.h"
@@ -42,7 +43,7 @@ void CheckSupported(const MathematicalProgram& prog) {
 
 }  // namespace
 
-ConicStandardForm::ConicStandardForm(const MathematicalProgram& prog) {
+ConicStandardForm::ConicStandardForm(const MathematicalProgram& prog): x_{prog.decision_variables()} {
   CheckSupported(prog);
 
   internal::ConvexConstraintAggregationInfo info;
@@ -131,8 +132,8 @@ ConicStandardForm::ConicStandardForm(const MathematicalProgram& prog) {
 std::unique_ptr<MathematicalProgram> ConicStandardForm::MakeProgram() const {
   std::unique_ptr<MathematicalProgram> prog_standard_form =
       std::make_unique<MathematicalProgram>();
-  auto x = prog_standard_form->NewContinuousVariables(A_.cols(), "x");
-  prog_standard_form->AddLinearCost(c_.toDense(), d_, x);
+  prog_standard_form->	AddDecisionVariables(x_);
+  prog_standard_form->AddLinearCost(c_.toDense(), d_, x_);
 
   for (const auto& [attribute, index_pairs] : attributes_to_start_end_pairs_) {
     for (const auto& [start, end] : index_pairs) {
@@ -140,20 +141,20 @@ std::unique_ptr<MathematicalProgram> ConicStandardForm::MakeProgram() const {
       if (attribute == ProgramAttribute::kLinearEqualityConstraint) {
         prog_standard_form->AddLinearEqualityConstraint(
             A_.middleRows(start, length), -b_.segment(start, length).toDense(),
-            x);
+            x_);
       } else if (attribute == ProgramAttribute::kLinearConstraint) {
         prog_standard_form->AddLinearConstraint(
             A_.middleRows(start, length), -b_.segment(start, length).toDense(),
-            Eigen::VectorXd::Constant(length, kInf), x);
+            Eigen::VectorXd::Constant(length, kInf), x_);
       } else if (attribute == ProgramAttribute::kLorentzConeConstraint) {
         prog_standard_form->AddLorentzConeConstraint(
             A_.middleRows(start, length).toDense(),
-            b_.segment(start, length).toDense(), x);
+            b_.segment(start, length).toDense(), x_);
       } else if (attribute ==
                  ProgramAttribute::kPositiveSemidefiniteConstraint) {
         const MatrixX<symbolic::Expression> y_vec =
             A_.middleRows(start, length).toDense() *
-                x.cast<symbolic::Expression>() +
+                x_.cast<symbolic::Expression>() +
             b_.segment(start, length).toDense();
         MatrixX<symbolic::Expression> Y =
             math::ToSymmetricMatrixFromLowerTriangularColumns(y_vec);

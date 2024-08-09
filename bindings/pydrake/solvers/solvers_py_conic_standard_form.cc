@@ -43,6 +43,7 @@ void DefineSolversConicStandardForm(py::module m) {
           },
           cls_doc.c.doc)
       .def("d", &ConicStandardForm::d, cls_doc.d.doc)
+      .def("x", &ConicStandardForm::x, cls_doc.x.doc)
       .def("attributes_to_start_end_pairs",
           &ConicStandardForm::attributes_to_start_end_pairs,
           cls_doc.attributes_to_start_end_pairs.doc)

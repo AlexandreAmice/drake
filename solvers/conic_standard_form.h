@@ -3,6 +3,7 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+#include <memory>
 
 #include "drake/solvers/mathematical_program.h"
 #include "drake/solvers/program_attribute.h"
@@ -29,6 +30,7 @@ class ConicStandardForm {
   double d() const { return d_; }
   const Eigen::SparseMatrix<double>& A() const { return A_; }
   const Eigen::SparseVector<double>& b() const { return b_; }
+  const VectorX<symbolic::Variable>& x() const { return x_; }
 
   const std::unordered_map<ProgramAttribute, std::vector<std::pair<int, int>>>&
   attributes_to_start_end_pairs() const {
@@ -48,6 +50,9 @@ class ConicStandardForm {
   Eigen::SparseMatrix<double> A_;
   /** b is a sparse matrix encoding the conic constraint. */
   Eigen::SparseVector<double> b_;
+
+  /** The decision variables x of the program.*/
+  const VectorX<symbolic::Variable> x_;
 
   /**
    * attributes_to_start_end_pairs[type][i] is a pair of indices
