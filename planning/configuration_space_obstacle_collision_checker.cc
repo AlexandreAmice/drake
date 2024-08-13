@@ -45,7 +45,6 @@ ConfigurationSpaceObstacleCollisionChecker::ConfigurationSpaceObstacleCollisionC
     ConvexSets configuration_obstacles) : CollisionChecker(*checker), 
     checker_(std::move(checker)), 
     configuration_obstacles_(configuration_obstacles) {
-  AllocateContexts();
 }
 
 ConfigurationSpaceObstacleCollisionChecker::ConfigurationSpaceObstacleCollisionChecker(

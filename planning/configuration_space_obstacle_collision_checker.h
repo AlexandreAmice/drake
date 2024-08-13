@@ -28,7 +28,7 @@ class ConfigurationSpaceObstacleCollisionChecker final : public CollisionChecker
   /** @} */
 
   /** Creates a new checker with the given params. */
-  explicit ConfigurationSpaceObstacleCollisionChecker(
+  ConfigurationSpaceObstacleCollisionChecker(
     copyable_unique_ptr<CollisionChecker> checker,
     geometry::optimization::ConvexSets configuration_obstacles);
 

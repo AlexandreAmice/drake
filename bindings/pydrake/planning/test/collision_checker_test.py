@@ -470,10 +470,6 @@ class TestCollisionChecker(unittest.TestCase):
         sets = [HPolyhedron(A, b)]
 
         checker2 = mut.ConfigurationSpaceObstacleCollisionChecker(default_checker, sets)
-        self.assertTrue(False)
-        
-        
-
 
     def test_visibility_graph(self):
         checker = self._make_scene_graph_collision_checker(True, False)
