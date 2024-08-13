@@ -1,6 +1,8 @@
 #include "drake/bindings/pydrake/common/wrap_pybind.h"
 #include "drake/bindings/pydrake/documentation_pybind.h"
 #include "drake/bindings/pydrake/planning/planning_py.h"
+#include "drake/bindings/pydrake/geometry/optimization_pybind.h"
+
 #include "drake/bindings/pydrake/pydrake_pybind.h"
 #include "drake/planning/collision_checker.h"
 #include "drake/planning/distance_and_interpolation_provider.h"
@@ -321,9 +323,9 @@ void DefinePlanningCollisionChecker(py::module m) {
 
     py::class_<Class, drake::planning::CollisionChecker>(m, 
         "ConfigurationSpaceObstacleCollisionChecker")
-        .def(py::init([](drake::copyable_unique_ptr<drake::planning::CollisionChecker> checker,
-                         drake::geometry::optimization::ConvexSets configuration_obstacles) {
-                 return std::make_unique<Class>(std::move(checker), std::move(configuration_obstacles));
+        .def(py::init([](const drake::planning::CollisionChecker& checker,
+                         const std::vector<drake::geometry::optimization::ConvexSet*>& configuration_obstacles) {
+                 return std::make_unique<Class>(copyable_unique_ptr<drake::planning::CollisionChecker> (checker.Clone()), CloneConvexSets(configuration_obstacles));
              }),
              py::arg("checker"), py::arg("configuration_obstacles"),
              "Creates a new ConfigurationSpaceObstacleCollisionChecker with "
