@@ -129,7 +129,7 @@ Eigen::SparseMatrix<bool> VisibilityGraph(
   //         ? std::min(parallelize.num_threads(),
   //                    checker.num_allocated_contexts())
   //         : 1;
-  drake::log()->debug("Generating VisibilityGraph using {} threads",
+  drake::log()->info("Generating VisibilityGraph using {} threads",
                       num_threads_to_use);
 
   // Partially evaluate `point_check_work` and `edge_check_work` with
@@ -151,6 +151,8 @@ Eigen::SparseMatrix<bool> VisibilityGraph(
   DynamicParallelForIndexLoop(DegreeOfParallelism(num_threads_to_use), 0,
                               num_points, edge_check_work_parallel,
                               ParallelForBackend::BEST_AVAILABLE);
+
+  drake::log()->info("VisibilityGraph built.");
 
   // Convert edges into the SparseMatrix format, using a custom iterator to
   // avoid explicitly copying the data into a list of Eigen::Triplet.

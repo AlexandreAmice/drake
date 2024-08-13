@@ -316,18 +316,6 @@ std::queue<HPolyhedron> IrisWorker(
       Eigen::VectorXd center = clique_points.col(nearest_point_col);
 
       log()->info("new starting ellipse center: {}", fmt_eigen(center));
-      log()->info(
-          "New starting ellipse center is in collision with context obstacle: "
-          "{}",
-          !checker.CheckConfigCollisionFree(center, builder_id));
-      log()->info(
-          "New starting ellipse center is in collision with "
-          "configuration_obstacle: {}",
-          std::any_of(iris_options.configuration_obstacles.begin(),
-                      iris_options.configuration_obstacles.end(),
-                      [&](const auto& configuration_obstacle) {
-                        return configuration_obstacle->PointInSet(center);
-                      }));
       log()->info("new starting ellipse A: {}", fmt_eigen(clique_ellipse.A()));
 
       iris_options.starting_ellipse =
@@ -476,7 +464,7 @@ void IrisInConfigurationSpaceFromCliqueCover(
     const planning::graph_algorithms::MaxCliqueSolverBase*
         max_clique_solver_ptr) {
   DRAKE_THROW_UNLESS(options.coverage_termination_threshold > 0);
-  DRAKE_THROW_UNLESS(options.iteration_limit > 0);
+  // DRAKE_THROW_UNLESS(options.iteration_limit > 0);
 
   // Note: Even though the iris_options.bounding_region may be provided,
   // IrisInConfigurationSpace (currently) requires finite joint limits.
