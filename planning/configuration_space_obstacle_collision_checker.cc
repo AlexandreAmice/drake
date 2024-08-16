@@ -88,12 +88,6 @@ bool ConfigurationSpaceObstacleCollisionChecker::DoCheckContextConfigCollisionFr
   };
 
   for (const auto& obstacle_ptr : configuration_obstacles_) {
-    log()->info(
-      "checking collision-free-ness of {}",
-      fmt_eigen(plant().GetPositions(model_context.plant_context())));
-
-    log()->info(
-      "VPolytope: {}", fmt_eigen(dynamic_cast<const drake::geometry::optimization::VPolytope*>(obstacle_ptr.get())->vertices()));
     if (obstacle_ptr->PointInSet(plant().GetPositions(
         model_context.plant_context()))) {
       return false;

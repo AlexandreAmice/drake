@@ -356,7 +356,8 @@ std::queue<HPolyhedron> IrisWorker(
                                  checker.plant().GetPositionUpperLimits())
         );
         ret.emplace(FastIris(
-            checker, clique_ellipse, domain, options.fast_iris_options));
+            checker, *iris_options.starting_ellipse, domain, 
+            options.fast_iris_options));
       }
       else {
         ret.emplace(IrisInConfigurationSpace(
