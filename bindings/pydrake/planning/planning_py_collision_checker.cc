@@ -330,11 +330,17 @@ void DefinePlanningCollisionChecker(py::module m) {
              py::arg("checker"), py::arg("configuration_obstacles"),
              "Creates a new ConfigurationSpaceObstacleCollisionChecker with "
              "the given checker and configuration space obstacles.")
-        .def("add_configuration_space_obstacles", 
-            &Class::AddConfigurationSpaceObstacles, py::arg("new_obstacles"),
+        .def("AddConfigurationSpaceObstacles", 
+            [](Class& self, const std::vector<drake::geometry::optimization::ConvexSet*>& new_obstacles) {
+                self.AddConfigurationSpaceObstacles(CloneConvexSets(new_obstacles));
+            },
+            py::arg("new_obstacles"),
             "Adds new configuration space obstacles.")
-        .def("set_configuration_space_obstacles", 
-            &Class::SetConfigurationSpaceObstacles, py::arg("new_obstacles"),
+        .def("SetConfigurationSpaceObstacles", 
+            [](Class& self, const std::vector<drake::geometry::optimization::ConvexSet*>& new_obstacles) {
+                self.SetConfigurationSpaceObstacles(CloneConvexSets(new_obstacles));
+            },
+            py::arg("new_obstacles"),
             "Sets the configuration space obstacles.");
   }
 

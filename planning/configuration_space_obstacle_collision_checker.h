@@ -30,13 +30,13 @@ class ConfigurationSpaceObstacleCollisionChecker final : public CollisionChecker
   /** Creates a new checker with the given params. */
   ConfigurationSpaceObstacleCollisionChecker(
     copyable_unique_ptr<CollisionChecker> checker,
-    geometry::optimization::ConvexSets configuration_obstacles);
+    const geometry::optimization::ConvexSets& configuration_obstacles);
 
   void AddConfigurationSpaceObstacles(
-    geometry::optimization::ConvexSets new_obstacles);
+    const geometry::optimization::ConvexSets& new_obstacles);
 
   void SetConfigurationSpaceObstacles(
-    geometry::optimization::ConvexSets new_obstacles);
+    const geometry::optimization::ConvexSets& new_obstacles);
 
  private:
   // To support Clone(), allow copying (but not move nor assign).

@@ -42,7 +42,7 @@ using geometry::optimization::ConvexSets;
 
 ConfigurationSpaceObstacleCollisionChecker::ConfigurationSpaceObstacleCollisionChecker(
     copyable_unique_ptr<CollisionChecker> checker, 
-    ConvexSets configuration_obstacles) : CollisionChecker(*checker), 
+    const ConvexSets& configuration_obstacles) : CollisionChecker(*checker), 
     checker_(std::move(checker)), 
     configuration_obstacles_(configuration_obstacles) {
 }
@@ -51,16 +51,21 @@ ConfigurationSpaceObstacleCollisionChecker::ConfigurationSpaceObstacleCollisionC
     const ConfigurationSpaceObstacleCollisionChecker&) = default;
 
 void ConfigurationSpaceObstacleCollisionChecker::AddConfigurationSpaceObstacles(
-    ConvexSets new_obstacles) {
-  std::move(new_obstacles.begin(), new_obstacles.end(), 
-      std::back_inserter(configuration_obstacles_));
+    const ConvexSets& new_obstacles) {
+  configuration_obstacles_.reserve(configuration_obstacles_.size() + 
+      new_obstacles.size());
+  for (const auto& c : new_obstacles) {
+    configuration_obstacles_.emplace_back(c->Clone());
+  }
 }
 
 void ConfigurationSpaceObstacleCollisionChecker::SetConfigurationSpaceObstacles(
-    ConvexSets new_obstacles) {
-  configuration_obstacles_.assign(
-      std::make_move_iterator(new_obstacles.begin()), 
-      std::make_move_iterator(new_obstacles.end()));
+    const ConvexSets& new_obstacles) {
+  configuration_obstacles_.clear();
+  configuration_obstacles_.reserve(new_obstacles.size());
+  for (const auto& c : new_obstacles) {
+    configuration_obstacles_.emplace_back(c->Clone());
+  }
 }
 
 std::unique_ptr<CollisionChecker> ConfigurationSpaceObstacleCollisionChecker::

@@ -328,7 +328,8 @@ std::queue<HPolyhedron> IrisWorker(
                 fmt_eigen(clique_points.rowwise().mean()));
 
     // Check collision of clique_ellipse center and average of all clique points
-    // with configuration obtacles PURELY FOR LOGGING/DEBUGGING
+    // with configuration obtacles 
+    // PURELY FOR LOGGING/DEBUGGING
     const int nc =
         static_cast<int>(iris_options.configuration_obstacles.size());
     for (int j = 0; j < nc; ++j) {
@@ -364,8 +365,8 @@ std::queue<HPolyhedron> IrisWorker(
       log()->debug("Iris builder thread {} has constructed a set.", builder_id);
     } catch (const std::runtime_error& e) {
       log()->info(
-          "IrisInConfigurationSpace failed to build a region. Discarding "
-          "clique. The exact error message is {}", e.what());
+          "IRIS Failed to build a region. Discarding clique. The exact error " 
+          "message is {}", e.what());
     }
 
     // Set current_clique for the next IRIS worker to use

@@ -612,8 +612,10 @@ VectorXd HPolyhedron::UniformSample(
       throw std::invalid_argument(fmt::format(
           "The Hit and Run algorithm failed to find a feasible point in the "
           "set. The `previous_sample` must be in the set.\n"
-          "max(A * previous_sample - b) = {}",
-          (A_ * current_sample - b_).maxCoeff()));
+          "max(A * previous_sample - b) = {}. theta_min = {}. theta_max = {}."
+          "Polyhedron volume: {}.",
+          (A_ * current_sample - b_).maxCoeff(), theta_min, theta_max,
+          this->MaximumVolumeInscribedEllipsoid().Volume()));
     }
     // Now pick θ uniformly from [θ_min, θ_max).
     std::uniform_real_distribution<double> uniform_theta(theta_min, theta_max);
