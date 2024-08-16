@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include "drake/common/copyable_unique_ptr.h"
+#include "drake/common/fmt_eigen.h"
 #include "drake/common/test_utilities/eigen_matrix_compare.h"
 #include "drake/geometry/optimization/vpolytope.h"
 #include "drake/planning/linear_distance_and_interpolation_provider.h"
@@ -92,14 +93,14 @@ GTEST_TEST(ConfigurationSpaceObstacleCollisionChecker, CheckConfigCollisionFree)
 
   // Square obstacle in top right
   Eigen::MatrixXd obs1_pts(2, 4);
-  obs1_pts << 1.7, 2.0, 1.7, 2.0,
+  obs1_pts << 1.7, 2.0, 2.0, 1.7,
               1.7, 1.7, 2.0, 2.0;
   VPolytope obs1(obs1_pts);
 
   // Square obstacle in bottom left
   Eigen::MatrixXd obs2_pts(2, 4);
-  obs2_pts << -1.7, -2.0, -1.7, -2.0,
-              -1,7, -1.7, -2.0, -2.0;
+  obs2_pts << -1.7, -2.0, -2.0, -1.7,
+              -1.7, -1.7, -2.0, -2.0;
   VPolytope obs2(obs2_pts);
 
   ConvexSets cspace_obstacles;
