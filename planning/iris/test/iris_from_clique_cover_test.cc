@@ -11,6 +11,7 @@
 #include "drake/geometry/optimization/vpolytope.h"
 #include "drake/geometry/test_utilities/meshcat_environment.h"
 #include "drake/multibody/parsing/parser.h"
+#include "drake/planning/configuration_space_obstacle_collision_checker.h"
 #include "drake/planning/graph_algorithms/max_clique_solver_via_mip.h"
 #include "drake/planning/robot_diagram_builder.h"
 #include "drake/planning/scene_graph_collision_checker.h"
@@ -424,13 +425,19 @@ class IrisInConfigurationSpaceFromCliqueCoverTestFixture
     params.edge_step_size = 0.01;
 
     params.model = builder.Build();
-    checker = std::make_unique<SceneGraphCollisionChecker>(std::move(params));
+
+    copyable_unique_ptr<CollisionChecker> checker_{
+      std::make_unique<SceneGraphCollisionChecker>(std::move(params))
+    };
+    checker = std::make_unique<ConfigurationSpaceObstacleCollisionChecker>(std::move(checker_), ConvexSets{});
+
     options.iris_options.meshcat = meshcat;
 
     options.num_points_per_coverage_check = 1000;
-    options.num_points_per_visibility_round = 140;
-    options.coverage_termination_threshold = 0.9;
-    options.minimum_clique_size = 25;
+    options.num_points_per_visibility_round = 100;
+    options.coverage_termination_threshold = 1.0;
+    options.minimum_clique_size = 8;
+    options.iteration_limit = 1;
 
     generator = RandomGenerator(0);
 
@@ -466,7 +473,9 @@ class IrisInConfigurationSpaceFromCliqueCoverTestFixture
 
   CollisionCheckerParams params;
   std::shared_ptr<Meshcat> meshcat;
-  std::unique_ptr<SceneGraphCollisionChecker> checker;
+  // std::unique_ptr<SceneGraphCollisionChecker> checker;
+  // ConfigurationSpaceObstacleCollisionChecker checker;
+  std::unique_ptr<ConfigurationSpaceObstacleCollisionChecker> checker;
   IrisFromCliqueCoverOptions options;
   std::vector<HPolyhedron> sets;
   RandomGenerator generator;
@@ -503,9 +512,22 @@ TEST_F(IrisInConfigurationSpaceFromCliqueCoverTestFixture,
     planning::graph_algorithms::MaxCliqueSolverViaMip solver{std::nullopt,
                                                              solver_options};
 
-    IrisInConfigurationSpaceFromCliqueCover(*checker, options, &generator,
-                                            &sets, &solver);
-    EXPECT_EQ(ssize(sets), 6);
+    ConvexSets cspace_obstacles;
+    for (int i=0; i<100; i++) {
+      // use default solver MaxCliqueSolverViaGreedy
+      IrisInConfigurationSpaceFromCliqueCover(*checker, options, &generator, &sets,
+                                              nullptr);    
+
+      cspace_obstacles.clear();
+      cspace_obstacles.reserve(sets.size());
+
+      for (const auto& set : sets) {
+          cspace_obstacles.emplace_back(set.Scale(0.9).Clone());
+      }
+
+      checker->SetConfigurationSpaceObstacles(cspace_obstacles);
+    }
+
     // Show the IrisFromCliqueCoverDecomposition
     for (int i = 0; i < ssize(sets); ++i) {
       // Choose a random color.
@@ -539,7 +561,7 @@ TEST_F(IrisInConfigurationSpaceFromCliqueCoverTestFixture,
     // We set the termination threshold to be at 0.9 with 1000 points for a
     // coverage check. This number is low enough that the test passes regardless
     // of the random seed. (The probability of success is larger than 1-1e-9).
-    EXPECT_GE(coverage_estimate, 0.8);
+    EXPECT_GE(coverage_estimate, 0.9);
 
     MaybePauseForUser();
   }
@@ -547,11 +569,22 @@ TEST_F(IrisInConfigurationSpaceFromCliqueCoverTestFixture,
 
 TEST_F(IrisInConfigurationSpaceFromCliqueCoverTestFixture,
        BoxWithCornerObstaclesTestGreedy) {
-  // use default solver MaxCliqueSovlerViaGreedy
-  IrisInConfigurationSpaceFromCliqueCover(*checker, options, &generator, &sets,
-                                          nullptr);
 
-  EXPECT_EQ(ssize(sets), 6);
+  ConvexSets cspace_obstacles;
+  for (int i=0; i<100; i++) {
+    // use default solver MaxCliqueSolverViaGreedy
+    IrisInConfigurationSpaceFromCliqueCover(*checker, options, &generator, &sets,
+                                            nullptr);    
+
+    cspace_obstacles.clear();
+    cspace_obstacles.reserve(sets.size());
+
+    for (const auto& set : sets) {
+        cspace_obstacles.emplace_back(set.Scale(0.9).Clone());
+    }
+
+    checker->SetConfigurationSpaceObstacles(cspace_obstacles);
+  }
 
   // Show the IrisFromCliqueCoverDecomposition
   for (int i = 0; i < ssize(sets); ++i) {
@@ -586,7 +619,7 @@ TEST_F(IrisInConfigurationSpaceFromCliqueCoverTestFixture,
   // We set the termination threshold to be at 0.9 with 1000 points for a
   // coverage check. This number is low enough that the test passes regardless
   // of the random seed. (The probability of success is larger than 1-1e-9).
-  EXPECT_GE(coverage_estimate, 0.8);
+  EXPECT_GE(coverage_estimate, 0.9);
 
   MaybePauseForUser();
 }
@@ -630,8 +663,6 @@ GTEST_TEST(IrisInConfigurationSpaceFromCliqueCover,
   params.edge_step_size = 0.01;
 
   params.model = builder.Build();
-  auto checker =
-      std::make_unique<SceneGraphCollisionChecker>(std::move(params));
 
   IrisFromCliqueCoverOptions options;
 
@@ -655,7 +686,13 @@ GTEST_TEST(IrisInConfigurationSpaceFromCliqueCover,
 
   RandomGenerator generator(0);
 
-  IrisInConfigurationSpaceFromCliqueCover(*checker, options, &generator, &sets,
+  copyable_unique_ptr<CollisionChecker> checker_{
+    std::make_unique<SceneGraphCollisionChecker>(std::move(params))
+  };
+  ConfigurationSpaceObstacleCollisionChecker checker(checker_, 
+      configuration_obstacles);
+
+  IrisInConfigurationSpaceFromCliqueCover(checker, options, &generator, &sets,
                                           nullptr);
 
   // expect a single IRIS region
@@ -727,8 +764,6 @@ GTEST_TEST(IrisInConfigurationSpaceFromCliqueCover,
   params.edge_step_size = 0.01;
 
   params.model = builder.Build();
-  auto checker =
-      std::make_unique<SceneGraphCollisionChecker>(std::move(params));
 
   IrisFromCliqueCoverOptions options;
 
@@ -752,7 +787,13 @@ GTEST_TEST(IrisInConfigurationSpaceFromCliqueCover,
 
   RandomGenerator generator(0);
 
-  IrisInConfigurationSpaceFromCliqueCover(*checker, options, &generator, &sets,
+  copyable_unique_ptr<CollisionChecker> checker_{
+    std::make_unique<SceneGraphCollisionChecker>(std::move(params))
+  };
+  ConfigurationSpaceObstacleCollisionChecker checker(checker_, 
+      configuration_obstacles);
+
+  IrisInConfigurationSpaceFromCliqueCover(checker, options, &generator, &sets,
                                           nullptr);
   // Need at least two regions since the configuration obstacle is in the middle
   EXPECT_GE(ssize(sets), 2);

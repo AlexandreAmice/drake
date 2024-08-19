@@ -327,25 +327,6 @@ std::queue<HPolyhedron> IrisWorker(
     log()->info("average of all clique points: {}",
                 fmt_eigen(clique_points.rowwise().mean()));
 
-    // Check collision of clique_ellipse center and average of all clique points
-    // with configuration obtacles 
-    // PURELY FOR LOGGING/DEBUGGING
-    const int nc =
-        static_cast<int>(iris_options.configuration_obstacles.size());
-    for (int j = 0; j < nc; ++j) {
-      if (iris_options.configuration_obstacles[j]->PointInSet(
-              iris_options.starting_ellipse->center())) {
-        log()->info("clique center {} is in configuration obstacle {}",
-                    fmt_eigen(iris_options.starting_ellipse->center()), j);
-      }
-      if (iris_options.configuration_obstacles[j]->PointInSet(
-              clique_points.rowwise().mean())) {
-        log()->info(
-            "average of all clique points is in configuration obstacle.");
-      }
-    }
-    // END LOGGING/DEBUGGING
-
     checker.UpdatePositions(iris_options.starting_ellipse->center(),
                             builder_id);
     log()->debug("Iris builder thread {} is constructing a set.", builder_id);
