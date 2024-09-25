@@ -72,5 +72,11 @@ Eigen::SparseMatrix<bool> VisibilityGraph(
     const Eigen::Ref<const Eigen::MatrixXd>& points,
     const Parallelism parallelize);
 
+Eigen::SparseMatrix<bool> PRM(
+    const CollisionChecker& checker,
+    const Eigen::Ref<const Eigen::MatrixXd>& points,
+    const double radius,
+    Parallelism parallelize = Parallelism::Max());
+
 }  // namespace planning
 }  // namespace drake

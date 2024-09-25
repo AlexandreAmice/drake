@@ -199,5 +199,44 @@ Eigen::SparseMatrix<bool> VisibilityGraph(
                          parallelize_to_use);
 }
 
+Eigen::SparseMatrix<bool> PRM(
+    const CollisionChecker& checker,
+    const Eigen::Ref<const Eigen::MatrixXd>& points,
+    const double radius,
+    const Parallelism parallelize) {
+  const Parallelism parallelize_to_use = Parallelism(
+      std::min(parallelize.num_threads(), checker.num_allocated_contexts()));
+
+  // Define lambda functions to pass to VisibilityGraph
+  const auto point_check_work = [&](const int thread_num, const int64_t i,
+                                    std::vector<uint8_t>* points_free) {
+    (*points_free)[i] = static_cast<uint8_t>(
+        checker.CheckConfigCollisionFree(points.col(i), thread_num));
+  };
+
+  const auto edge_check_work = [&](const int thread_num, const int64_t index,
+                                   const std::vector<uint8_t>& points_free,
+                                   const int num_points,
+                                   std::vector<std::vector<int>>* edges) {
+    const int i = static_cast<int>(index);
+    if (points_free[i] > 0) {
+      (*edges)[i].push_back(i);
+      for (int j = i + 1; j < num_points; ++j) {
+        if (points_free[j] > 0 &&
+            (points.col(i) - points.col(j)).norm() <= radius &&
+            checker.CheckEdgeCollisionFree(points.col(i), points.col(j),
+                                           thread_num)) {
+          (*edges)[i].push_back(j);
+        }
+      }
+    }
+  };
+
+  // Generate VisibilityGraph using point_check_work and edge_check_work defined
+  // above
+  return VisibilityGraph(point_check_work, edge_check_work, points,
+                         parallelize_to_use);
+}
+
 }  // namespace planning
 }  // namespace drake

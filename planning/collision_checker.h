@@ -753,9 +753,15 @@ class CollisionChecker {
       const std::vector<Eigen::VectorXd>& configs,
       Parallelism parallelize = Parallelism::Max()) const;
 
+  std::vector<uint8_t> CheckConfigsCollisionFreeEigen(
+      const Eigen::Ref<const Eigen::MatrixXd>& configs,
+      const Parallelism parallelize) const;
+
   std::vector<uint8_t> CheckConfigSliceCollisionFree(
       const std::vector<Eigen::VectorXd>& configs, const int start,
       const int end, Parallelism parallelize = Parallelism::Max()) const;
+  //@}
+
   /** @name Edge collision checking
 
    These functions serve motion planning methods, such as sampling-based

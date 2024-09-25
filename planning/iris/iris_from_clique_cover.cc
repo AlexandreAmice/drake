@@ -11,6 +11,10 @@
 #include <thread>
 #include <utility>
 
+#include <chrono>
+#include <iomanip>
+#include <sstream>
+
 #include <common_robotics_utilities/parallelism.hpp>
 
 #include "drake/common/fmt_eigen.h"
@@ -489,8 +493,6 @@ void IrisInConfigurationSpaceFromCliqueCover(
 
   int num_iterations = 0;
 
-  std::vector<HPolyhedron> visibility_graph_sets;
-
   std::unique_ptr<planning::graph_algorithms::MaxCliqueSolverBase>
       default_max_clique_solver;
   // Only construct the default solver if max_clique_solver is null.
@@ -514,7 +516,9 @@ void IrisInConfigurationSpaceFromCliqueCover(
                 options.iteration_limit);
     Eigen::MatrixXd points(domain.ambient_dimension(),
                            num_points_per_visibility_round);
+
     // Sample all points for cliques (and ensure they are not in collision)
+    log()->info("IrisFromCliqueCover: Beginning clique point sampling.");
     for (int i = 0; i < points.cols(); ++i) {
       do {
         last_polytope_sample =
@@ -525,19 +529,30 @@ void IrisInConfigurationSpaceFromCliqueCover(
               last_polytope_sample, checker,
               options.iris_options.configuration_obstacles, 0) ||
           // While the last polytope sample is in any of the sets.
+          // std::any_of(sets->begin(), sets->end(),
+          //             [&last_polytope_sample](const HPolyhedron& set) -> bool {
+          //               return set.Scale(60).PointInSet(last_polytope_sample);
+          //             }));
           std::any_of(sets->begin(), sets->end(),
                       [&last_polytope_sample](const HPolyhedron& set) -> bool {
                         return set.PointInSet(last_polytope_sample);
                       }));
       points.col(i) = last_polytope_sample;
     }
+    log()->info("IrisFromCliqueCover: Finished clique point sampling. Building VisibilityGraph.");
 
     // Show the samples used in build cliques. Debugging visualization.
     if (options.iris_options.meshcat && domain.ambient_dimension() <= 3) {
       Eigen::Vector3d point_to_draw = Eigen::Vector3d::Zero();
       for (int pt_to_draw = 0; pt_to_draw < points.cols(); ++pt_to_draw) {
-        std::string path = fmt::format("iteration{:02}/sample_{:03}",
-                                       num_iterations, pt_to_draw);
+        // Generate timestamp
+        auto now = std::chrono::system_clock::now();
+        auto in_time_t = std::chrono::system_clock::to_time_t(now);
+        std::stringstream ss;
+        ss << std::put_time(std::localtime(&in_time_t), "%Y%m%d_%H%M%S");
+
+        std::string path = fmt::format("{}_iteration{:02}/sample_{:03}",
+                                       ss.str(), num_iterations, pt_to_draw);
         options.iris_options.meshcat->SetObject(
             path, Sphere(0.01), geometry::Rgba(1, 0.1, 0.1, 1.0));
         point_to_draw.head(domain.ambient_dimension()) = points.col(pt_to_draw);
@@ -579,6 +594,8 @@ void IrisInConfigurationSpaceFromCliqueCover(
     Eigen::SparseMatrix<bool> visibility_graph =
         VisibilityGraph(point_check_work, edge_check_work, points,
                         max_collision_checker_parallelism);
+    // Eigen::SparseMatrix<bool> visibility_graph =
+    //     VisibilityGraph(checker, points, max_collision_checker_parallelism);
 
     // Reserve more space for the newly built sets. Typically, we won't get
     // this worst case number of new cliques, so we only reserve half of the
@@ -647,6 +664,7 @@ void IrisInConfigurationSpaceFromCliqueCover(
     }
     ++num_iterations;
   }
+  log()->info("IrisFromCliqueCover: Terminating.");
 }
 }  // namespace planning
 }  // namespace drake

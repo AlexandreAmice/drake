@@ -582,6 +582,28 @@ std::vector<uint8_t> CollisionChecker::CheckConfigsCollisionFree(
   return collision_checks;
 }
 
+std::vector<uint8_t> CollisionChecker::CheckConfigsCollisionFreeEigen(
+    const Eigen::Ref<const Eigen::MatrixXd>& configs,
+    const Parallelism parallelize) const {
+  // Note: vector<uint8_t> is used since vector<bool> is not thread safe.
+  std::vector<uint8_t> collision_checks(configs.cols(), 0);
+
+  const int number_of_threads = GetNumberOfThreads(parallelize);
+  drake::log()->debug("CheckConfigsCollisionFree uses {} thread(s)",
+                      number_of_threads);
+
+  const auto config_work = [&](const int thread_num, const int64_t index) {
+    collision_checks.at(index) =
+        CheckConfigCollisionFree(configs.col(index), thread_num);
+  };
+
+  StaticParallelForIndexLoop(DegreeOfParallelism(number_of_threads), 0,
+                             configs.cols(), config_work,
+                             ParallelForBackend::BEST_AVAILABLE);
+
+  return collision_checks;
+}
+
 std::vector<uint8_t> CollisionChecker::CheckConfigSliceCollisionFree(
     const std::vector<Eigen::VectorXd>& configs, const int start, const int end,
     const Parallelism parallelize) const {

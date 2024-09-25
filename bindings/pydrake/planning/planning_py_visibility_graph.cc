@@ -34,6 +34,16 @@ void DefinePlanningVisibilityGraph(py::module m) {
       py::arg("points"), py::arg("parallelize") = Parallelism::Max(),
       py::call_guard<py::gil_scoped_release>()
    , doc.VisibilityGraph.doc_4args);
+
+  m.def("PRM",
+      py::overload_cast<const CollisionChecker&,
+          const Eigen::Ref<const Eigen::MatrixXd>&, const double, 
+          const Parallelism>(&planning::PRM),
+      py::arg("checker"), py::arg("points"), py::arg("radius"), 
+      py::arg("parallelize") = Parallelism::Max(),
+      py::call_guard<py::gil_scoped_release>()
+  , doc.PRM.doc);
+
 }
 
 }  // namespace internal

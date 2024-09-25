@@ -546,9 +546,7 @@ VectorXd HPolyhedron::UniformSample(
     const std::optional<Eigen::Ref<const Eigen::MatrixXd>>& subspace,
     double tol) const {
   DRAKE_THROW_UNLESS(mixing_steps >= 1);
-  if (subspace.has_value()) {
-    DRAKE_THROW_UNLESS(subspace->rows() == ambient_dimension());
-  }
+  DRAKE_THROW_UNLESS(this->PointInSet(previous_sample));
 
   std::normal_distribution<double> gaussian;
   VectorXd current_sample = previous_sample;
@@ -610,13 +608,20 @@ VectorXd HPolyhedron::UniformSample(
       throw std::invalid_argument(fmt::format(
           "The Hit and Run algorithm failed to find a feasible point in the "
           "set. The `previous_sample` must be in the set.\n"
-          "max(A * previous_sample - b) = {}. theta_min = {}. theta_max = {}."
-          "Polyhedron volume: {}.",
-          (A_ * current_sample - b_).maxCoeff(), theta_min, theta_max,
-          this->MaximumVolumeInscribedEllipsoid().Volume()));
+          "max(A * previous_sample - b) = {}. theta_min = {}. theta_max = {}. "
+          "Mixing step: {}. line_a minCoeff: {}. "
+          "Polyhedron estimated volume: {}.",
+          (A_ * current_sample - b_).maxCoeff(), theta_min, theta_max, step,
+          line_a.minCoeff(), 
+          this->CalcVolumeViaSampling(generator, 1e-2, 1e5).volume));
     }
     // Now pick θ uniformly from [θ_min, θ_max).
-    std::uniform_real_distribution<double> uniform_theta(theta_min, theta_max);
+    // std::uniform_real_distribution<double> uniform_theta(theta_min, theta_max);
+
+    double epsilon = 1e-6;
+    std::uniform_real_distribution<double> uniform_theta(theta_min + epsilon, 
+        theta_max - epsilon);
+
     const double theta = uniform_theta(*generator);
     current_sample = current_sample + theta * direction;
   }

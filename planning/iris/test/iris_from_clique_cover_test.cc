@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include "drake/common/find_resource.h"
+#include "drake/common/fmt_eigen.h"
 #include "drake/common/ssize.h"
 #include "drake/common/test_utilities/expect_throws_message.h"
 #include "drake/common/test_utilities/maybe_pause_for_user.h"
@@ -43,7 +44,6 @@ void Draw2dVPolytope(const VPolytope& polytope, const std::string& meshcat_name,
   points.topLeftCorner(2, polytope.vertices().cols()) = polytope.vertices();
   points.topRightCorner(2, 1) = polytope.vertices().col(0);
   points.bottomRows<1>().setZero();
-
   meshcat->SetLine(meshcat_name, points, 2.0,
                    Rgba(color(0), color(1), color(2)));
 }
@@ -439,6 +439,8 @@ class IrisInConfigurationSpaceFromCliqueCoverTestFixture
     options.minimum_clique_size = 8;
     options.iteration_limit = 1;
 
+    options.use_fast_iris = true;
+
     generator = RandomGenerator(0);
 
     // A manual convex decomposition of the space.
@@ -569,22 +571,41 @@ TEST_F(IrisInConfigurationSpaceFromCliqueCoverTestFixture,
 
 TEST_F(IrisInConfigurationSpaceFromCliqueCoverTestFixture,
        BoxWithCornerObstaclesTestGreedy) {
+  
+  options.use_fast_iris = false;
+  options.sample_with_margin = true;
 
   ConvexSets cspace_obstacles;
-  for (int i=0; i<100; i++) {
+  for (int i=0; i<3; i++) {
     // use default solver MaxCliqueSolverViaGreedy
     IrisInConfigurationSpaceFromCliqueCover(*checker, options, &generator, &sets,
                                             nullptr);    
 
-    cspace_obstacles.clear();
-    cspace_obstacles.reserve(sets.size());
+    options.iris_options.configuration_obstacles.clear();
+    options.iris_options.configuration_obstacles.reserve(sets.size());
 
     for (const auto& set : sets) {
-        cspace_obstacles.emplace_back(set.Scale(0.9).Clone());
+        options.iris_options.configuration_obstacles.emplace_back(set.Scale(0.7).Clone());
     }
-
-    checker->SetConfigurationSpaceObstacles(cspace_obstacles);
   }
+
+
+
+  // ConvexSets cspace_obstacles;
+  // for (int i=0; i<3; i++) {
+  //   // use default solver MaxCliqueSolverViaGreedy
+  //   IrisInConfigurationSpaceFromCliqueCover(*checker, options, &generator, &sets,
+  //                                           nullptr);    
+
+  //   cspace_obstacles.clear();
+  //   cspace_obstacles.reserve(sets.size());
+
+  //   for (const auto& set : sets) {
+  //       cspace_obstacles.emplace_back(set.Scale(0.7).Clone());
+  //   }
+
+  //   checker->SetConfigurationSpaceObstacles(cspace_obstacles);
+  // }
 
   // Show the IrisFromCliqueCoverDecomposition
   for (int i = 0; i < ssize(sets); ++i) {
@@ -594,8 +615,10 @@ TEST_F(IrisInConfigurationSpaceFromCliqueCoverTestFixture,
     }
     color.normalize();
     VPolytope vregion = VPolytope(sets.at(i)).GetMinimalRepresentation();
+    log()->info("test: {}", fmt_eigen(vregion.vertices()));
     Draw2dVPolytope(vregion, fmt::format("iris_from_clique_cover_greedy{}", i),
                     color, meshcat);
+    log()->info("test2");
   }
 
   // Now check the coverage by drawing points from the manual decomposition and
@@ -621,7 +644,11 @@ TEST_F(IrisInConfigurationSpaceFromCliqueCoverTestFixture,
   // of the random seed. (The probability of success is larger than 1-1e-9).
   EXPECT_GE(coverage_estimate, 0.9);
 
+  EXPECT_TRUE(false);
+
   MaybePauseForUser();
+
+  log()->info("{}/download", meshcat->web_url());
 }
 
 // Test that we get perfect coverage with a configuration obstacle in the top
