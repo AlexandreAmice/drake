@@ -38,6 +38,7 @@ struct IrisFromCliqueCoverOptions {
 
   bool use_fast_iris{true};
 
+  std::optional<HPolyhedron> sampling_domain{};
   /**
    * The fraction of the domain that must be covered before we terminate the
    * algorithm.

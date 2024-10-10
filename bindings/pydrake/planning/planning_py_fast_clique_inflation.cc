@@ -64,7 +64,8 @@ void DefinePlanningFastCliqueInflation(py::module m) {
 
   m.def("FastCliqueInflation", &FastCliqueInflation, py::arg("checker"),
       py::arg("clique"), py::arg("domain"),
-      py::arg("options") = FastCliqueInflationOptions(), doc.FastCliqueInflation.doc);
+      py::arg("options") = FastCliqueInflationOptions(), 
+      py::call_guard<py::gil_scoped_release>(), doc.FastCliqueInflation.doc);
 }
 
 }  // namespace internal

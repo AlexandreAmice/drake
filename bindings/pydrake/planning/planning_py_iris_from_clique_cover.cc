@@ -22,6 +22,8 @@ void DefinePlanningIrisFromCliqueCover(py::module m) {
           cls_doc.fast_iris_options.doc)
       .def_readwrite("use_fast_iris", &IrisFromCliqueCoverOptions::use_fast_iris,
           cls_doc.use_fast_iris.doc)
+      .def_readwrite("sampling_domain", &IrisFromCliqueCoverOptions::sampling_domain,
+          cls_doc.sampling_domain.doc)
       .def_readwrite("coverage_termination_threshold",
           &IrisFromCliqueCoverOptions::coverage_termination_threshold,
           cls_doc.coverage_termination_threshold.doc)

@@ -476,7 +476,16 @@ void IrisInConfigurationSpaceFromCliqueCover(
                            checker.plant().GetPositionUpperLimits()));
   DRAKE_THROW_UNLESS(domain.ambient_dimension() ==
                      checker.plant().num_positions());
-  Eigen::VectorXd last_polytope_sample = domain.UniformSample(generator);
+
+  // Separate domain for sampling clique points than for generating IRIS
+  // regions (so regions can expand beyond the sampling domain)
+  const HPolyhedron sampling_domain = options.sampling_domain.value_or(
+      HPolyhedron::MakeBox(checker.plant().GetPositionLowerLimits(),
+                           checker.plant().GetPositionUpperLimits()));
+  DRAKE_THROW_UNLESS(sampling_domain.ambient_dimension() ==
+                     checker.plant().num_positions());
+
+  Eigen::VectorXd last_polytope_sample = sampling_domain.UniformSample(generator);
 
   // Override options which are set too aggressively.
   const int minimum_clique_size = std::max(options.minimum_clique_size,
@@ -522,7 +531,7 @@ void IrisInConfigurationSpaceFromCliqueCover(
     for (int i = 0; i < points.cols(); ++i) {
       do {
         last_polytope_sample =
-            domain.UniformSample(generator, last_polytope_sample);
+            sampling_domain.UniformSample(generator, last_polytope_sample);
       } while (
           // While the last polytope sample is in collision.
           !CheckConfigCollisionFreeWithConfigurationObstacles(
