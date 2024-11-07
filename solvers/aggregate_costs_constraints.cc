@@ -255,12 +255,8 @@ void AggregateDuplicateVariables(const Eigen::SparseMatrix<double>& A,
   vars_new->conservativeResize(unique_var_count);
 }
 
-const Binding<QuadraticCost>* FindNonconvexQuadraticCost(
-    const std::vector<Binding<QuadraticCost>>& quadratic_costs) {
-  return internal::FindNonconvexQuadraticCost(quadratic_costs);
-}
-
 namespace internal {
+
 void DoAggregateConvexConstraints(
     const MathematicalProgram& prog,
     const ConvexConstraintAggregationOptions& options,

@@ -1110,10 +1110,10 @@ drake_cc_library(
     name = "dual_convex_program",
     srcs = ["dual_convex_program.cc"],
     hdrs = ["dual_convex_program.h"],
-    interface_deps = [
+    deps = [
         ":mathematical_program",
     ],
-    deps = [
+    implementation_deps = [
         ":aggregate_costs_constraints",
         "//math:matrix_util",
     ],
@@ -1123,10 +1123,10 @@ drake_cc_library(
     name = "conic_standard_form",
     srcs = ["conic_standard_form.cc"],
     hdrs = ["conic_standard_form.h"],
-    interface_deps = [
+    deps = [
         ":mathematical_program",
     ],
-    deps = [
+    implementation_deps = [
         ":aggregate_costs_constraints",
         "//math:matrix_util",
     ],

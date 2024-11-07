@@ -21,8 +21,10 @@ class TestConicStandardForm(unittest.TestCase):
         prog.AddLinearCost(c, d, y)
         conic_standard_form = ConicStandardForm(prog=prog)
         np.testing.assert_array_equal(conic_standard_form.A().toarray(), A)
-        np.testing.assert_array_equal(conic_standard_form.b().toarray().flatten(), -b)
-        np.testing.assert_array_equal(conic_standard_form.c().toarray().flatten(), c)
+        np.testing.assert_array_equal(
+            conic_standard_form.b().toarray().flatten(), -b)
+        np.testing.assert_array_equal(
+            conic_standard_form.c().toarray().flatten(), c)
         self.assertEqual(conic_standard_form.d(), d)
 
         self.assertTrue(ProgramAttribute.kLinearConstraint in

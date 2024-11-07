@@ -5,7 +5,6 @@
 #include "drake/solvers/conic_standard_form.h"
 #include "drake/solvers/mathematical_program.h"
 
-
 namespace drake {
 namespace pydrake {
 namespace internal {
