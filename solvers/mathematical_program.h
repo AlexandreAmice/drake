@@ -2638,7 +2638,34 @@ class MathematicalProgram {
    * doesn't introduce new variables or linear equality constraints.
    */
   Binding<PositiveSemidefiniteConstraint> AddPositiveSemidefiniteConstraint(
-      const Eigen::Ref<const MatrixX<symbolic::Expression>>& e);
+      const Eigen::Ref<const MatrixX<symbolic::Expression>>& e) {
+    // TODO(jwnimmer-tri) Move this whole function definition into the cc file.
+    DRAKE_THROW_UNLESS(e.rows() == e.cols());
+    DRAKE_ASSERT(CheckStructuralEquality(e, e.transpose().eval()));
+
+    // DON'T REMOVE THIS CHECK! You need it for dual convex program to work!.
+    bool mat_is_variable = true;
+    for (int i = 0; i < e.rows(); ++i) {
+      for (int j = i; j < e.cols(); ++j) {
+        if (!symbolic::is_variable(e(i, j))) {
+          mat_is_variable = false;
+          break;
+        }
+      }
+      if (!mat_is_variable) break;
+    }
+    if (mat_is_variable) {
+      MatrixXDecisionVariable E = e.unaryExpr([](symbolic::Expression expr) {
+        return get_variable(expr);
+      });
+      return AddPositiveSemidefiniteConstraint(E);
+    }
+    const MatrixXDecisionVariable M = NewSymmetricContinuousVariables(e.rows());
+    // Adds the linear equality constraint that M = e.
+    AddLinearEqualityConstraint(
+        e - M, Eigen::MatrixXd::Zero(e.rows(), e.rows()), true);
+    return AddPositiveSemidefiniteConstraint(M);
+  }
 
   /**
    * Adds a constraint that the principal submatrix of a symmetric matrix
