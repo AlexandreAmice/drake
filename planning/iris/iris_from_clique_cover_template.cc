@@ -24,12 +24,16 @@ std::vector<geometry::optimization::HPolyhedron> PointsToCliqueCoverSets(
     std::shared_ptr<geometry::Meshcat> meshcat) {
   DRAKE_THROW_UNLESS(min_clique_cover_solver != nullptr);
   DRAKE_THROW_UNLESS(set_builder != nullptr);
-
+  drake::log()->debug("Building visibility graph for {} points", points.cols());
   Eigen::SparseMatrix<bool> visibility_graph =
       VisibilityGraph(checker, points, parallelism);
+  drake::log()->debug("Building visibility graph completed. Have {} edges",
+                      points.nonZeros() / 2);
   // Compute the clique cover
+  drake::log()->debug("Launching Clique Cover Solver");
   std::vector<std::set<int>> clique_cover =
       min_clique_cover_solver->SolveMinCliqueCover(visibility_graph, partition);
+  drake::log()->debug("Clique Cover Solver Complete");
   bool do_debugging_visualization =
       meshcat != nullptr && (checker.plant().num_positions() == 3 ||
                              checker.plant().num_positions() == 2);
@@ -81,13 +85,16 @@ std::vector<geometry::optimization::HPolyhedron> PointsToCliqueCoverSets(
   // Inflate the regions.
   // Pre-allocate a data-structure to hold the current clique.
   Eigen::MatrixXd clique(points.rows(), points.cols());
+  int ctr = 0;
   for (const auto& clique_inds : clique_cover) {
+    drake::log()->debug("Building Clique {}/{}", ctr, ssize(clique_cover));
     int i = 0;
     for (const auto& ind : clique_inds) {
       clique.col(i++) = points.col(ind);
     }
     sets.push_back(
         set_builder->BuildRegion(clique.leftCols(clique_inds.size())));
+    ctr += 1;
   }
   return sets;
 }
@@ -102,8 +109,11 @@ std::vector<HPolyhedron> PointsToCliqueCoverSets(
   DRAKE_THROW_UNLESS(graph_builder != nullptr);
   DRAKE_THROW_UNLESS(min_clique_cover_solver != nullptr);
   DRAKE_THROW_UNLESS(set_builder != nullptr);
+  drake::log()->debug("Building visibility graph for {} points", points.cols());
   Eigen::SparseMatrix<bool> visibility_graph =
       graph_builder->BuildAdjacencyMatrix(points);
+  drake::log()->debug("Building visibility graph completed. Have {} edges",
+                      points.nonZeros() / 2);
 
   // Compute the clique cover
   std::vector<std::set<int>> clique_cover =
