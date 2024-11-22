@@ -1,5 +1,6 @@
 #include "drake/planning/trajectory_optimization/gcs_trajectory_optimization.h"
 
+#include <algorithm>
 #include <limits>
 #include <tuple>
 #include <unordered_map>
@@ -29,9 +30,6 @@ namespace trajectory_optimization {
 using Subgraph = GcsTrajectoryOptimization::Subgraph;
 using EdgesBetweenSubgraphs = GcsTrajectoryOptimization::EdgesBetweenSubgraphs;
 
-using drake::solvers::MathematicalProgram;
-using drake::solvers::Solve;
-using drake::solvers::VectorXDecisionVariable;
 using Eigen::MatrixXd;
 using Eigen::SparseMatrix;
 using Eigen::VectorXd;
@@ -65,11 +63,17 @@ using solvers::L2NormCost;
 using solvers::LinearConstraint;
 using solvers::LinearCost;
 using solvers::LinearEqualityConstraint;
+using solvers::MathematicalProgram;
+using solvers::MatrixXDecisionVariable;
 using solvers::QuadraticCost;
+using solvers::Solve;
+using solvers::VectorXDecisionVariable;
 using symbolic::DecomposeLinearExpressions;
 using symbolic::Expression;
+using symbolic::Formula;
 using symbolic::MakeMatrixContinuousVariable;
 using symbolic::MakeVectorContinuousVariable;
+using symbolic::Variable;
 using trajectories::BezierCurve;
 using trajectories::CompositeTrajectory;
 using trajectories::PiecewiseTrajectory;
@@ -316,6 +320,16 @@ Subgraph::Subgraph(
         path_continuity_constraint,
         {GetControlPoints(*u).col(order), GetControlPoints(*v).col(0)}));
   }
+
+  // Construct placeholder variables.
+  placeholder_vertex_duration_var_ = symbolic::Variable("t");
+  placeholder_vertex_control_points_var_ =
+      MakeMatrixContinuousVariable(num_positions(), order + 1, "x");
+  placeholder_edge_durations_var_ =
+      std::make_pair(symbolic::Variable("tu"), symbolic::Variable("tv"));
+  placeholder_edge_control_points_var_ = std::make_pair(
+      MakeMatrixContinuousVariable(num_positions(), order + 1, "xu"),
+      MakeMatrixContinuousVariable(num_positions(), order + 1, "xv"));
 }
 
 Subgraph::~Subgraph() = default;
@@ -638,6 +652,9 @@ void Subgraph::AddPathContinuityConstraints(int continuity_order) {
 }
 
 void Subgraph::AddContinuityConstraints(int continuity_order) {
+  // TODO(cohnt): Rewrite to use the generic AddCost and AddConstraint
+  // interfaces.
+
   if (continuity_order == 0) {
     throw std::runtime_error(
         "Path continuity is enforced by default. Choose a higher order.");
@@ -737,6 +754,258 @@ symbolic::Variable Subgraph::GetTimeScaling(
     const geometry::optimization::GraphOfConvexSets::Vertex& v) const {
   DRAKE_DEMAND(v.x().size() == num_positions() * (order_ + 1) + 1);
   return v.x()(v.x().size() - 1);
+}
+
+namespace {
+
+std::vector<Variable> FlattenVariables(
+    const std::vector<Variable>& scalar_variables,
+    const std::vector<VectorXDecisionVariable>& vector_variables,
+    const std::vector<MatrixXDecisionVariable>& matrix_variables) {
+  std::vector<Variable> all_variables;
+
+  // Append scalar variables.
+  all_variables.insert(all_variables.end(), scalar_variables.begin(),
+                       scalar_variables.end());
+
+  // Flatten vector variables.
+  for (const auto& vector_variable : vector_variables) {
+    for (int i = 0; i < vector_variable.size(); ++i) {
+      all_variables.push_back(vector_variable(i));
+    }
+  }
+
+  // Flatten matrix variables.
+  for (const auto& matrix_variable : matrix_variables) {
+    for (int i = 0; i < matrix_variable.rows(); ++i) {
+      for (int j = 0; j < matrix_variable.cols(); ++j) {
+        all_variables.push_back(matrix_variable(i, j));
+      }
+    }
+  }
+
+  return all_variables;
+}
+
+// Compatible with Expression and Formula.
+template <typename T>
+T SubstituteAllVariables(
+    T e, std::vector<Variable> old_scalar_variables = {},
+    std::vector<Variable> new_scalar_variables = {},
+    std::vector<VectorXDecisionVariable> old_vector_variables = {},
+    std::vector<VectorXDecisionVariable> new_vector_variables = {},
+    std::vector<MatrixXDecisionVariable> old_matrix_variables = {},
+    std::vector<MatrixXDecisionVariable> new_matrix_variables = {}) {
+  DRAKE_DEMAND(old_scalar_variables.size() == new_scalar_variables.size());
+  DRAKE_DEMAND(old_vector_variables.size() == new_vector_variables.size());
+  DRAKE_DEMAND(old_matrix_variables.size() == new_matrix_variables.size());
+
+  std::vector<Variable> old_variables = FlattenVariables(
+      old_scalar_variables, old_vector_variables, old_matrix_variables);
+  std::vector<Variable> new_variables = FlattenVariables(
+      new_scalar_variables, new_vector_variables, new_matrix_variables);
+  DRAKE_DEMAND(old_variables.size() == new_variables.size());
+
+  symbolic::Variables e_vars = e.GetFreeVariables();
+  for (int i = 0; i < ssize(old_variables); ++i) {
+    if (e_vars.include(old_variables[i])) {
+      e = e.Substitute(old_variables[i], new_variables[i]);
+    }
+  }
+  return e;
+}
+
+// Compatible with Binding<Cost> and Binding<Constraint>.
+template <typename T>
+Binding<T> SubstituteAllVariables(
+    const Binding<T>& binding, std::vector<Variable> old_scalar_variables = {},
+    std::vector<Variable> new_scalar_variables = {},
+    std::vector<VectorXDecisionVariable> old_vector_variables = {},
+    std::vector<VectorXDecisionVariable> new_vector_variables = {},
+    std::vector<MatrixXDecisionVariable> old_matrix_variables = {},
+    std::vector<MatrixXDecisionVariable> new_matrix_variables = {}) {
+  DRAKE_DEMAND(old_scalar_variables.size() == new_scalar_variables.size());
+  DRAKE_DEMAND(old_vector_variables.size() == new_vector_variables.size());
+  DRAKE_DEMAND(old_matrix_variables.size() == new_matrix_variables.size());
+
+  std::vector<Variable> old_variables = FlattenVariables(
+      old_scalar_variables, old_vector_variables, old_matrix_variables);
+  std::vector<Variable> new_variables = FlattenVariables(
+      new_scalar_variables, new_vector_variables, new_matrix_variables);
+  DRAKE_DEMAND(old_variables.size() == new_variables.size());
+
+  VectorXDecisionVariable new_binding_variables(binding.variables());
+  for (int i = 0; i < new_binding_variables.size(); ++i) {
+    // For the current placeholder variable, find its index in old_variables,
+    // and grab the corresponding entry in new_variables.
+    auto iterator = std::find_if(
+        old_variables.begin(), old_variables.end(), [&](const Variable& var) {
+          return var.equal_to(new_binding_variables[i]);
+        });
+    if (iterator == old_variables.end()) {
+      // We throw an error if the user gave an unknown variable.
+      throw std::runtime_error(
+          fmt::format("Unknown variable with name {} provided.",
+                      new_binding_variables[i].get_name()));
+    }
+    size_t index = std::distance(std::begin(old_variables), iterator);
+    new_binding_variables[i] = new_variables[index];
+  }
+
+  return Binding<T>{binding.evaluator(), new_binding_variables};
+}
+
+// Compatible with Expression, Formula, Binding<Cost>, and Binding<Constraint>.
+template <typename T>
+void ThrowIfContainsVariables(const T& e, const std::vector<Variable>& vars,
+                              const std::string& error_message) {
+  symbolic::Variables e_vars;
+  if constexpr (std::disjunction_v<std::is_same<T, Formula>,
+                                   std::is_same<T, Expression>>) {
+    e_vars = e.GetFreeVariables();
+  } else {
+    e_vars = symbolic::Variables(e.variables());
+  }
+  for (const auto& var : vars) {
+    if (e_vars.include(var)) {
+      throw(std::runtime_error(error_message));
+    }
+  }
+}
+
+}  // namespace
+
+// Compatible with Expression, Formula, Binding<Cost>, and Binding<Constraint>.
+template <typename T>
+T Subgraph::SubstituteVertexPlaceholderVariables(T e,
+                                                 const Vertex& vertex) const {
+  // Check that a user hasn't used the edge placeholder variables.
+  const std::string error_message =
+      "Edge placeholder variables cannot be used to add vertex costs or "
+      "constraints.";
+  ThrowIfContainsVariables(
+      e,
+      FlattenVariables({placeholder_edge_durations_var_.first,
+                        placeholder_edge_durations_var_.second},
+                       {},
+                       {placeholder_edge_control_points_var_.first,
+                        placeholder_edge_control_points_var_.second}),
+      error_message);
+
+  return SubstituteAllVariables(
+      e, {placeholder_vertex_duration_var_}, {GetTimeScaling(vertex)}, {}, {},
+      {placeholder_vertex_control_points_var_}, {GetControlPoints(vertex)});
+}
+
+// Compatible with Expression, Formula, Binding<Cost>, and Binding<Constraint>.
+template <typename T>
+T Subgraph::SubstituteEdgePlaceholderVariables(T e, const Edge& edge) const {
+  // Check that a user hasn't used the vertex placeholder variables.
+  const std::string error_message =
+      "Vertex placeholder variables cannot be used to add edge costs or "
+      "constraints.";
+  ThrowIfContainsVariables(
+      e,
+      FlattenVariables({placeholder_vertex_duration_var_}, {},
+                       {placeholder_vertex_control_points_var_}),
+      error_message);
+
+  const Vertex& v1 = edge.u();
+  const Vertex& v2 = edge.v();
+
+  return SubstituteAllVariables(e,
+                                {placeholder_edge_durations_var_.first,
+                                 placeholder_edge_durations_var_.second},
+                                {GetTimeScaling(v1), GetTimeScaling(v2)}, {},
+                                {},
+                                {placeholder_edge_control_points_var_.first,
+                                 placeholder_edge_control_points_var_.second},
+                                {GetControlPoints(v1), GetControlPoints(v2)});
+}
+
+void Subgraph::AddVertexCost(
+    const Expression& e,
+    const std::unordered_set<Transcription>& use_in_transcription) {
+  DoAddVertexCost(e, use_in_transcription);
+}
+void Subgraph::AddVertexCost(
+    const Binding<Cost>& binding,
+    const std::unordered_set<Transcription>& use_in_transcription) {
+  DoAddVertexCost(binding, use_in_transcription);
+}
+
+// Compatible with Expression and Binding<Cost>.
+template <typename T>
+void Subgraph::DoAddVertexCost(
+    const T& e, const std::unordered_set<Transcription>& use_in_transcription) {
+  for (Vertex*& vertex : vertices_) {
+    T post_substitution = SubstituteVertexPlaceholderVariables(e, *vertex);
+    vertex->AddCost(post_substitution, use_in_transcription);
+  }
+}
+
+void Subgraph::AddVertexConstraint(
+    const Formula& e,
+    const std::unordered_set<Transcription>& use_in_transcription) {
+  DoAddVertexConstraint(e, use_in_transcription);
+}
+void Subgraph::AddVertexConstraint(
+    const Binding<Constraint>& binding,
+    const std::unordered_set<Transcription>& use_in_transcription) {
+  DoAddVertexConstraint(binding, use_in_transcription);
+}
+
+// Compatible with Formula and Binding<Constraint>.
+template <typename T>
+void Subgraph::DoAddVertexConstraint(
+    const T& e, const std::unordered_set<Transcription>& use_in_transcription) {
+  for (Vertex*& vertex : vertices_) {
+    T post_substitution = SubstituteVertexPlaceholderVariables(e, *vertex);
+    vertex->AddConstraint(post_substitution, use_in_transcription);
+  }
+}
+void Subgraph::AddEdgeCost(
+    const Expression& e,
+    const std::unordered_set<Transcription>& use_in_transcription) {
+  DoAddEdgeCost(e, use_in_transcription);
+}
+
+void Subgraph::AddEdgeCost(
+    const Binding<Cost>& binding,
+    const std::unordered_set<Transcription>& use_in_transcription) {
+  DoAddEdgeCost(binding, use_in_transcription);
+}
+
+// Compatible with Expression and Binding<Cost>.
+template <typename T>
+void Subgraph::DoAddEdgeCost(
+    const T& e, const std::unordered_set<Transcription>& use_in_transcription) {
+  for (Edge*& edge : edges_) {
+    T post_substitution = SubstituteEdgePlaceholderVariables(e, *edge);
+    edge->AddCost(post_substitution, use_in_transcription);
+  }
+}
+
+void Subgraph::AddEdgeConstraint(
+    const Formula& e,
+    const std::unordered_set<Transcription>& use_in_transcription) {
+  DoAddEdgeConstraint(e, use_in_transcription);
+}
+
+void Subgraph::AddEdgeConstraint(
+    const Binding<Constraint>& binding,
+    const std::unordered_set<Transcription>& use_in_transcription) {
+  DoAddEdgeConstraint(binding, use_in_transcription);
+}
+
+// Compatible with Formula and Binding<Constraint>.
+template <typename T>
+void Subgraph::DoAddEdgeConstraint(
+    const T& e, const std::unordered_set<Transcription>& use_in_transcription) {
+  for (Edge*& edge : edges_) {
+    T post_substitution = SubstituteEdgePlaceholderVariables(e, *edge);
+    edge->AddConstraint(post_substitution, use_in_transcription);
+  }
 }
 
 EdgesBetweenSubgraphs::EdgesBetweenSubgraphs(
@@ -916,6 +1185,15 @@ EdgesBetweenSubgraphs::EdgesBetweenSubgraphs(
       }
     }
   }
+
+  // Construct placeholder variables.
+  placeholder_edge_durations_var_ =
+      std::make_pair(symbolic::Variable("tu"), symbolic::Variable("tv"));
+  placeholder_edge_control_points_var_ =
+      std::make_pair(MakeMatrixContinuousVariable(
+                         num_positions(), from_subgraph_.order() + 1, "xu"),
+                     MakeMatrixContinuousVariable(
+                         num_positions(), to_subgraph_.order() + 1, "xv"));
 }
 
 EdgesBetweenSubgraphs::~EdgesBetweenSubgraphs() = default;
@@ -1403,6 +1681,37 @@ std::vector<const GraphOfConvexSets::Edge*> EdgesBetweenSubgraphs::Edges()
     edges.push_back(e);
   }
   return edges;
+}
+
+template <typename T>
+T EdgesBetweenSubgraphs::SubstituteEdgePlaceholderVariables(
+    T e, const Edge& edge) const {
+  return SubstituteAllVariables(
+      e,
+      {placeholder_edge_durations_var_.first,
+       placeholder_edge_durations_var_.second},
+      {GetTimeScalingU(edge), GetTimeScalingV(edge)}, {}, {},
+      {placeholder_edge_control_points_var_.first,
+       placeholder_edge_control_points_var_.second},
+      {GetControlPointsU(edge), GetControlPointsV(edge)});
+}
+
+void EdgesBetweenSubgraphs::AddEdgeCost(
+    const Expression& e,
+    const std::unordered_set<Transcription>& use_in_transcription) {
+  for (Edge*& edge : edges_) {
+    Expression post_substitution = SubstituteEdgePlaceholderVariables(e, *edge);
+    edge->AddCost(post_substitution, use_in_transcription);
+  }
+}
+
+void EdgesBetweenSubgraphs::AddEdgeConstraint(
+    const symbolic::Formula& e,
+    const std::unordered_set<Transcription>& use_in_transcription) {
+  for (Edge*& edge : edges_) {
+    Formula post_substitution = SubstituteEdgePlaceholderVariables(e, *edge);
+    edge->AddConstraint(post_substitution, use_in_transcription);
+  }
 }
 
 Eigen::Map<const MatrixX<symbolic::Variable>>

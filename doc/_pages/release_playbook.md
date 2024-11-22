@@ -86,15 +86,11 @@ the main body of the document:
 * Use exactly the same wording for the boilerplate items:
   * Every dependency upgrade line should be "Upgrade libfoobar to latest
     release 1.2.3" or "Upgrade funrepo to latest commit".
-  * Dependencies should be referred to by their workspace name.
+  * Dependencies should be referred to by their ``workspace`` name.
   * Only one dependency change per line. Even if both meshcat and meshcat-python
     were upgraded in the same pull request, they each should get their own
     line in the release notes.
 
-* Some features under development (eg, deformables as of this writing) may
-  have no-release-notes policies, as their APIs although public are not yet
-  fully supported.  Be sure to take note of which these are, or ask on
-  `#platform_review` slack.
 * Keep all bullet points to one line.
   * Using hard linebreaks to stay under 80 columns makes the bullet lists hard
     to maintain over time.
@@ -126,7 +122,7 @@ the main body of the document:
       [download_release_candidate.py](https://github.com/RobotLocomotion/drake/blob/master/tools/release_engineering/download_release_candidate.py).)
 2. Launch the staging builds for that git commit sha:
    1. Open the following Jenkins jobs (e.g., each in its own
-      new browser tab):
+      new window, so you can copy-and-paste sha1 and version easily):
       - [Linux Wheel Staging](https://drake-jenkins.csail.mit.edu/view/Staging/job/linux-jammy-unprovisioned-gcc-wheel-staging-release/)
       - [macOS arm Wheel Staging](https://drake-jenkins.csail.mit.edu/view/Staging/job/mac-arm-sonoma-unprovisioned-clang-wheel-staging-release/)
       - [Jammy Packaging Staging](https://drake-jenkins.csail.mit.edu/view/Staging/job/linux-jammy-unprovisioned-gcc-cmake-staging-packaging/)
@@ -135,14 +131,14 @@ the main body of the document:
    2. In the upper right, click "log in" (unless you're already logged in). This
       will use your GitHub credentials.
    3. Click "Build with Parameters".
-   4. Change "sha1" to the full **git sha** corresponding to ``v1.N.0`` and
-      "release_version" to ``1.N.0`` (no "v").
+   4. Change "sha1" (not "ci_sha1") to the full **git sha** corresponding to 
+      ``v1.N.0`` and "release_version" to ``1.N.0`` (no "v").
       - If you mistakenly provide the "v" in "release_version", your build will
         appear to work, but actually fail 5-6 minutes later.
    5. Click "Build"; each build will take around an hour, give or take.
    6. Wait for all staging jobs to succeed.  It's OK to work on release notes
       finishing touches in the meantime, but do not merge the release notes nor
-      tag the release until all four builds have succeeded.
+      tag the release until all five builds have succeeded.
 3. Update the release notes to have the ``YYYY-MM-DD`` we choose.
    1. There is a dummy date 2099-12-31 nearby that should likewise be changed.
    2. Make sure that the nightly build git sha from the prior steps matches the
@@ -234,11 +230,9 @@ the email address associated with your github account.
       with your github account; otherwise, the file is read-only).
       1. For reference, the typical content is thus:
          ```
-         FROM robotlocomotion/drake:jammy-20230518
+         FROM robotlocomotion/drake:jammy-20241114
 
-         RUN apt-get -q update && apt-get -q install -y --no-install-recommends nginx-light xvfb && apt-get -q clean
-
-         ENV DISPLAY=:1
+         RUN apt-get -q update && apt-get -q install -y --no-install-recommends nginx-light && apt-get -q clean
 
          ENV PATH="/opt/drake/bin:${PATH}" \
            PYTHONPATH="/opt/drake/lib/python3.10/site-packages:${PYTHONPATH}"
@@ -262,9 +256,7 @@ the email address associated with your github account.
    ```
    %%bash
    /opt/drake/share/drake/setup/deepnote/install_nginx
-   /opt/drake/share/drake/setup/deepnote/install_xvfb
    ```
-   In case the display server is not working later on, this might be a good place to double-check.
    For Jammy we also needed to add ``cd /work`` atop the stanza that checks for
    ``requirements.txt`` to get it working again.
 5. Copy the updated tutorials from the pinned Dockerfile release

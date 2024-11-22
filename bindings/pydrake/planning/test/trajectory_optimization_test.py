@@ -24,6 +24,13 @@ from pydrake.geometry.optimization import (
     Point,
     VPolytope,
 )
+from pydrake.solvers import (
+    Binding,
+    Cost,
+    Constraint,
+    ExpressionCost,
+    ExpressionConstraint
+)
 from pydrake.multibody.plant import MultibodyPlant
 import pydrake.solvers as mp
 from pydrake.symbolic import Variable
@@ -330,6 +337,103 @@ class TestTrajectoryOptimization(unittest.TestCase):
             restricted_traj.end_time()).squeeze()
         np.testing.assert_allclose(restricted_traj_start, start, atol=1e-6)
         np.testing.assert_allclose(restricted_traj_end, end, atol=1e-6)
+
+        # We can add additional costs and constraints to Subgraphs with the
+        # placeholder variables.
+        vertex_duration = regions.vertex_duration()
+        vertex_control_points = regions.vertex_control_points()
+        edge_constituent_vertex_durations = (
+            regions.edge_constituent_vertex_durations()
+        )
+        edge_constituent_vertex_control_points = (
+            regions.edge_constituent_vertex_control_points()
+        )
+
+        vertex_cost = sum([
+            vertex_duration,
+            vertex_control_points[0, 0],
+            vertex_control_points[0, 1],
+        ])
+        edge_cost = sum([
+            edge_constituent_vertex_durations[0],
+            edge_constituent_vertex_durations[1],
+            edge_constituent_vertex_control_points[0][0, 0],
+            edge_constituent_vertex_control_points[0][0, 1],
+            edge_constituent_vertex_control_points[1][0, 0],
+            edge_constituent_vertex_control_points[1][0, 1]
+        ])
+        vertex_constraint = vertex_cost >= 0
+        edge_constraint = edge_cost >= 0
+
+        regions.AddVertexCost(e=vertex_cost)
+        regions.AddVertexConstraint(e=vertex_constraint)
+        regions.AddEdgeCost(e=edge_cost)
+        regions.AddEdgeConstraint(e=edge_constraint)
+
+        all_transcriptions = {
+            GraphOfConvexSets.Transcription.kMIP,
+            GraphOfConvexSets.Transcription.kRelaxation,
+            GraphOfConvexSets.Transcription.kRestriction
+        }
+        regions.AddVertexCost(e=vertex_cost,
+                              use_in_transcription=all_transcriptions)
+        regions.AddVertexConstraint(e=vertex_constraint,
+                                    use_in_transcription=all_transcriptions)
+        regions.AddEdgeCost(e=edge_cost,
+                            use_in_transcription=all_transcriptions)
+        regions.AddEdgeConstraint(e=edge_constraint,
+                                  use_in_transcription=all_transcriptions)
+
+        to_bind_vertex_cost = ExpressionCost(vertex_cost)
+        to_bind_vertex_constraint = ExpressionConstraint([vertex_cost],
+                                                         [-1],
+                                                         [1])
+        to_bind_edge_cost = ExpressionCost(edge_cost)
+        to_bind_edge_constraint = ExpressionConstraint([edge_cost], [-1], [1])
+
+        restriction_only = {
+            GraphOfConvexSets.Transcription.kRestriction
+        }
+        regions.AddVertexCost(binding=Binding[Cost](
+                to_bind_vertex_cost, to_bind_vertex_cost.vars()),
+                use_in_transcription=restriction_only)
+        regions.AddVertexConstraint(binding=Binding[Constraint](
+                to_bind_vertex_constraint, to_bind_vertex_constraint.vars()),
+                use_in_transcription=restriction_only)
+        regions.AddEdgeCost(binding=Binding[Cost](
+                to_bind_edge_cost, to_bind_edge_cost.vars()),
+                use_in_transcription=restriction_only)
+        regions.AddEdgeConstraint(binding=Binding[Constraint](
+                to_bind_edge_constraint, to_bind_edge_constraint.vars()),
+                use_in_transcription=restriction_only)
+
+        # We can add additional costs and constraints to EdgesBetweenSubgraphs
+        # with the placeholder variables.
+        edge_constituent_vertex_durations = (
+            edges.edge_constituent_vertex_durations()
+        )
+        edge_constituent_vertex_control_points = (
+            edges.edge_constituent_vertex_control_points()
+        )
+        edge_cost = sum([
+            edge_constituent_vertex_durations[0],
+            edge_constituent_vertex_durations[1],
+            edge_constituent_vertex_control_points[0][0, 0],
+            edge_constituent_vertex_control_points[1][0, 0],
+            edge_constituent_vertex_control_points[1][0, 1]
+        ])
+        edge_constraint = edge_cost >= 0
+
+        edges.AddEdgeCost(e=edge_cost)
+        edges.AddEdgeConstraint(e=edge_constraint)
+
+        edges.AddEdgeCost(e=edge_cost,
+                          use_in_transcription=all_transcriptions)
+        edges.AddEdgeConstraint(e=edge_constraint,
+                                use_in_transcription=all_transcriptions)
+
+        traj, result = gcs.SolvePath(source, target)
+        self.assertTrue(result.is_success())
 
         # Test that removing all subgraphs, removes all vertices and edges.
         self.assertEqual(len(gcs.graph_of_convex_sets().Vertices()),

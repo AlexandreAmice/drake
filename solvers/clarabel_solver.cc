@@ -1,6 +1,7 @@
 #include "drake/solvers/clarabel_solver.h"
 
 #include <fstream>
+#include <optional>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -432,6 +433,18 @@ void ClarabelSolver::DoSolve2(const MathematicalProgram& prog,
         clarabel::NonnegativeConeT<double>(num_linear_constraint_rows));
   }
 
+  // Parse scalar PSD constraint as linear constraint.
+  int scalar_psd_positive_cone_length{};
+  std::vector<std::optional<int>> scalar_psd_dual_indices;
+  std::vector<std::optional<int>> scalar_lmi_dual_indices;
+  internal::ParseScalarPositiveSemidefiniteConstraints(
+      prog, &A_triplets, &b, &A_row_count, &scalar_psd_positive_cone_length,
+      &scalar_psd_dual_indices, &scalar_lmi_dual_indices);
+  if (scalar_psd_positive_cone_length > 0) {
+    cones.push_back(
+        clarabel::NonnegativeConeT<double>(scalar_psd_positive_cone_length));
+  }
+
   // Parse Lorentz cone and rotated Lorentz cone constraint
   std::vector<int> second_order_cone_length;
   // y[lorentz_cone_y_start_indices[i]:
@@ -445,13 +458,34 @@ void ClarabelSolver::DoSolve2(const MathematicalProgram& prog,
   for (const int soc_length : second_order_cone_length) {
     cones.push_back(clarabel::SecondOrderConeT<double>(soc_length));
   }
+  // Parse PSD/LMI constraints on 2x2 matrices as second order cone constraints.
+  int num_second_order_cones_from_psd{};
+  std::vector<std::optional<int>> twobytwo_psd_y_start_indices;
+  std::vector<std::optional<int>> twobytwo_lmi_y_start_indices;
+  internal::Parse2x2PositiveSemidefiniteConstraints(
+      prog, &A_triplets, &b, &A_row_count, &num_second_order_cones_from_psd,
+      &twobytwo_psd_y_start_indices, &twobytwo_lmi_y_start_indices);
+  for (int i = 0; i < num_second_order_cones_from_psd; ++i) {
+    cones.push_back(clarabel::SecondOrderConeT<double>(3));
+  }
 
-  std::vector<int> psd_cone_length;
+  std::vector<std::optional<int>> psd_cone_length;
+  std::vector<std::optional<int>> lmi_cone_length;
+  std::vector<std::optional<int>> psd_y_start_indices;
+  std::vector<std::optional<int>> lmi_y_start_indices;
   internal::ParsePositiveSemidefiniteConstraints(
       prog, /* upper triangular = */ true, &A_triplets, &b, &A_row_count,
-      &psd_cone_length);
-  for (const int length : psd_cone_length) {
-    cones.push_back(clarabel::PSDTriangleConeT<double>(length));
+      &psd_cone_length, &lmi_cone_length, &psd_y_start_indices,
+      &lmi_y_start_indices);
+  for (const auto& length : psd_cone_length) {
+    if (length.has_value()) {
+      cones.push_back(clarabel::PSDTriangleConeT<double>(*length));
+    }
+  }
+  for (const auto& length : lmi_cone_length) {
+    if (length.has_value()) {
+      cones.push_back(clarabel::PSDTriangleConeT<double>(*length));
+    }
   }
 
   internal::ParseExponentialConeConstraints(prog, &A_triplets, &b,
@@ -497,10 +531,13 @@ void ClarabelSolver::DoSolve2(const MathematicalProgram& prog,
       Eigen::Map<Eigen::VectorXd>(solution.x.data(), prog.num_vars()));
 
   SetBoundingBoxDualSolution(prog, solution.z, bbcon_dual_indices, result);
-  internal::SetDualSolution(prog, solution.z, linear_constraint_dual_indices,
-                            linear_eq_y_start_indices,
-                            lorentz_cone_y_start_indices,
-                            rotated_lorentz_cone_y_start_indices, result);
+  internal::SetDualSolution(
+      prog, solution.z, linear_constraint_dual_indices,
+      linear_eq_y_start_indices, lorentz_cone_y_start_indices,
+      rotated_lorentz_cone_y_start_indices, psd_y_start_indices,
+      lmi_y_start_indices, scalar_psd_dual_indices, scalar_lmi_dual_indices,
+      twobytwo_psd_y_start_indices, twobytwo_lmi_y_start_indices,
+      /*upper_triangular_psd=*/true, result);
   if (solution.status == clarabel::SolverStatus::Solved ||
       solution.status == clarabel::SolverStatus::AlmostSolved) {
     solution_result = SolutionResult::kSolutionFound;

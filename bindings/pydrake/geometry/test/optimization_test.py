@@ -503,7 +503,8 @@ class TestGeometryOptimization(unittest.TestCase):
             [r/2, r/3, r/4, r/5]
         ])
 
-        vpoly = mut.VPolytope(vertices=vertices).GetMinimalRepresentation()
+        vpoly = mut.VPolytope(vertices=vertices)
+        vpoly = vpoly.GetMinimalRepresentation(tol=1e-9)
         self.assertAlmostEqual(vpoly.CalcVolume(), np.pi * r * r, delta=1e-3)
         self.assertEqual(vpoly.vertices().shape[1], n)
         # Calculate the length of the path that visits all the vertices
@@ -796,6 +797,7 @@ class TestGeometryOptimization(unittest.TestCase):
         options.preprocessing_solver_options = SolverOptions()
         options.preprocessing_solver_options.SetOption(
             ClpSolver.id(), "log_level", 3)
+        options.parallelism = True
         self.assertIn("scaling",
                       options.solver_options.GetOptions(ClpSolver.id()))
         self.assertIn("log_level",
@@ -1501,24 +1503,28 @@ class TestCspaceFreePolytope(unittest.TestCase):
                         convex_sets_A=sets_A,
                         convex_sets_B=sets_B,
                         continuous_revolute_joints=[0],
-                        preprocess_bbox=True))
+                        preprocess_bbox=True,
+                        parallelism=Parallelism.Max()))
         outputs.append(
                 mut.ComputePairwiseIntersections(
                         convex_sets_A=sets_A,
                         convex_sets_B=sets_B,
                         continuous_revolute_joints=[0],
                         bboxes_A=bboxes_A,
-                        bboxes_B=bboxes_B))
+                        bboxes_B=bboxes_B,
+                        parallelism=Parallelism.Max()))
         outputs.append(
                 mut.ComputePairwiseIntersections(
                         convex_sets=sets_A,
                         continuous_revolute_joints=[0],
-                        preprocess_bbox=True))
+                        preprocess_bbox=True,
+                        parallelism=Parallelism.Max()))
         outputs.append(
                 mut.ComputePairwiseIntersections(
                         convex_sets=sets_A,
                         continuous_revolute_joints=[0],
-                        bboxes=bboxes_A))
+                        bboxes=bboxes_A,
+                        parallelism=Parallelism.Max()))
         for out in outputs:
             self.assertIsInstance(out, tuple)
             self.assertIsInstance(out[0], list)

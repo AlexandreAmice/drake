@@ -229,15 +229,20 @@ class MosekSolverProgram {
                          ConstraintDualIndices>* lin_eq_con_dual_indices);
 
   // Add the bounds on the decision variables in @p prog. Note that if a
-  // decision variable in positive definite matrix has a bound, we need to add
-  // new linear constraint to Mosek to bound that variable.
-  // @param[out] dual_indices Map each bounding box constraint to its dual
+  // decision variable in positive definite matrix (with >= 2 rows) has a bound,
+  // we need to add new linear constraint to Mosek to bound that variable.
+  // @param[out] bbcon_dual_indices Map each bounding box constraint to its dual
   // variable indices.
-  MSKrescodee AddBoundingBoxConstraints(
+  // @param[out] scalar_psd_dual_indices Map each 1x1
+  // PositiveSemidefiniteConstraint to its dual variable index.
+  MSKrescodee AddVariableBounds(
       const MathematicalProgram& prog,
       std::unordered_map<Binding<BoundingBoxConstraint>,
                          std::pair<ConstraintDualIndices,
-                                   ConstraintDualIndices>>* dual_indices);
+                                   ConstraintDualIndices>>* bbcon_dual_indices,
+      std::unordered_map<Binding<PositiveSemidefiniteConstraint>,
+                         std::pair<ConstraintDualIndex, ConstraintDualIndex>>*
+          scalar_psd_dual_indices);
 
   // Add the quadratic constraints in @p prog.
   // @param[out] dual_indices Map each quadratic constraint to its dual variable
@@ -280,6 +285,11 @@ class MosekSolverProgram {
       const std::vector<Binding<C>>& cone_constraints,
       std::unordered_map<Binding<C>, MSKint64t>* acc_indices);
 
+  // Add positive semidefinite constraints to Mosek.
+  // Normally (for psd matrix with >= 2 rows), we use Mosek's "bar variable"
+  // which is constrained to be positive semidefinite;
+  // for a psd matrix with 1 row (namely a scalar >= 0), we just impose a lower
+  // bound on that scalar (in AddVariableBounds).
   // @param[out] psd_barvar_indices maps each psd constraint to Mosek matrix
   // variable
   MSKrescodee AddPositiveSemidefiniteConstraints(
@@ -350,10 +360,16 @@ class MosekSolverProgram {
           lorentz_cone_acc_indices,
       const std::unordered_map<Binding<RotatedLorentzConeConstraint>,
                                MSKint64t>& rotated_lorentz_cone_acc_indices,
+      const std::unordered_map<Binding<LinearMatrixInequalityConstraint>,
+                               MSKint64t>& lmi_acc_indices,
       const std::unordered_map<Binding<ExponentialConeConstraint>, MSKint64t>&
           exp_cone_acc_indices,
       const std::unordered_map<Binding<PositiveSemidefiniteConstraint>,
                                MSKint32t>& psd_barvar_indices,
+      const std::unordered_map<
+          Binding<PositiveSemidefiniteConstraint>,
+          std::pair<ConstraintDualIndex, ConstraintDualIndex>>&
+          scalar_psd_dual_indices,
       MathematicalProgramResult* result) const;
 
   // @param[in] options The options to copy into our task. It is mutable so
@@ -512,14 +528,19 @@ MSKrescodee MosekSolverProgram::AddConeConstraints(
 // https://docs.mosek.com/10.1/capi/alphabetic-functionalities.html#mosek.task.getslc
 // @param suc Mosek dual variables for linear constraint upper bound. See
 // https://docs.mosek.com/10.1/capi/alphabetic-functionalities.html#mosek.task.getsuc
-void SetBoundingBoxDualSolution(
-    const std::vector<Binding<BoundingBoxConstraint>>& constraints,
+void SetVariableBoundsDualSolution(
+    const std::vector<Binding<BoundingBoxConstraint>>& bb_constraints,
+    const std::vector<Binding<PositiveSemidefiniteConstraint>>& psd_constraints,
     const std::vector<MSKrealt>& slx, const std::vector<MSKrealt>& sux,
     const std::vector<MSKrealt>& slc, const std::vector<MSKrealt>& suc,
     const std::unordered_map<
         Binding<BoundingBoxConstraint>,
         std::pair<ConstraintDualIndices, ConstraintDualIndices>>&
         bb_con_dual_indices,
+    const std::unordered_map<
+        Binding<PositiveSemidefiniteConstraint>,
+        std::pair<ConstraintDualIndex, ConstraintDualIndex>>&
+        scalar_psd_con_dual_indices,
     MathematicalProgramResult* result);
 
 template <typename C>
@@ -601,6 +622,21 @@ MSKrescodee SetAffineConeConstraintDualSolution(
       // the dual cone of K_drake, likewise K_mosek_dual is the dual cone of
       // K_mosek.
       dual_sol(0) *= 0.5;
+    }
+    if constexpr (std::is_same_v<C, LinearMatrixInequalityConstraint>) {
+      // The dual solution returned by Mosek is the lower triangular part of the
+      // psd matrix, but the off-diagonal terms are scaled by sqrt(2). We need
+      // to scale the off-diagonal terms back.
+      int dual_sol_entry_count = 0;
+      const double sqrt2 = std::sqrt(2);
+      for (int j = 0; j < binding.evaluator()->matrix_rows(); ++j) {
+        for (int i = j; i < binding.evaluator()->matrix_rows(); ++i) {
+          if (i != j) {
+            dual_sol(dual_sol_entry_count) /= sqrt2;
+          }
+          ++dual_sol_entry_count;
+        }
+      }
     }
     result->set_dual_solution(binding, dual_sol);
   }
