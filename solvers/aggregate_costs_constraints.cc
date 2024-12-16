@@ -263,6 +263,183 @@ void AggregateDuplicateVariables(const Eigen::SparseMatrix<double>& A,
 }
 
 namespace internal {
+
+void DoAggregateConvexConstraints(
+    const MathematicalProgram& prog,
+    const ConvexConstraintAggregationOptions& options,
+    ConvexConstraintAggregationInfo* info) {
+  info->parse_psd_using_upper_triangular =
+      options.parse_psd_using_upper_triangular;
+  // Parse Linear Equality Constraints.
+  info->num_linear_equality_constraint_rows = 0;
+  internal::ParseLinearEqualityConstraints(
+      prog, &(info->A_triplets), &(info->b_std), &(info->A_row_count),
+      &(info->linear_eq_dual_variable_start_indices),
+      &(info->num_linear_equality_constraint_rows));
+
+  // Parse the Bounding Box constraints. The bounding box constraints which are
+  // equalities are immediately added to A and b. The bounding box constraints
+  // which are inequality constraints are stored in A_bb_ineq_triplets and
+  // b_bb_ineq. They will be added to A and b after the linear constraints are
+  // added. The reason for this is we wish A to be compatible with the strict
+  // ordering of the cones given by SCS:
+  // https://www.cvxgrp.org/scs/api/cones.html.
+  std::vector<Eigen::Triplet<double>> A_bb_ineq_triplets;
+  std::vector<double> b_bb_ineq;
+  const int A_row_count_before_parsing_bb{info->A_row_count};
+  ParseBoundingBoxConstraints(
+      prog,
+      // We can directly add the bounding box equality constraints
+      // to A and b.
+      &(info->A_triplets), &(info->b_std), &(info->A_row_count),
+      // We delay adding the bounding box inequality constraints to A and b due
+      // to the strict ordering required by SCS.
+      &A_bb_ineq_triplets, &b_bb_ineq,
+      &(info->num_bounding_box_inequality_constraint_rows),
+      &(info->bounding_box_constraint_dual_indices));
+  const int num_bb_equality_constraint =
+      info->A_row_count - A_row_count_before_parsing_bb;
+  info->num_linear_equality_constraint_rows += num_bb_equality_constraint;
+
+  // Parse Linear Constraints
+  info->num_linear_constraint_rows = 0;
+  internal::ParseLinearConstraints(prog, &(info->A_triplets), &(info->b_std),
+                                   &(info->A_row_count),
+                                   &(info->linear_constraint_dual_indices),
+                                   &(info->num_linear_constraint_rows));
+  // Now we can add the bounding box constraints.
+  for (int i = 0; i < info->num_bounding_box_inequality_constraint_rows; ++i) {
+    info->A_triplets.emplace_back(
+        A_bb_ineq_triplets[i].row() + info->A_row_count,
+        A_bb_ineq_triplets[i].col(), A_bb_ineq_triplets[i].value());
+    info->b_std.push_back(b_bb_ineq[i]);
+  }
+  // We need to increment the dual variable index of only the inequality
+  // bounding box constraints.
+  for (int i = 0; i < ssize(prog.bounding_box_constraints()); ++i) {
+    for (int j = 0; j < prog.bounding_box_constraints()[i].variables().rows();
+         ++j) {
+      if (prog.bounding_box_constraints()[i].evaluator()->lower_bound()[j] !=
+          prog.bounding_box_constraints()[i].evaluator()->upper_bound()[j]) {
+        if (info->bounding_box_constraint_dual_indices[i][j].first != -1) {
+          info->bounding_box_constraint_dual_indices[i][j].first +=
+              info->A_row_count;
+        }
+        if (info->bounding_box_constraint_dual_indices[i][j].second != -1) {
+          info->bounding_box_constraint_dual_indices[i][j].second +=
+              info->A_row_count;
+        }
+      }
+    }
+  }
+  info->A_row_count += info->num_bounding_box_inequality_constraint_rows;
+
+  // Parse the scalar PSD constraint as linear constraints. Do this now to be
+  // compatible with the strict ordering required by SCS.
+  internal::ParseScalarPositiveSemidefiniteConstraints(
+      prog, &info->A_triplets, &info->b_std, &info->A_row_count,
+      &info->scalar_psd_positive_cone_length, &info->scalar_psd_dual_indices,
+      &(info->scalar_lmi_dual_indices));
+
+  // Parse Second-Order cone constraints
+  internal::ParseSecondOrderConeConstraints(
+      prog, &info->A_triplets, &info->b_std, &info->A_row_count,
+      &info->second_order_cone_lengths,
+      &info->lorentz_cone_dual_variable_start_indices,
+      &info->rotated_lorentz_cone_dual_variable_start_indices);
+  // Parse the 2x2 PSD constraint as second order cone constraints. Do this now
+  // to be compatible with the strict ordering required by SCS.
+  internal::Parse2x2PositiveSemidefiniteConstraints(
+      prog, &info->A_triplets, &info->b_std, &info->A_row_count,
+      &info->num_twobytwo_psd_and_lmi_constraints,
+      &info->twobytwo_psd_dual_start_indices,
+      &info->twobytwo_lmi_dual_start_indices);
+
+  // Parse PSD cone constraints
+  internal::ParsePositiveSemidefiniteConstraints(
+      prog, options.parse_psd_using_upper_triangular, &info->A_triplets,
+      &info->b_std, &info->A_row_count, &info->psd_cone_length,
+      &info->lmi_cone_length, &info->psd_y_start_indices,
+      &info->lmi_y_start_indices);
+
+  // Parse Exponential Cone Constraints
+  internal::ParseExponentialConeConstraints(
+      prog, &(info->A_triplets), &(info->b_std), &(info->A_row_count));
+  info->num_exponential_cone_constraints =
+      ssize(prog.exponential_cone_constraints());
+}
+
+void ParseBoundingBoxConstraints(
+    const MathematicalProgram& prog,
+    std::vector<Eigen::Triplet<double>>* A_eq_triplets,
+    std::vector<double>* b_eq, int* A_eq_row_count,
+    std::vector<Eigen::Triplet<double>>* A_ineq_triplets,
+    std::vector<double>* b_ineq, int* A_ineq_row_count,
+    std::vector<std::vector<std::pair<int, int>>>* bbcon_dual_indices) {
+  const std::unordered_map<symbolic::Variable, Bound> variable_bounds =
+      AggregateBoundingBoxConstraints(prog.bounding_box_constraints());
+
+  // For each variable with lb <= x <= ub, we check the following
+  // 1. If lb == ub (and both are finite), then we add the constraint x + s = ub
+  // to A_eq_triplets and b_eq
+  // 2. Otherwise, if ub is finite, then we add the constraint x + s = ub to
+  // A_ineq_triplets and b_ineq. If lb is finite, then we add the constraint -x
+  // + s = -lb to A_ineq_triplets and b_ineq.
+
+  // Set the dual variable indices.
+  bbcon_dual_indices->reserve(ssize(prog.bounding_box_constraints()));
+  for (int i = 0; i < ssize(prog.bounding_box_constraints()); ++i) {
+    bbcon_dual_indices->emplace_back(
+        prog.bounding_box_constraints()[i].variables().rows(),
+        std::pair<int, int>(-1, -1));
+    for (int j = 0; j < prog.bounding_box_constraints()[i].variables().rows();
+         ++j) {
+      const int var_index = prog.FindDecisionVariableIndex(
+          prog.bounding_box_constraints()[i].variables()(j));
+      const Bound& var_bound =
+          variable_bounds.at(prog.bounding_box_constraints()[i].variables()(j));
+      // We use the lower bound of this constraint in the optimization
+      // program.
+      const bool use_lb =
+          var_bound.lower ==
+              prog.bounding_box_constraints()[i].evaluator()->lower_bound()(
+                  j) &&
+          std::isfinite(var_bound.lower);
+      const bool use_ub =
+          var_bound.upper ==
+              prog.bounding_box_constraints()[i].evaluator()->upper_bound()(
+                  j) &&
+          std::isfinite(var_bound.upper);
+      if (use_lb && use_ub && var_bound.lower == var_bound.upper) {
+        // This is an equality constraint x = ub.
+        // Add the constraint x + s = ub and s in the zero cone.
+        A_eq_triplets->emplace_back(*A_eq_row_count, var_index, 1);
+        b_eq->push_back(var_bound.upper);
+        (*bbcon_dual_indices)[i][j].first = *A_eq_row_count;
+        (*bbcon_dual_indices)[i][j].second = *A_eq_row_count;
+        ++(*A_eq_row_count);
+      } else {
+        if (use_ub) {
+          // Add the constraint x + s = ub and s in the nonnegative orthant
+          // cone.
+          A_ineq_triplets->emplace_back(*A_ineq_row_count, var_index, 1);
+          b_ineq->push_back(var_bound.upper);
+          (*bbcon_dual_indices)[i][j].second = *A_ineq_row_count;
+          ++(*A_ineq_row_count);
+        }
+        if (use_lb) {
+          // Add the constraint -x + s = -lb and s in the nonnegative orthant
+          // cone.
+          A_ineq_triplets->emplace_back(*A_ineq_row_count, var_index, -1);
+          b_ineq->push_back(-var_bound.lower);
+          (*bbcon_dual_indices)[i][j].first = *A_ineq_row_count;
+          ++(*A_ineq_row_count);
+        }
+      }
+    }
+  }
+}
+
 const Binding<QuadraticCost>* FindNonconvexQuadraticCost(
     const std::vector<Binding<QuadraticCost>>& quadratic_costs) {
   for (const auto& cost : quadratic_costs) {

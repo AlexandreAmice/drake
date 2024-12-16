@@ -102,6 +102,133 @@ void AggregateDuplicateVariables(const Eigen::SparseMatrix<double>& A,
                                  VectorX<symbolic::Variable>* vars_new);
 
 namespace internal {
+// Information required to aggregate the convex constraints of a program into
+// the form.
+//   A x + s = b
+//     s in K
+// where K is a Cartesian product of some primitive cones. This information is
+// needed by SCS and Clarabel to transcribe the problem to the solvers and
+// extract dual solutions.
+struct ConvexConstraintAggregationInfo {
+  // A vector of triplets to construct the matrix A.
+  std::vector<Eigen::Triplet<double>> A_triplets;
+  // A vector of values to construct the vector b.
+  std::vector<double> b_std;
+  // The number of rows in the matrix A.
+  int A_row_count{0};
+  // The total number of variables with bounding box constraints such that
+  // lb < ub.
+  int num_bounding_box_inequality_constraint_rows{0};
+  // bounding_box_constraint_dual_indices[i][j] are the indices of
+  // the dual variable for the j'th row of prog.bounding_box_constraints()[i].
+  // We use -1 to indicate that it is impossible for this constraint to be
+  // active (for example, another BoundingBoxConstraint imposes a tighter bound
+  // on the same variable).
+  std::vector<std::vector<std::pair<int, int>>>
+      bounding_box_constraint_dual_indices;
+  // The total number of linear equality constraints.
+  int num_linear_equality_constraint_rows{0};
+  // The start indices of the dual variables for each linear equality
+  // constraints.
+  std::vector<int> linear_eq_dual_variable_start_indices;
+  // The total number of linear constraints.
+  int num_linear_constraint_rows{0};
+  // The start indices of the dual variables for each linear constraints.
+  std::vector<std::vector<std::pair<int, int>>> linear_constraint_dual_indices;
+  // The lengths of each second order cone s in the Cartesian product K. See
+  //  // ParseSecondOrderConeConstraints for more details.
+  std::vector<int> second_order_cone_lengths;
+  // lorentz_cone_y_start_indices y[lorentz_cone_y_start_indices[i]:
+  // lorentz_cone_y_start_indices[i] + second_order_cone_length[i]] are the dual
+  // variables for prog.lorentz_cone_constraints()[i]. See
+  // ParseSecondOrderConeConstraints for more details.
+  std::vector<int> lorentz_cone_dual_variable_start_indices;
+  // y[rotated_lorentz_cone_y_start_indices[i]:
+  // rotated_lorentz_cone_y_start_indices[i] +
+  // prog.rotate_lorentz_cone()[i].evaluator().A().rows] are the y variables for
+  // prog.rotated_lorentz_cone_constraints()[i]. See
+  // ParseSecondOrderConeConstraints for more details.
+  std::vector<int> rotated_lorentz_cone_dual_variable_start_indices;
+
+  // Whether vectorized PSD constraints correspond to the upper or lower
+  // triangular part of the matrix.
+  bool parse_psd_using_upper_triangular{true};
+
+  // See ParsePositiveSemidefiniteConstraints for the meaning of these
+  // variables.
+  std::vector<std::optional<int>> psd_cone_length;
+  std::vector<std::optional<int>> lmi_cone_length;
+  std::vector<std::optional<int>> psd_y_start_indices;
+  std::vector<std::optional<int>> lmi_y_start_indices;
+
+  // See ParseScalarPositiveSemidefiniteConstraints for the meaning of these
+  // variables.
+  int scalar_psd_positive_cone_length{0};
+  std::vector<std::optional<int>> scalar_psd_dual_indices;
+  std::vector<std::optional<int>> scalar_lmi_dual_indices;
+
+  // See Parse2x2PositiveSemidefiniteConstraints for the meaning of these
+  // variables.
+  int num_twobytwo_psd_and_lmi_constraints{0};
+  std::vector<std::optional<int>> twobytwo_psd_dual_start_indices;
+  std::vector<std::optional<int>> twobytwo_lmi_dual_start_indices;
+
+  // The number of exponential cone constraints parsed.
+  int num_exponential_cone_constraints{0};
+};
+
+// Options that may be needed when parsing convex constraints.
+struct ConvexConstraintAggregationOptions {
+  // Whether a symmetric X is vectorized by taking the upper triangular part or
+  // the lower triangular part.
+  bool parse_psd_using_upper_triangular{true};
+};
+
+// Iterate over the convex (conic) constraints of prog and aggregate the
+// information required to write them in the form.
+//   A x + s = b
+//     s in K
+// where K is a Cartesian product of some primitive cones.
+// The supported cones are
+// Zero cone {x | x = 0 }
+// Positive orthant {x | x ≥ 0 }
+// Box cones orthant {x | ub ≥ x ≥ lb }
+// Second-order cone {(t, x) | |x|₂ ≤ t }
+// Positive semidefinite cone { X | min(eig(X)) ≥ 0, X = Xᵀ }
+// Exponential cone {x,y,z): y>0, y*exp(x/y) <= z}
+// Power cone {(x, y, z): pow(x, α)*pow(y, 1-α) >= |z|, x>=0, y>=0} with α in
+// (0, 1)
+// This convention is compatible with both the SCS and Clarabel solvers.
+void DoAggregateConvexConstraints(
+    const MathematicalProgram& prog,
+    const ConvexConstraintAggregationOptions& options,
+    ConvexConstraintAggregationInfo* info);
+
+// Parse all the bounding box constraints in `prog` to the form
+// A_eq*x+s=b_eq, s in zero cone and A_ineq*x+s=b_ineq, s in positive cone.
+// @param[in/out] A_eq_triplets Append non-zero (row, col, val) triplets of the
+// equality bounding box constraints to A_eq_triplets.
+// @param[in/out] b_eq append entries to b_eq.
+// @param[in/out] A_eq_row_count The number of rows in A_eq before/after calling
+// this function.
+// @param[in/out] A_ineq_triplets Append non-zero (row, col, val) triplets of
+// the equality bounding box constraints to A_ineq_triplets.
+// @param[in/out] b_ineq append entries to b_ineq.
+// @param[in/out] A_ineq_row_count The number of rows in A_ineq before/after
+// calling this function.
+// @param[out] bbcon_dual_indices bbcon_dual_indices[i][j] are the indices of
+// the dual variable for the j'th row of prog.bounding_box_constraints()[i]. We
+// use -1 to indicate that it is impossible for this constraint to be active
+// (for example, another BoundingBoxConstraint imposes a tighter bound on the
+// same variable).
+void ParseBoundingBoxConstraints(
+    const MathematicalProgram& prog,
+    std::vector<Eigen::Triplet<double>>* A_eq_triplets,
+    std::vector<double>* b_eq, int* A_eq_row_count,
+    std::vector<Eigen::Triplet<double>>* A_ineq_triplets,
+    std::vector<double>* b_ineq, int* A_ineq_row_count,
+    std::vector<std::vector<std::pair<int, int>>>* bbcon_dual_indices);
+
 // Returns the first non-convex quadratic cost among @p quadratic_costs. If all
 // quadratic costs are convex, then return a nullptr.
 [[nodiscard]] const Binding<QuadraticCost>* FindNonconvexQuadraticCost(
