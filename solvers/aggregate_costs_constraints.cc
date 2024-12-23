@@ -8,6 +8,7 @@
 
 #include "drake/common/ssize.h"
 #include "drake/math/eigen_sparse_triplet.h"
+#include "drake/math/quadratic_form.h"
 
 namespace drake {
 namespace solvers {
@@ -263,7 +264,6 @@ void AggregateDuplicateVariables(const Eigen::SparseMatrix<double>& A,
 }
 
 namespace internal {
-
 void DoAggregateConvexConstraints(
     const MathematicalProgram& prog,
     const ConvexConstraintAggregationOptions& options,
@@ -674,6 +674,61 @@ void ParseQuadraticCosts(const MathematicalProgram& prog,
       (*c)[var_indices[j]] += cost.evaluator()->b()(j);
     }
     *constant += cost.evaluator()->c();
+  }
+}
+
+
+void ParseQuadraticCostsWithRotatedLorentzCone(
+    const MathematicalProgram& prog, std::vector<double>* c,
+    std::vector<Eigen::Triplet<double>>* A_triplets, std::vector<double>* b,
+    int* A_row_count, std::vector<int>* second_order_cone_length, int* num_x) {
+  // A QuadraticCost encodes cost of the form
+  //   0.5 zᵀQz + pᵀz + r
+  // We introduce a new slack variable y as the upper bound of the cost, with
+  // the rotated Lorentz cone constraint
+  // 2(y - r - pᵀz) ≥ zᵀQz.
+  // We only need to minimize y then.
+  for (const auto& cost : prog.quadratic_costs()) {
+    // We will convert the expression 2(y - r - pᵀz) ≥ zᵀQz, to the constraint
+    // that the vector A_cone * x + b_cone is in the rotated Lorentz cone, where
+    // x = [z; y], and A_cone * x + b_cone is
+    // [y - r - pᵀz]
+    // [          2]
+    // [        C*z]
+    // where C satisfies Cᵀ*C = Q
+    const VectorXDecisionVariable& z = cost.variables();
+    const int y_index = z.rows();
+    // Ai_triplets are the non-zero entries in the matrix A_cone.
+    std::vector<Eigen::Triplet<double>> Ai_triplets;
+    Ai_triplets.emplace_back(0, y_index, 1);
+    for (int i = 0; i < z.rows(); ++i) {
+      Ai_triplets.emplace_back(0, i, -cost.evaluator()->b()(i));
+    }
+    // Decompose Q to Cᵀ*C
+    const Eigen::MatrixXd& Q = cost.evaluator()->Q();
+    const Eigen::MatrixXd C =
+        math::DecomposePSDmatrixIntoXtransposeTimesX(Q, 1E-10);
+    for (int i = 0; i < C.rows(); ++i) {
+      for (int j = 0; j < C.cols(); ++j) {
+        if (C(i, j) != 0) {
+          Ai_triplets.emplace_back(2 + i, j, C(i, j));
+        }
+      }
+    }
+    // append the variable y to the end of x
+    (*num_x)++;
+    std::vector<int> Ai_var_indices = prog.FindDecisionVariableIndices(z);
+    Ai_var_indices.push_back(*num_x - 1);
+    // Set b_cone
+    Eigen::VectorXd b_cone = Eigen::VectorXd::Zero(2 + C.rows());
+    b_cone(0) = -cost.evaluator()->c();
+    b_cone(1) = 2;
+    // Add the rotated Lorentz cone constraint
+    internal::ParseRotatedLorentzConeConstraint(
+        Ai_triplets, b_cone, Ai_var_indices, A_triplets, b, A_row_count,
+        second_order_cone_length, std::nullopt);
+    // Add the cost y.
+    c->push_back(1);
   }
 }
 

@@ -325,42 +325,56 @@ void ParseQuadraticCosts(const MathematicalProgram& prog,
                          std::vector<Eigen::Triplet<double>>* P_upper_triplets,
                          std::vector<double>* c, double* constant);
 
-// Parse a L2NormCost |Cx+d|₂ to Clarabel/SCS format.
-// We need to
-// 1. Append a slack variable t.
-// 2. Impose the constraint t >= |Cx+d|₂ as a Lorentz cone constraint.
-// 3. Add the cost t.
-// For the second step, we formulate it as
-// [ 0  -1] * [x] + s = [0]       (1)
-// [-C   0]   [t]       [d]
-// s is in Lorentz cone.          (2)
-// @param[in] prog We parse all prog.l2norm_costs().
-// @param[in/out] num_solver_variables The number of variables in the solver
-// before/after parsing this L2NormCost. The new slack variable t will be
-// appended after the existing variables in the solver.
-// @param[in/out] A_triplets We append the left hand side of the linear
-// constraints (1) to A_triplets.
-// @param[in/out] b We append the right hand side of the linear constraints (1)
-// to b.
-// @param[in/out] A_row_count The number of rows in A before/after appending the
-// second order cone constraints.
-// @param[in/out] second_order_cone_length The dimension of each second order
-// cone in the overall program.
-// @param[in/out] lorentz_cone_y_start_indices The starting indices of s in each
-// Lorentz cone constraints, before/after calling this function. We append the
-// indices of the dual variables for the Lorentz cone constraint to
-// lorentz_cone_y_start_indices.
-// @param[out] cost_coeffs The coefficient of each variable in the cost.
-// @param[out] t_slack_indices The index of the new variable t in the solver
-// (such as Clarabel or SCS, not in the MathematicalProgram object).
-void ParseL2NormCosts(const MathematicalProgram& prog,
-                      int* num_solver_variables,
-                      std::vector<Eigen::Triplet<double>>* A_triplets,
-                      std::vector<double>* b, int* A_row_count,
-                      std::vector<int>* second_order_cone_length,
-                      std::vector<int>* lorentz_cone_y_start_indices,
-                      std::vector<double>* cost_coeffs,
-                      std::vector<int>* t_slack_indices);
+// A QuadraticCost encodes cost of the form
+//   0.5 zᵀQz + pᵀz + r
+// We introduce a new slack variable y as the upper bound of the cost, with
+// the rotated Lorentz cone constraint
+// 2(y - r - pᵀz) ≥ zᵀQz.
+// We add a linear cost on y and the constraint y to the vector c and the
+// constraint that 2(y - r - pᵀz) ≥ zᵀQz to the triplets A_triplets, b, and the
+// second order cone size to the vector second_order_cone_length.
+// We also increment the size of num_x by 1 for each quadratic cost.
+void ParseQuadraticCostsWithRotatedLorentzCone(
+    const MathematicalProgram& prog, std::vector<double>* c,
+    std::vector<Eigen::Triplet<double>>* A_triplets, std::vector<double>* b,
+    int* A_row_count, std::vector<int>* second_order_cone_length, int* num_x);
+
+    // Parse a L2NormCost |Cx+d|₂ to Clarabel/SCS format.
+    // We need to
+    // 1. Append a slack variable t.
+    // 2. Impose the constraint t >= |Cx+d|₂ as a Lorentz cone constraint.
+    // 3. Add the cost t.
+    // For the second step, we formulate it as
+    // [ 0  -1] * [x] + s = [0]       (1)
+    // [-C   0]   [t]       [d]
+    // s is in Lorentz cone.          (2)
+    // @param[in] prog We parse all prog.l2norm_costs().
+    // @param[in/out] num_solver_variables The number of variables in the solver
+    // before/after parsing this L2NormCost. The new slack variable t will be
+    // appended after the existing variables in the solver.
+    // @param[in/out] A_triplets We append the left hand side of the linear
+    // constraints (1) to A_triplets.
+    // @param[in/out] b We append the right hand side of the linear constraints
+    // (1) to b.
+    // @param[in/out] A_row_count The number of rows in A before/after appending
+    // the second order cone constraints.
+    // @param[in/out] second_order_cone_length The dimension of each second
+    // order cone in the overall program.
+    // @param[in/out] lorentz_cone_y_start_indices The starting indices of s in
+    // each Lorentz cone constraints, before/after calling this function. We
+    // append the indices of the dual variables for the Lorentz cone constraint
+    // to lorentz_cone_y_start_indices.
+    // @param[out] cost_coeffs The coefficient of each variable in the cost.
+    // @param[out] t_slack_indices The index of the new variable t in the solver
+    // (such as Clarabel or SCS, not in the MathematicalProgram object).
+    void ParseL2NormCosts(const MathematicalProgram& prog,
+                          int* num_solver_variables,
+                          std::vector<Eigen::Triplet<double>>* A_triplets,
+                          std::vector<double>* b, int* A_row_count,
+                          std::vector<int>* second_order_cone_length,
+                          std::vector<int>* lorentz_cone_y_start_indices,
+                          std::vector<double>* cost_coeffs,
+                          std::vector<int>* t_slack_indices);
 
 // Parse all second order cone constraints (including both Lorentz cone and
 // rotated Lorentz cone constraint) to the form A*x+s=b, s in K where K is the

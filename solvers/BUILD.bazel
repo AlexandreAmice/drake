@@ -37,7 +37,7 @@ drake_cc_package_library(
         ":choose_best_solver",
         ":clarabel_solver",
         ":clp_solver",
-#        ":conic_standard_form",
+        ":conic_standard_form",
         ":constraint",
         ":cost",
         ":create_constraint",
@@ -437,6 +437,7 @@ drake_cc_library(
     ],
     implementation_deps = [
         "//math:eigen_sparse_triplet",
+        "//math:quadratic_form",
         "//math:matrix_util",
     ],
 )
@@ -1111,18 +1112,18 @@ drake_cc_library(
     ],
 )
 
-#drake_cc_library(
-#    name = "conic_standard_form",
-#    srcs = ["conic_standard_form.cc"],
-#    hdrs = ["conic_standard_form.h"],
-#    deps = [
-#        ":mathematical_program",
-#    ],
-#    implementation_deps = [
-#        ":aggregate_costs_constraints",
-#        "//math:matrix_util",
-#    ],
-#)
+drake_cc_library(
+    name = "conic_standard_form",
+    srcs = ["conic_standard_form.cc"],
+    hdrs = ["conic_standard_form.h"],
+    deps = [
+        ":mathematical_program",
+    ],
+    implementation_deps = [
+        ":aggregate_costs_constraints",
+        "//math:matrix_util",
+    ],
+)
 
 
 drake_cc_optional_library(
