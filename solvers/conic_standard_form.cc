@@ -43,221 +43,295 @@ void CheckSupported(const MathematicalProgram& prog) {
 
 void ParseConvexCosts(const MathematicalProgram& prog,
                       const ConicStandardFormOptions& options,
-                      internal::CostAggregationInfo* cost_info,
-                      internal::DualInfo* dual_info) {
-  internal::ConstraintAggregationInfo* constraint_info =
-      &cost_info->constraint_info;
-  cost_info->num_x = prog.num_vars();
+                      internal::ConvexAggregationInfo* aggregation_info) {
+  aggregation_info->num_x = prog.num_vars();
 
-  internal::ParseLinearCosts(prog, &cost_info->c_std, &cost_info->d);
+  internal::ParseLinearCosts(prog, &aggregation_info->cost_info.c_std,
+                             &aggregation_info->cost_info.d);
   if (options.use_quadratic_cost) {
-    internal::ParseQuadraticCosts(prog, &cost_info->P_upper_triplets,
-                                  &cost_info->c_std, &cost_info->d);
+    internal::ParseQuadraticCosts(
+        prog, &aggregation_info->cost_info.P_upper_triplets,
+        &aggregation_info->cost_info.c_std, &aggregation_info->cost_info.d);
   } else {
-    int row_start = constraint_info->A_row_count;
     internal::ParseQuadraticCostsWithRotatedLorentzCone(
-        prog, &cost_info->c_std, &constraint_info->A_triplets,
-        &constraint_info->b_std, &constraint_info->A_row_count,
-        &constraint_info->second_order_cone_lengths, &cost_info->num_x);
-    constraint_info->attributes_to_start_end_pairs
-        .at(ProgramAttribute::kLorentzConeConstraint)
-        .reserve(constraint_info->second_order_cone_lengths.size());
-    for (const auto& length : constraint_info->second_order_cone_lengths) {
-      constraint_info->attributes_to_start_end_pairs
-          .at(ProgramAttribute::kLorentzConeConstraint)
-          .emplace_back(row_start, row_start + length);
-      row_start += length;
-    }
+        prog, &aggregation_info->cost_info.c_std,
+        &aggregation_info->soc_constraint_info.A_triplets,
+        &aggregation_info->soc_constraint_info.b_std,
+        &aggregation_info->soc_constraint_info.A_row_count,
+        &aggregation_info->soc_constraint_info.second_order_cone_lengths,
+        &aggregation_info->num_x);
   }
 
-  int row_start = constraint_info->A_row_count;
   internal::ParseL2NormCosts(
-      prog, &cost_info->num_x, &constraint_info->A_triplets,
-      &constraint_info->b_std, &constraint_info->A_row_count,
-      &constraint_info->second_order_cone_lengths,
-      &dual_info->l2norm_costs_lorentz_cone_y_start_indices, &cost_info->c_std,
-      &dual_info->l2norm_costs_t_slack_indices);
-  constraint_info->attributes_to_start_end_pairs
-      .at(ProgramAttribute::kLorentzConeConstraint)
-      .reserve(constraint_info->second_order_cone_lengths.size());
-  for (const auto& length : constraint_info->second_order_cone_lengths) {
-    constraint_info->attributes_to_start_end_pairs
-        .at(ProgramAttribute::kLorentzConeConstraint)
-        .emplace_back(row_start, row_start + length);
-    row_start += length;
-  }
+      prog, &aggregation_info->num_x,
+      &aggregation_info->soc_constraint_info.A_triplets,
+      &aggregation_info->soc_constraint_info.b_std,
+      &aggregation_info->soc_constraint_info.A_row_count,
+      &aggregation_info->soc_constraint_info.second_order_cone_lengths,
+      &aggregation_info->soc_constraint_info
+           .l2norm_costs_lorentz_cone_y_start_indices,
+      &aggregation_info->cost_info.c_std,
+      &aggregation_info->soc_constraint_info.l2norm_costs_t_slack_indices);
 }
 
 void ParseConvexConstraints(const MathematicalProgram& prog,
                             const ConicStandardFormOptions& options,
-                            internal::ConstraintAggregationInfo* info,
-                            internal::DualInfo* dual_info) {
-  info->parse_psd_using_upper_triangular =
+                            internal::ConvexAggregationInfo* info) {
+  info->psd_constraint_info.parse_psd_using_upper_triangular =
       options.parse_psd_using_upper_triangular;
-  int total_cone_row_count = 0;
 
   // Parse Linear Equality Constraints.
+  int num_linear_equality_constraint_rows{0};
   internal::ParseLinearEqualityConstraints(
-      prog, &(info->A_triplets), &(info->b_std), &(info->A_row_count),
-      &(dual_info->linear_eq_dual_variable_start_indices),
-      &(info->num_linear_equality_constraint_rows));
+      prog, &info->equality_constraint_info.A_triplets,
+      &info->equality_constraint_info.b_std,
+      &info->equality_constraint_info.A_row_count,
+      &info->linear_eq_dual_variable_start_indices,
+      &num_linear_equality_constraint_rows);
+
   // Parse the Bounding Box constraints. The bounding box constraints which are
   // equalities are immediately added to A and b. The bounding box constraints
   // which are inequality constraints are stored in A_bb_ineq_triplets and
   // b_bb_ineq. They will be added to A and b after the linear constraints are
-  // added. The reason for this is we wish A to be compatible with the strict
-  // ordering of the cones given by SCS:
-  // https://www.cvxgrp.org/scs/api/cones.html.
-  std::vector<Eigen::Triplet<double>> A_bb_ineq_triplets;
-  std::vector<double> b_bb_ineq;
-  const int A_row_count_before_parsing_bb{info->A_row_count};
+  // added.
+  int num_bounding_box_inequality_constraint_rows{0};
   internal::ParseBoundingBoxConstraints(
       prog,
       // We can directly add the bounding box equality constraints
       // to A and b.
-      &(info->A_triplets), &(info->b_std), &(info->A_row_count),
-      // We delay adding the bounding box inequality constraints to A and b due
-      // to the strict ordering required by SCS.
-      &A_bb_ineq_triplets, &b_bb_ineq,
-      &(info->num_bounding_box_inequality_constraint_rows),
-      &(dual_info->bounding_box_constraint_dual_indices));
-  const int num_bb_equality_constraint =
-      info->A_row_count - A_row_count_before_parsing_bb;
-  info->num_linear_equality_constraint_rows += num_bb_equality_constraint;
-
-  info->attributes_to_start_end_pairs
-      .at(ProgramAttribute::kLinearEqualityConstraint)
-      .emplace_back(
-          total_cone_row_count,
-          total_cone_row_count + info->num_linear_equality_constraint_rows);
-  total_cone_row_count += info->num_linear_equality_constraint_rows;
+      &info->bounding_box_constraint_info.A_eq_triplets,
+      &info->bounding_box_constraint_info.b_eq_std,
+      &info->bounding_box_constraint_info.A_eq_row_count,
+      &info->bounding_box_constraint_info.A_ineq_triplets,
+      &info->bounding_box_constraint_info.b_ineq_std,
+      &info->bounding_box_constraint_info.A_ineq_row_count,
+      &info->bounding_box_constraint_info.bounding_box_constraint_dual_indices);
 
   // Parse Linear Constraints
-  internal::ParseLinearConstraints(prog, &(info->A_triplets), &(info->b_std),
-                                   &(info->A_row_count),
-                                   &(dual_info->linear_constraint_dual_indices),
-                                   &(info->num_linear_constraint_rows));
-  // Now we can add the bounding box constraints.
-  for (int i = 0; i < info->num_bounding_box_inequality_constraint_rows; ++i) {
-    info->A_triplets.emplace_back(
-        A_bb_ineq_triplets[i].row() + info->A_row_count,
-        A_bb_ineq_triplets[i].col(), A_bb_ineq_triplets[i].value());
-    info->b_std.push_back(b_bb_ineq[i]);
-  }
-  // We need to increment the dual variable index of only the inequality
-  // bounding box constraints.
-  for (int i = 0; i < ssize(prog.bounding_box_constraints()); ++i) {
-    for (int j = 0; j < prog.bounding_box_constraints()[i].variables().rows();
-         ++j) {
-      if (prog.bounding_box_constraints()[i].evaluator()->lower_bound()[j] !=
-          prog.bounding_box_constraints()[i].evaluator()->upper_bound()[j]) {
-        if (dual_info->bounding_box_constraint_dual_indices[i][j].first != -1) {
-          dual_info->bounding_box_constraint_dual_indices[i][j].first +=
-              info->A_row_count;
-        }
-        if (dual_info->bounding_box_constraint_dual_indices[i][j].second !=
-            -1) {
-          dual_info->bounding_box_constraint_dual_indices[i][j].second +=
-              info->A_row_count;
-        }
-      }
-    }
-  }
-  info->A_row_count += info->num_bounding_box_inequality_constraint_rows;
+  int num_linear_constraint_rows{0};
+  internal::ParseLinearConstraints(
+      prog, &info->linear_constraint_info.A_triplets,
+      &info->linear_constraint_info.b_std,
+      &info->linear_constraint_info.A_row_count,
+      &info->linear_constraint_info.linear_constraint_dual_indices,
+      &num_linear_constraint_rows);
 
-  // Parse the scalar PSD constraint as linear constraints. Do this now to be
-  // compatible with the strict ordering required by SCS.
+  int scalar_psd_positive_cone_length{0};
   internal::ParseScalarPositiveSemidefiniteConstraints(
-      prog, &info->A_triplets, &info->b_std, &info->A_row_count,
-      &info->scalar_psd_positive_cone_length,
-      &dual_info->scalar_psd_dual_indices,
-      &(dual_info->scalar_lmi_dual_indices));
-
-  const int total_num_linear_inequality_constraint_rows =
-      info->num_linear_constraint_rows +
-      info->num_bounding_box_inequality_constraint_rows +
-      info->scalar_psd_positive_cone_length;
-  info->attributes_to_start_end_pairs.at(ProgramAttribute::kLinearConstraint)
-      .emplace_back(
-          total_cone_row_count,
-          total_cone_row_count + total_num_linear_inequality_constraint_rows);
-  total_cone_row_count += total_num_linear_inequality_constraint_rows;
+      prog, &info->linear_constraint_info.A_triplets,
+      &info->linear_constraint_info.b_std,
+      &info->linear_constraint_info.A_row_count,
+      &scalar_psd_positive_cone_length,
+      &info->linear_constraint_info.scalar_psd_dual_indices,
+      &info->linear_constraint_info.scalar_lmi_dual_indices);
 
   // Parse Second-Order cone constraints
   internal::ParseSecondOrderConeConstraints(
-      prog, &info->A_triplets, &info->b_std, &info->A_row_count,
-      &info->second_order_cone_lengths,
-      &dual_info->lorentz_cone_dual_variable_start_indices,
-      &dual_info->rotated_lorentz_cone_dual_variable_start_indices);
+      prog, &info->soc_constraint_info.A_triplets,
+      &info->soc_constraint_info.b_std, &info->soc_constraint_info.A_row_count,
+      &info->soc_constraint_info.second_order_cone_lengths,
+      &info->soc_constraint_info.lorentz_cone_dual_variable_start_indices,
+      &info->soc_constraint_info
+           .rotated_lorentz_cone_dual_variable_start_indices);
 
   // Parse the 2x2 PSD constraint as second order cone constraints. Do this now
   // to be compatible with the strict ordering required by SCS.
+  int num_twobytwo_psd_and_lmi_constraints{0};
   internal::Parse2x2PositiveSemidefiniteConstraints(
-      prog, &info->A_triplets, &info->b_std, &info->A_row_count,
-      &info->num_twobytwo_psd_and_lmi_constraints,
-      &dual_info->twobytwo_psd_dual_start_indices,
-      &dual_info->twobytwo_lmi_dual_start_indices);
-  for (const int soc_length : info->second_order_cone_lengths) {
-    info->attributes_to_start_end_pairs
-        .at(ProgramAttribute::kLorentzConeConstraint)
-        .emplace_back(total_cone_row_count, total_cone_row_count + soc_length);
-    total_cone_row_count += soc_length;
-  }
-  for (int i = 0; i < info->num_twobytwo_psd_and_lmi_constraints; ++i) {
-    // Each two by two matrix corresponds to a size 3 second order cone
-    // constraint.
-    info->attributes_to_start_end_pairs
-        .at(ProgramAttribute::kLorentzConeConstraint)
-        .emplace_back(total_cone_row_count, total_cone_row_count + 3);
-    total_cone_row_count += 3;
+      prog, &info->soc_constraint_info.A_triplets,
+      &info->soc_constraint_info.b_std, &info->soc_constraint_info.A_row_count,
+      &num_twobytwo_psd_and_lmi_constraints,
+      &info->soc_constraint_info.twobytwo_psd_dual_start_indices,
+      &info->soc_constraint_info.twobytwo_lmi_dual_start_indices);
+  for (int i = 0; i < num_twobytwo_psd_and_lmi_constraints; i++) {
+    info->soc_constraint_info.second_order_cone_lengths.push_back(3);
   }
 
   // Parse PSD cone constraints
   internal::ParsePositiveSemidefiniteConstraints(
-      prog, options.parse_psd_using_upper_triangular, &info->A_triplets,
-      &info->b_std, &info->A_row_count, &info->psd_cone_length,
-      &info->lmi_cone_length, &dual_info->psd_y_start_indices,
-      &dual_info->lmi_y_start_indices);
-  auto matrix_rows_to_length = [&](const std::optional<int> length) {
-    return (*length * (*length + 1)) / 2;
-  };
-  for (const std::optional<int>& matrix_rows : info->psd_cone_length) {
-    if (matrix_rows.has_value()) {
-      const int length = matrix_rows_to_length(matrix_rows);
-      info->attributes_to_start_end_pairs
-          .at(ProgramAttribute::kPositiveSemidefiniteConstraint)
-          .emplace_back(total_cone_row_count, total_cone_row_count + length);
-      total_cone_row_count += +length;
-    }
-  }
-  for (const std::optional<int>& matrix_rows : info->lmi_cone_length) {
-    if (matrix_rows.has_value()) {
-      const int length = matrix_rows_to_length(matrix_rows);
-      info->attributes_to_start_end_pairs
-          .at(ProgramAttribute::kPositiveSemidefiniteConstraint)
-          .emplace_back(total_cone_row_count, total_cone_row_count + length);
-      total_cone_row_count += +length;
-    }
-  }
+      prog, info->psd_constraint_info.parse_psd_using_upper_triangular,
+      &info->psd_constraint_info.A_triplets, &info->psd_constraint_info.b_std,
+      &info->psd_constraint_info.A_row_count,
+      &info->psd_constraint_info.psd_cone_length,
+      &info->psd_constraint_info.lmi_cone_length,
+      &info->psd_constraint_info.psd_y_start_indices,
+      &info->psd_constraint_info.lmi_y_start_indices);
 
   // Parse Exponential Cone Constraints
   internal::ParseExponentialConeConstraints(
-      prog, &(info->A_triplets), &(info->b_std), &(info->A_row_count));
-  info->num_exponential_cone_constraints =
-      ssize(prog.exponential_cone_constraints());
+      prog, &info->exponential_cone_info.A_triplets,
+      &info->exponential_cone_info.b_std,
+      &info->exponential_cone_info.A_row_count);
 }
+
+internal::ConicStandardFormInfo AggregateConicInformation(
+    internal::ConvexAggregationInfo&& info) {
+  internal::ConicStandardFormInfo returned_info;
+  returned_info.A_triplets.reserve(
+      info.equality_constraint_info.A_triplets.size() +
+      info.bounding_box_constraint_info.A_eq_triplets.size() +
+      info.bounding_box_constraint_info.A_ineq_triplets.size() +
+      info.linear_constraint_info.A_triplets.size() +
+      info.soc_constraint_info.A_triplets.size() +
+      info.psd_constraint_info.A_triplets.size() +
+      info.exponential_cone_info.A_triplets.size());
+
+  // We cannot use move semantics to assemble all the triplets since the
+  // Eigen::Triplets have const members.
+  returned_info.A_row_count = 0;
+  auto add_triplets = [&returned_info](const auto& triplets, int row_incr) {
+    for (const auto& triplet : triplets) {
+      returned_info.A_triplets.emplace_back(triplet.row() + row_incr,
+                                            triplet.col(), triplet.value());
+    }
+  };
+
+  add_triplets(info.equality_constraint_info.A_triplets,
+               returned_info.A_row_count);
+  returned_info.dual_info.linear_eq_dual_variable_start_indices = std::move(
+      info.equality_constraint_info.linear_eq_dual_variable_start_indices);
+  returned_info.A_row_count += info.equality_constraint_info.A_row_count;
+
+  add_triplets(info.bounding_box_constraint_info.A_eq_triplets,
+               returned_info.A_row_count);
+  add_triplets(info.bounding_box_constraint_info.A_ineq_triplets,
+               returned_info.A_row_count +
+                   info.bounding_box_constraint_info.A_eq_row_count);
+  returned_info.dual_info.bounding_box_constraint_dual_indices.reserve(
+      info.bounding_box_constraint_info.bounding_box_constraint_dual_indices
+          .size());
+  std::transform(
+      std::make_move_iterator(
+          info.bounding_box_constraint_info.bounding_box_constraint_dual_indices
+              .begin()),
+      std::make_move_iterator(info.bounding_box_constraint_info
+                                  .bounding_box_constraint_dual_indices.end()),
+      std::back_inserter(
+          returned_info.dual_info.bounding_box_constraint_dual_indices),
+      [&returned_info, &info](auto&& bb_indices) {
+        for (auto& [lb, ub] : bb_indices) {
+          if (lb == ub && lb != -1) {
+            lb += returned_info.A_row_count;
+            ub += returned_info.A_row_count;
+          } else {
+            if (lb != -1) {
+              lb += returned_info.A_row_count +
+                    info.bounding_box_constraint_info.A_eq_row_count;
+            }
+            if (ub != -1) {
+              ub += returned_info.A_row_count +
+                    info.bounding_box_constraint_info.A_eq_row_count;
+            }
+          }
+        }
+        return std::move(bb_indices);
+      });
+  returned_info.A_row_count += info.bounding_box_constraint_info.A_eq_row_count;
+
+  add_triplets(info.linear_constraint_info.A_triplets,
+               returned_info.A_row_count);
+  std::transform(
+      std::make_move_iterator(
+          info.linear_constraint_info.linear_constraint_dual_indices.begin()),
+      std::make_move_iterator(
+          info.linear_constraint_info.linear_constraint_dual_indices.end()),
+      std::back_inserter(
+          returned_info.dual_info.linear_constraint_dual_indices),
+      [&returned_info, &info](auto&& indices) {
+        for (auto& [lb, ub] : indices) {
+          if (lb != -1) {
+            lb += returned_info.A_row_count +
+                  info.bounding_box_constraint_info.A_eq_row_count;
+          }
+          if (ub != -1) {
+            ub += returned_info.A_row_count +
+                  info.bounding_box_constraint_info.A_eq_row_count;
+          }
+        }
+        return std::move(indices);
+      });
+  returned_info.A_row_count += info.linear_constraint_info.A_row_count;
+
+  add_triplets(info.soc_constraint_info.A_triplets, returned_info.A_row_count);
+  returned_info.A_row_count += info.soc_constraint_info.A_row_count;
+  auto incremenent_dual_indices =
+      [&returned_info, &info](std::vector<int>&& source_indices) {
+        for (auto& ind : source_indices) {
+          ind += returned_info.A_row_count;
+        }
+        return std::move(source_indices);
+      };
+  std::transform(
+      std::make_move_iterator(
+          info.soc_constraint_info.lorentz_cone_dual_variable_start_indices.begin()),
+      std::make_move_iterator(
+          info.soc_constraint_info.lorentz_cone_dual_variable_start_indices.end()),
+      std::back_inserter(
+          returned_info.dual_info.lorentz_cone_dual_variable_start_indices),
+          incremenent_dual_indices
+      );
+
+
+//  add_triplets(info.psd_constraint_info.A_triplets);
+//  returned_info.A_row_count += info.psd_constraint_info.A_row_count;
+//  add_triplets(info.exponential_cone_info.A_triplets);
+//  returned_info.A_row_count += info.exponential_cone_info.A_row_count;
+
+  returned_info.b_std.reserve(
+      info.equality_constraint_info.b_std.size() +
+      info.bounding_box_constraint_info.b_eq_std.size() +
+      info.bounding_box_constraint_info.b_ineq_std.size() +
+      info.linear_constraint_info.b_std.size() +
+      info.soc_constraint_info.b_std.size() +
+      info.psd_constraint_info.b_std.size() +
+      info.exponential_cone_info.b_std.size());
+  returned_info.b_std.insert(
+      returned_info.b_std.end(),
+      std::make_move_iterator(info.equality_constraint_info.b_std.begin()),
+      std::make_move_iterator(info.equality_constraint_info.b_std.end()));
+  returned_info.b_std.insert(
+      returned_info.b_std.end(),
+      std::make_move_iterator(
+          info.bounding_box_constraint_info.b_eq_std.begin()),
+      std::make_move_iterator(
+          info.bounding_box_constraint_info.b_eq_std.end()));
+  returned_info.b_std.insert(
+      returned_info.b_std.end(),
+      std::make_move_iterator(
+          info.bounding_box_constraint_info.b_ineq_std.begin()),
+      std::make_move_iterator(
+          info.bounding_box_constraint_info.b_ineq_std.end()));
+  returned_info.b_std.insert(
+      returned_info.b_std.end(),
+      std::make_move_iterator(info.linear_constraint_info.b_std.begin()),
+      std::make_move_iterator(info.linear_constraint_info.b_std.end()));
+  returned_info.b_std.insert(
+      returned_info.b_std.end(),
+      std::make_move_iterator(info.soc_constraint_info.b_std.begin()),
+      std::make_move_iterator(info.soc_constraint_info.b_std.end()));
+  returned_info.b_std.insert(
+      returned_info.b_std.end(),
+      std::make_move_iterator(info.psd_constraint_info.b_std.begin()),
+      std::make_move_iterator(info.psd_constraint_info.b_std.end()));
+  returned_info.b_std.insert(
+      returned_info.b_std.end(),
+      std::make_move_iterator(info.exponential_cone_info.b_std.begin()),
+      std::make_move_iterator(info.exponential_cone_info.b_std.end()));
+
+  return returned_info;
+  returned_info
+};
+
 }  // namespace
 
 namespace internal {
-std::unique_ptr<ConicStandardFormParsingInfo> ParseConicStandardForm(
-    const MathematicalProgram& prog, const ConicStandardFormOptions& options) {
-  auto info = std::make_unique<ConicStandardFormParsingInfo>();
-  ParseConvexCosts(prog, options, &info->cost_info, &info->dual_info);
-  ParseConvexConstraints(prog, options, &info->constraint_info,
-                         &info->dual_info);
-  // We need to combine the conic standard forms of the constraints generated
-  // with the costs and the original constraints.
-
+void ParseConicStandardForm(const MathematicalProgram& prog,
+                            const ConicStandardFormOptions& options) {
+  ConvexAggregationInfo info{};
+  ParseConvexCosts(prog, options, &info);
+  ParseConvexConstraints(prog, options, &info);
+  // Now we aggregate the intermediate information into the conic standard form
+  // struct.
 
   return info;
 }
