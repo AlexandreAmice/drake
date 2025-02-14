@@ -33,11 +33,7 @@ drake_cc_library(
         "//planning/graph_algorithms:max_clique_solver_via_greedy",
         "//solvers:gurobi_solver",
         "//solvers:mosek_solver",
-        "//planning:scene_graph_collision_checker",
-        "//planning:visibility_graph",
-        ":fast_iris"
-    ],
-    deps = [
+        ":fast_iris",
         "@common_robotics_utilities",
     ],
 )
