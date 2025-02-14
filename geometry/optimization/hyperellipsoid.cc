@@ -264,7 +264,7 @@ Hyperellipsoid Hyperellipsoid::MinimumVolumeCircumscribedEllipsoid(
   // there is a PSD constraint, but we are maximizing the eigenvalues of A and
   // the convex hull of the points is guaranteed to be bounded.
   const VectorXd c = A_sol.llt().solve(-b_sol);
-  
+
   return Hyperellipsoid(A_sol, c);
 }
 

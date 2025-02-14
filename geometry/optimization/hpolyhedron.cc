@@ -546,7 +546,9 @@ VectorXd HPolyhedron::UniformSample(
     const std::optional<Eigen::Ref<const Eigen::MatrixXd>>& subspace,
     double tol) const {
   DRAKE_THROW_UNLESS(mixing_steps >= 1);
-  DRAKE_THROW_UNLESS(this->PointInSet(previous_sample));
+  if (subspace.has_value()) {
+    DRAKE_THROW_UNLESS(subspace->rows() == ambient_dimension());
+  }
 
   std::normal_distribution<double> gaussian;
   VectorXd current_sample = previous_sample;
