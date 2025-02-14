@@ -86,7 +86,7 @@ void ParseConvexConstraints(const MathematicalProgram& prog,
       prog, &info->equality_constraint_info.A_triplets,
       &info->equality_constraint_info.b_std,
       &info->equality_constraint_info.A_row_count,
-      &info->linear_eq_dual_variable_start_indices,
+      &info->equality_constraint_info.linear_eq_dual_variable_start_indices,
       &num_linear_equality_constraint_rows);
 
   // Parse the Bounding Box constraints. The bounding box constraints which are
@@ -94,7 +94,6 @@ void ParseConvexConstraints(const MathematicalProgram& prog,
   // which are inequality constraints are stored in A_bb_ineq_triplets and
   // b_bb_ineq. They will be added to A and b after the linear constraints are
   // added.
-  int num_bounding_box_inequality_constraint_rows{0};
   internal::ParseBoundingBoxConstraints(
       prog,
       // We can directly add the bounding box equality constraints
@@ -254,28 +253,24 @@ internal::ConicStandardFormInfo AggregateConicInformation(
 
   add_triplets(info.soc_constraint_info.A_triplets, returned_info.A_row_count);
   returned_info.A_row_count += info.soc_constraint_info.A_row_count;
-  auto incremenent_dual_indices =
-      [&returned_info, &info](std::vector<int>&& source_indices) {
-        for (auto& ind : source_indices) {
-          ind += returned_info.A_row_count;
-        }
-        return std::move(source_indices);
-      };
+  auto incremenent_dual_indices = [&returned_info](int&& start_index) {
+    return start_index + returned_info.A_row_count;
+  };
   std::transform(
       std::make_move_iterator(
-          info.soc_constraint_info.lorentz_cone_dual_variable_start_indices.begin()),
+          info.soc_constraint_info.lorentz_cone_dual_variable_start_indices
+              .begin()),
       std::make_move_iterator(
-          info.soc_constraint_info.lorentz_cone_dual_variable_start_indices.end()),
+          info.soc_constraint_info.lorentz_cone_dual_variable_start_indices
+              .end()),
       std::back_inserter(
           returned_info.dual_info.lorentz_cone_dual_variable_start_indices),
-          incremenent_dual_indices
-      );
+      incremenent_dual_indices);
 
-
-//  add_triplets(info.psd_constraint_info.A_triplets);
-//  returned_info.A_row_count += info.psd_constraint_info.A_row_count;
-//  add_triplets(info.exponential_cone_info.A_triplets);
-//  returned_info.A_row_count += info.exponential_cone_info.A_row_count;
+  //  add_triplets(info.psd_constraint_info.A_triplets);
+  //  returned_info.A_row_count += info.psd_constraint_info.A_row_count;
+  //  add_triplets(info.exponential_cone_info.A_triplets);
+  //  returned_info.A_row_count += info.exponential_cone_info.A_row_count;
 
   returned_info.b_std.reserve(
       info.equality_constraint_info.b_std.size() +
@@ -319,14 +314,13 @@ internal::ConicStandardFormInfo AggregateConicInformation(
       std::make_move_iterator(info.exponential_cone_info.b_std.end()));
 
   return returned_info;
-  returned_info
 };
 
 }  // namespace
 
 namespace internal {
-void ParseConicStandardForm(const MathematicalProgram& prog,
-                            const ConicStandardFormOptions& options) {
+ConvexAggregationInfo ParseConicStandardForm(
+    const MathematicalProgram& prog, const ConicStandardFormOptions& options) {
   ConvexAggregationInfo info{};
   ParseConvexCosts(prog, options, &info);
   ParseConvexConstraints(prog, options, &info);
@@ -337,105 +331,109 @@ void ParseConicStandardForm(const MathematicalProgram& prog,
 }
 }  // namespace internal
 
-ConicStandardForm::ConicStandardForm(const MathematicalProgram& prog,
-                                     const ConicStandardFormOptions& options)
-    : x_{prog.decision_variables()} {
-  CheckSupported(prog);
-  internal::CostAggregationInfo cost_info;
-  internal::ConstraintAggregationInfo constraint_info;
-  internal::DualInfo dual_info;
-
-  ParseConvexCosts(prog, options, &cost_info, &dual_info);
-  ParseConvexConstraints(prog, options, &constraint_info, &dual_info);
-  //
-  //  if (options.sort_cones) {
-  //  }
-  //
-  //  internal::ConvexConstraintAggregationInfo info;
-  //  internal::ConvexConstraintAggregationOptions options;
-  //  options.cast_rotated_lorentz_to_lorentz = true;
-  //  options.preserve_psd_inner_product_vectorization = true;
-  //  options.parse_psd_using_upper_triangular = false;
-  //
-  //  std::vector<double> c_std(prog.num_vars(), 0.0);
-  //  internal::ParseLinearCosts(prog, &c_std, &d_);
-  //  c_.resize(c_std.size());
-  //  for (int i = 0; i < ssize(c_std); ++i) {
-  //    if (c_std[i] != 0.0) {
-  //      c_.insert(i) = c_std[i];
-  //    }
-  //  }
-  //
-  //  internal::DoAggregateConvexConstraints(prog, options, &info);
-  //  // We need to negate the A_triplets since they return as -Ax + b ∈ K.
-  //  for (int i = 0; i < ssize(info.A_triplets); ++i) {
-  //    info.A_triplets[i] = Eigen::Triplet<double>(info.A_triplets[i].row(),
-  //                                                info.A_triplets[i].col(),
-  //                                                -info.A_triplets[i].value());
-  //  }
-  //  A_.resize(info.A_row_count, prog.num_vars());
-  //  A_.setFromTriplets(info.A_triplets.begin(), info.A_triplets.end());
-  //
-  //  b_.resize(info.b_std.size());
-  //  for (int i = 0; i < ssize(info.b_std); ++i) {
-  //    if (info.b_std[i] != 0.0) {
-  //      b_.insert(i) = info.b_std[i];
-  //    }
-  //  }
-  //
-  //  int expected_A_row_count = 0;
-  //  attributes_to_start_end_pairs_.emplace(
-  //      ProgramAttribute::kLinearEqualityConstraint,
-  //      std::vector<std::pair<int, int>>{});
-  //  if (info.num_linear_equality_constraint_rows > 0) {
-  //    attributes_to_start_end_pairs_
-  //        .at(ProgramAttribute::kLinearEqualityConstraint)
-  //        .emplace_back(0, info.num_linear_equality_constraint_rows);
-  //  }
-  //  expected_A_row_count += info.num_linear_equality_constraint_rows;
-  //
-  //  const int total_num_linear_constraints =
-  //      info.num_linear_constraint_rows +
-  //      info.num_bounding_box_inequality_constraint_rows;
-  //
-  //  attributes_to_start_end_pairs_.emplace(ProgramAttribute::kLinearConstraint,
-  //                                         std::vector<std::pair<int,
-  //                                         int>>{});
-  //  if (total_num_linear_constraints > 0) {
-  //    attributes_to_start_end_pairs_.at(ProgramAttribute::kLinearConstraint)
-  //        .emplace_back(expected_A_row_count,
-  //                      expected_A_row_count + total_num_linear_constraints);
-  //  }
-  //  expected_A_row_count += total_num_linear_constraints;
-  //
-  //  attributes_to_start_end_pairs_.emplace(
-  //      ProgramAttribute::kLorentzConeConstraint,
-  //      std::vector<std::pair<int, int>>{});
-  //  attributes_to_start_end_pairs_.at(ProgramAttribute::kLorentzConeConstraint)
-  //      .reserve(info.second_order_cone_lengths.size());
-  //  for (const int soc_length : info.second_order_cone_lengths) {
-  //    attributes_to_start_end_pairs_.at(ProgramAttribute::kLorentzConeConstraint)
-  //        .emplace_back(expected_A_row_count, expected_A_row_count +
-  //        soc_length);
-  //    expected_A_row_count += soc_length;
-  //  }
-  //
-  //  attributes_to_start_end_pairs_.emplace(
-  //      ProgramAttribute::kPositiveSemidefiniteConstraint,
-  //      std::vector<std::pair<int, int>>{});
-  //  attributes_to_start_end_pairs_
-  //      .at(ProgramAttribute::kPositiveSemidefiniteConstraint)
-  //      .reserve(info.psd_row_size.size());
-  //  for (const int row_size : info.psd_row_size) {
-  //    int psd_length = row_size * (row_size + 1) / 2;
-  //    attributes_to_start_end_pairs_
-  //        .at(ProgramAttribute::kPositiveSemidefiniteConstraint)
-  //        .emplace_back(expected_A_row_count, expected_A_row_count +
-  //        psd_length);
-  //    expected_A_row_count += psd_length;
-  //  }
-  //  DRAKE_DEMAND(expected_A_row_count == A_.rows());
-}
+// ConicStandardForm::ConicStandardForm(const MathematicalProgram& prog,
+//                                      const ConicStandardFormOptions& options)
+//     : x_{prog.decision_variables()} {
+//   CheckSupported(prog);
+//   internal::CostAggregationInfo cost_info;
+//   internal::ConstraintAggregationInfo constraint_info;
+//   internal::DualInfo dual_info;
+//
+//   ParseConvexCosts(prog, options, &cost_info, &dual_info);
+//   ParseConvexConstraints(prog, options, &constraint_info, &dual_info);
+//   //
+//   //  if (options.sort_cones) {
+//   //  }
+//   //
+//   //  internal::ConvexConstraintAggregationInfo info;
+//   //  internal::ConvexConstraintAggregationOptions options;
+//   //  options.cast_rotated_lorentz_to_lorentz = true;
+//   //  options.preserve_psd_inner_product_vectorization = true;
+//   //  options.parse_psd_using_upper_triangular = false;
+//   //
+//   //  std::vector<double> c_std(prog.num_vars(), 0.0);
+//   //  internal::ParseLinearCosts(prog, &c_std, &d_);
+//   //  c_.resize(c_std.size());
+//   //  for (int i = 0; i < ssize(c_std); ++i) {
+//   //    if (c_std[i] != 0.0) {
+//   //      c_.insert(i) = c_std[i];
+//   //    }
+//   //  }
+//   //
+//   //  internal::DoAggregateConvexConstraints(prog, options, &info);
+//   //  // We need to negate the A_triplets since they return as -Ax + b ∈ K.
+//   //  for (int i = 0; i < ssize(info.A_triplets); ++i) {
+//   //    info.A_triplets[i] = Eigen::Triplet<double>(info.A_triplets[i].row(),
+//   //                                                info.A_triplets[i].col(),
+//   // -info.A_triplets[i].value());
+//   //  }
+//   //  A_.resize(info.A_row_count, prog.num_vars());
+//   //  A_.setFromTriplets(info.A_triplets.begin(), info.A_triplets.end());
+//   //
+//   //  b_.resize(info.b_std.size());
+//   //  for (int i = 0; i < ssize(info.b_std); ++i) {
+//   //    if (info.b_std[i] != 0.0) {
+//   //      b_.insert(i) = info.b_std[i];
+//   //    }
+//   //  }
+//   //
+//   //  int expected_A_row_count = 0;
+//   //  attributes_to_start_end_pairs_.emplace(
+//   //      ProgramAttribute::kLinearEqualityConstraint,
+//   //      std::vector<std::pair<int, int>>{});
+//   //  if (info.num_linear_equality_constraint_rows > 0) {
+//   //    attributes_to_start_end_pairs_
+//   //        .at(ProgramAttribute::kLinearEqualityConstraint)
+//   //        .emplace_back(0, info.num_linear_equality_constraint_rows);
+//   //  }
+//   //  expected_A_row_count += info.num_linear_equality_constraint_rows;
+//   //
+//   //  const int total_num_linear_constraints =
+//   //      info.num_linear_constraint_rows +
+//   //      info.num_bounding_box_inequality_constraint_rows;
+//   //
+//   //
+//   attributes_to_start_end_pairs_.emplace(ProgramAttribute::kLinearConstraint,
+//   //                                         std::vector<std::pair<int,
+//   //                                         int>>{});
+//   //  if (total_num_linear_constraints > 0) {
+//   // attributes_to_start_end_pairs_.at(ProgramAttribute::kLinearConstraint)
+//   //        .emplace_back(expected_A_row_count,
+//   //                      expected_A_row_count +
+//   total_num_linear_constraints);
+//   //  }
+//   //  expected_A_row_count += total_num_linear_constraints;
+//   //
+//   //  attributes_to_start_end_pairs_.emplace(
+//   //      ProgramAttribute::kLorentzConeConstraint,
+//   //      std::vector<std::pair<int, int>>{});
+//   //
+//   attributes_to_start_end_pairs_.at(ProgramAttribute::kLorentzConeConstraint)
+//   //      .reserve(info.second_order_cone_lengths.size());
+//   //  for (const int soc_length : info.second_order_cone_lengths) {
+//   //
+//   attributes_to_start_end_pairs_.at(ProgramAttribute::kLorentzConeConstraint)
+//   //        .emplace_back(expected_A_row_count, expected_A_row_count +
+//   //        soc_length);
+//   //    expected_A_row_count += soc_length;
+//   //  }
+//   //
+//   //  attributes_to_start_end_pairs_.emplace(
+//   //      ProgramAttribute::kPositiveSemidefiniteConstraint,
+//   //      std::vector<std::pair<int, int>>{});
+//   //  attributes_to_start_end_pairs_
+//   //      .at(ProgramAttribute::kPositiveSemidefiniteConstraint)
+//   //      .reserve(info.psd_row_size.size());
+//   //  for (const int row_size : info.psd_row_size) {
+//   //    int psd_length = row_size * (row_size + 1) / 2;
+//   //    attributes_to_start_end_pairs_
+//   //        .at(ProgramAttribute::kPositiveSemidefiniteConstraint)
+//   //        .emplace_back(expected_A_row_count, expected_A_row_count +
+//   //        psd_length);
+//   //    expected_A_row_count += psd_length;
+//   //  }
+//   //  DRAKE_DEMAND(expected_A_row_count == A_.rows());
+// }
 
 std::unique_ptr<MathematicalProgram> ConicStandardForm::MakeProgram() const {
   std::unique_ptr<MathematicalProgram> prog_standard_form =

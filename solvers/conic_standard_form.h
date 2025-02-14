@@ -291,13 +291,13 @@ struct ConicStandardFormInfo {
 
   DualInfo dual_info;
 };
-struct ConicStandardFormParsingInfo {
-  CostAggregationInfo cost_info;
-  ConstraintAggregationInfo constraint_info;
-  DualInfo dual_info;
-};
+//struct ConicStandardFormParsingInfo {
+//  CostAggregationInfo cost_info;
+//  ConstraintAggregationInfo constraint_info;
+//  DualInfo dual_info;
+//};
 
-std::unique_ptr<ConvexAggregationInfo> ParseConicStandardForm(
+ConvexAggregationInfo ParseConicStandardForm(
     const MathematicalProgram& prog,
     const ConicStandardFormOptions& options = {});
 
