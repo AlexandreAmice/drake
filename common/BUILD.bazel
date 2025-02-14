@@ -24,6 +24,7 @@ drake_cc_package_library(
         ":bit_cast",
         ":cond",
         ":copyable_unique_ptr",
+        ":cpu_capabilities",
         ":default_scalars",
         ":diagnostic_policy",
         ":double",
@@ -129,6 +130,16 @@ drake_cc_library(
 )
 
 drake_cc_library(
+    name = "cpu_capabilities",
+    srcs = ["cpu_capabilities.cc"],
+    hdrs = ["cpu_capabilities.h"],
+    implementation_deps = [
+        ":essential",
+        "@highway_internal//:hwy",
+    ],
+)
+
+drake_cc_library(
     name = "drake_bool",
     hdrs = [
         "drake_bool.h",
@@ -201,6 +212,7 @@ drake_cc_library(
     hdrs = ["memory_file.h"],
     deps = [
         ":essential",
+        ":name_value",
         ":reset_after_move",
         ":sha256",
     ],
@@ -376,46 +388,10 @@ drake_cc_library(
         "hwy_dynamic.h",
         "hwy_dynamic_impl.h",
     ],
-    defines = [
-        # Highway automatically compiles our code that uses it for multiple CPU
-        # targets, so that the code is tuned as best as possible for the user's
-        # CPU that it will run on.
-        #
-        # By default Highway compiles to a ~dozen different CPU targets, but
-        # in practice Drake only cares about a few of them. We'll disable the
-        # default list of targets and write down the CPUs we care about one by
-        # one so that the test / support burden is better matched to our needs.
-        #
-        # Highway represents target sets using a bitmask. Each target is given
-        # a single bit (e.g., '#define HWY_AVX2 (1LL << 9)'). To express a set
-        # of targets (e.g., to set HWY_DISABLED_TARGETS) we must binary-or the
-        # per-target constants together.
-        #
-        # Highway only offers a deny-list for targets, so we'll need to deny
-        # everything and then un-deny what we want to allow. Per De Morgan's
-        # law, an ENABLE list folded over OR is the same as the negation of the
-        # same list folded over NAND; to end up with a DISABLE list, we can
-        # just drop the outermost negation, i.e., ENABLE list folded over NAND.
-        "HWY_DISABLED_TARGETS=(" + "&".join([
-            "(~({}))".format(name)
-            for name in [
-                # We must always provide a portable fallback.
-                "HWY_BASELINE_SCALAR",
-                # x86: SIMD with 256-bit lanes and FMA.
-                "HWY_AVX2",
-                # x86: SIMD with the improved 512VL encodings.
-                # TODO(jwnimmer-tri) Enable this once we support opt-out of CPU
-                # targets via NPY_DISABLE_CPU_FEATURES environment variable.
-                # "HWY_AVX3",
-                # arm: SIMD that has fixed 256-bit lanes.
-                # TODO(jwnimmer-tri) Enable this once we can test it.
-                # "HWY_SVE_256",
-            ]
-        ]) + ")",
-    ],
     internal = True,
     visibility = ["//:__subpackages__"],
     deps = [
+        ":cpu_capabilities",
         ":essential",
     ],
 )
@@ -741,6 +717,26 @@ drake_cc_googletest(
     ],
 )
 
+drake_cc_binary(
+    name = "cpu_capabilities_test_device",
+    testonly = True,
+    srcs = ["test/cpu_capabilities_test_device.cc"],
+    deps = [
+        ":cpu_capabilities",
+        "@highway_internal//:hwy",
+    ],
+)
+
+drake_py_unittest(
+    name = "cpu_capabilities_test",
+    data = [
+        ":cpu_capabilities_test_device",
+    ],
+    deps = [
+        "@rules_python//python/runfiles",
+    ],
+)
+
 drake_cc_googletest(
     name = "ssize_test",
     deps = [
@@ -979,6 +975,8 @@ drake_cc_googletest(
     name = "file_source_test",
     deps = [
         ":file_source",
+        "//common/test_utilities:expect_throws_message",
+        "//common/yaml:yaml_io",
     ],
 )
 
@@ -1099,6 +1097,8 @@ drake_cc_googletest(
         ":find_resource",
         ":memory_file",
         ":temp_directory",
+        "//common/test_utilities:expect_throws_message",
+        "//common/yaml:yaml_io",
     ],
 )
 

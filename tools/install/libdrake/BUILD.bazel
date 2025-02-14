@@ -5,11 +5,6 @@ load(
     "cmake_configure_file",
 )
 load(
-    "@python//:version.bzl",
-    "PYTHON_SITE_PACKAGES_RELPATH",
-    "PYTHON_VERSION",
-)
-load(
     "//third_party:com_github_bazelbuild_rules_cc/whole_archive.bzl",
     "cc_whole_archive_library",
 )
@@ -28,10 +23,19 @@ load(
     "drake_py_binary",
     "drake_py_unittest",
 )
+load("//tools/workspace:generate_file.bzl", "generate_file")
 load(":build_components.bzl", "LIBDRAKE_COMPONENTS")
+load(":cc_defines.bzl", "cc_defines")
 load(":header_lint.bzl", "cc_check_allowed_headers")
 
 package(default_visibility = ["//visibility:private"])
+
+genrule(
+    name = "python_version_cmake",
+    srcs = ["//tools/workspace/python:python_version.txt"],
+    outs = ["python_version.cmake"],
+    cmd = """echo "set(PYTHON_VERSION \\"$$(cat $<)\\")" > $@""",
+)
 
 genrule(
     name = "stamp_version",
@@ -56,15 +60,74 @@ run_binary(
     tool = "parse_version",
 )
 
+generate_file(
+    name = "with_user_eigen.cmake",
+    content = select({
+        "//tools/workspace/eigen:is_external": (
+            "set(WITH_USER_EIGEN ON)"
+        ),
+        "//conditions:default": (
+            "set(WITH_USER_EIGEN OFF)"
+        ),
+    }),
+)
+
+generate_file(
+    name = "with_user_fmt.cmake",
+    content = select({
+        "//tools/workspace/fmt:is_external": (
+            "set(WITH_USER_FMT ON)"
+        ),
+        "//conditions:default": (
+            "set(WITH_USER_FMT OFF)"
+        ),
+    }),
+)
+
+generate_file(
+    name = "with_user_spdlog.cmake",
+    content = select({
+        "//tools/workspace/spdlog:is_external": (
+            "set(WITH_USER_SPDLOG ON)"
+        ),
+        "//conditions:default": (
+            "set(WITH_USER_SPDLOG OFF)"
+        ),
+    }),
+)
+
+cc_defines(
+    name = "bazel_eigen_defines.cmake",
+    var = "BAZEL_EIGEN_DEFINES",
+    deps = ["@eigen"],
+)
+
+cc_defines(
+    name = "bazel_fmt_defines.cmake",
+    var = "BAZEL_FMT_DEFINES",
+    deps = ["@fmt"],
+)
+
+cc_defines(
+    name = "bazel_spdlog_defines.cmake",
+    var = "BAZEL_SPDLOG_DEFINES",
+    deps = ["@spdlog"],
+)
+
 cmake_configure_file(
     name = "drake_config_cmake_expand",
     src = "drake-config.cmake.in",
     out = "drake-config.cmake",
     atonly = True,
-    cmakelists = ["stamp_version.cmake"],
-    defines = [
-        "PYTHON_SITE_PACKAGES_RELPATH=" + PYTHON_SITE_PACKAGES_RELPATH,
-        "PYTHON_VERSION=" + PYTHON_VERSION,
+    cmakelists = [
+        ":bazel_eigen_defines.cmake",
+        ":bazel_fmt_defines.cmake",
+        ":bazel_spdlog_defines.cmake",
+        ":python_version.cmake",
+        ":stamp_version.cmake",
+        ":with_user_eigen.cmake",
+        ":with_user_fmt.cmake",
+        ":with_user_spdlog.cmake",
     ],
 )
 
@@ -154,31 +217,11 @@ install(
     ],
 )
 
-# Depend on IPOPT's shared library iff IPOPT is enabled and we're on a platform
-# that uses the host OS shared library.
-selects.config_setting_group(
-    name = "ipopt_not_shared",
-    match_any = [
-        "//tools:no_ipopt",
-        "//tools/cc_toolchain:linux",
-    ],
-)
-
-cc_library(
-    name = "ipopt_deps",
-    deps = selects.with_or({
-        "//conditions:default": [
-            "@ipopt",
-        ],
-        ":ipopt_not_shared": [],
-    }),
-)
-
 # Depend on Gurobi's shared library iff Gurobi is enabled.
 cc_library(
     name = "gurobi_deps",
     deps = select({
-        "//tools:with_gurobi": ["@gurobi//:gurobi_c"],
+        "//tools/workspace/gurobi:enabled": ["@gurobi//:gurobi_c"],
         "//conditions:default": [],
     }),
 )
@@ -187,7 +230,7 @@ cc_library(
 cc_library(
     name = "mosek_deps",
     deps = select({
-        "//tools:with_mosek": ["@mosek"],
+        "//tools/workspace/mosek:enabled": ["@mosek"],
         "//conditions:default": [],
     }),
 )
@@ -243,13 +286,13 @@ cc_library(
     name = "libdrake_runtime_so_deps",
     deps = [
         ":gurobi_deps",
-        ":ipopt_deps",
         ":mosek_deps",
         ":usd_deps",
         ":x11_deps",
         "//common:drake_marker_shared_library",
+        "//tools/workspace/fmt:shared_library_maybe",
+        "//tools/workspace/spdlog:shared_library_maybe",
         "@lcm",
-        "@spdlog",
     ],
 )
 
@@ -263,8 +306,9 @@ cc_library(
     name = "libdrake_header_only_deps",
     deps = [
         "//lcmtypes:lcmtypes_drake_cc",
+        "//tools/workspace/fmt:hdrs",
+        "//tools/workspace/spdlog:hdrs",
         "@eigen",
-        "@fmt",
     ],
 )
 

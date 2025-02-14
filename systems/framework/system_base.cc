@@ -12,6 +12,7 @@
 #include <fmt/ranges.h>
 
 #include "drake/common/hash.h"
+#include "drake/common/text_logging.h"
 #include "drake/common/unused.h"
 #include "drake/systems/framework/fixed_input_port_value.h"
 
@@ -423,6 +424,20 @@ void SystemBase::CreateSourceTrackers(ContextBase* context_ptr) const {
         &context, iport->get_index(), iport->ticket(),
         MakeFixInputPortTypeChecker(iport->get_index()));
   }
+}
+
+void SystemBase::set_parent_service(
+    SystemBase* child,
+    const internal::SystemParentServiceInterface* parent_service) {
+  DRAKE_DEMAND(child != nullptr);
+  if (parent_service != nullptr && child->parent_service_ != nullptr) {
+    throw std::logic_error(fmt::format(
+        "Cannot build subsystem '{}' into Diagram '{}' because it has already "
+        "been built into a different Diagram '{}'",
+        child->GetSystemName(), parent_service->GetParentPathname(),
+        child->parent_service_->GetParentPathname()));
+  }
+  child->parent_service_ = parent_service;
 }
 
 // The only way for a system to evaluate its own input port is if that

@@ -611,47 +611,65 @@ TEST_F(SceneGraphTest, ModelInspector) {
 // functions work. It relies on GeometryState to properly unit test the
 // full behavior.
 TEST_F(SceneGraphTest, RendererInSceneGraphSmokeTest) {
-  // Test the renderer added to the SceneGraph.
-  const std::string kRendererName = "bob";
+  for (bool add_as_unique : {true, false}) {
+    SCOPED_TRACE(fmt::format("add_as_unique = {}", add_as_unique));
 
-  EXPECT_EQ(scene_graph_.RendererCount(), 0);
-  EXPECT_EQ(scene_graph_.RegisteredRendererNames().size(), 0u);
-  EXPECT_FALSE(scene_graph_.HasRenderer(kRendererName));
+    // Test the renderer added to the SceneGraph.
+    const std::string kRendererName = "bob";
 
-  DRAKE_EXPECT_NO_THROW(scene_graph_.AddRenderer(
-      kRendererName, make_unique<DummyRenderEngine>()));
+    EXPECT_EQ(scene_graph_.RendererCount(), 0);
+    EXPECT_EQ(scene_graph_.RegisteredRendererNames().size(), 0u);
+    EXPECT_FALSE(scene_graph_.HasRenderer(kRendererName));
 
-  EXPECT_EQ(scene_graph_.RendererCount(), 1);
-  EXPECT_EQ(scene_graph_.RegisteredRendererNames()[0], kRendererName);
-  EXPECT_TRUE(scene_graph_.HasRenderer(kRendererName));
+    if (add_as_unique) {
+      DRAKE_EXPECT_NO_THROW(scene_graph_.AddRenderer(
+          kRendererName, make_unique<DummyRenderEngine>()));
+    } else {
+      DRAKE_EXPECT_NO_THROW(
+          scene_graph_.AddRenderer(kRendererName, DummyRenderEngine()));
+    }
 
-  DRAKE_EXPECT_NO_THROW(scene_graph_.RemoveRenderer(kRendererName));
-  EXPECT_EQ(scene_graph_.RendererCount(), 0);
-  EXPECT_FALSE(scene_graph_.HasRenderer(kRendererName));
+    EXPECT_EQ(scene_graph_.RendererCount(), 1);
+    EXPECT_EQ(scene_graph_.RegisteredRendererNames()[0], kRendererName);
+    EXPECT_TRUE(scene_graph_.HasRenderer(kRendererName));
+
+    DRAKE_EXPECT_NO_THROW(scene_graph_.RemoveRenderer(kRendererName));
+    EXPECT_EQ(scene_graph_.RendererCount(), 0);
+    EXPECT_FALSE(scene_graph_.HasRenderer(kRendererName));
+  }
 }
 
 TEST_F(SceneGraphTest, RendererInContextSmokeTest) {
-  // Test the renderer added to the context
-  CreateDefaultContext();
-  const std::string kRendererName = "bob";
+  for (bool add_as_unique : {true, false}) {
+    SCOPED_TRACE(fmt::format("add_as_unique = {}", add_as_unique));
+    // Test the renderer added to the context
+    CreateDefaultContext();
+    const std::string kRendererName = "bob";
 
-  EXPECT_EQ(scene_graph_.RendererCount(*context_), 0);
-  EXPECT_EQ(scene_graph_.RegisteredRendererNames(*context_).size(), 0u);
-  EXPECT_FALSE(scene_graph_.HasRenderer(*context_, kRendererName));
+    EXPECT_EQ(scene_graph_.RendererCount(*context_), 0);
+    EXPECT_EQ(scene_graph_.RegisteredRendererNames(*context_).size(), 0u);
+    EXPECT_FALSE(scene_graph_.HasRenderer(*context_, kRendererName));
 
-  DRAKE_EXPECT_NO_THROW(scene_graph_.AddRenderer(
-      context_.get(), kRendererName, make_unique<DummyRenderEngine>()));
+    if (add_as_unique) {
+      DRAKE_EXPECT_NO_THROW(scene_graph_.AddRenderer(
+          context_.get(), kRendererName, make_unique<DummyRenderEngine>()));
+    } else {
+      DRAKE_EXPECT_NO_THROW(scene_graph_.AddRenderer(
+          context_.get(), kRendererName, DummyRenderEngine()));
+    }
 
-  EXPECT_EQ(scene_graph_.RendererCount(*context_), 1);
-  // No renderer inside SceneGraph since the renderer is added to the context.
-  EXPECT_EQ(scene_graph_.RendererCount(), 0);
-  EXPECT_EQ(scene_graph_.RegisteredRendererNames(*context_)[0], kRendererName);
-  EXPECT_TRUE(scene_graph_.HasRenderer(*context_, kRendererName));
+    EXPECT_EQ(scene_graph_.RendererCount(*context_), 1);
+    // No renderer inside SceneGraph since the renderer is added to the context.
+    EXPECT_EQ(scene_graph_.RendererCount(), 0);
+    EXPECT_EQ(scene_graph_.RegisteredRendererNames(*context_)[0],
+              kRendererName);
+    EXPECT_TRUE(scene_graph_.HasRenderer(*context_, kRendererName));
 
-  DRAKE_EXPECT_NO_THROW(
-      scene_graph_.RemoveRenderer(context_.get(), kRendererName));
-  EXPECT_EQ(scene_graph_.RendererCount(*context_), 0);
-  EXPECT_FALSE(scene_graph_.HasRenderer(*context_, kRendererName));
+    DRAKE_EXPECT_NO_THROW(
+        scene_graph_.RemoveRenderer(context_.get(), kRendererName));
+    EXPECT_EQ(scene_graph_.RendererCount(*context_), 0);
+    EXPECT_FALSE(scene_graph_.HasRenderer(*context_, kRendererName));
+  }
 }
 
 // Query the type name of a render engine. This logic is unique to SceneGraph
@@ -951,6 +969,53 @@ GTEST_TEST(SceneGraphConnectionTest, FullPoseUpdateDisconnected) {
           "Source '{}' \\(id: \\d+\\) has registered deformable geometry "
           "but is not connected .+",
           source_system->registered_source_name()));
+}
+
+GTEST_TEST(SceneGraphConnectionTest, NanInPoseInputs) {
+  SceneGraph<double> sg;
+  const SourceId s_id = sg.RegisterSource("nan_port");
+  const FrameId f_id = sg.RegisterFrame(s_id, GeometryFrame("frame"));
+  std::unique_ptr<Context<double>> context = sg.CreateDefaultContext();
+
+  FramePoseVector<double> poses;
+  RigidTransformd nan_pose(
+      Eigen::Vector3d::Constant(std::numeric_limits<double>::quiet_NaN()));
+  poses.set_value(f_id, nan_pose);
+
+  sg.get_source_pose_port(s_id).FixValue(context.get(), poses);
+
+  DRAKE_EXPECT_THROWS_MESSAGE(
+      SceneGraphTester::FullPoseUpdate(sg, *context),
+      ".*non-finite value .* on a pose input port.*'nan_port'.*");
+}
+
+GTEST_TEST(SceneGraphConnectionTest, NanInConfigInputs) {
+  SceneGraph<double> sg;
+  const SourceId s_id = sg.RegisterSource("nan_port");
+
+  // Sphere tessellated as an octahedron.
+  GeometryId deformable_id = sg.RegisterDeformableGeometry(
+      s_id, sg.world_frame_id(), make_sphere_instance(), 2.0);
+
+  std::unique_ptr<Context<double>> context = sg.CreateDefaultContext();
+
+  const SceneGraphInspector<double>& inspector = sg.model_inspector();
+  const VolumeMesh<double>* mesh_ptr =
+      inspector.GetReferenceMesh(deformable_id);
+  DRAKE_DEMAND(mesh_ptr != nullptr);
+
+  GeometryConfigurationVector<double> configs;
+  Eigen::VectorX<double> qs =
+      Eigen::VectorX<double>::Zero(mesh_ptr->num_vertices() * 3);
+  qs[1] = std::numeric_limits<double>::quiet_NaN();
+  configs.set_value(deformable_id, qs);
+
+  sg.get_source_configuration_port(s_id).FixValue(context.get(), configs);
+
+  DRAKE_EXPECT_THROWS_MESSAGE(
+      SceneGraphTester::FullConfigurationUpdate(sg, *context),
+      ".*non-finite value .* on a deformable configuration input "
+      "port.*'nan_port'.*");
 }
 
 // Confirms that the SceneGraph can be instantiated on AutoDiff type.

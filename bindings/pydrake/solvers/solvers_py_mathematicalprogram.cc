@@ -5,6 +5,7 @@
 #include "drake/bindings/pydrake/autodiff_types_pybind.h"
 #include "drake/bindings/pydrake/common/cpp_param_pybind.h"
 #include "drake/bindings/pydrake/common/cpp_template_pybind.h"
+#include "drake/bindings/pydrake/common/deprecation_pybind.h"
 #include "drake/bindings/pydrake/common/eigen_pybind.h"
 #include "drake/bindings/pydrake/documentation_pybind.h"
 #include "drake/bindings/pydrake/pydrake_pybind.h"
@@ -333,46 +334,6 @@ void BindSolverInterface(py::module m) {
           })
       .def("SolverName",
           [](const SolverInterface& self) { return self.solver_id().name(); });
-}
-
-void BindSolverIdAndType(py::module m) {
-  constexpr auto& doc = pydrake_doc.drake.solvers;
-  py::class_<SolverId>(m, "SolverId", doc.SolverId.doc)
-      .def(py::init<std::string>(), py::arg("name"), doc.SolverId.ctor.doc)
-      .def("name", &SolverId::name, doc.SolverId.name.doc)
-      .def("__hash__",
-          [](const SolverId& self) { return std::hash<SolverId>{}(self); })
-      .def(
-          "__eq__",
-          [](const SolverId& self, const SolverId& other) {
-            return self == other;
-          },
-          py::is_operator())
-      .def(
-          "__ne__",
-          [](const SolverId& self, const SolverId& other) {
-            return self != other;
-          },
-          py::is_operator());
-
-  py::enum_<SolverType> solver_type(m, "SolverType", doc.SolverType.doc);
-  solver_type  // BR
-      .value("kClp", SolverType::kClp, doc.SolverType.kClp.doc)
-      .value("kCsdp", SolverType::kCsdp, doc.SolverType.kCsdp.doc)
-      .value("kEqualityConstrainedQP", SolverType::kEqualityConstrainedQP,
-          doc.SolverType.kEqualityConstrainedQP.doc)
-      .value("kGurobi", SolverType::kGurobi, doc.SolverType.kGurobi.doc)
-      .value("kIpopt", SolverType::kIpopt, doc.SolverType.kIpopt.doc)
-      .value("kLinearSystem", SolverType::kLinearSystem,
-          doc.SolverType.kLinearSystem.doc)
-      .value("kMobyLCP", SolverType::kMobyLCP, doc.SolverType.kMobyLCP.doc)
-      .value("kMosek", SolverType::kMosek, doc.SolverType.kMosek.doc)
-      .value("kNlopt", SolverType::kNlopt, doc.SolverType.kNlopt.doc)
-      .value("kOsqp", SolverType::kOsqp, doc.SolverType.kOsqp.doc)
-      .value("kScs", SolverType::kScs, doc.SolverType.kScs.doc)
-      .value("kSnopt", SolverType::kSnopt, doc.SolverType.kSnopt.doc)
-      .value("kUnrevisedLemke", SolverType::kUnrevisedLemke,
-          doc.SolverType.kUnrevisedLemke.doc);
 }
 
 void BindMathematicalProgramResult(py::module m) {
@@ -728,13 +689,22 @@ void BindMathematicalProgram(py::module m) {
           py::arg("is_convex") = py::none(),
           doc.MathematicalProgram.AddQuadraticCost.doc_5args)
       .def("AddQuadraticErrorCost",
+          static_cast<Binding<QuadraticCost> (MathematicalProgram::*)(double,
+              const Eigen::Ref<const Eigen::VectorXd>&,
+              const Eigen::Ref<const VectorXDecisionVariable>&)>(
+              &MathematicalProgram::AddQuadraticErrorCost),
+          py::arg("w"), py::arg("x_desired"), py::arg("vars"),
+          doc.MathematicalProgram.AddQuadraticErrorCost
+              .doc_3args_w_x_desired_vars)
+      .def("AddQuadraticErrorCost",
           overload_cast_explicit<Binding<QuadraticCost>,
               const Eigen::Ref<const Eigen::MatrixXd>&,
               const Eigen::Ref<const Eigen::VectorXd>&,
               const Eigen::Ref<const VectorXDecisionVariable>&>(
               &MathematicalProgram::AddQuadraticErrorCost),
           py::arg("Q"), py::arg("x_desired"), py::arg("vars"),
-          doc.MathematicalProgram.AddQuadraticErrorCost.doc)
+          doc.MathematicalProgram.AddQuadraticErrorCost
+              .doc_3args_Q_x_desired_vars)
       .def("Add2NormSquaredCost",
           overload_cast_explicit<Binding<QuadraticCost>,
               const Eigen::Ref<const Eigen::MatrixXd>&,
@@ -1353,27 +1323,36 @@ void BindMathematicalProgram(py::module m) {
           doc.MathematicalProgram.SetSolverOptions.doc)
       .def("solver_options", &MathematicalProgram::solver_options,
           py_rvp::reference_internal,
-          doc.MathematicalProgram.solver_options.doc)
-      // TODO(m-chaturvedi) Add Pybind11 documentation.
+          doc.MathematicalProgram.solver_options.doc);
+// Deprecated 2025-09-01.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+  prog_cls  // BR
       .def("GetSolverOptions",
-          [](MathematicalProgram& prog, SolverId solver_id) {
-            py::dict out;
-            py::object update = out.attr("update");
-            update(prog.GetSolverOptionsDouble(solver_id));
-            update(prog.GetSolverOptionsInt(solver_id));
-            update(prog.GetSolverOptionsStr(solver_id));
-            return out;
-          })
+          WrapDeprecated(
+              doc.MathematicalProgram.GetSolverOptionsDouble.doc_deprecated,
+              [](MathematicalProgram& prog, SolverId solver_id) {
+                py::dict out;
+                py::object update = out.attr("update");
+                update(prog.GetSolverOptionsDouble(solver_id));
+                update(prog.GetSolverOptionsInt(solver_id));
+                update(prog.GetSolverOptionsStr(solver_id));
+                return out;
+              }))
       .def("GetSolverOptions",
-          [](MathematicalProgram& prog, SolverType solver_type) {
-            py::dict out;
-            py::object update = out.attr("update");
-            const SolverId id = SolverTypeConverter::TypeToId(solver_type);
-            update(prog.GetSolverOptionsDouble(id));
-            update(prog.GetSolverOptionsInt(id));
-            update(prog.GetSolverOptionsStr(id));
-            return out;
-          })
+          WrapDeprecated(
+              doc.MathematicalProgram.GetSolverOptionsDouble.doc_deprecated,
+              [](MathematicalProgram& prog, SolverType solver_type) {
+                py::dict out;
+                py::object update = out.attr("update");
+                const SolverId id = SolverTypeConverter::TypeToId(solver_type);
+                update(prog.GetSolverOptionsDouble(id));
+                update(prog.GetSolverOptionsInt(id));
+                update(prog.GetSolverOptionsStr(id));
+                return out;
+              }));
+#pragma GCC diagnostic pop
+  prog_cls  // BR
       .def("generic_costs", &MathematicalProgram::generic_costs,
           doc.MathematicalProgram.generic_costs.doc)
       .def("generic_constraints", &MathematicalProgram::generic_constraints,
@@ -1708,7 +1687,6 @@ namespace internal {
 void DefineSolversMathematicalProgram(py::module m) {
   // This list must remain in topological dependency order.
   BindPyFunctionConstraint(m);
-  BindSolverIdAndType(m);
   BindMathematicalProgram(m);
   BindSolutionResult(m);
   BindMathematicalProgramResult(m);

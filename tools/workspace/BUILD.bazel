@@ -50,7 +50,7 @@ drake_py_binary(
         "@fcl_internal//:__subpackages__",
         "@gz_math_internal//:__subpackages__",
         "@gz_utils_internal//:__subpackages__",
-        "@ipopt_internal_fromsource//:__subpackages__",
+        "@ipopt_internal//:__subpackages__",
         "@msgpack_internal//:__subpackages__",
         "@nlopt_internal//:__subpackages__",
         "@qhull_internal//:__subpackages__",
@@ -79,14 +79,15 @@ drake_py_test(
     data = [
         ":default.bzl",
         "//:MODULE.bazel",
-        "//:WORKSPACE",
         "//:WORKSPACE.bzlmod",
         "//tools/workspace/bazel_skylib:repository.bzl",
         "//tools/workspace/build_bazel_apple_support:repository.bzl",
         "//tools/workspace/platforms:repository.bzl",
         "//tools/workspace/rules_cc:repository.bzl",
+        "//tools/workspace/rules_java:repository.bzl",
         "//tools/workspace/rules_license:repository.bzl",
         "//tools/workspace/rules_rust:repository.bzl",
+        "//tools/workspace/rules_shell:repository.bzl",
     ],
     tags = ["lint"],
     deps = [
@@ -106,15 +107,14 @@ _DRAKE_EXTERNAL_PACKAGE_INSTALLS = ["@%s//:install" % p for p in [
     "clp_internal",
     "coinutils_internal",
     "com_jidesoft_jide_oss",
-    "common_robotics_utilities",
+    "common_robotics_utilities_internal",
     "commons_io",
     "curl_internal",
     "fcl_internal",
-    "fmt",
     "gklib_internal",
     "gz_math_internal",
     "gz_utils_internal",
-    "ipopt",
+    "ipopt_internal",
     "lcm",
     "libpng_internal",
     "libtiff_internal",
@@ -131,7 +131,6 @@ _DRAKE_EXTERNAL_PACKAGE_INSTALLS = ["@%s//:install" % p for p in [
     "pybind11",
     "qhull_internal",
     "sdformat_internal",
-    "spdlog",
     "spral_internal",
     "statsjs",
     "stduuid_internal",
@@ -145,37 +144,43 @@ _DRAKE_EXTERNAL_PACKAGE_INSTALLS = ["@%s//:install" % p for p in [
     "yaml_cpp_internal",
 ]] + ["//tools/workspace/%s:install" % p for p in [
     "abseil_cpp_internal",
+    "blas",
     "conex_internal",
+    "eigen",
+    "fmt",
     "gflags",
     "highway_internal",
+    "lapack",
     "libjpeg_turbo_internal",
+    "spdlog",
+    "zlib",
 ]] + select({
-    "//conditions:default": ["@csdp_internal//:install"],
-    "//tools:no_csdp": [],
+    "//tools/workspace/csdp_internal:enabled": ["@csdp_internal//:install"],
+    "//conditions:default": [],
 }) + select({
-    "//conditions:default": [
+    "//tools/workspace/clarabel_cpp_internal:enabled": [
         "//tools/workspace/crate_universe:install",
         "@clarabel_cpp_internal//:install",
     ],
-    "//tools:no_clarabel": [],
-}) + select({
-    "//tools:with_gurobi": ["@gurobi//:install"],
     "//conditions:default": [],
 }) + select({
-    "//tools:with_mosek": ["@mosek//:install"],
+    "//tools/workspace/gurobi:enabled": ["@gurobi//:install"],
     "//conditions:default": [],
 }) + select({
-    "//tools:with_snopt": ["//tools/workspace/snopt:install"],
+    "//tools/workspace/mosek:enabled": ["@mosek//:install"],
     "//conditions:default": [],
 }) + select({
-    "//conditions:default": [
+    "//tools/workspace/snopt:enabled": ["//tools/workspace/snopt:install"],
+    "//conditions:default": [],
+}) + select({
+    "//tools/workspace/osqp_internal:enabled": [
         "@osqp_internal//:install",
         "@qdldl_internal//:install",
     ],
-    "//tools:no_osqp": [],
+    "//conditions:default": [],
 }) + select({
-    "//conditions:default": ["@scs_internal//:install"],
-    "//tools:no_scs": [],
+    "//tools/workspace/scs_internal:enabled": ["@scs_internal//:install"],
+    "//conditions:default": [],
 }) + select({
     "//tools:with_usd": ["@onetbb_internal//:install"],
     "//conditions:default": [],

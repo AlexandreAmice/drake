@@ -8,6 +8,7 @@
 
 #include "drake/common/drake_assert.h"
 #include "drake/common/nice_type_name.h"
+#include "drake/common/text_logging.h"
 #include "drake/geometry/geometry_instance.h"
 #include "drake/geometry/geometry_state.h"
 #include "drake/systems/framework/context.h"
@@ -380,6 +381,21 @@ void SceneGraph<T>::RemoveGeometry(Context<T>* context, SourceId source_id,
 }
 
 template <typename T>
+void SceneGraph<T>::AddRenderer(std::string name,
+                                const render::RenderEngine& renderer) {
+  return hub_.mutable_model().AddRenderer(
+      std::move(name), renderer.Clone<std::shared_ptr<render::RenderEngine>>());
+}
+
+template <typename T>
+void SceneGraph<T>::AddRenderer(Context<T>* context, std::string name,
+                                const render::RenderEngine& renderer) const {
+  auto& g_state = mutable_geometry_state(context);
+  g_state.AddRenderer(std::move(name),
+                      renderer.Clone<std::shared_ptr<render::RenderEngine>>());
+}
+
+template <typename T>
 void SceneGraph<T>::AddRenderer(
     std::string name, std::unique_ptr<render::RenderEngine> renderer) {
   return hub_.mutable_model().AddRenderer(
@@ -661,6 +677,13 @@ void SceneGraph<T>::CalcPoseUpdate(const Context<T>& context, int*) const {
         }
         const auto& poses =
             pose_port.template Eval<FramePoseVector<T>>(context);
+        if (!poses.IsFinite()) {
+          throw std::runtime_error(fmt::format(
+              "SceneGraph encountered a non-finite value (e.g., NaN or "
+              "infinity) on a pose input port. It came from the input "
+              "associated with source id {} and name '{}'.",
+              fmt_streamed(source_id), state.GetName(source_id)));
+        }
         state.SetFramePoses(source_id, poses, &kinematics_data);
       }
     }
@@ -699,6 +722,13 @@ void SceneGraph<T>::CalcConfigurationUpdate(const Context<T>& context,
         const auto& configs =
             configuration_port.template Eval<GeometryConfigurationVector<T>>(
                 context);
+        if (!configs.IsFinite()) {
+          throw std::runtime_error(fmt::format(
+              "SceneGraph encountered a non-finite value (e.g., Nan or "
+              "infinity) on a deformable configuration input port. It came "
+              "from the input associated with source id {} and name '{}'.",
+              fmt_streamed(source_id), state.GetName(source_id)));
+        }
         state.SetGeometryConfiguration(source_id, configs, &kinematics_data);
       }
     }

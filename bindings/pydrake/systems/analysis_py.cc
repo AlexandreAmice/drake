@@ -18,8 +18,6 @@
 #include "drake/systems/analysis/simulator_print_stats.h"
 #include "drake/systems/analysis/simulator_python_internal.h"
 
-using std::unique_ptr;
-
 namespace drake {
 namespace pydrake {
 
@@ -39,6 +37,8 @@ void ThrowIfPythonHasPendingSignals() {
 PYBIND11_MODULE(analysis, m) {
   // NOLINTNEXTLINE(build/namespaces): Emulate placement in namespace.
   using namespace drake::systems;
+  // NOLINTNEXTLINE(build/namespaces): Emulate placement in namespace.
+  using namespace drake::systems::analysis;
 
   m.doc() = "Bindings for the analysis portion of the Systems framework.";
 
@@ -238,12 +238,14 @@ PYBIND11_MODULE(analysis, m) {
     auto cls = DefineTemplateClassWithDefault<Simulator<T>>(
         m, "Simulator", GetPyParam<T>(), doc.Simulator.doc);
     cls  // BR
-        .def(py::init<const System<T>&, unique_ptr<Context<T>>>(),
+        .def(py::init([](const System<T>& system, Context<T>* context) {
+          auto py_context = py::cast(context);
+          return Simulator<T>::MakeWithSharedContext(
+              system, make_shared_ptr_from_py_object<Context<T>>(py_context));
+        }),
             py::arg("system"), py::arg("context") = nullptr,
             // Keep alive, reference: `self` keeps `system` alive.
-            py::keep_alive<1, 2>(),
-            // Keep alive, ownership: `context` keeps `self` alive.
-            py::keep_alive<3, 1>(), doc.Simulator.ctor.doc)
+            py::keep_alive<1, 2>())
         .def("Initialize", &Simulator<T>::Initialize,
             doc.Simulator.Initialize.doc,
             py::arg("params") = InitializeParams{})
@@ -308,11 +310,14 @@ Parameter ``interruptible``:
             py_rvp::reference_internal, doc.Simulator.get_mutable_context.doc)
         .def("has_context", &Simulator<T>::has_context,
             doc.Simulator.has_context.doc)
-        .def("reset_context", &Simulator<T>::reset_context, py::arg("context"),
-            // Keep alive, ownership: `context` keeps `self` alive.
-            py::keep_alive<2, 1>(), doc.Simulator.reset_context.doc)
-        // TODO(eric.cousineau): Bind `release_context` once some form of the
-        // PR RobotLocomotion/pybind11#33 lands. Presently, it fails.
+        .def(
+            "reset_context",
+            [](Simulator<T>* self, Context<T>* context) {
+              auto py_context = py::cast(context);
+              self->reset_context_from_shared(
+                  make_shared_ptr_from_py_object<Context<T>>(py_context));
+            },
+            py::arg("context"), doc.Simulator.reset_context.doc)
         .def("set_publish_every_time_step",
             &Simulator<T>::set_publish_every_time_step, py::arg("publish"),
             doc.Simulator.set_publish_every_time_step.doc)
@@ -395,17 +400,49 @@ Parameter ``interruptible``:
 
   // Monte Carlo Testing
   {
-    // NOLINTNEXTLINE(build/namespaces): Emulate placement in namespace.
-    using namespace drake::systems::analysis;
     constexpr auto& doc = pydrake_doc.drake.systems.analysis;
 
-    m.def("RandomSimulation",
-        WrapCallbacks([](const SimulatorFactory make_simulator,
-                          const ScalarSystemFunction& output, double final_time,
-                          RandomGenerator* generator) -> double {
+    // Like RandomSimulatorFactory but returning a Python object instead of C++.
+    using PyRandomSimulatorFactory =
+        std::function<py::object(RandomGenerator*)>;
+    auto make_cpp_compatible_factory =
+        [](PyRandomSimulatorFactory factory_py) -> RandomSimulatorFactory {
+      return [factory_py = std::move(factory_py)](RandomGenerator* generator) {
+        py::gil_scoped_acquire guard;
+        py::object make_simulator_result = factory_py(generator);
+        DRAKE_THROW_UNLESS(!make_simulator_result.is_none());
+        return make_shared_ptr_from_py_object<Simulator<double>>(
+            std::move(make_simulator_result));
+      };
+    };
+
+    // Like ScalarSystemFunction but with optional<> added to the return type.
+    // (This leads to better error messages in case the user forgot to return.)
+    using PyScalarSystemFunction = std::function<std::optional<double>(
+        const System<double>* system, const Context<double>* context)>;
+    auto make_cpp_compatible_output =
+        [](PyScalarSystemFunction output_py) -> ScalarSystemFunction {
+      return [output_py = std::move(output_py)](
+                 const System<double>& system, const Context<double>& context) {
+        py::gil_scoped_acquire guard;
+        std::optional<double> scalar_system_function_output =
+            output_py(&system, &context);
+        DRAKE_THROW_UNLESS(scalar_system_function_output.has_value());
+        return *scalar_system_function_output;
+      };
+    };
+
+    m.def(
+        "RandomSimulation",
+        [&make_cpp_compatible_factory, &make_cpp_compatible_output](
+            PyRandomSimulatorFactory make_simulator,
+            PyScalarSystemFunction output, double final_time,
+            RandomGenerator* generator) -> double {
           return RandomSimulation(
-              make_simulator, output, final_time, generator);
-        }),
+              make_cpp_compatible_factory(std::move(make_simulator)),
+              make_cpp_compatible_output(std::move(output)), final_time,
+              generator);
+        },
         py::arg("make_simulator"), py::arg("output"), py::arg("final_time"),
         py::arg("generator"), doc.RandomSimulation.doc);
 
@@ -421,47 +458,51 @@ Parameter ``interruptible``:
     // of Python systems on multiple threads was thought to be unsupported. It's
     // possible that with `py::call_guard<py::gil_scoped_release>` it would
     // actually be fine, so we could revisit that decision at some point.
-    m.def("MonteCarloSimulation",
-        WrapCallbacks([](const SimulatorFactory make_simulator,
-                          const ScalarSystemFunction& output, double final_time,
-                          int num_samples, RandomGenerator* generator)
-                          -> std::vector<RandomSimulationResult> {
-          return MonteCarloSimulation(make_simulator, output, final_time,
+    m.def(
+        "MonteCarloSimulation",
+        [&make_cpp_compatible_factory, &make_cpp_compatible_output](
+            PyRandomSimulatorFactory make_simulator,
+            PyScalarSystemFunction output, double final_time, int num_samples,
+            RandomGenerator* generator) -> std::vector<RandomSimulationResult> {
+          return MonteCarloSimulation(
+              make_cpp_compatible_factory(std::move(make_simulator)),
+              make_cpp_compatible_output(std::move(output)), final_time,
               num_samples, generator, /* parallelism = */ Parallelism::None());
-        }),
+        },
         py::arg("make_simulator"), py::arg("output"), py::arg("final_time"),
         py::arg("num_samples"), py::arg("generator"),
         doc.MonteCarloSimulation.doc);
+  }
 
-    {
-      using Class = RegionOfAttractionOptions;
-      constexpr auto& cls_doc = doc.RegionOfAttractionOptions;
-      py::class_<Class, std::shared_ptr<Class>> cls(
-          m, "RegionOfAttractionOptions", cls_doc.doc);
-      cls.def(py::init<>(), cls_doc.ctor.doc)
-          // TODO(jeremy.nimmer): replace the def_readwrite with
-          // DefAttributesUsingSerialize when we fix binding a
-          // VectorX<symbolic::Variable> state_variables to a numpy array of
-          // objects.
-          .def_readwrite("lyapunov_candidate",
-              &RegionOfAttractionOptions::lyapunov_candidate,
-              doc.RegionOfAttractionOptions.lyapunov_candidate.doc)
-          .def_readwrite("state_variables",
-              &RegionOfAttractionOptions::state_variables,
-              // dtype = object arrays must be copied, and cannot be referenced.
-              py_rvp::copy, doc.RegionOfAttractionOptions.state_variables.doc)
-          .def_readwrite("use_implicit_dynamics",
-              &RegionOfAttractionOptions::use_implicit_dynamics,
-              doc.RegionOfAttractionOptions.use_implicit_dynamics.doc)
-          .def_readwrite("solver_id", &RegionOfAttractionOptions::solver_id,
-              doc.RegionOfAttractionOptions.solver_id.doc)
-          .def_readwrite("solver_options",
-              &RegionOfAttractionOptions::solver_options,
-              doc.RegionOfAttractionOptions.solver_options.doc);
+  {
+    constexpr auto& doc = pydrake_doc.drake.systems.analysis;
 
-      DefReprUsingSerialize(&cls);
-      DefCopyAndDeepCopy(&cls);
-    }
+    using Class = RegionOfAttractionOptions;
+    constexpr auto& cls_doc = doc.RegionOfAttractionOptions;
+    py::class_<Class, std::shared_ptr<Class>> cls(
+        m, "RegionOfAttractionOptions", cls_doc.doc);
+    cls.def(py::init<>(), cls_doc.ctor.doc)
+        // TODO(jeremy.nimmer): replace the def_readwrite with
+        // DefAttributesUsingSerialize when we fix binding a
+        // VectorX<symbolic::Variable> state_variables to a numpy array of
+        // objects.
+        .def_readwrite("lyapunov_candidate",
+            &RegionOfAttractionOptions::lyapunov_candidate,
+            doc.RegionOfAttractionOptions.lyapunov_candidate.doc)
+        .def_readwrite("state_variables",
+            &RegionOfAttractionOptions::state_variables,
+            // dtype = object arrays must be copied, and cannot be referenced.
+            py_rvp::copy, doc.RegionOfAttractionOptions.state_variables.doc)
+        .def_readwrite("use_implicit_dynamics",
+            &RegionOfAttractionOptions::use_implicit_dynamics,
+            doc.RegionOfAttractionOptions.use_implicit_dynamics.doc)
+        .def_readwrite("solver_id", &RegionOfAttractionOptions::solver_id,
+            doc.RegionOfAttractionOptions.solver_id.doc)
+        .def_readwrite("solver_options",
+            &RegionOfAttractionOptions::solver_options,
+            doc.RegionOfAttractionOptions.solver_options.doc);
+    DefReprUsingSerialize(&cls);
+    DefCopyAndDeepCopy(&cls);
 
     m.def("RegionOfAttraction", &RegionOfAttraction, py::arg("system"),
         py::arg("context"), py::arg("options") = RegionOfAttractionOptions(),

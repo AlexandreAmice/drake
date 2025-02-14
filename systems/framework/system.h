@@ -112,7 +112,12 @@ class System : public SystemBase {
 
   // This is just an intentional shadowing of the base class method to return
   // a more convenient type.
-  /** Returns a Context<T> suitable for use with this System<T>. */
+  /** (Advanced) Returns an **uninitialized** Context<T> suitable for use with
+  this System<T>. Most users should use CreateDefaultContext(), instead.
+  @warning The returned context is uninitialized (contains invalid data). It is
+  useful for pre-allocating storage which will later be overwritten (e.g., by
+  SetDefaultContext() or Context<T>::SetTimeStateAndParametersFrom()) and **must
+  not** be used for any calculations until it's been overwritten. */
   std::unique_ptr<Context<T>> AllocateContext() const;
 
   /** Allocates a CompositeEventCollection for this system. The allocated
@@ -1428,7 +1433,9 @@ class System : public SystemBase {
   template <typename U>
   std::unique_ptr<System<U>> ToScalarTypeMaybe() const {
     auto result = system_scalar_converter_.Convert<U, T>(*this);
-    if (result) { result->AddExternalConstraints(external_constraints_); }
+    if (result) {
+      result->HandlePostConstructionScalarConversion(*this, result.get());
+    }
     return result;
   }
   //@}
@@ -1937,6 +1944,16 @@ class System : public SystemBase {
   /** Returns the SystemScalarConverter for `this` system. */
   SystemScalarConverter& get_mutable_system_scalar_converter() {
     return system_scalar_converter_;
+  }
+
+  /** (Internal use only) Scalar conversion (e.g., ToAutoDiffXd) will first
+  call the SystemScalarConverter to construct the converted system, and then
+  call this function for any post-construction cleanup. */
+  template <typename U>
+  static void HandlePostConstructionScalarConversion(const System<U>& from,
+                                                     System<T>* to) {
+    DRAKE_DEMAND(to != nullptr);
+    to->AddExternalConstraints(from.external_constraints_);
   }
 
  private:

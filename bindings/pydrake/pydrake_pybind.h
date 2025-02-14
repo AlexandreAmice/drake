@@ -1,5 +1,6 @@
 #pragma once
 
+#include <memory>
 #include <utility>
 
 // Here we include a lot of the pybind11 API, to ensure that all code in pydrake
@@ -144,6 +145,34 @@ inline void ExecuteExtraPythonCode(py::module m, bool use_subdir = false) {
       variable##_original = variable;                                     \
     }                                                                     \
   }
+
+/// Given a raw pointer, returns a shared_ptr wrapper around it that doesn't own
+/// anything -- it's managed object is null, so there is no reference counting.
+/// Calling get() on the result will return `raw`.
+template <typename T>
+std::shared_ptr<T> make_unowned_shared_ptr_from_raw(T* raw) {
+  return std::shared_ptr<T>(
+      /* managed object = */ std::shared_ptr<void>{},
+      /* stored pointer = */ raw);
+}
+
+/// Given a Python object, returns a shared_ptr wrapper around it that keeps
+/// the Python object alive. If the py_object is None, returns nullptr. You
+/// must supply the expected C++ type to cast to as `T`.
+template <typename T>
+std::shared_ptr<T> make_shared_ptr_from_py_object(py::object py_object) {
+  if (py_object.is_none()) {
+    return {};
+  }
+  T* cpp_object = py::cast<T*>(py_object);
+  return std::shared_ptr<T>(
+      /* stored pointer = */ cpp_object,
+      /* deleter = */ [captured_py_object = std::move(py_object)](
+                          void*) mutable {
+        py::gil_scoped_acquire deleter_guard;
+        captured_py_object = py::none();
+      });
+}
 
 }  // namespace pydrake
 }  // namespace drake

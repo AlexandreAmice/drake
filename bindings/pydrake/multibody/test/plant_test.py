@@ -1232,9 +1232,7 @@ class TestPlant(unittest.TestCase):
             with self.assertRaises(Exception) as cm:
                 a_com = plant.CalcCenterOfMassTranslationalAccelerationInWorld(
                     context=context)
-            self.assertIn(
-                "This method doesn't support T = Expression",
-                str(cm.exception))
+            self.assertIn("Expression", str(cm.exception))
         else:
             a_com = plant.CalcCenterOfMassTranslationalAccelerationInWorld(
                 context=context)
@@ -1246,9 +1244,7 @@ class TestPlant(unittest.TestCase):
             with self.assertRaises(Exception) as cm:
                 a_com = plant.CalcCenterOfMassTranslationalAccelerationInWorld(
                     context=context, model_instances=[instance])
-            self.assertIn(
-                "This method doesn't support T = Expression",
-                str(cm.exception))
+            self.assertIn("Expression", str(cm.exception))
         else:
             a_com = plant.CalcCenterOfMassTranslationalAccelerationInWorld(
                 context=context, model_instances=[instance])
@@ -1370,9 +1366,7 @@ class TestPlant(unittest.TestCase):
             with self.assertRaises(Exception) as cm:
                 A_base = plant.EvalBodySpatialAccelerationInWorld(
                     context, base)
-            self.assertIn(
-                "This method doesn't support T = Expression",
-                str(cm.exception))
+            self.assertIn("Expression", str(cm.exception))
         else:
             A_base = plant.EvalBodySpatialAccelerationInWorld(context, base)
             self.assert_sane(A_base.rotational(), nonzero=False)
@@ -1947,6 +1941,9 @@ class TestPlant(unittest.TestCase):
             plant.SetActuationInArray(
                 model_instance=iiwa_model, u_instance=u_iiwa, u=u)
             numpy_compare.assert_float_equal(u_iiwa, u[:7])
+            numpy_compare.assert_float_equal(
+                u_iiwa, plant.GetActuationFromArray(
+                    model_instance=iiwa_model, u=u))
 
     @numpy_compare.check_all_types
     def test_map_qdot_to_v_and_back(self, T):
@@ -2118,10 +2115,8 @@ class TestPlant(unittest.TestCase):
         def loop_body(make_joint, time_step):
             plant = MultibodyPlant_[T](time_step)
             child = plant.AddRigidBody("Child")
-            joint = make_joint(
-                plant=plant, P=plant.world_frame(), C=child.body_frame())
-            joint_out = plant.AddJoint(joint)
-            self.assertIs(joint, joint_out)
+            joint = plant.AddJoint(joint=make_joint(
+                plant=plant, P=plant.world_frame(), C=child.body_frame()))
             if joint.num_velocities() == 1:
                 self.assertFalse(plant.HasJointActuatorNamed("tau"))
                 self.assertFalse(plant.HasJointActuatorNamed(
@@ -2959,20 +2954,6 @@ class TestPlant(unittest.TestCase):
         for model in models:
             plant.set_contact_model(model)
             self.assertEqual(plant.get_contact_model(), model)
-
-    # N.B. MultibodyPlant::set_discrete_contact_solver() is deprecated and will
-    # be removed on or after 2024-04-01. This entire unit test can be removed
-    # entirely with the removal of discrete_contact_solver().
-    def test_discrete_contact_solver(self):
-        plant = MultibodyPlant_[float](0.1)
-        models = [
-            DiscreteContactSolver.kTamsi,
-            DiscreteContactSolver.kSap,
-        ]
-        for model in models:
-            with catch_drake_warnings(expected_count=1) as w:
-                plant.set_discrete_contact_solver(model)
-            self.assertEqual(plant.get_discrete_contact_solver(), model)
 
     def test_discrete_contact_approximation(self):
         plant = MultibodyPlant_[float](0.1)

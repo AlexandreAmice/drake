@@ -1,7 +1,7 @@
 # -*- mode: cmake -*-
 # vi: set ft=cmake :
 
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.18)
 
 project(drake
   DESCRIPTION "Model-based design and verification for robotics"
@@ -13,7 +13,8 @@ project(drake
 # (e.g., `-DCMAKE_BUILD_TYPE=Release`) and install Drake using those settings.
 #
 # We'll do that by converting the settings to generated Bazel inputs:
-# - a `WORKSPACE.bazel` file that specifies dependencies; and
+# - a generated `MODULE.bazel` that depends on the Drake module and customizes
+#   the toolchain selection.
 # - a `.bazelrc` file that specifies configuration choices.
 # and then running the `@drake//:install` program from that temporary workspace.
 
@@ -77,9 +78,8 @@ else()
   endif()
 endif()
 
-# The version passed to find_package(Bazel) should match the
-# minimum_bazel_version value in the call to versions.check() in WORKSPACE.
-set(MINIMUM_BAZEL_VERSION 7.1)
+# This version number should match bazel_compatibility in MODULE.bazel.
+set(MINIMUM_BAZEL_VERSION 7.4.1)
 find_package(Bazel ${MINIMUM_BAZEL_VERSION} MODULE)
 if(NOT Bazel_FOUND)
   set(Bazel_EXECUTABLE "${PROJECT_SOURCE_DIR}/third_party/com_github_bazelbuild_bazelisk/bazelisk.py")
@@ -96,6 +96,14 @@ if(C_COMPILER_NAME STREQUAL ccache OR CXX_COMPILER_NAME STREQUAL ccache)
   message(FATAL_ERROR
     "Compilation with ccache is NOT supported due to incompatibility with Bazel"
   )
+endif()
+
+# Get the full C++ compiler major version for our cmake/bazel.rc.in.
+string(REGEX MATCH "^([0-9]+)"
+  DRAKE_CC_TOOLCHAIN_COMPILER_MAJOR
+  "${CMAKE_CXX_COMPILER_VERSION}")
+if(NOT DRAKE_CC_TOOLCHAIN_COMPILER_MAJOR)
+  set(DRAKE_CC_TOOLCHAIN_COMPILER_MAJOR "0")
 endif()
 
 # The minimum compiler versions should match those listed in both
@@ -194,7 +202,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD 20)
 
 # The supported Python major/minor versions should match those listed in
-# doc/_pages/from_source.md.
+# doc/_pages/from_source.md and setup/python/pyproject.toml.
 if(APPLE)
   # The macOS python version should match what's listed in both the
   # tools/workspace/python/repository.bzl and doc/_pages/installation.md.
@@ -305,17 +313,6 @@ set(BAZEL_OUTPUT_BASE
   "${BAZEL_OUTPUT_BASE}/_bazel_$ENV{USER}/${PROJECT_BINARY_DIR_MD5}"
 )
 
-function(generate_external_repository_file OUTPUT)
-  set(out_path
-    ${CMAKE_CURRENT_BINARY_DIR}/external/workspace/${OUTPUT})
-  if(ARGN)
-    file(GENERATE OUTPUT ${out_path}
-      INPUT ${CMAKE_CURRENT_SOURCE_DIR}/cmake/external/workspace/${ARGN})
-  else()
-    file(GENERATE OUTPUT ${out_path} CONTENT "")
-  endif()
-endfunction()
-
 # Symlinks the C++ include path for TARGET as workspace/NAME/include, e.g.
 #  workspace/eigen/include -> .../build/install/include/eigen3
 function(symlink_external_repository_includes NAME TARGET)
@@ -347,46 +344,61 @@ function(symlink_external_repository_libs NAME TARGET)
   file(CREATE_LINK "${location}" "${workspace}/${NAME}/lib/${other_basename}" SYMBOLIC)
 endfunction()
 
-set(BAZEL_WORKSPACE_EXTRA)
-set(BAZEL_WORKSPACE_EXCLUDES)
-
-macro(override_repository NAME)
-  set(repo "${CMAKE_CURRENT_BINARY_DIR}/external/workspace/${NAME}")
-  string(APPEND BAZEL_WORKSPACE_EXTRA
-    "local_repository(name = '${NAME}', path = '${repo}')\n")
-  list(APPEND BAZEL_WORKSPACE_EXCLUDES "${NAME}")
+macro(override_module NAME)
+  set(local_path "${CMAKE_CURRENT_BINARY_DIR}/external/workspace/${NAME}")
+  file(GENERATE OUTPUT "${local_path}/MODULE.bazel"
+    INPUT "${CMAKE_CURRENT_SOURCE_DIR}/cmake/external/workspace/${NAME}/MODULE.bazel.in")
+  file(GENERATE OUTPUT "${local_path}/BUILD.bazel"
+    INPUT "${CMAKE_CURRENT_SOURCE_DIR}/cmake/external/workspace/${NAME}/BUILD.bazel.in")
+  file(CREATE_LINK
+    "${PROJECT_SOURCE_DIR}/cmake/external/workspace/conversion.bzl"
+    "${local_path}/conversion.bzl"
+    SYMBOLIC)
+  string(APPEND BAZEL_REPO_ENV
+      " --override_module=${NAME}=${local_path}")
+  string(APPEND BAZEL_REPO_ENV
+      " --@drake//tools/workspace/${NAME}:with_user_${NAME}=True")
 endmacro()
 
-option(WITH_USER_EIGEN "Use user-provided Eigen3" OFF)
+macro(override_repository NAME)
+  set(local_path "${CMAKE_CURRENT_BINARY_DIR}/external/workspace/${NAME}")
+  file(MAKE_DIRECTORY "${local_path}")
+  file(GENERATE OUTPUT "${local_path}/MODULE.bazel"
+    INPUT "${CMAKE_CURRENT_SOURCE_DIR}/cmake/external/workspace/${NAME}/MODULE.bazel.in")
+  file(GENERATE OUTPUT "${local_path}/BUILD.bazel"
+    INPUT "${CMAKE_CURRENT_SOURCE_DIR}/cmake/external/workspace/${NAME}/BUILD.bazel.in")
+  string(APPEND BAZEL_REPO_ENV
+      " --override_repository=drake++drake_dep_repositories+${NAME}=${local_path}")
+  string(APPEND BAZEL_REPO_ENV
+      " --@drake//tools/workspace/${NAME}:with_user_${NAME}=True")
+endmacro()
+
+if(APPLE AND DRAKE_CI_ENABLE_PACKAGING)
+  # When building a macOS *.tar.gz binary release, never use Homebrew for C++
+  # dependencies, because it offers absolutely no version stability.
+  set(DEFAULT_WITH_USER_LIBS OFF)
+else()
+  set(DEFAULT_WITH_USER_LIBS ON)
+endif()
+
+option(WITH_USER_EIGEN "Use user-provided Eigen3" ${DEFAULT_WITH_USER_LIBS})
 
 if(WITH_USER_EIGEN)
   find_package(Eigen3 CONFIG REQUIRED)
-
   symlink_external_repository_includes(eigen Eigen3::Eigen)
-  generate_external_repository_file(eigen/WORKSPACE)
-  generate_external_repository_file(
-    eigen/BUILD.bazel
-    eigen/BUILD.bazel.in)
-
-  override_repository(eigen)
+  override_module(eigen)
 endif()
 
-option(WITH_USER_FMT "Use user-provided fmt" OFF)
+option(WITH_USER_FMT "Use user-provided fmt" ${DEFAULT_WITH_USER_LIBS})
 
 if(WITH_USER_FMT)
   find_package(fmt CONFIG REQUIRED)
-
   symlink_external_repository_includes(fmt fmt::fmt)
   symlink_external_repository_libs(fmt fmt::fmt)
-  generate_external_repository_file(fmt/WORKSPACE)
-  generate_external_repository_file(
-    fmt/BUILD.bazel
-    fmt/BUILD.bazel.in)
-
-  override_repository(fmt)
+  override_module(fmt)
 endif()
 
-option(WITH_USER_SPDLOG "Use user-provided spdlog" OFF)
+option(WITH_USER_SPDLOG "Use user-provided spdlog" ${DEFAULT_WITH_USER_LIBS})
 
 if(WITH_USER_SPDLOG)
   if(NOT WITH_USER_FMT)
@@ -394,17 +406,73 @@ if(WITH_USER_SPDLOG)
       "User-provided spdlog (WITH_USER_SPDLOG) "
       "requires user-provided fmt (WITH_USER_FMT).")
   endif()
-
   find_package(spdlog CONFIG REQUIRED)
-
   symlink_external_repository_includes(spdlog spdlog::spdlog)
   symlink_external_repository_libs(spdlog spdlog::spdlog)
-  generate_external_repository_file(spdlog/WORKSPACE)
-  generate_external_repository_file(
-    spdlog/BUILD.bazel
-    spdlog/BUILD.bazel.in)
+  override_module(spdlog)
+endif()
 
-  override_repository(spdlog)
+if(NOT APPLE)
+  option(WITH_USER_BLAS "Use user-provided BLAS" ${DEFAULT_WITH_USER_LIBS})
+
+  if(WITH_USER_BLAS)
+    find_package(BLAS REQUIRED)
+    override_repository(blas)
+    # The BLAS_LIBRARIES is a CMake list of libraries, where the actual blas
+    # is first followed by the transitive closure of libraries it uses. For our
+    # purposes, we only want to symlink the primary library. We'll rely on the
+    # NEEDED entries on the primary library to link its dependencies.
+    list(GET BLAS_LIBRARIES 0 FIRST_BLAS_LIBRARY)
+    file(CREATE_LINK
+      "${FIRST_BLAS_LIBRARY}"
+      "${CMAKE_CURRENT_BINARY_DIR}/external/workspace/blas/libblas.so"
+      SYMBOLIC)
+  endif()
+
+  option(WITH_USER_LAPACK "Use user-provided LAPACK" ${DEFAULT_WITH_USER_LIBS})
+
+  if(WITH_USER_LAPACK)
+    if(NOT WITH_USER_BLAS)
+      message(FATAL_ERROR
+        "User-provided lapack (WITH_USER_LAPACK) "
+        "requires user-provided blas (WITH_USER_BLAS).")
+    endif()
+    find_package(LAPACK REQUIRED)
+    override_repository(lapack)
+    # The LAPACK_LIBRARIES is a CMake list of libraries, where the actual lapack
+    # is first followed by the transitive closure of libraries it uses. For our
+    # purposes, we only want to symlink the primary library. We'll rely on the
+    # NEEDED entries on the primary library to link its dependencies.
+    list(GET LAPACK_LIBRARIES 0 FIRST_LAPACK_LIBRARY)
+    file(CREATE_LINK
+      "${FIRST_LAPACK_LIBRARY}"
+      "${CMAKE_CURRENT_BINARY_DIR}/external/workspace/lapack/liblapack.so"
+      SYMBOLIC)
+  endif()
+endif()
+
+option(WITH_USER_ZLIB "Use user-provided ZLIB" ${DEFAULT_WITH_USER_LIBS})
+
+if(APPLE)
+  # TODO(jwnimmer-tri) Unfortunately we can't use find_package() here because
+  # symlink_external_repository_libs() is not compatible with the `zlib.tbd`
+  # linker script that CMake finds on macOS. We should work on fixing that
+  # routine, and then remove this APPLE-specific logic. When doing so, don't
+  # forget to fix our doc/_pages/from_source.md documentation at the same time.
+  if(WITH_USER_ZLIB)
+    string(APPEND BAZEL_REPO_ENV
+        " --@drake//tools/flags:zlib_repo=hardcoded")
+  else()
+    string(APPEND BAZEL_REPO_ENV
+        " --@drake//tools/flags:zlib_repo=source")
+  endif()
+else()
+  if(WITH_USER_ZLIB)
+    find_package(ZLIB REQUIRED)
+    symlink_external_repository_includes(zlib ZLIB::ZLIB)
+    symlink_external_repository_libs(zlib ZLIB::ZLIB)
+    override_module(zlib)
+  endif()
 endif()
 
 set(BAZEL_CONFIG)
@@ -483,6 +551,10 @@ if(WITH_ROBOTLOCOMOTION_SNOPT OR WITH_SNOPT)
   endif()
 endif()
 
+if(DRAKE_CI_ENABLE_PACKAGING)
+  string(APPEND BAZEL_CONFIG " --config=packaging")
+endif()
+
 if(BUILD_TYPE_LOWER STREQUAL debug)
   string(APPEND BAZEL_CONFIG " --config=Debug")
 elseif(BUILD_TYPE_LOWER STREQUAL minsizerel)
@@ -496,7 +568,7 @@ endif()
 # N.B. If you are testing the CMake API and making changes to `installer.py`,
 # you can change this target to something more lightweight, such as
 # `//tools/install/dummy:install`.
-set(BAZEL_INSTALL_TARGET //:install)
+set(BAZEL_INSTALL_TARGET "@drake//:install")
 
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
   set(CMAKE_INSTALL_PREFIX "${PROJECT_BINARY_DIR}/install" CACHE STRING
@@ -542,19 +614,12 @@ endforeach()
 # however, that the macOS wheel builds also need to know this path, so if it
 # ever changes, tools/wheel/macos/build-wheel.sh will also need to be updated.
 configure_file(cmake/bazel.rc.in drake_build_cwd/.bazelrc @ONLY)
-configure_file(cmake/WORKSPACE.bzlmod.in drake_build_cwd/WORKSPACE.bzlmod @ONLY)
+configure_file(cmake/MODULE.bazel.in drake_build_cwd/MODULE.bazel @ONLY)
 file(CREATE_LINK "${PROJECT_SOURCE_DIR}/.bazeliskrc" drake_build_cwd/.bazeliskrc SYMBOLIC)
-file(CREATE_LINK "${PROJECT_SOURCE_DIR}/MODULE.bazel" drake_build_cwd/MODULE.bazel SYMBOLIC)
-file(CREATE_LINK "${PROJECT_SOURCE_DIR}/WORKSPACE" drake_build_cwd/WORKSPACE SYMBOLIC)
 
 find_package(Git)
 
 set(GIT_DIR "${PROJECT_SOURCE_DIR}/.git")
-
-execute_process(
-  COMMAND "${Bazel_EXECUTABLE}" info --announce_rc
-  WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/drake_build_cwd"
-)
 
 set(GENERATE_DRAKE_VERSION_ARGS)
 if(DEFINED DRAKE_VERSION_OVERRIDE)

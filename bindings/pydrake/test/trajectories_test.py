@@ -8,6 +8,7 @@ import scipy.sparse
 from pydrake.common import ToleranceType
 from pydrake.common.eigen_geometry import AngleAxis_, Quaternion_
 from pydrake.common.test_utilities import numpy_compare
+from pydrake.common.test_utilities.deprecation import catch_drake_warnings
 from pydrake.common.test_utilities.pickle_compare import assert_pickle
 from pydrake.common.value import AbstractValue
 from pydrake.common.yaml import yaml_load_typed
@@ -26,31 +27,79 @@ from pydrake.trajectories import (
     PiecewiseQuaternionSlerp_,
     StackedTrajectory_,
     Trajectory,
-    Trajectory_
+    Trajectory_,
+    _WrappedTrajectory_,
 )
 from pydrake.symbolic import Variable, Expression
 
 
-# Custom trajectory class used to test Trajectory subclassing in python.
+# Custom trajectory class used to test Trajectory subclassing in Python.
 class CustomTrajectory(Trajectory):
     def __init__(self):
         Trajectory.__init__(self)
 
-    def Clone(self):
+    def __deepcopy__(self, memo):
         return CustomTrajectory()
 
+    def __repr__(self):
+        return "CustomTrajectory()"
+
+    def do_value(self, t):
+        return np.array([[t + 1.0, t + 2.0]])
+
+    def do_has_derivative(self):
+        return True
+
+    def DoEvalDerivative(self, t, derivative_order):
+        if derivative_order >= 2:
+            return np.zeros((1, 2))
+        elif derivative_order == 1:
+            return np.ones((1, 2))
+        elif derivative_order == 0:
+            return self.value(t)
+
+    def DoMakeDerivative(self, derivative_order):
+        return DerivativeTrajectory_[float](self, derivative_order)
+
+    def do_rows(self):
+        return 1
+
+    def do_cols(self):
+        return 2
+
+    def do_start_time(self):
+        return 3.0
+
+    def do_end_time(self):
+        return 4.0
+
+
+# Legacy custom trajectory class used to test Trajectory subclassing in Python.
+# This uses the old spellings for how to override the NVI functions.
+class LegacyCustomTrajectory(Trajectory):
+    def __init__(self):
+        Trajectory.__init__(self)
+
+    def Clone(self):
+        return LegacyCustomTrajectory()
+
+    # This spelling of the virtual override is deprecated.
     def rows(self):
         return 1
 
+    # This spelling of the virtual override is deprecated.
     def cols(self):
         return 2
 
+    # This spelling of the virtual override is deprecated.
     def start_time(self):
         return 3.0
 
+    # This spelling of the virtual override is deprecated.
     def end_time(self):
         return 4.0
 
+    # This spelling of the virtual override is deprecated.
     def value(self, t):
         return np.array([[t + 1.0, t + 2.0]])
 
@@ -83,6 +132,7 @@ class TestTrajectories(unittest.TestCase):
         self.assertEqual(trajectory.start_time(), 3.0)
         self.assertEqual(trajectory.end_time(), 4.0)
         self.assertTrue(trajectory.has_derivative())
+        self.assertEqual(repr(trajectory), "CustomTrajectory()")
         numpy_compare.assert_float_equal(trajectory.value(t=1.5),
                                          np.array([[2.5, 3.5]]))
         numpy_compare.assert_float_equal(
@@ -91,12 +141,50 @@ class TestTrajectories(unittest.TestCase):
         numpy_compare.assert_float_equal(
             trajectory.EvalDerivative(t=2.3, derivative_order=2),
             np.zeros((1, 2)))
+
         clone = trajectory.Clone()
         numpy_compare.assert_float_equal(clone.value(t=1.5),
                                          np.array([[2.5, 3.5]]))
+        self.assertEqual(repr(clone), "_WrappedTrajectory(CustomTrajectory())")
+
         deriv = trajectory.MakeDerivative(derivative_order=1)
         numpy_compare.assert_float_equal(
             deriv.value(t=2.3), np.ones((1, 2)))
+        self.assertIn(
+            "_WrappedTrajectory(<pydrake.trajectories.DerivativeTrajectory",
+            repr(deriv))
+
+    def test_legacy_custom_trajectory(self):
+        trajectory = LegacyCustomTrajectory()
+        self.assertEqual(trajectory.rows(), 1)
+        self.assertEqual(trajectory.cols(), 2)
+        self.assertEqual(trajectory.start_time(), 3.0)
+        self.assertEqual(trajectory.end_time(), 4.0)
+        self.assertTrue(trajectory.has_derivative())
+        numpy_compare.assert_float_equal(trajectory.value(t=1.5),
+                                         np.array([[2.5, 3.5]]))
+        numpy_compare.assert_float_equal(
+            trajectory.EvalDerivative(t=2.3, derivative_order=1),
+            np.ones((1, 2)))
+        numpy_compare.assert_float_equal(
+            trajectory.EvalDerivative(t=2.3, derivative_order=2),
+            np.zeros((1, 2)))
+
+        # Use StackedTrajectory to call the deprecated overrides from C++ so
+        # that we trigger the deprecation warnings.
+        stacked = StackedTrajectory_[float]()
+        with catch_drake_warnings():
+            # The C++ code calls rows() and cols() and Clone() -- all of which
+            # cause deprecation warnings with the legacy overrides -- but the
+            # total number of calls varies between Debug and Release, so we
+            # don't check the exact tally here.
+            stacked.Append(trajectory)
+        with catch_drake_warnings(expected_count=1):
+            stacked.value(t=1.5)
+        with catch_drake_warnings(expected_count=1):
+            self.assertEqual(stacked.start_time(), 3.0)
+        with catch_drake_warnings(expected_count=1):
+            self.assertEqual(stacked.end_time(), 4.0)
 
     @numpy_compare.check_all_types
     def test_bezier_curve(self, T):
@@ -118,9 +206,10 @@ class TestTrajectories(unittest.TestCase):
         self.assertIsInstance(b, T)
         numpy_compare.assert_float_equal(curve.control_points(), points)
 
-        M = curve.AsLinearInControlPoints(derivative_order=1)
-        self.assertEqual(M.shape, (2, 1))
-        self.assertIsInstance(M, scipy.sparse.csc_matrix)
+        if T == float:  # See Drake#19712
+            M = curve.AsLinearInControlPoints(derivative_order=1)
+            self.assertEqual(M.shape, (2, 1))
+            self.assertIsInstance(M, scipy.sparse.csc_matrix)
 
         curve_expression = curve.GetExpression(time=Variable("t"))
         self.assertEqual(curve_expression.shape, (2,))
@@ -144,6 +233,14 @@ class TestTrajectories(unittest.TestCase):
                                     control_points=np.zeros((4, 2)))
         self.assertEqual(bspline.rows(), 4)
         self.assertEqual(bspline.cols(), 1)
+        self.assertEqual(bspline.num_control_points(), 2)
+        if T == float:  # See Drake#19712
+            M = bspline.AsLinearInControlPoints(derivative_order=1)
+            self.assertEqual(M.shape, (2, 1))
+            self.assertIsInstance(M, scipy.sparse.csc_matrix)
+        M = bspline.EvaluateLinearInControlPoints(
+            parameter_value=1.5, derivative_order=1)
+        self.assertEqual(M.shape, (2,))
         # Call the vector<MatrixX<T>> constructor.
         bspline = BsplineTrajectory(
             basis=BsplineBasis(2, [0, 1, 2, 3]),
@@ -720,3 +817,19 @@ class TestTrajectories(unittest.TestCase):
         dut.Clone()
         copy.copy(dut)
         copy.deepcopy(dut)
+
+    @numpy_compare.check_all_types
+    def test_wrapped_trajectory(self, T):
+        breaks = [0, 1, 2]
+        samples = [[[0]], [[1]], [[2]]]
+        zoh = PiecewisePolynomial_[T].ZeroOrderHold(breaks, samples)
+        dut = _WrappedTrajectory_[T](trajectory=zoh)
+        self.assertEqual(dut.rows(), 1)
+        self.assertEqual(dut.cols(), 1)
+        if T is float:
+            self.assertIn("_WrappedTrajectory(", repr(dut))
+        else:
+            self.assertIn("_WrappedTrajectory_[", repr(dut))
+        self.assertIn("PiecewisePolynomial", repr(dut))
+        clone = dut.Clone()
+        self.assertIn("PiecewisePolynomial", repr(clone))

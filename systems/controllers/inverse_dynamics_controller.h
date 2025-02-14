@@ -19,16 +19,19 @@ namespace controllers {
 // N.B. Inheritance order must remain fixed for pydrake (#9243).
 /**
  * A state feedback controller that uses a PidController to generate desired
- * accelerations, which are then converted into torques using InverseDynamics.
+ * accelerations, which are then converted into MultibodyPlant actuation inputs
+ * using InverseDynamics (with `mode =` InverseDynamics::kInverseDynamics).
  * More specifically, the output of this controller is:
  * <pre>
- *   force = inverse_dynamics(q, v, vd_command), where
+ *   actuation = B⁻¹ generalized_force, and
+ *   generalized_force = inverse_dynamics(q, v, vd_command), where
  *   vd_command = kp(q_d - q) + kd(v_d - v) + ki int(q_d - q) + vd_d.
  * </pre>
  * Here `q` and `v` stand for the generalized position and velocity, and `vd`
- * is the generalized acceleration. The subscript `_d` indicates desired
- * values, and `vd_command` indicates the acceleration command (which includes
- * the stabilization terms) passed to the inverse dynamics computation.
+ * is the generalized acceleration, and `B` is the actuation matrix. The
+ * subscript `_d` indicates desired values, and `vd_command` indicates the
+ * acceleration command (which includes the stabilization terms) passed to the
+ * inverse dynamics computation.
  *
  * @system
  * name: InverseDynamicsController
@@ -37,24 +40,19 @@ namespace controllers {
  * - desired_state
  * - <span style="color:gray">desired_acceleration</span>
  * output_ports:
+ * - actuation
  * - generalized_force
  * @endsystem
- *
- * @note As an alternative to adding a separate controller system to your
- * diagram, you can model gravity compensation with PD controllers using
- * MultibodyPlant APIs. Refer to MultibodyPlant::set_gravity_enabled() as an
- * alternative to modeling gravity compensation. To model PD controlled
- * actuators, refer to @ref mbp_actuation "Actuation".
  *
  * The desired acceleration port shown in <span style="color:gray">gray</span>
  * may be absent, depending on the arguments passed to the constructor.
  *
  * Note that this class assumes the robot is fully actuated, its position and
  * velocity have the same dimension, and it does not have a floating base. If
- * violated, the program will abort. This controller was not designed for
- * closed-loop systems: the controller accounts for neither constraint forces
- * nor actuator forces applied at loop constraints. Use on such systems is not
- * recommended.
+ * violated, the program will abort. This controller was not designed for use
+ * with a constrained plant (e.g.
+ * multibody::MultibodyPlant::num_constraints() > 0): the controller does not
+ * account for any constraint forces. Use on such systems is not recommended.
  *
  * @see InverseDynamics for an accounting of all forces incorporated into the
  *      inverse dynamics computation.
@@ -153,9 +151,16 @@ class InverseDynamicsController final
   }
 
   /**
-   * Returns the output port for computed control.
+   * Returns the output port for computed actuation/control.
    */
   const OutputPort<T>& get_output_port_control() const final {
+    return this->get_output_port(actuation_);
+  }
+
+  /**
+   * Returns the output port for computed generalized_force.
+   */
+  const OutputPort<T>& get_output_port_generalized_force() const {
     return this->get_output_port(generalized_force_);
   }
 
@@ -178,6 +183,7 @@ class InverseDynamicsController final
   InputPortIndex estimated_state_;
   InputPortIndex desired_state_;
   InputPortIndex desired_acceleration_;
+  OutputPortIndex actuation_;
   OutputPortIndex generalized_force_;
 };
 

@@ -31,18 +31,18 @@ Mac are available to download as attachments from Drake's GitHub
 [releases](https://github.com/RobotLocomotion/drake/releases) page.
 
 The most recent release is
-[v1.35.0](https://github.com/RobotLocomotion/drake/releases/tag/v1.35.0):
+[v1.37.0](https://github.com/RobotLocomotion/drake/releases/tag/v1.37.0):
 
-* [https://github.com/RobotLocomotion/drake/releases/download/v1.35.0/drake-1.35.0-jammy.tar.gz](https://github.com/RobotLocomotion/drake/releases/download/v1.35.0/drake-1.35.0-jammy.tar.gz)
-* [https://github.com/RobotLocomotion/drake/releases/download/v1.35.0/drake-1.35.0-noble.tar.gz](https://github.com/RobotLocomotion/drake/releases/download/v1.35.0/drake-1.35.0-noble.tar.gz)
-* https://github.com/RobotLocomotion/drake/releases/download/v1.35.0/drake-1.35.0-mac-arm64.tar.gz (for arm64)
+* [https://github.com/RobotLocomotion/drake/releases/download/v1.37.0/drake-1.37.0-jammy.tar.gz](https://github.com/RobotLocomotion/drake/releases/download/v1.37.0/drake-1.37.0-jammy.tar.gz)
+* [https://github.com/RobotLocomotion/drake/releases/download/v1.37.0/drake-1.37.0-noble.tar.gz](https://github.com/RobotLocomotion/drake/releases/download/v1.37.0/drake-1.37.0-noble.tar.gz)
+* https://github.com/RobotLocomotion/drake/releases/download/v1.37.0/drake-1.37.0-mac-arm64.tar.gz (for arm64)
 
 Users of macOS must download using a command-line tool such as ``curl`` instead
 of using a web browser, to avoid hassles from Gatekeeper checks for malicious
 software. For example:
 
 ```
-curl -fsSLO https://github.com/RobotLocomotion/drake/releases/download/v1.35.0/drake-1.35.0-mac-arm64.tar.gz
+curl -fsSLO https://github.com/RobotLocomotion/drake/releases/download/v1.37.0/drake-1.37.0-mac-arm64.tar.gz
 ```
 
 ### Use as a C++ library
@@ -66,6 +66,8 @@ Download the binary release ``*.tar.gz`` file, using one of the links above.
 In the example below, we'll use ``drake.tar.gz`` to refer to it, but your
 download will have a more version-specific filename.
 
+#### Ubuntu
+
 Create and activate the environment:
 
 ```bash
@@ -78,10 +80,31 @@ source env/bin/activate
 Install dependencies within the environment:
 
 ```bash
+sudo env/share/drake/setup/install_prereqs
+````
+
+Refer to [Quickstart](/installation.html#quickstart) for next steps.
+
+#### macOS
+
+Create the environment:
+
+```bash
+mkdir -p env
+tar -xvzf drake.tar.gz -C env --strip-components=1
+```
+
+Install dependencies within the environment:
+
+```bash
 env/share/drake/setup/install_prereqs
 ````
 
-(On Ubuntu, the script might ask to be run under ``sudo``.)
+Activate the environment:
+
+```bash
+source env/bin/activate
+```
 
 Refer to [Quickstart](/installation.html#quickstart) for next steps.
 

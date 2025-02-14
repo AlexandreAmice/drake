@@ -534,9 +534,11 @@ get_actuation_input_port()) and for each individual @ref model_instances
 "model instance" in the %MultibodyPlant (see
 @ref get_actuation_input_port(ModelInstanceIndex)const
 "get_actuation_input_port(ModelInstanceIndex)").
-Any actuation input ports not connected are assumed to be zero. Actuation values
-from the full %MultibodyPlant model port (get_actuation_input_port()) and from
-the per model-instance ports (
+- Actuation inputs and actuation effort limits are taken to be in joint
+  coordinates (they are not affected by the actuator gear ratio).
+- Any actuation input ports not connected are assumed to be zero.
+- Actuation values from the full %MultibodyPlant model port
+  (get_actuation_input_port()) and from the per model-instance ports (
 @ref get_actuation_input_port(ModelInstanceIndex)const
 "get_actuation_input_port(ModelInstanceIndex)") are summed up.
 
@@ -954,6 +956,9 @@ on deformable bodies.
      welded to the world to which we could just assign anchored geometry
      instead of dynamic geometry. This is an optimization and the API, and
      pre/post-finalize conditions should not change. -->
+
+@warning Subclassing MultibodyPlant is deprecated; it will be marked `final`
+or or after 2025-05-01.
 
 @anchor mbp_table_of_contents
 
@@ -2349,31 +2354,13 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
   /// @throws std::exception iff called post-finalize.
   void set_contact_model(ContactModel model);
 
-  /// Sets the contact solver type used for discrete %MultibodyPlant models.
-  ///
-  /// @note Calling this method also sets a default discrete approximation of
-  /// contact (see set_discrete_contact_approximation()) according to:
-  /// - DiscreteContactSolver::kTamsi sets the approximation to
-  ///   DiscreteContactApproximation::kTamsi.
-  /// - DiscreteContactSolver::kSap sets the approximation to
-  ///   DiscreteContactApproximation::kSap.
-  ///
-  /// @warning This function is a no-op for continuous models (when
-  /// is_discrete() is false.)
-  /// @throws std::exception iff called post-finalize.
-  DRAKE_DEPRECATED(
-      "2024-04-01",
-      "Use set_discrete_contact_approximation() to set the contact model "
-      "approximation. The underlying solver will be inferred automatically.")
-  void set_discrete_contact_solver(DiscreteContactSolver contact_solver);
-
   /// Returns the contact solver type used for discrete %MultibodyPlant models.
   DiscreteContactSolver get_discrete_contact_solver() const;
 
   /// Sets the discrete contact model approximation.
   ///
   /// @note Calling this method also sets the contact solver type (see
-  /// set_discrete_contact_solver()) according to:
+  /// get_discrete_contact_solver()) according to:
   /// - DiscreteContactApproximation::kTamsi sets the solver to
   ///   DiscreteContactSolver::kTamsi.
   /// - DiscreteContactApproximation::kSap,
@@ -2677,13 +2664,15 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
   /// Context from a given vector [q; v]. Prefer this method over
   /// GetMutablePositionsAndVelocities().
   /// @throws std::exception if `context` is nullptr, if `context` does
-  /// not correspond to the context for a multibody model, or if the length of
-  /// `q_v` is not equal to `num_positions() + num_velocities()`.
+  /// not correspond to the context for a multibody model, if the length of
+  /// `q_v` is not equal to `num_positions() + num_velocities()`, or if `q_v`
+  /// contains non-finite values.
   void SetPositionsAndVelocities(
       systems::Context<T>* context,
       const Eigen::Ref<const VectorX<T>>& q_v) const {
     this->ValidateContext(context);
     DRAKE_THROW_UNLESS(q_v.size() == (num_positions() + num_velocities()));
+    DRAKE_THROW_UNLESS(AllFinite(q_v));
     internal_tree().GetMutablePositionsAndVelocities(context) = q_v;
   }
 
@@ -2691,14 +2680,16 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
   /// vector [q; v] for a specified model instance in a given Context.
   /// @throws std::exception if `context` is nullptr, if `context` does
   /// not correspond to the Context for a multibody model, if the model instance
-  /// index is invalid, or if the length of `q_v` is not equal to
-  /// `num_positions(model_instance) + num_velocities(model_instance)`.
+  /// index is invalid, if the length of `q_v` is not equal to
+  /// `num_positions(model_instance) + num_velocities(model_instance)`, or if
+  /// `q_v` contains non-finite values.
   void SetPositionsAndVelocities(
       systems::Context<T>* context, ModelInstanceIndex model_instance,
       const Eigen::Ref<const VectorX<T>>& q_v) const {
     this->ValidateContext(context);
     DRAKE_THROW_UNLESS(q_v.size() == (num_positions(model_instance) +
                                       num_velocities(model_instance)));
+    DRAKE_THROW_UNLESS(AllFinite(q_v));
     internal_tree().SetPositionsAndVelocities(model_instance, q_v, context);
   }
 
@@ -2746,12 +2737,13 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
   /// Sets the generalized positions q in a given Context from a given vector.
   /// Prefer this method over GetMutablePositions().
   /// @throws std::exception if `context` is nullptr, if `context` does not
-  /// correspond to the Context for a multibody model, or if the length of `q`
-  /// is not equal to `num_positions()`.
+  /// correspond to the Context for a multibody model, if the length of `q`
+  /// is not equal to `num_positions()`, or if `q` contains non-finite values.
   void SetPositions(systems::Context<T>* context,
                     const Eigen::Ref<const VectorX<T>>& q) const {
     this->ValidateContext(context);
     DRAKE_THROW_UNLESS(q.size() == num_positions());
+    DRAKE_THROW_UNLESS(AllFinite(q));
     internal_tree().GetMutablePositions(context) = q;
   }
 
@@ -2759,13 +2751,15 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
   /// given Context from a given vector.
   /// @throws std::exception if the `context` is nullptr, if `context` does
   /// not correspond to the Context for a multibody model, if the model instance
-  /// index is invalid, or if the length of `q_instance` is not equal to
-  /// `num_positions(model_instance)`.
+  /// index is invalid, if the length of `q_instance` is not equal to
+  /// `num_positions(model_instance)`, or if `q_instance` contains non-finite
+  /// values.
   void SetPositions(systems::Context<T>* context,
                     ModelInstanceIndex model_instance,
                     const Eigen::Ref<const VectorX<T>>& q_instance) const {
     this->ValidateContext(context);
     DRAKE_THROW_UNLESS(q_instance.size() == num_positions(model_instance));
+    DRAKE_THROW_UNLESS(AllFinite(q_instance));
     Eigen::VectorBlock<VectorX<T>> q =
         internal_tree().GetMutablePositions(context);
     internal_tree().SetPositionsInArray(model_instance, q_instance, &q);
@@ -2776,8 +2770,9 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
   /// @note No cache invalidation occurs.
   /// @throws std::exception if the `context` is nullptr, if `context` does
   /// not correspond to the Context for a multibody model, if the model instance
-  /// index is invalid, or if the length of `q_instance` is not equal to
-  /// `num_positions(model_instance)`.
+  /// index is invalid, if the length of `q_instance` is not equal to
+  /// `num_positions(model_instance)`, or if `q_instance` contains non-finite
+  /// values.
   /// @pre `state` comes from this MultibodyPlant.
   void SetPositions(const systems::Context<T>& context,
                     systems::State<T>* state, ModelInstanceIndex model_instance,
@@ -2785,6 +2780,7 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
     this->ValidateContext(context);
     this->ValidateCreatedForThisSystem(state);
     DRAKE_THROW_UNLESS(q_instance.size() == num_positions(model_instance));
+    DRAKE_THROW_UNLESS(AllFinite(q_instance));
     Eigen::VectorBlock<VectorX<T>> q =
         internal_tree().get_mutable_positions(state);
     internal_tree().SetPositionsInArray(model_instance, q_instance, &q);
@@ -2805,8 +2801,8 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
   /// or SetDefaultContext/SetDefaultState will return a Context populated with
   /// these position values. They have no other effects on the dynamics of the
   /// system.
-  /// @throws std::exception if the plant is not finalized or if q is
-  /// not of size num_positions().
+  /// @throws std::exception if the plant is not finalized, if q is not of size
+  /// num_positions(), or `q` contains non-finite values.
   void SetDefaultPositions(const Eigen::Ref<const Eigen::VectorXd>& q);
 
   /// Sets the default positions for the model instance.  Calls to
@@ -2814,8 +2810,9 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
   /// Context populated with these position values. They have no other effects
   /// on the dynamics of the system.
   /// @throws std::exception if the plant is not
-  /// finalized, if the model_instance is invalid, or if the length of
-  /// `q_instance` is not equal to `num_positions(model_instance)`.
+  /// finalized, if the model_instance is invalid, if the length of `q_instance`
+  /// is not equal to `num_positions(model_instance)`, or if `q_instance`
+  /// contains non-finite values.
   void SetDefaultPositions(ModelInstanceIndex model_instance,
                            const Eigen::Ref<const Eigen::VectorXd>& q_instance);
 
@@ -2863,12 +2860,14 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
   /// Sets the generalized velocities v in a given Context from a given
   /// vector. Prefer this method over GetMutableVelocities().
   /// @throws std::exception if the `context` is nullptr, if the context does
-  /// not correspond to the context for a multibody model, or if the length of
-  /// `v` is not equal to `num_velocities()`.
+  /// not correspond to the context for a multibody model, if the length of
+  /// `v` is not equal to `num_velocities()`, or if `v` contains non-finite
+  /// values.
   void SetVelocities(systems::Context<T>* context,
                      const Eigen::Ref<const VectorX<T>>& v) const {
     this->ValidateContext(context);
     DRAKE_THROW_UNLESS(v.size() == num_velocities());
+    DRAKE_THROW_UNLESS(AllFinite(v));
     internal_tree().GetMutableVelocities(context) = v;
   }
 
@@ -2876,13 +2875,15 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
   /// given Context from a given vector.
   /// @throws std::exception if the `context` is nullptr, if `context` does
   /// not correspond to the Context for a multibody model, if the model instance
-  /// index is invalid, or if the length of `v_instance` is not equal to
-  /// `num_velocities(model_instance)`.
+  /// index is invalid, if the length of `v_instance` is not equal to
+  /// `num_velocities(model_instance)`, or if `v_instance` contains non-finite
+  /// values.
   void SetVelocities(systems::Context<T>* context,
                      ModelInstanceIndex model_instance,
                      const Eigen::Ref<const VectorX<T>>& v_instance) const {
     this->ValidateContext(context);
     DRAKE_THROW_UNLESS(v_instance.size() == num_velocities(model_instance));
+    DRAKE_THROW_UNLESS(AllFinite(v_instance));
     Eigen::VectorBlock<VectorX<T>> v =
         internal_tree().GetMutableVelocities(context);
     internal_tree().SetVelocitiesInArray(model_instance, v_instance, &v);
@@ -2893,8 +2894,9 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
   /// @note No cache invalidation occurs.
   /// @throws std::exception if the `context` is nullptr, if `context` does
   /// not correspond to the Context for a multibody model, if the model instance
-  /// index is invalid, or if the length of `v_instance` is not equal to
-  /// `num_velocities(model_instance)`.
+  /// index is invalid, if the length of `v_instance` is not equal to
+  /// `num_velocities(model_instance)`, or if `v_instance` contains non-finite
+  /// values.
   /// @pre `state` comes from this MultibodyPlant.
   void SetVelocities(const systems::Context<T>& context,
                      systems::State<T>* state,
@@ -2903,6 +2905,7 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
     this->ValidateContext(context);
     this->ValidateCreatedForThisSystem(state);
     DRAKE_THROW_UNLESS(v_instance.size() == num_velocities(model_instance));
+    DRAKE_THROW_UNLESS(AllFinite(v_instance));
     Eigen::VectorBlock<VectorX<T>> v =
         internal_tree().get_mutable_velocities(state);
     internal_tree().SetVelocitiesInArray(model_instance, v_instance, &v);
@@ -3152,12 +3155,14 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
   /// Sets the vector of generalized velocities for `model_instance` in
   /// `v` using `v_instance`, leaving all other elements in the array
   /// untouched. This method throws an exception if `v` is not of size
-  /// MultibodyPlant::num_velocities() or `v_instance` is not of size
-  /// `MultibodyPlant::num_positions(model_instance)`.
+  /// MultibodyPlant::num_velocities(), `v_instance` is not of size
+  /// `MultibodyPlant::num_positions(model_instance)`, or `v_instance` contains
+  /// non-finite values.
   void SetVelocitiesInArray(ModelInstanceIndex model_instance,
                             const Eigen::Ref<const VectorX<T>>& v_instance,
                             EigenPtr<VectorX<T>> v) const {
     DRAKE_DEMAND(v != nullptr);
+    DRAKE_THROW_UNLESS(AllFinite(v_instance));
     internal_tree().SetVelocitiesInArray(model_instance, v_instance, v);
   }
   /// @} <!-- State accessors and mutators -->
@@ -3403,7 +3408,7 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
   /// B in the world frame W.
   /// @param[in] context
   ///   The context to store the pose `X_WB` of `body_B`.
-  /// @param[in] body_B
+  /// @param[in] body
   ///   The _floating base_ body B corresponding to the pose `X_WB` to be stored
   ///   in `context`.
   /// @retval X_WB
@@ -4322,7 +4327,7 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
   /// Bp's position vector from _any_ point fixed to A.
   /// @param[in] frame_E The frame in which `v_ABp` is expressed on input and
   /// the frame in which the Jacobian `J𝑠_V_ABp` is expressed on output.
-  /// @param[out] J𝑠_V_ABp_E Point Bp's spatial velocity Jacobian in frame A
+  /// @param[out] Js_V_ABp_E Point Bp's spatial velocity Jacobian in frame A
   /// with respect to speeds 𝑠 (which is either q̇ or v), expressed in frame E.
   /// `J𝑠_V_ABp_E` is a `6 x n` matrix, where n is the number of elements in 𝑠.
   /// The Jacobian is a function of only generalized positions q (which are
@@ -4372,7 +4377,7 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
   /// @param[in] frame_A The frame A in `w_AB` (B's angular velocity in A).
   /// @param[in] frame_E The frame in which `w_AB` is expressed on input and
   /// the frame in which the Jacobian `J𝑠_w_AB` is expressed on output.
-  /// @param[out] J𝑠_w_AB_E Frame B's angular velocity Jacobian in frame A with
+  /// @param[out] Js_w_AB_E Frame B's angular velocity Jacobian in frame A with
   /// respect to speeds 𝑠 (which is either q̇ or v), expressed in frame E.
   /// The Jacobian is a function of only generalized positions q (which are
   /// pulled from the context).  The previous definition shows `J𝑠_w_AB_E` is
@@ -4418,7 +4423,7 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
   /// Bi's position vector from _any_ point affixed to A.
   /// @param[in] frame_E The frame in which `v_ABi` is expressed on input and
   /// the frame in which the Jacobian `J𝑠_v_ABi` is expressed on output.
-  /// @param[out] J𝑠_v_ABi_E Point Bi's velocity Jacobian in frame A with
+  /// @param[out] Js_v_ABi_E Point Bi's velocity Jacobian in frame A with
   /// respect to speeds 𝑠 (which is either q̇ or v), expressed in frame E.
   /// `J𝑠_v_ABi_E` is a `3*p x n` matrix, where p is the number of points Bi and
   /// n is the number of elements in 𝑠.  The Jacobian is a function of only
@@ -4511,7 +4516,7 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
   /// v_ACcm and its Jacobian J𝑠_v_ACcm are measured.
   /// @param[in] frame_E The frame in which the Jacobian J𝑠_v_ACcm is
   /// expressed on output.
-  /// @param[out] J𝑠_v_ACcm_E Point Ccm's translational velocity Jacobian in
+  /// @param[out] Js_v_ACcm_E Point Ccm's translational velocity Jacobian in
   /// frame A with respect to speeds 𝑠 (𝑠 = q̇ or 𝑠 = v), expressed in frame E.
   /// J𝑠_v_ACcm_E is a 3 x n matrix, where n is the number of elements in 𝑠.
   /// The Jacobian is a function of only generalized positions q (which are
@@ -4547,7 +4552,7 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
   /// v_ACcm and its Jacobian J𝑠_v_ACcm are measured.
   /// @param[in] frame_E The frame in which the Jacobian J𝑠_v_ACcm is
   /// expressed on output.
-  /// @param[out] J𝑠_v_ACcm_E Point Ccm's translational velocity Jacobian in
+  /// @param[out] Js_v_ACcm_E Point Ccm's translational velocity Jacobian in
   /// frame A with respect to speeds 𝑠 (𝑠 = q̇ or 𝑠 = v), expressed in frame E.
   /// J𝑠_v_ACcm_E is a 3 x n matrix, where n is the number of elements in 𝑠.
   /// The Jacobian is a function of only generalized positions q (which are
@@ -5562,6 +5567,15 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
   // that the error message can include that detail.
   void ThrowIfNotFinalized(const char* source_method) const;
 
+  // Returns `true` if the vector `v` contains only finite values.
+  // @param v The vector to test.
+  static boolean<T> AllFinite(const Eigen::Ref<const VectorX<T>>& v) {
+    return all_of(v, [](const T& t) {
+      using std::isfinite;
+      return isfinite(t);
+    });
+  }
+
   // Helper method that is used to finalize the plant's internals after
   // MultibodyTree::Finalize() was called.
   void FinalizePlantOnly();
@@ -6186,7 +6200,7 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
 
   // The contact model approximation used by discrete MultibodyPlant models.
   DiscreteContactApproximation discrete_contact_approximation_{
-      DiscreteContactApproximation::kTamsi};
+      DiscreteContactApproximation::kLagged};
 
   // Near rigid regime parameter from [Castro et al., 2021]. Refer to
   // set_near_rigid_threshold() for details.
@@ -6316,6 +6330,21 @@ AddMultibodyPlantSceneGraphResult<T> AddMultibodyPlantSceneGraph(
     std::unique_ptr<MultibodyPlant<T>> plant,
     std::unique_ptr<geometry::SceneGraph<T>> scene_graph = nullptr);
 
+namespace internal {
+// Adds a MultibodyPlant and a SceneGraph instance via shared pointers to a
+// diagram builder, connecting the geometry ports.
+//
+// The shared pointer signature is useful for implementing pydrake memory
+// management, because it permits supplying a custom deleter. The systems are
+// not *actually* shared. They are logically owned by the builder, and
+// eventually by the diagram.
+template <typename T>
+AddMultibodyPlantSceneGraphResult<T> AddMultibodyPlantSceneGraphFromShared(
+    systems::DiagramBuilder<T>* builder,
+    std::shared_ptr<MultibodyPlant<T>> plant,
+    std::shared_ptr<geometry::SceneGraph<T>> scene_graph);
+}  // namespace internal
+
 /// Temporary result from `AddMultibodyPlantSceneGraph`. This cannot be
 /// constructed outside of this method.
 /// @warning Do NOT use this as a function argument or member variable. The
@@ -6360,9 +6389,10 @@ struct AddMultibodyPlantSceneGraphResult final {
 
  private:
   // Deter external usage by hiding construction.
-  friend AddMultibodyPlantSceneGraphResult AddMultibodyPlantSceneGraph<T>(
-      systems::DiagramBuilder<T>*, std::unique_ptr<MultibodyPlant<T>>,
-      std::unique_ptr<geometry::SceneGraph<T>>);
+  friend AddMultibodyPlantSceneGraphResult
+  internal::AddMultibodyPlantSceneGraphFromShared<T>(
+      systems::DiagramBuilder<T>*, std::shared_ptr<MultibodyPlant<T>>,
+      std::shared_ptr<geometry::SceneGraph<T>>);
 
   AddMultibodyPlantSceneGraphResult(MultibodyPlant<T>* plant_in,
                                     geometry::SceneGraph<T>* scene_graph_in)

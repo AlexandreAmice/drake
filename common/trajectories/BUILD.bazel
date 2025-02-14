@@ -19,12 +19,14 @@ drake_cc_package_library(
         ":discrete_time_trajectory",
         ":function_handle_trajectory",
         ":path_parameterized_trajectory",
+        ":piecewise_constant_curvature_trajectory",
         ":piecewise_polynomial",
         ":piecewise_pose",
         ":piecewise_quaternion",
         ":piecewise_trajectory",
         ":stacked_trajectory",
         ":trajectory",
+        ":wrapped_trajectory",
     ],
 )
 
@@ -146,6 +148,21 @@ drake_cc_library(
 )
 
 drake_cc_library(
+    name = "piecewise_constant_curvature_trajectory",
+    srcs = ["piecewise_constant_curvature_trajectory.cc"],
+    hdrs = ["piecewise_constant_curvature_trajectory.h"],
+    deps = [
+        ":piecewise_trajectory",
+        "//common:essential",
+        "//common:pointer_cast",
+        "//math:geometric_transform",
+        "//math:wrap_to",
+        "//multibody/math:spatial_algebra",
+        "//systems/framework:system_scalar_converter",
+    ],
+)
+
+drake_cc_library(
     name = "piecewise_pose",
     srcs = ["piecewise_pose.cc"],
     hdrs = ["piecewise_pose.h"],
@@ -199,6 +216,17 @@ drake_cc_library(
         "//common:default_scalars",
         "//common:essential",
         "//common:unused",
+        # Remove with deprecation 2025-08-01.
+        "//common:nice_type_name",
+    ],
+)
+
+drake_cc_library(
+    name = "wrapped_trajectory",
+    srcs = ["wrapped_trajectory.cc"],
+    hdrs = ["wrapped_trajectory.h"],
+    deps = [
+        ":trajectory",
     ],
 )
 
@@ -287,6 +315,15 @@ drake_cc_googletest(
 )
 
 drake_cc_googletest(
+    name = "piecewise_constant_curvature_trajectory_test",
+    deps = [
+        ":piecewise_constant_curvature_trajectory",
+        ":piecewise_quaternion",
+        "//common/test_utilities:eigen_matrix_compare",
+    ],
+)
+
+drake_cc_googletest(
     name = "piecewise_polynomial_generation_test",
     # Test timeout increased to not timeout when run with Valgrind.
     timeout = "moderate",
@@ -358,6 +395,15 @@ drake_cc_googletest(
     name = "trajectory_test",
     deps = [
         ":trajectory",
+        "//common/test_utilities:expect_throws_message",
+    ],
+)
+
+drake_cc_googletest(
+    name = "wrapped_trajectory_test",
+    deps = [
+        ":function_handle_trajectory",
+        ":wrapped_trajectory",
         "//common/test_utilities:expect_throws_message",
     ],
 )

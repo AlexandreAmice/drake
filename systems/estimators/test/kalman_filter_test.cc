@@ -38,21 +38,29 @@ GTEST_TEST(TestKalman, DoubleIntegrator) {
   EXPECT_TRUE(CompareMatrices(SteadyStateKalmanFilter(A, C, W, V), L, tol));
 
   // Test LinearSystem version of the Kalman filter.
-  auto linear_filter = SteadyStateKalmanFilter(
-      std::make_unique<LinearSystem<double>>(A, B, C, D), W, V);
-
+  auto sys = std::make_shared<const LinearSystem<double>>(A, B, C, D);
+  auto linear_filter = SteadyStateKalmanFilter(sys, W, V);
   EXPECT_TRUE(CompareMatrices(linear_filter->L(), L, tol));
 
   // Call it as a generic System (by passing in a Context).
   // Should get the same result, but as an affine system.
-  auto sys = std::make_unique<LinearSystem<double>>(A, B, C, D);
   auto context = sys->CreateDefaultContext();
   sys->get_input_port().FixValue(context.get(), 0.0);
   context->SetContinuousState(Eigen::Vector2d::Zero());
-  auto filter =
-      SteadyStateKalmanFilter(std::move(sys), std::move(context), W, V);
-
+  auto filter = SteadyStateKalmanFilter(sys, *context, W, V);
+  context.reset();
   EXPECT_TRUE(CompareMatrices(filter->L(), L, tol));
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+  // Also check the 2025-06-01 deprecated overload that accepts a unique_ptr.
+  auto owned = std::make_unique<LinearSystem<double>>(A, B, C, D);
+  context = owned->CreateDefaultContext();
+  owned->get_input_port().FixValue(context.get(), 0.0);
+  context->SetContinuousState(Eigen::Vector2d::Zero());
+  filter = SteadyStateKalmanFilter(std::move(owned), *context, W, V);
+  EXPECT_TRUE(CompareMatrices(filter->L(), L, tol));
+#pragma GCC diagnostic pop
 }
 
 }  // namespace

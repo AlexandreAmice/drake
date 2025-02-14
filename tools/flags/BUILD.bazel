@@ -1,0 +1,292 @@
+load("@bazel_skylib//rules:common_settings.bzl", "bool_flag", "string_flag")
+load("//tools/lint:lint.bzl", "add_lint_tests")
+
+package(default_visibility = ["//visibility:public"])
+
+# The package introduces flags that Drake developers and users may use to
+# configure Drake's options. A flag may be set either on the command line
+# or equivalently in a `.bazelrc` file (https://bazel.build/run/bazelrc).
+#
+# Command line example:
+#   bazel build //:something --@drake//tools/flags:with_mosek=True
+#
+# bazelrc example:
+#   common --@drake//tools/flags:with_mosek=True
+
+# -----------------------------------------------------------------------------
+# Configuration for public (i.e., exported) dependencies of Drake.
+#
+# Broadly, we allow resolving these dependencies using either a Bazel module
+# (typically from the Bazel Central Registry) or by calling pkg-config on the
+# local system.
+#
+# By default, Drake uses the Bazel module (`bazel_dep()` in `MODULE.bazel`).
+# Note that when Drake is used as dependency (i.e., it is not the main module),
+# then downstream Bazel projects can influence which version of the module is
+# chosen; for details, see https://bazel.build/external/module#overrides and
+# https://bazel.build/external/module#version-selection.
+#
+# As an opt-in alternative, Drake can use a repository rule to call pkg-config
+# on the local system to find the include path (if any) and library to link (if
+# any). Note that pkg-config libraries typically will be dynamically linked.
+#
+# There are two ways to opt-in to select pkg-config instead of modules.
+#
+# (1) To opt-in for all public dependencies set :public_repo_default to
+# "pkgconfig".
+#
+# (2) To opt-in for specific public dependencies one by one, set :foobar_repo
+# to "pkgconfig" for the desired repositories.
+#
+# The more specific flag (option 2) takes precedence, e.g., you can set
+# :eigen_repo to "module" and :public_repo_default to "pkgconfig" and then
+# eigen will come from a module but everything else will come from pkg-config.
+#
+# Downstream modules that use Drake but don't have authority over whether the
+# flag(s) will be set to module or pkgconfig need a way to depend on the same
+# library as Drake. To that end, Drake's configured selection for each public
+# dependency is made available under an alias (documented below for each one).
+# Downstream modules that wish to depend on the same library as Drake should
+# either (a) use that alias instead of a specific repository name, or (b) use
+# the drake_dep_repositories module extension in their MODULE.bazel file:
+#
+# An example of option (a):
+#   MODULE.bazel:
+#     bazel_dep(drake)
+#   BUILD.bazel:
+#     deps = ["@drake//tools/workspace/eigen"]
+#
+# An example of option (b):
+#   MODULE.bazel:
+#     bazel_dep(drake)
+#     drake_dep_repositories = use_extension(
+#         "@drake//tools/workspace:default.bzl",
+#         "drake_dep_repositories",
+#     )
+#     use_repo(drake_dep_repositories, "eigen")
+#   BUILD.bazel:
+#     deps = ["@eigen"]
+#
+
+# The :public_repo_default configures what happens when a specific :foobar_repo
+# flag is set to "default". See the section header documentation above for the
+# full details.
+string_flag(
+    name = "public_repo_default",
+    build_setting_default = "module",
+    values = [
+        "module",
+        "pkgconfig",
+    ],
+)
+
+# The :eigen_repo flag configures where Drake obtains eigen from.
+# See the section header documentation above for the full details.
+# The public dependency alias is `@drake//tools/workspace/eigen` or use the
+# drake_dep_repositories() module extension at //tools/workspace:default.bzl.
+string_flag(
+    name = "eigen_repo",
+    build_setting_default = "default",
+    values = [
+        "default",
+        "module",
+        "pkgconfig",
+    ],
+)
+
+# The :fmt_repo flag configures where Drake obtains fmt from.
+# See the section header documentation above for the full details.
+# The public dependency alias is `@drake//tools/workspace/fmt` or use the
+# drake_dep_repositories() module extension at //tools/workspace:default.bzl.
+#
+# Note that fmt is typically a dependency of spdlog, so be careful to configure
+# them in a sensible pairing; setting one to module and the other to pkgconfig
+# is probably a mistake.
+string_flag(
+    name = "fmt_repo",
+    build_setting_default = "default",
+    values = [
+        "default",
+        "module",
+        "pkgconfig",
+    ],
+)
+
+# The :spdlog_repo flag configures where Drake obtains spdlog from.
+# See the section header documentation above for the full details.
+# The public dependency alias is `@drake//tools/workspace/spdlog` or use the
+# drake_dep_repositories() module extension at //tools/workspace:default.bzl.
+#
+# This flag also offers an additional value: the value "disabled" will turn the
+# `@drake//tools/workspace/spdlog` library into a no-op and Drake will be built
+# without any text_logging infrastructure; all log messages will be discarded.
+#
+# WARNING: The "disabled" feature should be considered experimental (no promise
+# of stability in future releases); in the future, we anticipate respelling the
+# flag so that "how to find spdlog" and "what should text_logging be doing" are
+# configured separately.
+#
+# Note that fmt is typically a dependency of spdlog, so be careful to configure
+# them in a sensible pairing; setting one to module and the other to pkgconfig
+# is probably a mistake.
+string_flag(
+    name = "spdlog_repo",
+    build_setting_default = "default",
+    values = [
+        "default",
+        "module",
+        "pkgconfig",
+        # N.B. See warning above about our stability promise for 'disabled'.
+        "disabled",
+    ],
+)
+
+# -----------------------------------------------------------------------------
+# Configuration for private runtime dependencies of Drake.
+
+# The :private_runtime_repo_default configures what happens when a specific
+# :foobar_repo flag is set to "default". When "external" is selected, the
+# dependency is provided outisde of Bazel (e.g., via pkg-config or other OS-
+# specific logic). When "internal" is selected, the dependency is provided with
+# Bazel mechanisms (e.g., "bazel_dep", module extension, etc.).
+string_flag(
+    name = "private_runtime_repo_default",
+    build_setting_default = "internal",
+    values = [
+        "internal",
+        "external",
+    ],
+)
+
+# The :blas_repo flag configures where Drake obtains @blas from.
+# The public dependency alias is `@drake//tools/workspace/blas` or use the
+# drake_dep_repositories() module extension at //tools/workspace:default.bzl.
+string_flag(
+    name = "blas_repo",
+    build_setting_default = "default",
+    values = [
+        # The default on Apple is "accelerate". The default on Linux is based
+        # on :private_runtime_repo_default -- "internal" maps to "source" and
+        # "external" maps to "pkgconfig".
+        "default",
+        # Compile Reference-LAPACK's built-in BLAS (i.e., Netlib) from source.
+        "source",
+        # Find BLAS via pkg-config.
+        "pkgconfig",
+        # Use Apple's Accelerate; see
+        # https://developer.apple.com/documentation/accelerate/blas/.
+        "accelerate",
+    ],
+)
+
+# The :lapack_repo flag configures where Drake obtains @lapack from.
+# The public dependency alias is `@drake//tools/workspace/lapack` or use the
+# drake_dep_repositories() module extension at //tools/workspace:default.bzl.
+string_flag(
+    name = "lapack_repo",
+    build_setting_default = "default",
+    values = [
+        # The default on Apple is "accelerate". The default on Linux is based
+        # on :private_runtime_repo_default -- "internal" maps to "source" and
+        # "external" maps to "pkgconfig".
+        "default",
+        # Compile Reference-LAPACK from source.
+        "source",
+        # Find LAPACK via pkg-config.
+        "pkgconfig",
+        # Use Apple's Accelerate.
+        "accelerate",
+    ],
+)
+
+# The :zlib_repo flag configures where Drake obtains @zlib from.
+# The public dependency alias is `@drake//tools/workspace/zlib` or use the
+# drake_dep_repositories() module extension at //tools/workspace:default.bzl.
+string_flag(
+    name = "zlib_repo",
+    build_setting_default = "default",
+    values = [
+        # The default is based on :private_runtime_repo_default -- "internal"
+        # maps to "source" and "external" maps to "hardcoded".
+        "default",
+        # Compile zlib from source.
+        "source",
+        # Hard-coded linkopts.
+        "hardcoded",
+    ],
+)
+
+# -----------------------------------------------------------------------------
+# Configuration for solver back-ends.
+#
+# Drake's SolverInterface wraps third-party solver libraries into common API.
+# Drake can be compiled with various third-party solvers enabled or disabled.
+#
+# By default, when building from source, all open-source libraries will be
+# enabled and all proprietary libraries will be disabled. (However, be aware
+# that Drake's packaging builds opt-in to some proprietary libraries by default
+# for our binary releases.)
+#
+# If you build from source and disable one of the open-source libraries that is
+# enabled by default, Drake's Stable API will build and install correctly, but
+# we cannot guarantee that all tests will pass or that all Drake features will
+# operate correctly. In other words, we cannot guarantee Drake's correctness
+# when a default-enabled solver is opted-out of.
+
+# Open-source solvers.
+
+bool_flag(
+    name = "with_clarabel",
+    build_setting_default = True,
+)
+
+bool_flag(
+    name = "with_clp",
+    build_setting_default = True,
+)
+
+bool_flag(
+    name = "with_csdp",
+    build_setting_default = True,
+)
+
+bool_flag(
+    name = "with_ipopt",
+    build_setting_default = True,
+)
+
+bool_flag(
+    name = "with_nlopt",
+    build_setting_default = True,
+)
+
+bool_flag(
+    name = "with_osqp",
+    build_setting_default = True,
+)
+
+bool_flag(
+    name = "with_scs",
+    build_setting_default = True,
+)
+
+# Proprietary solvers.
+
+bool_flag(
+    name = "with_gurobi",
+    build_setting_default = False,
+)
+
+bool_flag(
+    name = "with_mosek",
+    build_setting_default = False,
+)
+
+bool_flag(
+    name = "with_snopt",
+    build_setting_default = False,
+)
+
+# -----------------------------------------------------------------------------
+
+add_lint_tests()

@@ -1,14 +1,15 @@
-load("@python//:version.bzl", "PYTHON_SITE_PACKAGES_RELPATH", "PYTHON_VERSION")
 load("@rules_license//rules:providers.bzl", "LicenseInfo")
+load("//tools/skylark:cc.bzl", "CcInfo")
 load("//tools/skylark:drake_java.bzl", "MainClassInfo")
 load("//tools/skylark:drake_py.bzl", "drake_py_test")
+load("//tools/skylark:java.bzl", "JavaInfo")
 load(
     "//tools/skylark:pathutils.bzl",
     "dirname",
     "join_paths",
     "output_path",
 )
-load("//tools/skylark:py.bzl", "py_binary")
+load("//tools/skylark:py.bzl", "PyInfo", "py_binary")
 
 InstallInfo = provider()
 
@@ -21,17 +22,19 @@ InstalledTestInfo = provider()
 def _workspace(ctx):
     """Compute name of current workspace."""
 
-    # Check for override
+    # Check for override.
     if hasattr(ctx.attr, "workspace"):
         if len(ctx.attr.workspace):
             return ctx.attr.workspace
 
-    # Check for meaningful workspace_root
+    # Check for meaningful workspace_root (using the apparent repository name
+    # for brevity, not the canonical repository name with  "+" symbols).
     workspace = ctx.label.workspace_root.split("/")[-1]
+    workspace = workspace.split("+")[-1]
     if len(workspace):
         return workspace
 
-    # If workspace_root is empty, assume we are the root workspace
+    # If workspace_root is empty, assume we are the root workspace.
     return ctx.workspace_name
 
 def _rename(file_dest, rename):
@@ -45,6 +48,16 @@ def _depset_to_list(x):
     """Helper function to convert depset to list."""
     iter_list = x.to_list() if type(x) == "depset" else x
     return iter_list
+
+#------------------------------------------------------------------------------
+
+_PY_CC_TOOLCHAIN_TYPE = "@rules_python//python/cc:toolchain_type"
+
+def _python_version(ctx):
+    """Returns a string a containing the major.minor version number of the
+    current Python toolchain."""
+    py_cc_toolchain = ctx.toolchains[_PY_CC_TOOLCHAIN_TYPE].py_cc_toolchain
+    return py_cc_toolchain.python_version
 
 #------------------------------------------------------------------------------
 def _output_path(ctx, input_file, strip_prefix = [], ignore_errors = False):
@@ -77,7 +90,12 @@ def _output_path(ctx, input_file, strip_prefix = [], ignore_errors = False):
     return input_file.basename
 
 #------------------------------------------------------------------------------
-def _guess_files(target, candidates, scope, attr_name):
+def _guess_files(
+        target,
+        candidates,
+        scope,
+        attr_name,
+        allowed_externals = None):
     if scope == "EVERYTHING":
         return candidates
 
@@ -94,6 +112,17 @@ def _guess_files(target, candidates, scope, attr_name):
             for f in _depset_to_list(candidates)
             if (target.label.workspace_root == f.owner.workspace_root and
                 target.label.package == f.owner.package)
+        ]
+
+    elif scope == "ALLOWED_EXTERNALS" and allowed_externals != None:
+        return [
+            f
+            for f in _depset_to_list(candidates)
+            if f.is_source and any([
+                allowed.label.workspace_root == f.owner.workspace_root and
+                allowed.label.package == f.owner.package
+                for allowed in allowed_externals
+            ])
         ]
 
     else:
@@ -118,13 +147,10 @@ def _install_action(
     else:
         dest = dests
 
-    dest_replacements = (
-        ("@WORKSPACE@", _workspace(ctx)),
-        ("@PYTHON_SITE_PACKAGES@", PYTHON_SITE_PACKAGES_RELPATH),
-    )
-    for old, new in dest_replacements:
-        if old in dest:
-            dest = dest.replace(old, new)
+    if "@WORKSPACE@" in dest:
+        dest = dest.replace("@WORKSPACE@", _workspace(ctx))
+    if "@PYTHON_VERSION@" in dest:
+        dest = dest.replace("@PYTHON_VERSION@", _python_version(ctx))
 
     if type(strip_prefixes) == "dict":
         strip_prefix = strip_prefixes.get(
@@ -246,6 +272,7 @@ def _install_cc_actions(ctx, target):
             target[CcInfo].compilation_context.headers,
             ctx.attr.guess_hdrs,
             "guess_hdrs",
+            getattr(ctx.attr, "allowed_externals"),
         )
         actions += _install_actions(
             ctx,
@@ -516,11 +543,13 @@ def _install_impl(ctx):
     )
 
     # Generate install script.
+    installer_binary = ctx.attr._installer[DefaultInfo]
     ctx.actions.write(
         output = ctx.outputs.executable,
         content = "\n".join([
             "#!/bin/bash",
-            "tools/install/installer --actions '{}' \"$@\"".format(
+            "{} --actions '{}' \"$@\"".format(
+                installer_binary.files.to_list()[0].short_path,
                 actions_file.short_path,
             ),
         ]),
@@ -544,7 +573,7 @@ def _install_impl(ctx):
         )
 
     # Return actions.
-    installer_runfiles = ctx.attr._installer[DefaultInfo].default_runfiles
+    installer_runfiles = installer_binary.default_runfiles
     action_runfiles = ctx.runfiles(files = (
         [a.src for a in actions if not hasattr(a, "main_class")] +
         [i.src for i in installed_tests] +
@@ -588,7 +617,9 @@ _install_rule = rule(
         "runtime_strip_prefix": attr.string_list(),
         "java_dest": attr.string(default = "share/java"),
         "java_strip_prefix": attr.string_list(),
-        "py_dest": attr.string(default = "@PYTHON_SITE_PACKAGES@"),
+        "py_dest": attr.string(
+            default = "lib/python@PYTHON_VERSION@/site-packages",
+        ),
         "py_strip_prefix": attr.string_list(),
         "rename": attr.string_dict(),
         "install_tests": attr.label_list(
@@ -607,6 +638,10 @@ _install_rule = rule(
     },
     executable = True,
     implementation = _install_impl,
+    toolchains = [
+        # Used to discern the major.minor site-packages path to install into.
+        _PY_CC_TOOLCHAIN_TYPE,
+    ],
 )
 
 def install(tags = [], **kwargs):
@@ -634,8 +669,7 @@ Destination paths may include the following placeholders:
 
 * ``@WORKSPACE@``, replaced with ``workspace`` (if specified) or the name of
   the workspace which invokes ``install``.
-* ``@PYTHON_SITE_PACKAGES``, replaced with the Python version-specific path of
-  "site-packages".
+* ``@PYTHON_VERSION@``, replaced with the Python major.minor version.
 
 Note:
     By default, headers and resource files to be installed must be explicitly
@@ -651,6 +685,9 @@ Note:
       target and owned by a target in the same package.
     * ``WORKSPACE``: For each target, install those files which are used by the
       target and owned by a target in the same workspace.
+    * ``ALLOWED_EXTERNALS``: (For guess_hdrs only) for each target, install
+      source files which are used by the target and owned by a target in the
+      at least one of the `allowed_externals = ...` list of labels.
     * ``EVERYTHING``: Install all headers/resources used by the target.
 
     The headers and resource files considered are *all* headers or resource

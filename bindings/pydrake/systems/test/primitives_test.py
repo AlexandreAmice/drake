@@ -1,4 +1,5 @@
 import gc
+import scipy.sparse
 import unittest
 import numpy as np
 
@@ -25,6 +26,7 @@ from pydrake.systems.primitives import (
     ConstantValueSource, ConstantValueSource_,
     ConstantVectorSource, ConstantVectorSource_,
     ControllabilityMatrix,
+    DiscreteTimeApproximation,
     Demultiplexer, Demultiplexer_,
     DiscreteDerivative, DiscreteDerivative_,
     DiscreteTimeDelay, DiscreteTimeDelay_,
@@ -52,6 +54,7 @@ from pydrake.systems.primitives import (
     Saturation, Saturation_,
     SharedPointerSystem, SharedPointerSystem_,
     Sine, Sine_,
+    SparseMatrixGain_,
     StateInterpolatorWithDiscreteDerivative,
     StateInterpolatorWithDiscreteDerivative_,
     SymbolicVectorSystem, SymbolicVectorSystem_,
@@ -653,7 +656,7 @@ class TestGeneral(unittest.TestCase):
                                     activation_types=[
                                         PerceptronActivationType.kReLU,
                                         PerceptronActivationType.kTanh
-                                    ])
+        ])
         self.assertEqual(mlp2.activation_type(0),
                          PerceptronActivationType.kReLU)
         self.assertEqual(mlp2.activation_type(1),
@@ -672,7 +675,7 @@ class TestGeneral(unittest.TestCase):
                                    activation_types=[
                                        PerceptronActivationType.kReLU,
                                        PerceptronActivationType.kTanh
-                                   ])
+        ])
         self.assertEqual(mlp.get_input_port().size(), 2)
         np.testing.assert_array_equal(mlp.layers(), [3, 3, 2])
 
@@ -762,6 +765,38 @@ class TestGeneral(unittest.TestCase):
         discrete_derivative = DiscreteDerivative(
             num_inputs=5, time_step=0.5, suppress_initial_transient=False)
         self.assertFalse(discrete_derivative.suppress_initial_transient())
+
+    @numpy_compare.check_all_types
+    def test_sparse_matrix_gain(self, T):
+        D = scipy.sparse.csc_matrix(
+            (np.array([2, 1., 3]), np.array([0, 1, 0]),
+             np.array([0, 2, 2, 3])), shape=(2, 3))
+        dut = SparseMatrixGain_[T](D=D)
+        context = dut.CreateDefaultContext()
+        u = np.array([1, 2, 3])
+        dut.get_input_port().FixValue(context, u)
+        y = dut.get_output_port().Eval(context)
+        numpy_compare.assert_float_equal(y, D.todense() @ u)
+
+        numpy_compare.assert_float_equal(D.todense(), dut.D().todense())
+        D2 = scipy.sparse.csc_matrix(
+            (np.array([1, 4, 6]), np.array([0, 1, 0]),
+             np.array([0, 2, 2, 3])), shape=(2, 3))
+        dut.set_D(D=D2)
+        numpy_compare.assert_float_equal(D2.todense(), dut.D().todense())
+
+        # Make sure empty matrices work as expected.
+        D00 = scipy.sparse.csc_matrix(([], [], []), shape=(0, 0))
+        # Having zero rows doesn't work yet...
+        # D01 = scipy.sparse.csc_matrix(([], [], [0]), shape=(0, 1))
+        D10 = scipy.sparse.csc_matrix(([1.2], [0], [0]), shape=(1, 0))
+        for D in [D00, D10]:
+            dut = SparseMatrixGain_[T](D=D)
+            context = dut.CreateDefaultContext()
+            u = np.ones((D.shape[1], 1))
+            dut.get_input_port().FixValue(context, u)
+            y = dut.get_output_port().Eval(context)
+            self.assertEqual(y.size, D.shape[0])
 
     def test_state_interpolator_with_discrete_derivative(self):
         state_interpolator = StateInterpolatorWithDiscreteDerivative(
@@ -888,3 +923,40 @@ class TestGeneral(unittest.TestCase):
         self.assertTrue(
             all(logger.GetLog(logger_context) == logger.FindLog(context)
                 for logger, logger_context in loggers_and_contexts))
+
+    def test_discrete_time_approximation(self):
+        A = np.array([[0, 1], [0, 0]])
+        B = np.array([0, 1])
+        f0 = np.array([2, 1])
+        C = np.array([[1, 0]])
+        D = np.array([0])
+        y0 = np.array([0])
+
+        h = 0.031415926
+        Ad = np.array([[1, h], [0, 1]])
+        Bd = np.array([0.5*h**2, h])
+        f0d = np.array([2*h+0.5*h**2, h])
+        Cd = C
+        Dd = D
+        y0d = y0
+
+        def assert_array_close(x, y): np.testing.assert_allclose(
+            np.squeeze(x), np.squeeze(y), atol=1e-10)
+
+        continuous_system = LinearSystem(A, B, C, D)
+        discrete_system = DiscreteTimeApproximation(
+            system=continuous_system, time_period=h)
+        assert_array_close(discrete_system.A(), Ad)
+        assert_array_close(discrete_system.B(), Bd)
+        assert_array_close(discrete_system.C(), Cd)
+        assert_array_close(discrete_system.D(), Dd)
+
+        continuous_system = AffineSystem(A, B, f0, C, D, y0)
+        discrete_system = DiscreteTimeApproximation(
+            system=continuous_system, time_period=h)
+        assert_array_close(discrete_system.A(),  Ad)
+        assert_array_close(discrete_system.B(),  Bd)
+        assert_array_close(discrete_system.f0(), f0d)
+        assert_array_close(discrete_system.C(),  Cd)
+        assert_array_close(discrete_system.D(),  Dd)
+        assert_array_close(discrete_system.y0(), y0d)

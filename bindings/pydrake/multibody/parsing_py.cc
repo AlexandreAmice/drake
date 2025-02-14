@@ -24,6 +24,7 @@ PYBIND11_MODULE(parsing, m) {
   constexpr auto& doc = pydrake_doc.drake.multibody;
 
   py::module::import("pydrake.common.schema");
+  py::module::import("pydrake.geometry");
   py::module::import("pydrake.multibody.tree");
 
   // CollisionFilterGroups
@@ -111,8 +112,9 @@ PYBIND11_MODULE(parsing, m) {
         .def(py::init<MultibodyPlant<double>*, std::string_view>(),
             py::arg("plant"), py::arg("model_name_prefix"),
             cls_doc.ctor.doc_2args_plant_model_name_prefix)
-        .def("plant", &Class::plant, py_rvp::reference_internal,
-            cls_doc.plant.doc)
+        .def("plant", &Class::plant, py_rvp::reference, cls_doc.plant.doc)
+        .def("scene_graph", &Class::scene_graph, py_rvp::reference,
+            cls_doc.scene_graph.doc)
         .def("package_map", &Class::package_map, py_rvp::reference_internal,
             cls_doc.package_map.doc)
         .def(

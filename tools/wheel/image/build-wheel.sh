@@ -30,14 +30,29 @@ chrpath()
         else
             strip_rpath \
                 --exclude="$HOMEBREW" \
-                --exclude=/opt/drake-dependencies/lib \
                 "$lib"
             install_name_tool -add_rpath "@loader_path/$rpath" "$lib"
         fi
     done
 }
 
+# Helper function to copy the copyright text from an Ubuntu package into the
+# wheel's documentation.
+copy_ubuntu_license()
+{
+    package_name=$1
+    mkdir -p ${WHEEL_DIR}/pydrake/doc/${package_name}
+    # TODO(jwnimmer-tri) Is there a simple way to install something slightly
+    # more direct (e.g., LICENSE text itself) instead of the copyright file?
+    cp /usr/share/doc/${package_name}/copyright \
+        ${WHEEL_DIR}/pydrake/doc/${package_name}/copyright
+}
+
 ###############################################################################
+
+# Activate Drake's virtual environment, which provides some of the tools that
+# we need to build the wheels.
+. /opt/drake-wheel-build/drake/venv/bin/activate
 
 readonly WHEEL_DIR=/opt/drake-wheel-build/wheel
 readonly WHEEL_SHARE_DIR=${WHEEL_DIR}/pydrake/share
@@ -58,28 +73,23 @@ cp -r -t ${WHEEL_DIR}/pydrake \
 cp -r -t ${WHEEL_DIR}/pydrake/lib \
     /opt/drake/lib/libdrake*.so
 
+# MOSEK is "sort of" third party, but is procured as part of Drake's build and
+# ends up in /opt/drake. It should end up in the same place as libdrake.so.
+cp -r -t ${WHEEL_DIR}/pydrake/lib \
+    /opt/drake/lib/libmosek* \
+    /opt/drake/lib/libtbb*
+
 if [[ "$(uname)" == "Linux" ]]; then
   cp -r -t ${WHEEL_DIR}/pydrake \
       /opt/drake-wheel-content/*
 fi
 
 # Copy the license files from third party dependencies we vendor.
-cp -r -t ${WHEEL_DIR}/pydrake/doc \
-    /opt/drake-dependencies/licenses/*
-
-# MOSEK is "sort of" third party, but is procured as part of Drake's build and
-# ends up in /opt/drake.
-if [[ "$(uname)" == "Darwin" ]]; then
-    # On macOS, it is explicitly referenced by @loader_path, and thus must be
-    # copied to the same place as libdrake.so.
-    cp -r -t ${WHEEL_DIR}/pydrake/lib \
-        /opt/drake/lib/libmosek*.dylib \
-        /opt/drake/lib/libtbb*.dylib
-else
-    # On Linux, it needs to be copied somewhere where auditwheel can find it.
-    cp -r -t /opt/drake-dependencies/lib \
-        /opt/drake/lib/libmosek*.so* \
-        /opt/drake/lib/libtbb*.so*
+if [[ "$(uname)" == "Linux" ]]; then
+    # The drake/tools/wheel/test/tests/libs-test.py must be kept in sync with
+    # this list. To maintain that correspondence, the _ALLOWED_LIBS entry seen
+    # in that test program is added as comment to the end of each line below.
+    copy_ubuntu_license libgfortran5   # libgfortran, libquadmath, libgomp
 fi
 
 cp -r -t ${WHEEL_SHARE_DIR}/drake \
@@ -97,7 +107,7 @@ if [[ "$(uname)" == "Linux" ]]; then
 fi
 
 if [[ "$(uname)" == "Linux" ]]; then
-    export LD_LIBRARY_PATH=${WHEEL_DIR}/pydrake/lib:/opt/drake-dependencies/lib
+    export LD_LIBRARY_PATH=${WHEEL_DIR}/pydrake/lib
 fi
 
 chrpath lib pydrake/*.so

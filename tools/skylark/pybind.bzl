@@ -1,20 +1,21 @@
-load("@cc//:compiler.bzl", "COMPILER_ID")
-load("@python//:version.bzl", "PYTHON_EXTENSION_SUFFIX")
 load("//tools/install:install.bzl", "install")
-load("//tools/skylark:cc.bzl", "cc_binary")
+load("//tools/skylark:cc.bzl", "CcInfo", "cc_binary")
 load("//tools/skylark:drake_cc.bzl", "drake_cc_binary", "drake_cc_googletest")
 load("//tools/skylark:drake_py.bzl", "drake_py_library", "drake_py_test")
 load("//tools/skylark:py.bzl", "py_library")
 
-EXTRA_PYBIND_COPTS = [
-    # GCC and Clang don't always agree / succeed when inferring storage
-    # duration (#9600). Workaround it for now.
-    "-Wno-unused-lambda-capture",
-    # pybind11's operator overloading (e.g., .def(py::self + py::self))
-    # spuriously triggers this warning, so we'll suppress it anytime we're
-    # compiling pybind11 modules.
-    "-Wno-self-assign-overloaded",
-] if COMPILER_ID.endswith("Clang") else []
+EXTRA_PYBIND_COPTS = select({
+    "@rules_cc//cc/compiler:clang": [
+        # GCC and Clang don't always agree / succeed when inferring storage
+        # duration (#9600). Workaround it for now.
+        "-Wno-unused-lambda-capture",
+        # pybind11's operator overloading (e.g., .def(py::self + py::self))
+        # spuriously triggers this warning, so we'll suppress it anytime we're
+        # compiling pybind11 modules.
+        "-Wno-self-assign-overloaded",
+    ],
+    "//conditions:default": [],
+})
 
 def pybind_py_library(
         name,
@@ -57,7 +58,7 @@ def pybind_py_library(
 
     # TODO(eric.cousineau): See if we can keep non-`*.so` target name, but
     # output a *.so, so that the target name is similar to what is provided.
-    cc_so_target = cc_so_name + PYTHON_EXTENSION_SUFFIX
+    cc_so_target = cc_so_name + ".so"
 
     # Add C++ shared library.
     cc_binary_rule(
@@ -69,7 +70,7 @@ def pybind_py_library(
         copts = cc_copts + EXTRA_PYBIND_COPTS,
         # Always link to pybind11.
         deps = [
-            "@pybind11",
+            "@drake//tools/workspace/pybind11",
         ] + cc_deps,
         **kwargs
     )
@@ -172,7 +173,11 @@ def drake_pybind_library(
             "//:drake_shared_library",
             "//bindings/pydrake:pydrake_pybind",
         ],
-        cc_copts = cc_copts,
+        cc_copts = cc_copts + [
+            # tools/workspace/pybind11/patches/check_signature_infection.patch
+            # tweaks our copy of pybind11 to obey this option.
+            "-DDRAKE_PYBIND11_CHECK_SIGNATURE_INFECTION=1",
+        ],
         cc_binary_rule = drake_cc_binary,
         py_srcs = py_srcs,
         py_deps = py_deps,
@@ -232,7 +237,7 @@ def get_pybind_package_info(base_package, sub_package = None):
     package_info = _get_package_info(base_package, sub_package)
     return struct(
         py_imports = [package_info.base_path_rel],
-        py_dest = "@PYTHON_SITE_PACKAGES@/{}".format(
+        py_dest = "lib/python@PYTHON_VERSION@/site-packages/{}".format(
             package_info.sub_path_rel,
         ),
     )
@@ -288,8 +293,8 @@ def drake_pybind_cc_googletest(
         deps = cc_deps + [
             "//:drake_shared_library",
             "//bindings/pydrake:pydrake_pybind",
+            "//tools/workspace/python:cc_libpython",
             "@pybind11",
-            "@python//:python_direct_link",
         ],
         copts = cc_copts,
         use_default_main = False,

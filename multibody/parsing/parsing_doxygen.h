@@ -27,11 +27,65 @@ is YAML based, and follows a limited data schema.  See
 
 @section multibody_parsing_mjcf MJCF (Mujoco XML) Support
 
-There is limited, undocumented support for parsing MJCF (Mujoco XML) files. The
-files are recognized by an .xml file extension. The scope of features that are
-actually supported still need to be documented.
+There is basic support for parsing MJCF (Mujoco XML) files. The files are
+recognized by an .xml file extension. The scope of features that are actually
+supported still need to be documented here, but the parser does log warnings
+for any unsupported MuJoCo XML elements or attributes at runtime.
 
 <!-- TODO(rpoyner-tri): document mujoco format support -->
+
+@subsection mjcf_ignored_silent Tags ignored silently
+
+The following attributes are specific to the MuJoCo solver (listed here in the
+order they are listed in the MuJoCo documentation); we have no plans to support
+them:
+- <a href=https://mujoco.readthedocs.io/en/stable/XMLreference.html#option>`/option/`</a>
+  - `@apirate`
+  - `@impratio`
+  - `@jacobian`
+  - `@o_margin`
+  - `@o_solref`
+  - `@o_solimp`
+  - `@o_friction`
+  - `@solver`
+  - `@iterations`
+  - `@tolerance`
+  - `@ls_iterations`
+  - `@ls_tolerance`
+  - `@noslip_iterations`
+  - `@noslip_tolerance`
+  - `@ccd_iterations`
+  - `@ccd_tolerance`
+  - `@sdf_iterations`
+  - `@sdf_tolerance`
+  - `@sdf_initpoints`
+- <a href=https://mujoco.readthedocs.io/en/stable/XMLreference.html#compiler>`/compiler/`</a>
+  - `@usethread`
+- <a href=https://mujoco.readthedocs.io/en/stable/XMLreference.html#size>`/size`</a>
+- <a href=https://mujoco.readthedocs.io/en/stable/XMLreference.html#body-joint>`/body/joint/`</a>
+  - `@solreflimit`
+  - `@solimplimit`
+  - `@solreffriction`
+  - `@solimpfriction`
+  - `@margin`
+- <a href=https://mujoco.readthedocs.io/en/stable/XMLreference.html#body-geom>`/body/geom/`</a>
+  - `@priority`
+  - `@solmix`
+  - `@solref`
+  - `@solimp`
+  - `@margin`
+  - `@gap`
+- <a href=https://mujoco.readthedocs.io/en/stable/XMLreference.html#contact-pair>`/contact/pair/`</a>
+  - `@solref`
+  - `@solimp`
+  - `@solreffriction`
+  - `@margin`
+  - `@gap`
+- <a href=https://mujoco.readthedocs.io/en/stable/XMLreference.html#equality-connect>`/equality/connect/`</a>
+  - `@solref`
+  - `@solimp`
+- <a href=https://mujoco.readthedocs.io/en/stable/XMLreference.html#custom>`/custom`</a>
+
 
 @section multibody_parsing_sdf SDFormat Support
 Drake supports SDFormat files following the specification at

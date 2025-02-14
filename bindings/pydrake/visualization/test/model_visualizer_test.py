@@ -50,6 +50,26 @@ class TestModelVisualizerSubprocess(unittest.TestCase):
                     args.append(f"--compliance_type=compliant")
                 subprocess.check_call(args)
 
+    def test_model_with_invalid_dynamics(self):
+        """
+        Test on a model with invalid dynamics.
+        The visualizer script will disable visualization of contact forces.
+        """
+
+        # Model containing a free body with zero inertias.
+        # Obviously, physics cannot be computed, and thus visualization of
+        # contact forces is turned off.
+        result = subprocess.run([
+            self.dut,
+            "bindings/pydrake/visualization/test/massless_robot.urdf",
+            "--loop_once"],
+            stderr=subprocess.PIPE,
+            text=True)
+
+        # If the model is handled as expected, the visualizer script prints a
+        # WARNING message.
+        self.assertRegex(result.stderr, "WARNING.*Contact results cannot")
+
     def test_package_url(self):
         """Test that a package URL works."""
         subprocess.check_call([
@@ -156,6 +176,9 @@ class TestModelVisualizer(unittest.TestCase):
             # SDFormat world file with multiple models.
             "package://drake/manipulation/util/test/"
             + "simple_world_with_two_models.sdf",
+            # glTF file.
+            "package://drake_models/veggies/assets/"
+            + "yellow_bell_pepper_no_stem_low.gltf"
         ]
         for i, model_url in enumerate(model_urls):
             with self.subTest(model=model_url):
@@ -170,6 +193,13 @@ class TestModelVisualizer(unittest.TestCase):
 
     def test_model_from_url(self):
         url = "package://drake/multibody/benchmarks/acrobot/acrobot.sdf"
+        dut = mut.ModelVisualizer()
+        dut.AddModels(url=url)
+        dut.Run(loop_once=True)
+
+    def test_model_from_gltf_url(self):
+        url = ("package://drake_models/veggies/assets/"
+               + "yellow_bell_pepper_no_stem_low.gltf")
         dut = mut.ModelVisualizer()
         dut.AddModels(url=url)
         dut.Run(loop_once=True)

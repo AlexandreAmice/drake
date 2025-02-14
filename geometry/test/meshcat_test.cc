@@ -2,6 +2,7 @@
 
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <thread>
 #include <vector>
 
@@ -502,6 +503,43 @@ GTEST_TEST(MeshcatTest, ObjWithMissingMtl) {
   EXPECT_THAT(missing_mtl_packed, testing::HasSubstr("\0\xFF\xBF\x7F"));
 }
 
+// When an .mtl file ends with a map_* line, and doesn't have a newline, we
+// still need to extract the image name.
+GTEST_TEST(MeshcatTest, MtlMapAtEOF) {
+  Meshcat meshcat;
+
+  // The baseline .obj with .mtl file.
+  const std::string obj_source =
+      FindResourceOrThrow("drake/geometry/render/test/meshes/box.obj");
+  meshcat.SetObject("original_mtl", Mesh(obj_source), Rgba(1, 0, 1));
+  const std::string original_mtl_packed =
+      meshcat.GetPackedObject("original_mtl");
+  EXPECT_THAT(original_mtl_packed, testing::HasSubstr("_meshfile_object"));
+  EXPECT_THAT(original_mtl_packed, testing::HasSubstr("mtl_library"));
+  EXPECT_THAT(original_mtl_packed, testing::HasSubstr("data:image/png;base64"));
+
+  // Copy the .obj and .png into a directory, write a single line .mtl (with no
+  // newline).
+  const fs::path dir = temp_directory();
+  const fs::path eof_mtl_path = dir / "box.obj";
+  fs::copy_file(obj_source, eof_mtl_path);
+  // Copy the texture file that the .mtl will reference.
+  const std::string png_source =
+      FindResourceOrThrow("drake/geometry/render/test/meshes/box.png");
+  fs::copy_file(png_source, dir / "box.png");
+
+  std::ofstream eof_mtl_file(eof_mtl_path.string() + ".mtl");
+  eof_mtl_file << "map_Kd -s 1 1 1 box.png";
+  eof_mtl_file.close();
+  meshcat.SetObject("eof_mtl", Mesh(eof_mtl_path.string()),
+                    Rgba(1, 0.75, 0.5));
+
+  const std::string eof_mtl_packed = meshcat.GetPackedObject("eof_mtl");
+  EXPECT_THAT(eof_mtl_packed, testing::HasSubstr("_meshfile_object"));
+  EXPECT_THAT(eof_mtl_packed, testing::HasSubstr("mtl_library"));
+  EXPECT_THAT(eof_mtl_packed, testing::HasSubstr("data:image/png;base64"));
+}
+
 GTEST_TEST(MeshcatTest, SetObjectWithPointCloud) {
   Meshcat meshcat;
 
@@ -948,6 +986,14 @@ GTEST_TEST(MeshcatTest, Sliders) {
 
   slider_names = meshcat.GetSliderNames();
   EXPECT_EQ(slider_names.size(), 0);
+
+  // AddSlider and SetSliderValue return the rounded/truncated values.
+  EXPECT_NEAR(meshcat.AddSlider("slider_rounded1", 0.2, 1.5, 0.1, 0.512), 0.5,
+              1e-14);
+  EXPECT_NEAR(meshcat.AddSlider("slider_rounded2", 0.2, 1.5, 0.1, 0.1), 0.2,
+              1e-14);
+  EXPECT_NEAR(meshcat.SetSliderValue("slider_rounded1", 1.7), 1.5, 1e-14);
+  EXPECT_NEAR(meshcat.SetSliderValue("slider_rounded2", 1.234), 1.2, 1e-14);
 }
 
 GTEST_TEST(MeshcatTest, DuplicateMixedControls) {

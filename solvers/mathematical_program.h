@@ -23,6 +23,7 @@
 #include "drake/common/autodiff.h"
 #include "drake/common/drake_assert.h"
 #include "drake/common/drake_copyable.h"
+#include "drake/common/drake_deprecated.h"
 #include "drake/common/eigen_types.h"
 #include "drake/common/fmt.h"
 #include "drake/common/polynomial.h"
@@ -730,7 +731,7 @@ class MathematicalProgram {
    * existing indeterminates.
    * @tparam rows  The number of rows in the new indeterminates.
    * @tparam cols  The number of columns in the new indeterminates.
-   * @param names A vector of strings containing the name for each variable.
+   * @param name All variables will share the same name, but different index.
    * @return The MatrixIndeterminate of size rows x cols, containing the
    * new vars (not all the vars stored).
    *
@@ -1117,15 +1118,29 @@ class MathematicalProgram {
       std::optional<bool> is_convex = std::nullopt);
 
   /**
+   * Adds a cost term of the form w*|x-x_desired|^2.
+   */
+  Binding<QuadraticCost> AddQuadraticErrorCost(
+      double w, const Eigen::Ref<const Eigen::VectorXd>& x_desired,
+      const VariableRefList& vars) {
+    return AddQuadraticErrorCost(w, x_desired,
+                                 ConcatenateVariableRefList(vars));
+  }
+
+  /**
+   * Adds a cost term of the form w*|x-x_desired|^2.
+   */
+  Binding<QuadraticCost> AddQuadraticErrorCost(
+      double w, const Eigen::Ref<const Eigen::VectorXd>& x_desired,
+      const Eigen::Ref<const VectorXDecisionVariable>& vars);
+
+  /**
    * Adds a cost term of the form (x-x_desired)'*Q*(x-x_desired).
    */
   Binding<QuadraticCost> AddQuadraticErrorCost(
       const Eigen::Ref<const Eigen::MatrixXd>& Q,
       const Eigen::Ref<const Eigen::VectorXd>& x_desired,
-      const VariableRefList& vars) {
-    return AddQuadraticErrorCost(Q, x_desired,
-                                 ConcatenateVariableRefList(vars));
-  }
+      const VariableRefList& vars);
 
   /**
    * Adds a cost term of the form (x-x_desired)'*Q*(x-x_desired).
@@ -2370,7 +2385,7 @@ class MathematicalProgram {
       const symbolic::Expression& quadratic_expression, double tol = 0);
 
   /**
-   * Adds a constraint that a symbolic expression @param v is in the rotated
+   * Adds a constraint that a symbolic expression `v` is in the rotated
    * Lorentz cone, i.e.,
    * \f[
    * v_0v_1 \ge v_2^2 + ... + v_{n-1}^2\\
@@ -3080,7 +3095,8 @@ class MathematicalProgram {
   /**
    * Adds an exponential cone constraint, that z = A * vars + b should be in
    * the exponential cone. Namely {z₀, z₁, z₂ | z₀ ≥ z₁ * exp(z₂ / z₁), z₁ >
-   * 0}.
+   * 0}, or equivalently (using the logarithm function), {z₀, z₁, z₂ | z₂ ≤ z₁ *
+   * log(z₀ / z₁), z₀ > 0, z₁ > 0}.
    * @param A The A matrix in the documentation above. A must have 3 rows.
    * @param b The b vector in the documentation above.
    * @param vars The variables bound with this constraint.
@@ -3247,19 +3263,31 @@ class MathematicalProgram {
    */
   const SolverOptions& solver_options() const { return solver_options_; }
 
-  const std::unordered_map<std::string, double>& GetSolverOptionsDouble(
+  DRAKE_DEPRECATED("2025-09-01", "Use the solver_options() accessor, instead")
+  std::unordered_map<std::string, double> GetSolverOptionsDouble(
       const SolverId& solver_id) const {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
     return solver_options_.GetOptionsDouble(solver_id);
+#pragma GCC diagnostic pop
   }
 
-  const std::unordered_map<std::string, int>& GetSolverOptionsInt(
+  DRAKE_DEPRECATED("2025-09-01", "Use the solver_options() accessor, instead")
+  std::unordered_map<std::string, int> GetSolverOptionsInt(
       const SolverId& solver_id) const {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
     return solver_options_.GetOptionsInt(solver_id);
+#pragma GCC diagnostic pop
   }
 
-  const std::unordered_map<std::string, std::string>& GetSolverOptionsStr(
+  DRAKE_DEPRECATED("2025-09-01", "Use the solver_options() accessor, instead")
+  std::unordered_map<std::string, std::string> GetSolverOptionsStr(
       const SolverId& solver_id) const {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
     return solver_options_.GetOptionsStr(solver_id);
+#pragma GCC diagnostic pop
   }
 
   /**
@@ -3465,7 +3493,6 @@ class MathematicalProgram {
   /**
    * Evaluates a set of bindings (plural version of `EvalBinding`).
    * @param bindings List of bindings.
-   * @param prog
    * @param prog_var_vals The value of all the decision variables in this
    * program.
    * @return All binding values, concatenated into a single vector.

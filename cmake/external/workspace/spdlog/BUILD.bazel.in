@@ -1,10 +1,8 @@
 # -*- bazel -*-
 
-load(
-    "@drake//:cmake/external/workspace/conversion.bzl",
-    "split_cmake_list",
-)
-load("@drake//tools/install:install.bzl", "install")
+load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load(":conversion.bzl", "split_cmake_list")
 
 _DEFINES = split_cmake_list(
     "$<TARGET_PROPERTY:spdlog::spdlog,INTERFACE_COMPILE_DEFINITIONS>",
@@ -14,20 +12,22 @@ cc_library(
     name = "spdlog",
     srcs = glob(
         ["lib/**"],
-        allow_empty = False,
+        # There might not be any *.so files if spdlog was built header-only.
+        allow_empty = True,
     ),
     hdrs = glob(
         ["include/spdlog/**"],
         allow_empty = False,
     ),
-    defines = _DEFINES + ["HAVE_SPDLOG"],
+    defines = _DEFINES,
     includes = ["include"],
     linkopts = ["-pthread"],
     visibility = ["//visibility:public"],
     deps = ["@fmt"],
 )
 
-install(
-    name = "install",
-    visibility = ["//visibility:public"],
+# We must define this flag, but we ignore it.
+bool_flag(
+    name = "header_only",
+    build_setting_default = True,
 )

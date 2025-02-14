@@ -56,18 +56,25 @@ Parser::Parser(MultibodyPlant<double>* plant,
     plant->RegisterAsSourceForSceneGraph(scene_graph);
   }
 
-  auto warnings_maybe_strict =
-      [this](const DiagnosticDetail& detail) {
-        if (is_strict_) {
-          diagnostic_policy_.Error(detail);
-        } else {
-          diagnostic_policy_.WarningDefaultAction(detail);
-        }
-      };
+  auto warnings_maybe_strict = [this](const DiagnosticDetail& detail) {
+    if (is_strict_) {
+      diagnostic_policy_.Error(detail);
+    } else {
+      diagnostic_policy_.WarningDefaultAction(detail);
+    }
+  };
   diagnostic_policy_.SetActionForWarnings(warnings_maybe_strict);
 }
 
 Parser::~Parser() {}
+
+geometry::SceneGraph<double>* Parser::scene_graph() {
+  if (plant_->geometry_source_is_registered()) {
+    DRAKE_DEMAND(!plant_->is_finalized());
+    return plant_->GetMutableSceneGraphPreFinalize();
+  }
+  return nullptr;
+}
 
 CollisionFilterGroups Parser::GetCollisionFilterGroups() const {
   return CollisionFilterGroups(ConvertInstancedNamesToStrings(
@@ -88,12 +95,12 @@ std::vector<ModelInstanceIndex> Parser::AddModels(
 
 std::vector<ModelInstanceIndex> Parser::AddModelsFromUrl(
     const std::string& url) {
-  const std::string file_name = internal::ResolveUri(
-      diagnostic_policy_, url, package_map_, {});
-  if (file_name.empty()) {
+  const internal::ResolveUriResult resolved =
+      internal::ResolveUri(diagnostic_policy_, url, package_map_, {});
+  if (!resolved.exists) {
     return {};
   }
-  return AddModels(file_name);
+  return AddModels(resolved.full_path);
 }
 
 std::vector<ModelInstanceIndex> Parser::AddModelsFromString(

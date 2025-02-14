@@ -23,10 +23,12 @@ from pydrake.systems.framework import (
     CacheEntryValue,
     CacheIndex,
     Context,
+    ContinuousState_,
     ContinuousStateIndex,
     DependencyTicket,
     Diagram,
     DiagramBuilder,
+    DiagramBuilder_,
     DiscreteStateIndex,
     DiscreteValues,
     EventStatus,
@@ -326,6 +328,34 @@ class TestCustom(unittest.TestCase):
         # Now check const aliasing.
         data_const = cache_entry_value_const.GetValueOrThrow()
         self.assertIs(data_const, data)
+
+    def test_value_producer_error_reporting_allocate_none(self):
+        def broken_alloc_callback():
+            pass
+        system = LeafSystem()
+        cache_entry = system.DeclareCacheEntry(
+            description="",
+            value_producer=ValueProducer(
+                allocate=broken_alloc_callback,
+                calc=lambda context, output: None))
+        with self.assertRaisesRegex(
+                RuntimeError,
+                "broken_alloc_callback.*Value.*not None"):
+            system.CreateDefaultContext()
+
+    def test_value_producer_error_reporting_allocate_mistyped(self):
+        def broken_alloc_callback():
+            return "hello"
+        system = LeafSystem()
+        cache_entry = system.DeclareCacheEntry(
+            description="",
+            value_producer=ValueProducer(
+                allocate=broken_alloc_callback,
+                calc=lambda context, output: None))
+        with self.assertRaisesRegex(
+                RuntimeError,
+                "broken_alloc_callback.*return.*Value.*not.*str"):
+            system.CreateDefaultContext()
 
     def test_leaf_system_issue13792(self):
         """
@@ -908,6 +938,29 @@ class TestCustom(unittest.TestCase):
                 self.assertEqual(system.AllocateTimeDerivatives().size(), 6)
                 self.assertEqual(
                     system.EvalTimeDerivatives(context=context).size(), 6)
+
+                # The constructors for ContinuousState(state: VectorBase, ...)
+                # used when diagrams are in play receives special treatment in
+                # the bindings for ContinuousState. We'll exercise it here.
+                builder = DiagramBuilder_[T]()
+                n = 2
+                for _ in range(n):
+                    builder.AddSystem(TrivialSystem(index))
+                diagram = builder.Build()
+                diagram_context = diagram.CreateDefaultContext()
+                diagram_state_copy = ContinuousState_[T](
+                    state=diagram_context.get_continuous_state().get_vector())
+                self.assertEqual(diagram_state_copy.size(), 6*n)
+                diagram_state_copy = ContinuousState_[T](
+                    state=diagram_context.get_continuous_state().get_vector(),
+                    num_q=2*n,
+                    num_v=1*n,
+                    num_z=3*n,
+                )
+                self.assertEqual(diagram_state_copy.num_q(), 2*n)
+                self.assertEqual(diagram_state_copy.num_v(), 1*n)
+                self.assertEqual(diagram_state_copy.num_z(), 3*n)
+                self.assertEqual(diagram_state_copy.size(), 6*n)
 
     def test_discrete_state_api(self):
         # N.B. Since this has trivial operations, we can test all scalar types.

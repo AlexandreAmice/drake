@@ -3,11 +3,13 @@
 #include "drake/bindings/pydrake/common/deprecation_pybind.h"
 #include "drake/bindings/pydrake/common/eigen_pybind.h"
 #include "drake/bindings/pydrake/common/identifier_pybind.h"
+#include "drake/bindings/pydrake/common/ref_cycle_pybind.h"
 #include "drake/bindings/pydrake/common/serialize_pybind.h"
 #include "drake/bindings/pydrake/common/type_pack.h"
 #include "drake/bindings/pydrake/common/value_pybind.h"
 #include "drake/bindings/pydrake/documentation_pybind.h"
 #include "drake/bindings/pydrake/pydrake_pybind.h"
+#include "drake/bindings/pydrake/systems/builder_life_support_pybind.h"
 #include "drake/common/eigen_types.h"
 #include "drake/geometry/query_results/penetration_as_point_pair.h"
 #include "drake/geometry/scene_graph.h"
@@ -220,8 +222,8 @@ void DoScalarDependentDefinitions(py::module m, T) {
             cls_doc.SetUseSampledOutputPorts.doc)
         .def(
             "AddJoint",
-            [](Class * self, std::unique_ptr<Joint<T>> joint) -> auto& {
-              return self->AddJoint(std::move(joint));
+            [](Class* self, const Joint<T>& joint) {
+              return &self->AddJoint(joint.ShallowClone());
             },
             py::arg("joint"), py_rvp::reference_internal,
             cls_doc.AddJoint.doc_1args)
@@ -235,8 +237,8 @@ void DoScalarDependentDefinitions(py::module m, T) {
             py::arg("actuator"), cls_doc.RemoveJointActuator.doc)
         .def(
             "AddFrame",
-            [](Class * self, std::unique_ptr<Frame<T>> frame) -> auto& {
-              return self->AddFrame(std::move(frame));
+            [](Class* self, const Frame<T>& frame) {
+              return &self->AddFrame(frame.ShallowClone());
             },
             py_rvp::reference_internal, py::arg("frame"), cls_doc.AddFrame.doc)
         .def("AddModelInstance", &Class::AddModelInstance, py::arg("name"),
@@ -246,7 +248,7 @@ void DoScalarDependentDefinitions(py::module m, T) {
             cls_doc.RenameModelInstance.doc)
         .def(
             "AddRigidBody",
-            [](Class * self, const std::string& name,
+            [](Class* self, const std::string& name,
                 const SpatialInertia<double>& s) -> auto& {
               return self->AddRigidBody(name, s);
             },
@@ -265,10 +267,9 @@ void DoScalarDependentDefinitions(py::module m, T) {
             py_rvp::reference_internal, cls_doc.WeldFrames.doc)
         .def(
             "AddForceElement",
-            [](Class * self,
-                std::unique_ptr<ForceElement<T>> force_element) -> auto& {
-              return self->template AddForceElement<ForceElement>(
-                  std::move(force_element));
+            [](Class* self, const ForceElement<T>& force_element) {
+              return &(self->template AddForceElement<ForceElement>(
+                  force_element.ShallowClone()));
             },
             py::arg("force_element"), py_rvp::reference_internal,
             cls_doc.AddForceElement.doc)
@@ -442,6 +443,9 @@ void DoScalarDependentDefinitions(py::module m, T) {
             cls_doc.SetDefaultFreeBodyPose.doc)
         .def("GetDefaultFreeBodyPose", &Class::GetDefaultFreeBodyPose,
             py::arg("body"), cls_doc.GetDefaultFreeBodyPose.doc)
+        .def("GetActuationFromArray", &Class::GetActuationFromArray,
+            py::arg("model_instance"), py::arg("u"),
+            cls_doc.GetActuationFromArray.doc)
         .def("SetActuationInArray", &Class::SetActuationInArray,
             py::arg("model_instance"), py::arg("u_instance"), py::arg("u"),
             cls_doc.SetActuationInArray.doc)
@@ -899,7 +903,7 @@ void DoScalarDependentDefinitions(py::module m, T) {
             py_rvp::reference_internal, cls_doc.GetJointByName.doc)
         .def(
             "GetMutableJointByName",
-            [](Class * self, string_view name,
+            [](Class* self, string_view name,
                 std::optional<ModelInstanceIndex> model_instance) -> auto& {
               return self->GetMutableJointByName(name, model_instance);
             },
@@ -945,10 +949,14 @@ void DoScalarDependentDefinitions(py::module m, T) {
             py::arg("diffuse_color"),
             cls_doc.RegisterVisualGeometry
                 .doc_5args_body_X_BG_shape_name_diffuse_color)
-        .def("RegisterVisualGeometry",
-            py::overload_cast<const RigidBody<T>&,
-                std::unique_ptr<geometry::GeometryInstance>>(
-                &Class::RegisterVisualGeometry),
+        .def(
+            "RegisterVisualGeometry",
+            [](Class& self, const RigidBody<T>& body,
+                const geometry::GeometryInstance& geometry_instance) {
+              return self.RegisterVisualGeometry(
+                  body, std::make_unique<geometry::GeometryInstance>(
+                            geometry_instance));
+            },
             py::arg("body"), py::arg("geometry_instance"),
             cls_doc.RegisterVisualGeometry.doc_2args_body_geometry_instance)
         .def("RegisterCollisionGeometry",
@@ -1106,17 +1114,7 @@ void DoScalarDependentDefinitions(py::module m, T) {
         .def("set_contact_model", &Class::set_contact_model, py::arg("model"),
             cls_doc.set_contact_model.doc)
         .def("get_contact_model", &Class::get_contact_model,
-            cls_doc.get_contact_model.doc);
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-    cls  // BR
-        .def("set_discrete_contact_solver",
-            WrapDeprecated(cls_doc.set_discrete_contact_solver.doc_deprecated,
-                &Class::set_discrete_contact_solver),
-            py::arg("contact_solver"),
-            cls_doc.set_discrete_contact_solver.doc_deprecated);
-#pragma GCC diagnostic pop
-    cls  // BR
+            cls_doc.get_contact_model.doc)
         .def("get_discrete_contact_solver", &Class::get_discrete_contact_solver,
             cls_doc.get_discrete_contact_solver.doc)
         .def("set_discrete_contact_approximation",
@@ -1342,38 +1340,44 @@ void DoScalarDependentDefinitions(py::module m, T) {
   }
 
   {
-    // TODO(eric.cousineau): Figure out why we need to use this to explicit
-    // keep-alive vs. annotating the return tuple with `py::keep_alive()`.
-    // Most likely due to a bug in our fork of pybind11 for handling of
-    // unique_ptr<> arguments and keep_alive<> behavior for objects that are
-    // not yet registered with pybind11 (#11046).
-    auto cast_workaround = [](auto&& nurse, py::object patient_py) {
-      // Cast to ensure we have the object registered.
-      py::object nurse_py = py::cast(nurse, py_rvp::reference);
-      // Directly leverage pybind11's keep alive mechanism.
-      py::detail::keep_alive_impl(nurse_py, patient_py);
-      return nurse_py;
-    };
-
+    // This function applies essentially the same memory management annotations
+    // as the builder.AddSystem() binding.
     auto result_to_tuple =
-        [cast_workaround](systems::DiagramBuilder<T>* builder,
+        [](systems::DiagramBuilder<T>* builder,
             const AddMultibodyPlantSceneGraphResult<T>& pair) {
+          // Using BuilderLifeSupport::stash makes the builder
+          // temporarily immortal (uncollectible self cycle). This will be
+          // resolved by the Build() step. See BuilderLifeSupport for
+          // rationale.
+          internal::BuilderLifeSupport<T>::stash(builder);
+
+          // Add garbage collectible ref cycles between the builder and the
+          // added systems. Strictly speaking, this is more lifetime insurance
+          // than necessary, but it does support usage seen in the wild where a
+          // single system reference (say, plant) is expected to keep an entire
+          // diagram alive.
           py::object builder_py = py::cast(builder, py_rvp::reference);
-          // Keep alive, ownership: `plant` keeps `builder` alive.
-          py::object plant_py = cast_workaround(pair.plant, builder_py);
-          // Keep alive, ownership: `scene_graph` keeps `builder` alive.
-          py::object scene_graph_py =
-              cast_workaround(pair.scene_graph, builder_py);
+          py::object plant_py = cast(pair.plant, py_rvp::reference);
+          py::object scene_graph_py = cast(pair.scene_graph, py_rvp::reference);
+          internal::make_arbitrary_ref_cycle(
+              builder_py, plant_py, "AddMultibodyPlantSceneGraphResult.plant");
+          internal::make_arbitrary_ref_cycle(builder_py, scene_graph_py,
+              "AddMultibodyPlantSceneGraphResult.scene_graph");
           return py::make_tuple(plant_py, scene_graph_py);
         };
 
     m.def(
         "AddMultibodyPlantSceneGraph",
         [result_to_tuple](systems::DiagramBuilder<T>* builder,
-            std::unique_ptr<MultibodyPlant<T>> plant,
-            std::unique_ptr<SceneGraph<T>> scene_graph) {
-          auto pair = AddMultibodyPlantSceneGraph<T>(
-              builder, std::move(plant), std::move(scene_graph));
+            MultibodyPlant<T>& plant, SceneGraph<T>* scene_graph) {
+          // The C++ method doesn't offer a bare-pointer overload, only
+          // shared_ptr. Because object lifetimes are already handled by the
+          // ref_cycle annotations above, we can pass the systems via unowned
+          // shared_ptr.
+          auto pair =
+              multibody::internal::AddMultibodyPlantSceneGraphFromShared<T>(
+                  builder, make_unowned_shared_ptr_from_raw(&plant),
+                  make_unowned_shared_ptr_from_raw(scene_graph));
           return result_to_tuple(builder, pair);
         },
         py::arg("builder"), py::arg("plant"), py::arg("scene_graph") = nullptr,
@@ -1383,9 +1387,17 @@ void DoScalarDependentDefinitions(py::module m, T) {
     m.def(
         "AddMultibodyPlantSceneGraph",
         [result_to_tuple](systems::DiagramBuilder<T>* builder, double time_step,
-            std::unique_ptr<SceneGraph<T>> scene_graph) {
-          auto pair = AddMultibodyPlantSceneGraph<T>(
-              builder, time_step, std::move(scene_graph));
+            SceneGraph<T>* scene_graph) {
+          // The C++ method doesn't offer a bare-pointer overload, only
+          // shared_ptr. Because object lifetimes are already handled by the
+          // ref_cycle annotations above, we can pass the systems via unowned
+          // shared_ptr.
+          auto pair =
+              multibody::internal::AddMultibodyPlantSceneGraphFromShared<T>(
+                  builder,
+                  make_unowned_shared_ptr_from_raw(
+                      new MultibodyPlant<T>(time_step)),
+                  make_unowned_shared_ptr_from_raw(scene_graph));
           return result_to_tuple(builder, pair);
         },
         py::arg("builder"), py::arg("time_step"),
@@ -1661,7 +1673,16 @@ PYBIND11_MODULE(plant, m) {
     cls  // BR
         .def(py::init<MultibodyPlant<T>*>(), cls_doc.ctor.doc)
         .def("num_bodies", &Class::num_bodies, cls_doc.num_bodies.doc)
-        .def("RegisterDeformableBody", &Class::RegisterDeformableBody,
+        .def(
+            "RegisterDeformableBody",
+            [](Class& self, const geometry::GeometryInstance& geometry_instance,
+                const fem::DeformableBodyConfig<T>& config,
+                double resolution_hint) {
+              return self.RegisterDeformableBody(
+                  std::make_unique<geometry::GeometryInstance>(
+                      geometry_instance),
+                  config, resolution_hint);
+            },
             py::arg("geometry_instance"), py::arg("config"),
             py::arg("resolution_hint"), cls_doc.RegisterDeformableBody.doc)
         .def("SetWallBoundaryCondition", &Class::SetWallBoundaryCondition,

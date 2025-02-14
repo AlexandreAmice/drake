@@ -89,22 +89,26 @@ std::unique_ptr<Joint<symbolic::Expression>> ScrewJoint<T>::DoCloneToScalar(
   return TemplatedDoCloneToScalar(tree_clone);
 }
 
+template <typename T>
+std::unique_ptr<Joint<T>> ScrewJoint<T>::DoShallowClone() const {
+  return std::make_unique<ScrewJoint<T>>(
+      this->name(), this->frame_on_parent(), this->frame_on_child(),
+      this->screw_axis(), this->screw_pitch(), this->default_damping());
+}
+
 // N.B. Due to esoteric linking errors on Mac (see #9345) involving
 // `MobilizerImpl`, we must place this implementation in the source file, not
 // in the header file.
 template <typename T>
-std::unique_ptr<typename Joint<T>::BluePrint>
-ScrewJoint<T>::MakeImplementationBlueprint(
+std::unique_ptr<internal::Mobilizer<T>> ScrewJoint<T>::MakeMobilizerForJoint(
     const internal::SpanningForest::Mobod& mobod) const {
-  auto blue_print = std::make_unique<typename Joint<T>::BluePrint>();
   const auto [inboard_frame, outboard_frame] =
       this->tree_frames(mobod.is_reversed());
   // TODO(sherm1) The mobilizer needs to be reversed, not just the frames.
   auto screw_mobilizer = std::make_unique<internal::ScrewMobilizer<T>>(
       mobod, *inboard_frame, *outboard_frame, this->screw_axis(), screw_pitch_);
   screw_mobilizer->set_default_position(this->default_positions());
-  blue_print->mobilizer = std::move(screw_mobilizer);
-  return blue_print;
+  return screw_mobilizer;
 }
 
 }  // namespace multibody

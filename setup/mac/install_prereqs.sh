@@ -10,6 +10,9 @@ source_distribution_args=()
 
 while [ "${1:-}" != "" ]; do
   case "$1" in
+    --developer)
+      source_distribution_args+=(--developer)
+      ;;
     # Do NOT install prerequisites that are only needed to build and/or run
     # unit tests, i.e., those prerequisites that are not dependencies of
     # bazel { build, run } //:install.
@@ -19,7 +22,6 @@ while [ "${1:-}" != "" ]; do
     # Do NOT call brew update during execution of this script.
     --without-update)
       binary_distribution_args+=(--without-update)
-      source_distribution_args+=(--without-update)
       ;;
     *)
       echo 'Invalid command line argument' >&2

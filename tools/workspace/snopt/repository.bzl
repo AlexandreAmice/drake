@@ -45,13 +45,22 @@ def snopt_repository(
         commit = "0254e961cb8c60193b0862a0428fd6a42bfb5243"
         shallow_since = "1546539374 -0500"
 
+    # Passing None to the repository rule causes DEBUG output spam from Bazel
+    # asking us to drop the unused argument, so we'll only pass non-None.
+    kwargs = dict()
+    if commit != None:
+        kwargs.update(commit = commit)
+    if shallow_since != None:
+        kwargs.update(shallow_since = shallow_since)
+    if tag != None:
+        kwargs.update(tag = tag)
+    if branch != None:
+        kwargs.update(branch = branch)
+
     _snopt_repository(
         name = name,
         remote = remote,
-        commit = commit,
-        shallow_since = shallow_since,
-        tag = tag,
-        branch = branch,
+        **kwargs
     )
 
 def _setup_git(repo_ctx):
@@ -178,12 +187,6 @@ def _impl(repo_ctx):
     else:
         # This case uses deferred error handling, since doing so is easy.
         _setup_local_archive(repo_ctx, snopt_path)
-
-    # Add in the helper.
-    repo_ctx.symlink(
-        Label("@drake//tools/workspace/snopt:fortran.bzl"),
-        "fortran.bzl",
-    )
 
     return updated_attrs
 

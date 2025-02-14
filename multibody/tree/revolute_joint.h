@@ -195,13 +195,13 @@ class RevoluteJoint final : public Joint<T> {
   }
 
   /// Sets the rate of change, in radians per second, of this `this` joint's
-  /// angle to `theta_dot`. The new rate of change `theta_dot` gets stored in
+  /// angle to `angle`. The new rate of change `angle` gets stored in
   /// `context`.
   /// @param[in] context
   ///   The context of the MultibodyTree this joint belongs to.
-  /// @param[in] theta_dot
+  /// @param[in] angle
   ///   The desired rate of change of `this` joints's angle in radians per
-  ///   second.
+  ///   second. (Should have been named `rate` or `angular_rate`.)
   /// @returns a constant reference to `this` joint.
   const RevoluteJoint<T>& set_angular_rate(Context<T>* context,
                                            const T& angle) const {
@@ -316,7 +316,7 @@ class RevoluteJoint final : public Joint<T> {
 
   void do_set_default_positions(
       const VectorX<double>& default_positions) override {
-    if (this->has_implementation()) {
+    if (this->has_mobilizer()) {
       get_mutable_mobilizer().set_default_position(default_positions);
     }
   }
@@ -330,7 +330,7 @@ class RevoluteJoint final : public Joint<T> {
   }
 
   // Joint<T> overrides:
-  std::unique_ptr<typename Joint<T>::BluePrint> MakeImplementationBlueprint(
+  std::unique_ptr<internal::Mobilizer<T>> MakeMobilizerForJoint(
       const internal::SpanningForest::Mobod& mobod) const override;
 
   std::unique_ptr<Joint<double>> DoCloneToScalar(
@@ -341,6 +341,8 @@ class RevoluteJoint final : public Joint<T> {
 
   std::unique_ptr<Joint<symbolic::Expression>> DoCloneToScalar(
       const internal::MultibodyTree<symbolic::Expression>&) const override;
+
+  std::unique_ptr<Joint<T>> DoShallowClone() const override;
 
   // Make RevoluteJoint templated on every other scalar type a friend of
   // RevoluteJoint<T> so that CloneToScalar<ToAnyOtherScalar>() can access

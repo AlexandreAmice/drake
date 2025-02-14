@@ -1,8 +1,16 @@
-# Don't use bzlmod yet.
-# TODO(jwnimmer-tri) When we enable bzlmod by default here, we should nix the
-# redundant setting drake/cmake/bazel.rc.in at the same time.
-common --enable_workspace=true
-common --enable_bzlmod=false
+# When compiling Drake as the main module (i.e., not as a Bazel dependency of
+# something else) we will default to using pkg-config to locate our C++
+# library dependencies.
+common --@drake//tools/flags:public_repo_default=pkgconfig
+common --@drake//tools/flags:private_runtime_repo_default=external
+
+# Tell spdlog to build a library, not header-only. This *substantially* reduces
+# build size and improves build speed.
+build --@@spdlog+//:header_only=False
+
+# Require all rules to be loaded in MODULE.bazel -- don't allow any legacy
+# implicit loads built-in to Bazel itself to take effect.
+common --incompatible_autoload_externally=
 
 # Default to an optimized build.
 build -c opt
@@ -10,6 +18,9 @@ build -c opt
 # Default build options.
 build --strip=never
 build --strict_system_includes
+
+# Use the host Python interpreter by default.
+build --extra_toolchains=@python//:all
 
 # Use C++20 by default.
 build --cxxopt=-std=c++20
@@ -63,8 +74,8 @@ build:everything --test_tag_filters=-no_everything
 # -- To run tests where Gurobi is used, ensure that you include
 # -- "gurobi_test_tags()" from //tools/skylark:test_tags.bzl.
 # -- If Gurobi is optional, set gurobi_required=False.
-build:gurobi --define=WITH_GUROBI=ON
-build:everything --define=WITH_GUROBI=ON
+build:gurobi --@drake//tools/flags:with_gurobi=True
+build:everything --@drake//tools/flags:with_gurobi=True
 # N.B. The build:packaging configuration does NOT use Gurobi (yet).
 # See https://github.com/RobotLocomotion/drake/issues/10804.
 build:packaging --test_tag_filters=-gurobi
@@ -76,9 +87,9 @@ build:packaging --test_tag_filters=-gurobi
 # -- To run tests where MOSEK™ is used, ensure that you include
 # -- "mosek_test_tags()" from //tools/skylark:test_tags.bzl.
 # -- If MOSEK™ is optional, set mosek_required=False.
-build:mosek --define=WITH_MOSEK=ON
-build:packaging --define=WITH_MOSEK=ON
-build:everything --define=WITH_MOSEK=ON
+build:mosek --@drake//tools/flags:with_mosek=True
+build:packaging --@drake//tools/flags:with_mosek=True
+build:everything --@drake//tools/flags:with_mosek=True
 
 ### A configuration that enables SNOPT. ###
 # -- To use this config, you must have access to the private repository
@@ -87,6 +98,6 @@ build:everything --define=WITH_MOSEK=ON
 #
 # -- To run tests that require SNOPT, also specify a set of test_tag_filters
 # -- that does not exclude the "snopt" tag.
-build:snopt --define=WITH_SNOPT=ON
-build:packaging --define=WITH_SNOPT=ON
-build:everything --define=WITH_SNOPT=ON
+build:snopt --@drake//tools/flags:with_snopt=True
+build:packaging --@drake//tools/flags:with_snopt=True
+build:everything --@drake//tools/flags:with_snopt=True

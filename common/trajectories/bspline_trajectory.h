@@ -3,6 +3,8 @@
 #include <memory>
 #include <vector>
 
+#include <Eigen/Sparse>
+
 #include "drake/common/drake_bool.h"
 #include "drake/common/drake_copyable.h"
 #include "drake/common/drake_throw.h"
@@ -45,10 +47,7 @@ class BsplineTrajectory final : public trajectories::Trajectory<T> {
       : BsplineTrajectory(math::BsplineBasis<T>(basis), control_points) {}
 #endif
 
-  ~BsplineTrajectory() override;
-
-  // Required methods for trajectories::Trajectory interface.
-  std::unique_ptr<trajectories::Trajectory<T>> Clone() const override;
+  ~BsplineTrajectory() final;
 
   /** Evaluates the BsplineTrajectory at the given time t.
   @param t The time at which to evaluate the %BsplineTrajectory.
@@ -58,17 +57,36 @@ class BsplineTrajectory final : public trajectories::Trajectory<T> {
            trajectory will silently be evaluated at the closest
            valid value of time to t. For example, `value(-1)` will return
            `value(0)` for a trajectory defined over [0, 1]. */
-  MatrixX<T> value(const T& time) const override;
+  MatrixX<T> value(const T& t) const final {
+    // We shadowed the base class to add documentation, not to change logic.
+    return Trajectory<T>::value(t);
+  }
 
-  Eigen::Index rows() const override { return control_points()[0].rows(); }
+  /** Supports writing optimizations using the control points as decision
+  variables.  This method returns the matrix, `M`, defining the control points
+  of the `order` derivative in the form:
+  <pre>
+  derivative.control_points() = this.control_points() * M
+  </pre>
+  See `BezierCurve::AsLinearInControlPoints()` for more details.
+  @pre derivative_order >= 0. */
+  Eigen::SparseMatrix<T> AsLinearInControlPoints(
+      int derivative_order = 1) const;
 
-  Eigen::Index cols() const override { return control_points()[0].cols(); }
+  /** Returns the vector, M, such that
+  @verbatim
+  EvalDerivative(t, derivative_order) = control_points() * M
+  @endverbatim
+  where cols()==1 (so control_points() is a matrix). This is useful for
+  writing linear constraints on the control points. Note that if the derivative
+  order is greater than or equal to the order of the basis, then the result is
+  a zero vector.
 
-  T start_time() const override { return basis_.initial_parameter_value(); }
+  @pre t ≥ start_time()
+  @pre t ≤ end_time() */
+  VectorX<T> EvaluateLinearInControlPoints(const T& t,
+                                           int derivative_order = 0) const;
 
-  T end_time() const override { return basis_.final_parameter_value(); }
-
-  // Other methods
   /** Returns the number of control points in this curve. */
   int num_control_points() const { return basis_.num_basis_functions(); }
 
@@ -135,12 +153,17 @@ class BsplineTrajectory final : public trajectories::Trajectory<T> {
   }
 
  private:
-  bool do_has_derivative() const override;
-
-  MatrixX<T> DoEvalDerivative(const T& t, int derivative_order) const override;
-
+  // Trajectory overrides.
+  std::unique_ptr<trajectories::Trajectory<T>> DoClone() const final;
+  MatrixX<T> do_value(const T& t) const final;
+  bool do_has_derivative() const final;
+  MatrixX<T> DoEvalDerivative(const T& t, int derivative_order) const final;
   std::unique_ptr<trajectories::Trajectory<T>> DoMakeDerivative(
-      int derivative_order) const override;
+      int derivative_order) const final;
+  Eigen::Index do_rows() const final { return control_points()[0].rows(); }
+  Eigen::Index do_cols() const final { return control_points()[0].cols(); }
+  T do_start_time() const final { return basis_.initial_parameter_value(); }
+  T do_end_time() const final { return basis_.final_parameter_value(); }
 
   void CheckInvariants() const;
 

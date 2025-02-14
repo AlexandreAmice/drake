@@ -17,6 +17,7 @@
 #include "drake/common/test_utilities/diagnostic_policy_test_base.h"
 #include "drake/common/test_utilities/eigen_matrix_compare.h"
 #include "drake/common/test_utilities/expect_throws_message.h"
+#include "drake/common/text_logging.h"
 #include "drake/geometry/geometry_instance.h"
 #include "drake/geometry/proximity_properties.h"
 #include "drake/geometry/rgba.h"
@@ -32,10 +33,10 @@ namespace multibody {
 namespace internal {
 namespace {
 
-using Eigen::Matrix3d;
-using Eigen::Vector3d;
 using drake::internal::DiagnosticDetail;
 using drake::internal::DiagnosticPolicy;
+using Eigen::Matrix3d;
+using Eigen::Vector3d;
 using geometry::Box;
 using geometry::Capsule;
 using geometry::Convex;
@@ -104,17 +105,19 @@ unique_ptr<sdf::Geometry> MakeSdfGeometryFromString(
       "  <model name='my_model'>"
       "    <link name='link'>"
       "      <visual name='link_visual'>"
-      "        <geometry>"
-          + geometry_spec +
+      "        <geometry>" +
+      geometry_spec +
       "        </geometry>"
       "      </visual>"
       "    </link>"
       "  </model>"
       "</sdf>";
   sdf::SDFPtr sdf_parsed = ReadString(sdf_str);
-  sdf::ElementPtr geometry_element =
-      sdf_parsed->Root()->GetElement("model")->
-          GetElement("link")->GetElement("visual")->GetElement("geometry");
+  sdf::ElementPtr geometry_element = sdf_parsed->Root()
+                                         ->GetElement("model")
+                                         ->GetElement("link")
+                                         ->GetElement("visual")
+                                         ->GetElement("geometry");
   auto sdf_geometry = make_unique<sdf::Geometry>();
   sdf::ParserConfig config = MakeStrictConfig();
   sdf_geometry->Load(geometry_element, config);
@@ -138,15 +141,15 @@ unique_ptr<sdf::Visual> MakeSdfVisualFromString(
       "<?xml version='1.0'?>"
       "<sdf version='1.7'>"
       "  <model name='my_model'>"
-      "    <link name='link'>"
-      + visual_spec +
+      "    <link name='link'>" +
+      visual_spec +
       "    </link>"
       "  </model>"
       "</sdf>";
   sdf::SDFPtr sdf_parsed = ReadString(sdf_str);
   sdf::ElementPtr visual_element =
-      sdf_parsed->Root()->GetElement("model")->
-          GetElement("link")->GetElement("visual");
+      sdf_parsed->Root()->GetElement("model")->GetElement("link")->GetElement(
+          "visual");
   auto sdf_visual = make_unique<sdf::Visual>();
   sdf::ParserConfig config = MakeStrictConfig();
   sdf_visual->Load(visual_element, config);
@@ -172,17 +175,17 @@ unique_ptr<sdf::Collision> MakeSdfCollisionFromString(
     const std::string& collision_spec) {
   const std::string sdf_str =
       "<?xml version='1.0'?>"
-          "<sdf version='1.7'>"
-          "  <model name='my_model'>"
-          "    <link name='link'>"
-          + collision_spec +
-          "    </link>"
-          "  </model>"
-          "</sdf>";
+      "<sdf version='1.7'>"
+      "  <model name='my_model'>"
+      "    <link name='link'>" +
+      collision_spec +
+      "    </link>"
+      "  </model>"
+      "</sdf>";
   sdf::SDFPtr sdf_parsed = ReadString(sdf_str);
   sdf::ElementPtr collision_element =
-      sdf_parsed->Root()->GetElement("model")->
-          GetElement("link")->GetElement("collision");
+      sdf_parsed->Root()->GetElement("model")->GetElement("link")->GetElement(
+          "collision");
   auto sdf_collision = make_unique<sdf::Collision>();
   sdf::ParserConfig config = MakeStrictConfig();
   sdf_collision->Load(collision_element, config);
@@ -201,8 +204,8 @@ class SceneGraphParserDetail : public test::DiagnosticPolicyTestBase {
   std::unique_ptr<geometry::Shape> MakeShapeFromSdfGeometry(
       const sdf::Geometry& sdf_geometry,
       const ResolveFilename& resolve_filename = &NoopResolveFilename) {
-    return internal::MakeShapeFromSdfGeometry(
-        sdf_diagnostic_, sdf_geometry, resolve_filename);
+    return internal::MakeShapeFromSdfGeometry(sdf_diagnostic_, sdf_geometry,
+                                              resolve_filename);
   }
 
   // Wraps a function under test with helpful defaults.
@@ -268,9 +271,10 @@ TEST_F(SceneGraphParserDetail, CheckInvalidDrakeCapsules) {
   unique_ptr<Shape> shape_no_radius =
       MakeShapeFromSdfGeometry(*no_radius_geometry);
   EXPECT_EQ(shape_no_radius, nullptr);
-  EXPECT_THAT(FormatFirstError(), ::testing::MatchesRegex(
-      ".*Element <radius> is required within element <drake:capsule>."));
-  ClearDiagnostics();
+  EXPECT_THAT(
+      TakeError(),
+      ::testing::MatchesRegex(
+          ".*Element <radius> is required within element <drake:capsule>."));
 
   unique_ptr<sdf::Geometry> no_length_geometry = MakeSdfGeometryFromString(
       "<drake:capsule>"
@@ -279,9 +283,10 @@ TEST_F(SceneGraphParserDetail, CheckInvalidDrakeCapsules) {
   unique_ptr<Shape> shape_no_length =
       MakeShapeFromSdfGeometry(*no_length_geometry);
   EXPECT_EQ(shape_no_length, nullptr);
-  EXPECT_THAT(FormatFirstError(), ::testing::MatchesRegex(
-      ".*Element <length> is required within element <drake:capsule>."));
-  ClearDiagnostics();
+  EXPECT_THAT(
+      TakeError(),
+      ::testing::MatchesRegex(
+          ".*Element <length> is required within element <drake:capsule>."));
 }
 
 // Verify MakeShapeFromSdfGeometry can make a capsule from an sdf::Geometry.
@@ -342,9 +347,10 @@ TEST_F(SceneGraphParserDetail, CheckInvalidEllipsoids) {
       "</drake:ellipsoid>");
   unique_ptr<Shape> shape_no_a = MakeShapeFromSdfGeometry(*no_a_geometry);
   EXPECT_EQ(shape_no_a, nullptr);
-  EXPECT_THAT(FormatFirstError(), ::testing::MatchesRegex(
-      ".*Element <a> is required within element <drake:ellipsoid>."));
-  ClearDiagnostics();
+  EXPECT_THAT(
+      TakeError(),
+      ::testing::MatchesRegex(
+          ".*Element <a> is required within element <drake:ellipsoid>."));
 
   unique_ptr<sdf::Geometry> no_b_geometry = MakeSdfGeometryFromString(
       "<drake:ellipsoid>"
@@ -353,9 +359,10 @@ TEST_F(SceneGraphParserDetail, CheckInvalidEllipsoids) {
       "</drake:ellipsoid>");
   unique_ptr<Shape> shape_no_b = MakeShapeFromSdfGeometry(*no_b_geometry);
   EXPECT_EQ(shape_no_b, nullptr);
-  EXPECT_THAT(FormatFirstError(), ::testing::MatchesRegex(
-      ".*Element <b> is required within element <drake:ellipsoid>."));
-  ClearDiagnostics();
+  EXPECT_THAT(
+      TakeError(),
+      ::testing::MatchesRegex(
+          ".*Element <b> is required within element <drake:ellipsoid>."));
 
   unique_ptr<sdf::Geometry> no_c_geometry = MakeSdfGeometryFromString(
       "<drake:ellipsoid>"
@@ -364,11 +371,11 @@ TEST_F(SceneGraphParserDetail, CheckInvalidEllipsoids) {
       "</drake:ellipsoid>");
   unique_ptr<Shape> shape_no_c = MakeShapeFromSdfGeometry(*no_c_geometry);
   EXPECT_EQ(shape_no_c, nullptr);
-  EXPECT_THAT(FormatFirstError(), ::testing::MatchesRegex(
-      ".*Element <c> is required within element <drake:ellipsoid>."));
-  ClearDiagnostics();
+  EXPECT_THAT(
+      TakeError(),
+      ::testing::MatchesRegex(
+          ".*Element <c> is required within element <drake:ellipsoid>."));
 }
-
 
 // Verify MakeShapeFromSdfGeometry can make an ellipsoid from an sdf::Geometry.
 TEST_F(SceneGraphParserDetail, MakeEllipsoidFromSdfGeometry) {
@@ -417,7 +424,9 @@ TEST_F(SceneGraphParserDetail, MakeMeshFromSdfGeometry) {
   const std::string absolute_file_path = "/path/to/some/mesh.obj";
   unique_ptr<sdf::Geometry> sdf_geometry = MakeSdfGeometryFromString(
       "<mesh>"
-      "  <uri>" + absolute_file_path + "</uri>"
+      "  <uri>" +
+      absolute_file_path +
+      "</uri>"
       "  <scale> 3 3 3 </scale>"
       "</mesh>");
   unique_ptr<Shape> shape = MakeShapeFromSdfGeometry(*sdf_geometry);
@@ -436,15 +445,17 @@ TEST_F(SceneGraphParserDetail, MakeMeshFromSdfGeometryIsotropicError) {
   const std::string absolute_file_path = "/path/to/some/mesh.obj";
   unique_ptr<sdf::Geometry> sdf_geometry = MakeSdfGeometryFromString(
       "<mesh>"
-      "  <uri>" + absolute_file_path + "</uri>"
+      "  <uri>" +
+      absolute_file_path +
+      "</uri>"
       "  <scale> 3 1 2 </scale>"
       "</mesh>");
   unique_ptr<Shape> shape = MakeShapeFromSdfGeometry(*sdf_geometry);
   EXPECT_EQ(shape, nullptr);
-  EXPECT_THAT(FormatFirstError(), ::testing::MatchesRegex(
-      ".*Drake meshes only support isotropic scaling. Therefore"
-      " all three scaling factors must be exactly equal."));
-  ClearDiagnostics();
+  EXPECT_THAT(TakeError(),
+              ::testing::MatchesRegex(
+                  ".*Drake meshes only support isotropic scaling. Therefore"
+                  " all three scaling factors must be exactly equal."));
 }
 
 // Verify MakeShapeFromSdfGeometry can make a convex mesh from an sdf::Geometry.
@@ -453,7 +464,9 @@ TEST_F(SceneGraphParserDetail, MakeConvexFromSdfGeometry) {
   unique_ptr<sdf::Geometry> sdf_geometry = MakeSdfGeometryFromString(
       "<mesh xmlns:drake='http://drake.mit.edu'>"
       "  <drake:declare_convex/>"
-      "  <uri>" + absolute_file_path + "</uri>"
+      "  <uri>" +
+      absolute_file_path +
+      "</uri>"
       "  <scale> 3 3 3 </scale>"
       "</mesh>");
   unique_ptr<Shape> shape = MakeShapeFromSdfGeometry(*sdf_geometry);
@@ -525,8 +538,8 @@ TEST_F(SceneGraphParserDetail, MakeGeometryInstanceFromSdfVisual) {
   // Verify results to precision given by kTolerance.
   const double kTolerance = 10 * std::numeric_limits<double>::epsilon();
   EXPECT_TRUE(X_LC.rotation().IsNearlyEqualTo(R_LC_expected, kTolerance));
-  EXPECT_TRUE(CompareMatrices(X_LC.translation(), p_LCo_expected,
-                              kTolerance, MatrixCompareType::relative));
+  EXPECT_TRUE(CompareMatrices(X_LC.translation(), p_LCo_expected, kTolerance,
+                              MatrixCompareType::relative));
 }
 
 // Verify MakeGeometryInstanceFromSdfVisual() creates an instance such that only
@@ -574,10 +587,9 @@ TEST_F(SceneGraphParserDetail, MakeGeometryInstanceFromSdfVisualPartialRoles) {
   {
     unique_ptr<sdf::Visual> sdf_visual = MakeSdfVisualFromString(fmt::format(
         sdf_format_str, fmt::arg("p_on", true), fmt::arg("i_on", true)));
-    unique_ptr<GeometryInstance> instance =
-        MakeGeometryInstanceFromSdfVisual(
-            sdf_diagnostic_, *sdf_visual, NoopResolveFilename,
-            ToRigidTransform(sdf_visual->RawPose()));
+    unique_ptr<GeometryInstance> instance = MakeGeometryInstanceFromSdfVisual(
+        sdf_diagnostic_, *sdf_visual, NoopResolveFilename,
+        ToRigidTransform(sdf_visual->RawPose()));
     ASSERT_NE(instance, nullptr);
     ASSERT_NE(instance->perception_properties(), nullptr);
     ASSERT_NE(instance->illustration_properties(), nullptr);
@@ -587,10 +599,9 @@ TEST_F(SceneGraphParserDetail, MakeGeometryInstanceFromSdfVisualPartialRoles) {
   {
     unique_ptr<sdf::Visual> sdf_visual = MakeSdfVisualFromString(fmt::format(
         sdf_format_str, fmt::arg("p_on", true), fmt::arg("i_on", false)));
-    unique_ptr<GeometryInstance> instance =
-        MakeGeometryInstanceFromSdfVisual(
-            sdf_diagnostic_, *sdf_visual, NoopResolveFilename,
-            ToRigidTransform(sdf_visual->RawPose()));
+    unique_ptr<GeometryInstance> instance = MakeGeometryInstanceFromSdfVisual(
+        sdf_diagnostic_, *sdf_visual, NoopResolveFilename,
+        ToRigidTransform(sdf_visual->RawPose()));
     ASSERT_NE(instance, nullptr);
     ASSERT_NE(instance->perception_properties(), nullptr);
     ASSERT_EQ(instance->illustration_properties(), nullptr);
@@ -600,10 +611,9 @@ TEST_F(SceneGraphParserDetail, MakeGeometryInstanceFromSdfVisualPartialRoles) {
   {
     unique_ptr<sdf::Visual> sdf_visual = MakeSdfVisualFromString(fmt::format(
         sdf_format_str, fmt::arg("p_on", false), fmt::arg("i_on", true)));
-    unique_ptr<GeometryInstance> instance =
-        MakeGeometryInstanceFromSdfVisual(
-            sdf_diagnostic_, *sdf_visual, NoopResolveFilename,
-            ToRigidTransform(sdf_visual->RawPose()));
+    unique_ptr<GeometryInstance> instance = MakeGeometryInstanceFromSdfVisual(
+        sdf_diagnostic_, *sdf_visual, NoopResolveFilename,
+        ToRigidTransform(sdf_visual->RawPose()));
     ASSERT_NE(instance, nullptr);
     ASSERT_EQ(instance->perception_properties(), nullptr);
     ASSERT_NE(instance->illustration_properties(), nullptr);
@@ -617,10 +627,9 @@ TEST_F(SceneGraphParserDetail, MakeGeometryInstanceFromSdfVisualPartialRoles) {
   {
     unique_ptr<sdf::Visual> sdf_visual = MakeSdfVisualFromString(fmt::format(
         sdf_format_str, fmt::arg("p_on", false), fmt::arg("i_on", false)));
-    unique_ptr<GeometryInstance> instance =
-        MakeGeometryInstanceFromSdfVisual(
-            sdf_diagnostic_, *sdf_visual, NoopResolveFilename,
-            ToRigidTransform(sdf_visual->RawPose()));
+    unique_ptr<GeometryInstance> instance = MakeGeometryInstanceFromSdfVisual(
+        sdf_diagnostic_, *sdf_visual, NoopResolveFilename,
+        ToRigidTransform(sdf_visual->RawPose()));
     ASSERT_EQ(instance, nullptr);
     EXPECT_THAT(TakeWarning(),
                 ::testing::HasSubstr("all visual roles turned off for Drake"));
@@ -679,8 +688,8 @@ TEST_F(SceneGraphParserDetail, VisualGeometryNameRequirements) {
   EXPECT_TRUE(valid_parse(fmt::format(visual_tag, "visual   ")));
 
   // These whitespace characters are *not* considered to be whitespace by SDF.
-  std::vector<std::pair<char, std::string>> ignored_whitespace{
-      {'\v', "\\v"}, {'\f', "\\f"}};
+  std::vector<std::pair<char, std::string>> ignored_whitespace{{'\v', "\\v"},
+                                                               {'\f', "\\f"}};
   for (const auto& pair : ignored_whitespace) {
     // Case: Whitespace-only name.
     EXPECT_TRUE(valid_parse(fmt::format(visual_tag, pair.first)))
@@ -777,8 +786,8 @@ TEST_F(SceneGraphParserDetail, MakeHalfSpaceGeometryInstanceFromSdfVisual) {
   // Verify results to precision given by kTolerance.
   const double kTolerance = 10 * std::numeric_limits<double>::epsilon();
   EXPECT_TRUE(R_LC.IsNearlyEqualTo(R_LC_expected, kTolerance));
-  EXPECT_TRUE(CompareMatrices(normal_L, normal_L_expected,
-                              kTolerance, MatrixCompareType::relative));
+  EXPECT_TRUE(CompareMatrices(normal_L, normal_L_expected, kTolerance,
+                              MatrixCompareType::relative));
 }
 
 // Verify MakeSdfVisualFromString() returns nullptr when the visual specifies
@@ -799,18 +808,17 @@ TEST_F(SceneGraphParserDetail, MakeEmptyGeometryInstanceFromSdfVisual) {
   EXPECT_EQ(*geometry_instance, nullptr);
 }
 
-
 // Verify that MakeGeometryInstanceFromSdfVisual does nothing with a heightmap.
 TEST_F(SceneGraphParserDetail, MakeHeightmapGeometryInstanceFromSdfVisual) {
   unique_ptr<sdf::Visual> sdf_visual = MakeSdfVisualFromString(
-    "<visual name='some_link_visual'>"
-    "  <pose>1.0 2.0 3.0 3.14 6.28 1.57</pose>"
-    "  <geometry>"
-    "    <heightmap>"
-    "      <uri>/path/to/some/heightmap.png</uri>"
-    "    </heightmap>"
-    "  </geometry>"
-    "</visual>");
+      "<visual name='some_link_visual'>"
+      "  <pose>1.0 2.0 3.0 3.14 6.28 1.57</pose>"
+      "  <geometry>"
+      "    <heightmap>"
+      "      <uri>/path/to/some/heightmap.png</uri>"
+      "    </heightmap>"
+      "  </geometry>"
+      "</visual>");
   std::optional<unique_ptr<GeometryInstance>> geometry_instance =
       MakeGeometryInstanceFromSdfVisual(
           sdf_diagnostic_, *sdf_visual, NoopResolveFilename,
@@ -900,9 +908,11 @@ TEST_F(SceneGraphParserDetail, ParseVisualMaterial) {
         test_color("specular", specular);
         test_color("ambient", ambient);
         test_color("emissive", emissive);
-        auto result = HasExpectedProperty(
-            "phong", "diffuse_map", diffuse_map, dut,
-            [](const std::string& a, const std::string& b) { return a == b; });
+        auto result =
+            HasExpectedProperty("phong", "diffuse_map", diffuse_map, dut,
+                                [](const std::string& a, const std::string& b) {
+                                  return a == b;
+                                });
         if (!result) {
           failure << result;
           success = false;
@@ -942,8 +952,8 @@ TEST_F(SceneGraphParserDetail, ParseVisualMaterial) {
       auto write_color = [&ss](const char* name, const Vector4d* color) {
         if (color) {
           const Vector4d& c = *color;
-          ss << fmt::format("    <{0}>{1} {2} {3} {4}</{0}>", name,
-                            c(0), c(1), c(2), c(3));
+          ss << fmt::format("    <{0}>{1} {2} {3} {4}</{0}>", name, c(0), c(1),
+                            c(2), c(3));
         }
       };
       ss << "  <material>";
@@ -1040,8 +1050,8 @@ TEST_F(SceneGraphParserDetail, ParseVisualMaterial) {
         make_xml(true, &diffuse, &specular, &ambient, &emissive, ""));
     VisualProperties vis_props = MakeVisualPropertiesFromSdfVisual(*sdf_visual);
     ASSERT_TRUE(vis_props.illustration.has_value());
-    EXPECT_TRUE(expect_phong(*vis_props.illustration, true, diffuse,
-                specular, ambient, emissive, {}));
+    EXPECT_TRUE(expect_phong(*vis_props.illustration, true, diffuse, specular,
+                             ambient, emissive, {}));
   }
 
   // Case: With diffuse map.
@@ -1068,22 +1078,24 @@ TEST_F(SceneGraphParserDetail, ParseVisualMaterial) {
         make_xml(true, &diffuse, &specular, &ambient, &emissive, kLocalMap);
     unique_ptr<sdf::Visual> sdf_visual = MakeSdfVisualFromString(
         make_xml(true, &diffuse, &specular, &ambient, &emissive, kLocalMap));
-    internal::MakeVisualPropertiesFromSdfVisual(sdf_diagnostic_,
-        *sdf_visual, [](const SDFormatDiagnostic&, std::string filename)
-            -> std::string {return {};});
-    EXPECT_THAT(FormatFirstError(), ::testing::MatchesRegex(
-        ".*Unable to locate the texture file: empty.png"));
-    ClearDiagnostics();
+    internal::MakeVisualPropertiesFromSdfVisual(
+        sdf_diagnostic_, *sdf_visual,
+        [](const SDFormatDiagnostic&, std::string filename) -> std::string {
+          return {};
+        });
+    EXPECT_THAT(TakeError(),
+                ::testing::MatchesRegex(
+                    ".*Unable to locate the texture file: empty.png"));
   }
 
   // Case: drake:{illustration|perception}_properties is missing the enabled
   // attribute. The result has the named property.
   {
     unique_ptr<sdf::Visual> sdf_visual = MakeSdfVisualFromString(
-      "<visual name='v'>"
-      " <geometry><sphere><radius>1</radius></sphere></geometry>"
-      " <drake:illustration_properties/>"
-      "</visual>");
+        "<visual name='v'>"
+        " <geometry><sphere><radius>1</radius></sphere></geometry>"
+        " <drake:illustration_properties/>"
+        "</visual>");
     VisualProperties vis_props = MakeVisualPropertiesFromSdfVisual(*sdf_visual);
     ASSERT_TRUE(vis_props.illustration.has_value());
   }
@@ -1092,10 +1104,10 @@ TEST_F(SceneGraphParserDetail, ParseVisualMaterial) {
   // enabled attribute. The result has the named property.
   {
     unique_ptr<sdf::Visual> sdf_visual = MakeSdfVisualFromString(
-      "<visual name='v'>"
-      " <geometry><sphere><radius>1</radius></sphere></geometry>"
-      " <drake:illustration_properties enabled='true'/>"
-      "</visual>");
+        "<visual name='v'>"
+        " <geometry><sphere><radius>1</radius></sphere></geometry>"
+        " <drake:illustration_properties enabled='true'/>"
+        "</visual>");
     VisualProperties vis_props = MakeVisualPropertiesFromSdfVisual(*sdf_visual);
     ASSERT_TRUE(vis_props.illustration.has_value());
   }
@@ -1104,10 +1116,10 @@ TEST_F(SceneGraphParserDetail, ParseVisualMaterial) {
   // type for the "enabled" attribute.
   {
     unique_ptr<sdf::Visual> sdf_visual = MakeSdfVisualFromString(
-      "<visual name='v'>"
-      " <geometry><sphere><radius>1</radius></sphere></geometry>"
-      " <drake:illustration_properties enabled=\"bob\"/>"
-      "</visual>");
+        "<visual name='v'>"
+        " <geometry><sphere><radius>1</radius></sphere></geometry>"
+        " <drake:illustration_properties enabled=\"bob\"/>"
+        "</visual>");
     internal::MakeVisualPropertiesFromSdfVisual(
         sdf_diagnostic_, *sdf_visual,
         [](const SDFormatDiagnostic&, std::string) -> std::string {
@@ -1135,7 +1147,8 @@ TEST_F(SceneGraphParserDetail, ParseVisualMaterial) {
         "      <radius>1</radius>"
         "    </sphere>"
         "  </geometry>"
-        "  <material>" + bad_diffuse +
+        "  <material>" +
+        bad_diffuse +
         "  </material>"
         "</visual>");
     VisualProperties vis_props = MakeVisualPropertiesFromSdfVisual(*sdf_visual);
@@ -1231,37 +1244,37 @@ TEST_F(SceneGraphParserDetail, AcceptingRenderers) {
   // Case: Missing names throws exception.
   {
     unique_ptr<sdf::Visual> sdf_visual = MakeSdfVisualFromString(
-          "<visual name='some_link_visual'>"
-          "  <pose>0 0 0 0 0 0</pose>"
-          "  <geometry>"
-          "    <sphere>"
-          "      <radius>1</radius>"
-          "    </sphere>"
-          "  </geometry>"
-          "  <material>"
-          "    <diffuse>0.25 1 0.5 0.25</diffuse>"
-          "  </material>"
-          "  <drake:accepting_renderer> </drake:accepting_renderer>"
-          "</visual>");
+        "<visual name='some_link_visual'>"
+        "  <pose>0 0 0 0 0 0</pose>"
+        "  <geometry>"
+        "    <sphere>"
+        "      <radius>1</radius>"
+        "    </sphere>"
+        "  </geometry>"
+        "  <material>"
+        "    <diffuse>0.25 1 0.5 0.25</diffuse>"
+        "  </material>"
+        "  <drake:accepting_renderer> </drake:accepting_renderer>"
+        "</visual>");
     MakeVisualPropertiesFromSdfVisual(*sdf_visual);
-    EXPECT_THAT(FormatFirstError(), ::testing::MatchesRegex(
-        ".*<drake:accepting_renderer> tag given without any name"));
+    EXPECT_THAT(TakeError(),
+                ::testing::MatchesRegex(
+                    ".*<drake:accepting_renderer> tag given without any name"));
   }
 
   // Case: specifying accepting renderers with disabled perception role warns.
   {
     unique_ptr<sdf::Visual> sdf_visual = MakeSdfVisualFromString(
-          "<visual name='some_link_visual'>"
-          "  <geometry><sphere><radius>1</radius></sphere></geometry>"
-          "  <drake:perception_properties enabled=\"false\"/>"
-          "  <drake:accepting_renderer> </drake:accepting_renderer>"
-          "</visual>");
+        "<visual name='some_link_visual'>"
+        "  <geometry><sphere><radius>1</radius></sphere></geometry>"
+        "  <drake:perception_properties enabled=\"false\"/>"
+        "  <drake:accepting_renderer> </drake:accepting_renderer>"
+        "</visual>");
     MakeVisualPropertiesFromSdfVisual(*sdf_visual);
     EXPECT_THAT(TakeWarning(), ::testing::MatchesRegex(
-        ".*<drake:accepting_renderer> specified .* disabled perception role."));
+                                   ".*<drake:accepting_renderer> specified .* "
+                                   "disabled perception role."));
   }
-
-  ClearDiagnostics();
 }
 
 // Verify that the <drake:*_properties> are accounted for in disabling sets of
@@ -1403,8 +1416,7 @@ TEST_F(SceneGraphParserDetail, MakeGeometryPoseFromSdfCollision) {
 // canonical frame C whose pose needs to be specified at a GeometryInstance
 // level, the SDF specification does not define this pose at the <geometry>
 // level but at the <collision> level.
-TEST_F(SceneGraphParserDetail,
-           MakeGeometryPoseFromSdfCollisionForHalfSpace) {
+TEST_F(SceneGraphParserDetail, MakeGeometryPoseFromSdfCollisionForHalfSpace) {
   unique_ptr<sdf::Collision> sdf_collision = MakeSdfCollisionFromString(
       "<collision name = 'some_link_collision'>"
       "  <pose>0.0 0.0 0.0 0.0 0.0 0.0</pose>"
@@ -1428,8 +1440,8 @@ TEST_F(SceneGraphParserDetail,
   // Verify results to precision given by kTolerance.
   const double kTolerance = 10 * std::numeric_limits<double>::epsilon();
   EXPECT_TRUE(X_LG.rotation().IsNearlyEqualTo(R_LG_expected, kTolerance));
-  EXPECT_TRUE(CompareMatrices(X_LG.translation(), Vector3d::Zero(),
-                              kTolerance, MatrixCompareType::relative));
+  EXPECT_TRUE(CompareMatrices(X_LG.translation(), Vector3d::Zero(), kTolerance,
+                              MatrixCompareType::relative));
 }
 
 // Verify we can parse drake collision properties from a <collision> element.
@@ -1468,8 +1480,8 @@ TEST_F(SceneGraphParserDetail, MakeProximityPropertiesForCollision) {
   auto assert_single_property = [](const ProximityProperties& properties,
                                    const char* group, const char* property,
                                    double value) {
-    SCOPED_TRACE(fmt::format("testing group {} property {} value {}",
-                             group, property, value));
+    SCOPED_TRACE(fmt::format("testing group {} property {} value {}", group,
+                             property, value));
     ASSERT_TRUE(properties.HasProperty(group, property));
     EXPECT_EQ(properties.GetProperty<double>(group, property), value);
   };
@@ -1515,9 +1527,10 @@ TEST_F(SceneGraphParserDetail, MakeProximityPropertiesForCollision) {
         MakeProximityPropertiesForCollision(sdf_diagnostic_, *sdf_collision);
     ASSERT_TRUE(properties.has_value());
     ASSERT_TRUE(properties->HasProperty(geometry::internal::kHydroGroup,
-                                       geometry::internal::kComplianceType));
+                                        geometry::internal::kComplianceType));
     EXPECT_EQ(properties->GetProperty<geometry::internal::HydroelasticType>(
-        geometry::internal::kHydroGroup, geometry::internal::kComplianceType),
+                  geometry::internal::kHydroGroup,
+                  geometry::internal::kComplianceType),
               geometry::internal::HydroelasticType::kRigid);
   }
 
@@ -1531,9 +1544,10 @@ TEST_F(SceneGraphParserDetail, MakeProximityPropertiesForCollision) {
         MakeProximityPropertiesForCollision(sdf_diagnostic_, *sdf_collision);
     ASSERT_TRUE(properties.has_value());
     ASSERT_TRUE(properties->HasProperty(geometry::internal::kHydroGroup,
-                                       geometry::internal::kComplianceType));
+                                        geometry::internal::kComplianceType));
     EXPECT_EQ(properties->GetProperty<geometry::internal::HydroelasticType>(
-        geometry::internal::kHydroGroup, geometry::internal::kComplianceType),
+                  geometry::internal::kHydroGroup,
+                  geometry::internal::kComplianceType),
               geometry::internal::HydroelasticType::kSoft);
   }
 
@@ -1548,11 +1562,11 @@ TEST_F(SceneGraphParserDetail, MakeProximityPropertiesForCollision) {
     std::optional<ProximityProperties> properties =
         MakeProximityPropertiesForCollision(sdf_diagnostic_, *sdf_collision);
     EXPECT_FALSE(properties.has_value());
-    EXPECT_THAT(FormatFirstError(), ::testing::MatchesRegex(
-        ".*A <collision> geometry has defined the unsupported tag "
-        "<drake:soft_hydroelastic>. Please change it to "
-        "<drake:compliant_hydroelastic>."));
-    ClearDiagnostics();
+    EXPECT_THAT(TakeError(),
+                ::testing::MatchesRegex(
+                    ".*A <collision> geometry has defined the unsupported tag "
+                    "<drake:soft_hydroelastic>. Please change it to "
+                    "<drake:compliant_hydroelastic>."));
   }
 
   // Case: specifies both -- should be an error.
@@ -1565,10 +1579,11 @@ TEST_F(SceneGraphParserDetail, MakeProximityPropertiesForCollision) {
     std::optional<ProximityProperties> properties =
         MakeProximityPropertiesForCollision(sdf_diagnostic_, *sdf_collision);
     EXPECT_FALSE(properties.has_value());
-    EXPECT_THAT(FormatFirstError(), ::testing::MatchesRegex(
-        ".*A <collision> geometry has defined mutually-exclusive tags "
-        ".*rigid.* and .*compliant.*"));
-    ClearDiagnostics();
+    EXPECT_THAT(
+        TakeError(),
+        ::testing::MatchesRegex(
+            ".*A <collision> geometry has defined mutually-exclusive tags "
+            ".*rigid.* and .*compliant.*"));
   }
 
   // Case: has no drake coefficients, only mu & m2 in ode: contains mu, mu2
@@ -1616,7 +1631,7 @@ TEST_F(SceneGraphParserDetail, MakeProximityPropertiesForCollision) {
         MakeProximityPropertiesForCollision(sdf_diagnostic, *sdf_collision);
     ASSERT_TRUE(properties.has_value());
     EXPECT_THAT(warning.message, ::testing::MatchesRegex(
-        ".*collision.*some_geo.*ode.*ignored.*"));
+                                     ".*collision.*some_geo.*ode.*ignored.*"));
     assert_friction(*properties, {0.3, 0.3});
   }
   // Note: we're not explicitly testing negative friction coefficients or
@@ -1655,7 +1670,7 @@ TEST_F(SceneGraphParserDetail, MakeCoulombFrictionFromSdfCollisionOde) {
 // Verify that if no <surface> tag is present, we return default friction
 // coefficients.
 TEST_F(SceneGraphParserDetail,
-           MakeCoulombFrictionFromSdfCollisionOde_NoSurface) {
+       MakeCoulombFrictionFromSdfCollisionOde_NoSurface) {
   unique_ptr<sdf::Collision> sdf_collision = MakeSdfCollisionFromString(
       "<collision name = 'some_link_collision'>"
       "  <pose>0.0 0.0 0.0 0.0 0.0 0.0</pose>"
@@ -1668,11 +1683,9 @@ TEST_F(SceneGraphParserDetail,
   std::optional<CoulombFriction<double>> friction =
       MakeCoulombFrictionFromSdfCollisionOde(sdf_diagnostic_, *sdf_collision);
   ASSERT_TRUE(friction.has_value());
-  std::optional<CoulombFriction<double>> expected_friction =
-      default_friction();
+  std::optional<CoulombFriction<double>> expected_friction = default_friction();
   ASSERT_TRUE(expected_friction.has_value());
-  EXPECT_EQ(friction->static_friction(),
-            expected_friction->static_friction());
+  EXPECT_EQ(friction->static_friction(), expected_friction->static_friction());
   EXPECT_EQ(friction->dynamic_friction(),
             expected_friction->dynamic_friction());
 }
@@ -1690,7 +1703,7 @@ TEST_F(SceneGraphParserDetail,
 // thrown from CoulombFriction gets concatenated and re-thrown by
 // MakeCoulombFrictionFromSdfCollisionOde().
 TEST_F(SceneGraphParserDetail,
-           MakeCoulombFrictionFromSdfCollisionOde_DynamicLargerThanStatic) {
+       MakeCoulombFrictionFromSdfCollisionOde_DynamicLargerThanStatic) {
   unique_ptr<sdf::Collision> sdf_collision = MakeSdfCollisionFromString(
       "<collision name = 'some_link_collision'>"
       "  <pose>0.0 0.0 0.0 0.0 0.0 0.0</pose>"
@@ -1716,7 +1729,7 @@ TEST_F(SceneGraphParserDetail,
 }
 
 TEST_F(SceneGraphParserDetail,
-           MakeCoulombFrictionFromSdfCollisionOde_MuMissing) {
+       MakeCoulombFrictionFromSdfCollisionOde_MuMissing) {
   unique_ptr<sdf::Collision> sdf_collision = MakeSdfCollisionFromString(
       "<collision name = 'some_link_collision'>"
       "  <pose>0.0 0.0 0.0 0.0 0.0 0.0</pose>"
@@ -1739,7 +1752,7 @@ TEST_F(SceneGraphParserDetail,
 }
 
 TEST_F(SceneGraphParserDetail,
-           MakeCoulombFrictionFromSdfCollisionOde_Mu2Missing) {
+       MakeCoulombFrictionFromSdfCollisionOde_Mu2Missing) {
   unique_ptr<sdf::Collision> sdf_collision = MakeSdfCollisionFromString(
       "<collision name = 'some_link_collision'>"
       "  <pose>0.0 0.0 0.0 0.0 0.0 0.0</pose>"
@@ -1762,7 +1775,7 @@ TEST_F(SceneGraphParserDetail,
 }
 
 TEST_F(SceneGraphParserDetail,
-           MakeCoulombFrictionFromSdfCollisionOde_FrictionMissing) {
+       MakeCoulombFrictionFromSdfCollisionOde_FrictionMissing) {
   unique_ptr<sdf::Collision> sdf_collision = MakeSdfCollisionFromString(
       "<collision name = 'some_link_collision'>"
       "  <pose>0.0 0.0 0.0 0.0 0.0 0.0</pose>"
@@ -1787,22 +1800,22 @@ TEST_F(SceneGraphParserDetail,
 }
 
 TEST_F(SceneGraphParserDetail,
-           MakeCoulombFrictionFromSdfCollisionOde_OdeMissing) {
+       MakeCoulombFrictionFromSdfCollisionOde_OdeMissing) {
   unique_ptr<sdf::Collision> sdf_collision = MakeSdfCollisionFromString(
       "<collision name = 'some_link_collision'>"
-          "  <pose>0.0 0.0 0.0 0.0 0.0 0.0</pose>"
-          "  <geometry>"
-          "    <plane>"
-          "      <normal>1.0 2.0 3.0</normal>"
-          "    </plane>"
-          "  </geometry>"
-          "  <surface>"
-          "    <friction>"  // WRONG: This should be //surface/friction/ode.
-          "      <mu>0.3</mu>"
-          "      <mu2>0.8</mu2>"
-          "    </friction>"
-          "  </surface>"
-          "</collision>");
+      "  <pose>0.0 0.0 0.0 0.0 0.0 0.0</pose>"
+      "  <geometry>"
+      "    <plane>"
+      "      <normal>1.0 2.0 3.0</normal>"
+      "    </plane>"
+      "  </geometry>"
+      "  <surface>"
+      "    <friction>"  // WRONG: This should be //surface/friction/ode.
+      "      <mu>0.3</mu>"
+      "      <mu2>0.8</mu2>"
+      "    </friction>"
+      "  </surface>"
+      "</collision>");
   // TODO(jwnimmer-tri) Ideally, the misplaced <friction/> element above would
   // report a parsing error and/or raise an exception.  For now though, we
   // ignore it and use the defaults.

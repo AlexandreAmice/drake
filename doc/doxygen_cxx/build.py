@@ -5,6 +5,7 @@ For instructions, see https://drake.mit.edu/documentation_instructions.html.
 
 import argparse
 from fnmatch import fnmatch
+from glob import glob
 import os
 from os.path import join, relpath
 import shutil
@@ -67,7 +68,7 @@ def _symlink_headers(*, drake_workspace, temp_dir, modules):
             subdir = relpath(dirpath, drake_workspace)
             os.makedirs(join(temp_dir, "drake", subdir))
             for item in files:
-                if any([module.startswith("drake.doc"),
+                if any([module.startswith("doc"),
                         "images" in subdir,
                         item.endswith(".h")]):
                     dest = join(temp_dir, "drake", subdir, item)
@@ -150,6 +151,10 @@ def _is_important_warning(line):
         if "df_contact_material" in line:
             return False
         # Broken link.
+        return True
+
+    # Check for failing `@param` commands (e.g., typos in the identifier name).
+    if "@param" in line:
         return True
 
     # All good.
@@ -286,6 +291,15 @@ def _build(*, out_dir, temp_dir, modules, quick):
     perl_cleanup_html_output(
         out_dir=out_dir,
         extra_perl_statements=extra_perl_statements)
+
+    # Remove extraneous Doxygen build files.
+    files_to_remove = glob(join(out_dir, "*.md5"))
+    files_to_remove += glob(join(out_dir, "*.map"))
+    for i in files_to_remove:
+        try:
+            os.remove(i)
+        except IOError:
+            pass
 
     # The nominal pages to offer for preview.
     return ["", "classes.html", "modules.html"]

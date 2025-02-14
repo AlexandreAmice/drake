@@ -53,16 +53,10 @@ export HOMEBREW_NO_AUTO_UPDATE=1
 # completes or wait for the next automatic cleanup if necessary.
 export HOMEBREW_NO_INSTALL_CLEANUP=1
 
-binary_distribution_called_update=0
-
 if [[ "${with_update}" -eq 1 ]]; then
   # Note that brew update uses git, so HOMEBREW_CURL_RETRIES does not take
   # effect.
   brew update || (sleep 30; brew update)
-
-  # Do NOT call brew update again when installing prerequisites for source
-  # distributions.
-  binary_distribution_called_update=1
 fi
 
 brew bundle --file="${BASH_SOURCE%/*}/Brewfile" --no-lock
@@ -73,5 +67,12 @@ if ! command -v pip3.12 &>/dev/null; then
 fi
 
 if [[ "${with_python_dependencies}" -eq 1 ]]; then
-  pip3.12 install --break-system-packages -r "${BASH_SOURCE%/*}/requirements.txt"
+  readonly setup="${BASH_SOURCE%/*}"
+  readonly venv_pdm="${setup}"
+  readonly venv_drake="$(cd "${setup}/../../.." && pwd)"
+  python3.12 -m venv "${venv_pdm}"
+  "${venv_pdm}/bin/pip3" install -U -r "${setup}/requirements.txt"
+  "${venv_pdm}/bin/python3" -m venv "${venv_drake}"
+  "${venv_pdm}/bin/pdm" use -p "${setup}" -f "${venv_drake}"
+  "${venv_pdm}/bin/pdm" sync -p "${setup}" --prod
 fi

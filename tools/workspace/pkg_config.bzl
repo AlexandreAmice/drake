@@ -1,5 +1,4 @@
 load("//tools/workspace:execute.bzl", "path", "which")
-load("//tools/workspace:os.bzl", "is_wheel_build")
 
 _DEFAULT_TEMPLATE = Label("@drake//tools/workspace:pkg_config.BUILD.tpl")
 
@@ -25,7 +24,7 @@ def _run_pkg_config(repository_ctx, command_line, pkg_config_paths):
     tokens = [x for x in result.stdout.strip().split(" ") if x]
     return struct(tokens = tokens, error = None)
 
-def setup_pkg_config_repository(repository_ctx):
+def _maybe_setup_pkg_config_repository(repository_ctx):
     """This is the macro form of the pkg_config_repository() rule below.
     Refer to that rule's API documentation for details.
 
@@ -50,38 +49,15 @@ def setup_pkg_config_repository(repository_ctx):
         [],
     ))
 
-    if is_wheel_build(repository_ctx):
-        # TODO(jwnimmer-tri) Ultimately, we want the wheel build to use Bazel
-        # to compile all dependencies. At the moment, however, some are built
-        # using CMake files at drake/tools/wheel/image/dependencies. To find
-        # the libraries installed by those builds, we need to add some custom
-        # paths when calling pkg-config.
-        pkg_config_paths.insert(0, "/opt/drake-dependencies/share/pkgconfig")
-        pkg_config_paths.insert(0, "/opt/drake-dependencies/lib/pkgconfig")
+    # Convert the canonical name (e.g., "+_repo_rules+eigen") to its apparent
+    # name (e.g., "eigen") so that when a BUILD file uses a label which omits
+    # the target name (e.g., deps = ["@eigen"]) the unabbreviated label (e.g.,
+    # "@eigen//:eigen") will match what we provide here.
+    library_name = repository_ctx.name.split("+")[-1]
 
     # Check if we can find the required *.pc file of any version.
     result = _run_pkg_config(repository_ctx, args, pkg_config_paths)
     if result.error != None:
-        defer_error_os_names = getattr(
-            repository_ctx.attr,
-            "defer_error_os_names",
-            [],
-        )
-        if repository_ctx.os.name in defer_error_os_names:
-            repository_ctx.file(
-                "BUILD.bazel",
-                """
-load("@drake//tools/skylark:cc.bzl", "cc_library")
-cc_library(
-    name = {name},
-    srcs = ["pkg_config_failed.cc"],
-    visibility = ["//visibility:public"],
-)
-                """.format(
-                    name = repr(repository_ctx.name),
-                ),
-            )
-            return struct(value = True, error = None)
         return result
 
     # If we have a minimum version, enforce that.
@@ -264,8 +240,8 @@ cc_library(
         "%{licenses}": repr(
             getattr(repository_ctx.attr, "licenses", []),
         ),
-        "%{name}": repr(
-            repository_ctx.name,
+        "%{library_name}": repr(
+            library_name,
         ),
         "%{srcs}": repr(
             getattr(repository_ctx.attr, "extra_srcs", []),
@@ -300,7 +276,45 @@ cc_library(
     )
     repository_ctx.template("BUILD.bazel", template, substitutions)
 
-    return struct(value = True, error = None)
+    return struct(error = None)
+
+def setup_pkg_config_repository(repository_ctx):
+    # Check if pkg-config works.
+    error = _maybe_setup_pkg_config_repository(repository_ctx).error
+    if error == None:
+        return struct(error = None)
+
+    # If not, still emit a valid BUILD file but with a library that will fail
+    # at build-time (not analysis-time) with the error message.
+    library_name = repository_ctx.name.split("+")[-1]
+    repository_ctx.file("error.log", """
+******************************************************************************
+Error in Drake pkg_config repository rule for @{library_name}:
+{error}
+******************************************************************************
+""".format(library_name = library_name, error = error).strip())
+    repository_ctx.file("BUILD.bazel", """
+load("@drake//tools/skylark:cc.bzl", "cc_library")
+genrule(
+    name = "_",
+    srcs = ["error.log"],
+    outs = ["error.h"],
+    cmd = "cat $< 2>&1 && false",
+)
+cc_library(
+    name = {library_name},
+    srcs = [":error.h"],
+    visibility = ["//visibility:public"],
+)""".format(library_name = repr(library_name), error = repr(error)))
+
+    defer_error_os_names = getattr(
+        repository_ctx.attr,
+        "defer_error_os_names",
+        [],
+    )
+    if repository_ctx.os.name in defer_error_os_names:
+        error = None
+    return struct(error = error)
 
 def _impl(repository_ctx):
     result = setup_pkg_config_repository(repository_ctx)

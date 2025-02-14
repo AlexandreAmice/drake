@@ -13,15 +13,22 @@ namespace test {
 namespace {
 
 GTEST_TEST(YamlJsonTest, WriteScalars) {
-  AllScalarsStruct data;
+  AllScalarsStruct data{.include_bytes = false};
   EXPECT_EQ(SaveJsonString(data), R"""({"some_bool":false,)"""
                                   R"""("some_double":1.2345,)"""
                                   R"""("some_float":1.2345,)"""
                                   R"""("some_int32":12,)"""
                                   R"""("some_int64":14,)"""
+                                  R"""("some_path":"/path/to/nowhere",)"""
                                   R"""("some_string":"kNominalString",)"""
                                   R"""("some_uint32":12,)"""
                                   R"""("some_uint64":15})""");
+}
+
+GTEST_TEST(YamlJsonTest, BinaryScalarThrows) {
+  BytesStruct data;
+  DRAKE_EXPECT_THROWS_MESSAGE(SaveJsonString(data),
+                              ".*Cannot save.*scalar.*with.*binary.*");
 }
 
 GTEST_TEST(YamlJsonTest, StringEscaping) {

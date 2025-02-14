@@ -3,10 +3,13 @@
 #include "drake/bindings/pydrake/common/cpp_template_pybind.h"
 #include "drake/bindings/pydrake/common/default_scalars_pybind.h"
 #include "drake/bindings/pydrake/common/eigen_pybind.h"
+#include "drake/bindings/pydrake/common/ref_cycle_pybind.h"
 #include "drake/bindings/pydrake/common/type_safe_index_pybind.h"
 #include "drake/bindings/pydrake/common/wrap_pybind.h"
 #include "drake/bindings/pydrake/documentation_pybind.h"
 #include "drake/bindings/pydrake/pydrake_pybind.h"
+#include "drake/bindings/pydrake/systems/builder_life_support_pybind.h"
+#include "drake/bindings/pydrake/systems/value_producer_pybind.h"
 #include "drake/systems/framework/context.h"
 #include "drake/systems/framework/diagram_builder.h"
 #include "drake/systems/framework/event.h"
@@ -15,19 +18,28 @@
 #include "drake/systems/framework/system_output.h"
 
 using std::string;
-using std::unique_ptr;
-using std::vector;
 
 namespace drake {
 namespace pydrake {
 
 namespace {
 
-using AbstractValuePtrList = vector<unique_ptr<AbstractValue>>;
-
 // NOLINTNEXTLINE(build/namespaces): Emulate placement in namespace.
 using namespace drake::systems;
 constexpr auto& doc = pydrake_doc.drake.systems;
+
+// Given a vector of (possibly null) pointers, returns a vector formed by
+// calling Clone() elementwise.
+template <typename T>
+std::vector<std::unique_ptr<T>> CloneVectorOfPointers(
+    const std::vector<const T*>& input) {
+  std::vector<std::unique_ptr<T>> result;
+  result.reserve(input.size());
+  for (const T* item : input) {
+    result.push_back(item != nullptr ? item->Clone() : nullptr);
+  }
+  return result;
+}
 
 // Given an InputPort or OutputPort as self, return self.Eval(context).  In
 // python, always returns either a numpy.ndarray (when vector-valued) or the
@@ -87,6 +99,7 @@ void DoScalarIndependentDefinitions(py::module m) {
   BindTypeSafeIndex<AbstractStateIndex>(m, "AbstractStateIndex");
   BindTypeSafeIndex<NumericParameterIndex>(m, "NumericParameterIndex");
   BindTypeSafeIndex<AbstractParameterIndex>(m, "AbstractParameterIndex");
+  BindTypeSafeIndex<SystemConstraintIndex>(m, "SystemConstraintIndex");
 
   py::class_<FixedInputPortValue>(
       m, "FixedInputPortValue", doc.FixedInputPortValue.doc)
@@ -102,7 +115,10 @@ void DoScalarIndependentDefinitions(py::module m) {
   DefClone(&abstract_values);
   abstract_values  // BR
       .def(py::init<>(), doc.AbstractValues.ctor.doc_0args)
-      .def(py::init<AbstractValuePtrList>(), doc.AbstractValues.ctor.doc_1args)
+      .def(py::init([](const std::vector<const AbstractValue*>& data) {
+        return std::make_unique<AbstractValues>(CloneVectorOfPointers(data));
+      }),
+          py::arg("data"), doc.AbstractValues.ctor.doc_1args)
       .def("size", &AbstractValues::size, doc.AbstractValues.size.doc)
       .def("get_value", &AbstractValues::get_value, py::arg("index"),
           py_rvp::reference_internal, doc.AbstractValues.get_value.doc)
@@ -163,20 +179,56 @@ void DoScalarIndependentDefinitions(py::module m) {
             enum_doc.kReachedTermination.doc)
         .value("kFailed", Enum::kFailed, enum_doc.kFailed.doc);
 
-    DefCopyAndDeepCopy(&cls);
     cls  // BR
         .def_static("DidNothing", &Class::DidNothing, cls_doc.DidNothing.doc)
         .def_static("Succeeded", &Class::Succeeded, cls_doc.Succeeded.doc)
-        .def_static("ReachedTermination", &Class::ReachedTermination,
+        .def_static(
+            "ReachedTermination",
+            [](py::object system, std::string message) {
+              // The `class System` is not bound yet, so we must use a dynamic
+              // argument type to avoid referring to a class that doesn't exist.
+              // TODO(jwnimmer-tri) With major surgery to the bindings we could
+              // change the order of operations to work around this, but at the
+              // moment that's too much churn to for the payoff.
+              const SystemBase* system_base = system.cast<SystemBase*>();
+              return EventStatus::ReachedTermination(
+                  system_base, std::move(message));
+            },
             py::arg("system"), py::arg("message"),
             cls_doc.ReachedTermination.doc)
-        .def_static("Failed", &Class::Failed, py::arg("system"),
-            py::arg("message"), cls_doc.Failed.doc)
+        .def_static(
+            "Failed",
+            [](py::object system, std::string message) {
+              // The `class System` is not bound yet, so we must use a dynamic
+              // argument type to avoid referring to a class that doesn't exist.
+              // TODO(jwnimmer-tri) With major surgery to the bindings we could
+              // change the order of operations to work around this, but at the
+              // moment that's too much churn to for the payoff.
+              const SystemBase* system_base = system.cast<SystemBase*>();
+              return EventStatus::Failed(system_base, std::move(message));
+            },
+            py::arg("system"), py::arg("message"), cls_doc.Failed.doc)
         .def("severity", &Class::severity, cls_doc.severity.doc)
-        .def("system", &Class::system, py_rvp::reference, cls_doc.system.doc)
+        .def(
+            "system",
+            [](const Class& self) -> py::object {
+              // The `class System` is not bound yet, so we must use a dynamic
+              // return type to avoid referring to a class that doesn't exist.
+              // TODO(jwnimmer-tri) With major surgery to the bindings we could
+              // change the order of operations to work around this, but at the
+              // moment that's too much churn to for the payoff.
+              const SystemBase* result = self.system();
+              if (result == nullptr) {
+                return py::none();
+              }
+              py::object self_py = py::cast(self, py_rvp::reference);
+              return py::cast(result, py_rvp::reference_internal, self_py);
+            },
+            cls_doc.system.doc)
         .def("message", &Class::message, cls_doc.message.doc)
         .def("KeepMoreSevere", &Class::KeepMoreSevere, py::arg("candidate"),
             cls_doc.KeepMoreSevere.doc);
+    DefCopyAndDeepCopy(&cls);
   }
 
   py::class_<ContextBase>(m, "ContextBase", doc.ContextBase.doc)
@@ -203,10 +255,11 @@ void DoScalarIndependentDefinitions(py::module m) {
     using Class = ValueProducer;
     constexpr auto& cls_doc = doc.ValueProducer;
     py::class_<Class>(m, "ValueProducer", cls_doc.doc)
-        .def(py::init(WrapCallbacks([](ValueProducer::AllocateCallback allocate,
-                                        ValueProducer::CalcCallback calc) {
-          return Class(allocate, calc);
-        })),
+        .def(py::init([](py::function allocate,
+                          std::function<void(py::object, py::object)> calc) {
+          return Class(MakeCppCompatibleAllocateCallback(std::move(allocate)),
+              MakeCppCompatibleCalcCallback(std::move(calc)));
+        }),
             py::arg("allocate"), py::arg("calc"), cls_doc.ctor.doc_overload_5d)
         .def_static("NoopCalc", &Class::NoopCalc, cls_doc.NoopCalc.doc);
   }
@@ -279,6 +332,17 @@ void DoScalarIndependentDefinitions(py::module m) {
         .def("has_default_prerequisites", &Class::has_default_prerequisites,
             cls_doc.has_default_prerequisites.doc);
   }
+
+  {
+    // Binding this full feature in pydrake is non-trivial effort. For now,
+    // we'll just provide the default constructor for use in our unit tests,
+    // and mark the class itself with private visibility since it's not very
+    // useful without the full bindings.
+    using Class = ExternalSystemConstraint;
+    constexpr auto& cls_doc = doc.ExternalSystemConstraint;
+    py::class_<Class>(m, "_ExternalSystemConstraint", cls_doc.doc)
+        .def(py::init<>(), cls_doc.ctor.doc_0args);
+  }
 }
 
 template <typename T>
@@ -326,7 +390,8 @@ py::class_<Context<T>, ContextBase> DefineContext(py::module m) {
               &Context<T>::get_abstract_state),
           py_rvp::reference_internal, doc.Context.get_abstract_state.doc_0args)
       .def(
-          "get_abstract_state", [](const Context<T>* self, int index) -> auto& {
+          "get_abstract_state",
+          [](const Context<T>* self, int index) -> auto& {
             return self->get_abstract_state().get_value(index);
           },
           py::arg("index"), py_rvp::reference_internal,
@@ -590,36 +655,40 @@ void DefineEventAndEventSubclasses(py::module m) {
 
 template <typename T>
 void DoDefineFrameworkDiagramBuilder(py::module m) {
-  DefineTemplateClassWithDefault<DiagramBuilder<T>>(
-      m, "DiagramBuilder", GetPyParam<T>(), doc.DiagramBuilder.doc)
+  using internal::BuilderLifeSupport;
+  DefineTemplateClassWithDefault<DiagramBuilder<T>>(m, "DiagramBuilder",
+      GetPyParam<T>(), doc.DiagramBuilder.doc, std::nullopt, py::dynamic_attr())
       .def(py::init<>(), doc.DiagramBuilder.ctor.doc)
       .def(
           "AddSystem",
-          [](DiagramBuilder<T>* self, unique_ptr<System<T>> system) {
-            return self->AddSystem(std::move(system));
+          [](DiagramBuilder<T>* self, System<T>& system) {
+            // Using BuilderLifeSupport::stash makes the builder
+            // temporarily immortal (uncollectible self cycle). This will be
+            // resolved by the Build() step. See BuilderLifeSupport for
+            // rationale.
+            BuilderLifeSupport<T>::stash(self);
+            // The C++ method doesn't offer a bare-pointer overload, only
+            // shared_ptr. Because object lifetime is already handled by the
+            // ref_cycle annotation below, we can pass the `system` as an
+            // unowned shared_ptr.
+            return self->AddSystem(make_unowned_shared_ptr_from_raw(&system));
           },
-          py::arg("system"),
-          // TODO(eric.cousineau): These two keep_alive's purposely form a
-          // reference cycle as a workaround for #14355. We should find a
-          // better way?
-          // Keep alive, reference: `self` keeps `return` alive.
-          py::keep_alive<1, 0>(),
-          // Keep alive, ownership: `system` keeps `self` alive.
-          py::keep_alive<2, 1>(), doc.DiagramBuilder.AddSystem.doc)
+          py::arg("system"), internal::ref_cycle<1, 2>(),
+          doc.DiagramBuilder.AddSystem.doc)
       .def(
           "AddNamedSystem",
-          [](DiagramBuilder<T>* self, std::string& name,
-              unique_ptr<System<T>> system) {
-            return self->AddNamedSystem(name, std::move(system));
+          [](DiagramBuilder<T>* self, std::string& name, System<T>& system) {
+            // Using BuilderLifeSupport::stash makes the builder
+            // temporarily immortal (uncollectible self cycle). This will be
+            // resolved by the Build() step. See BuilderLifeSupport for
+            // rationale.
+            BuilderLifeSupport<T>::stash(self);
+            // Ditto with "AddSystem" above for how we handle the `&system`.
+            return self->AddNamedSystem(
+                name, make_unowned_shared_ptr_from_raw(&system));
           },
-          py::arg("name"), py::arg("system"),
-          // TODO(eric.cousineau): These two keep_alive's purposely form a
-          // reference cycle as a workaround for #14355. We should find a
-          // better way?
-          // Keep alive, reference: `self` keeps `return` alive.
-          py::keep_alive<1, 0>(),
-          // Keep alive, ownership: `system` keeps `self` alive.
-          py::keep_alive<3, 1>(), doc.DiagramBuilder.AddNamedSystem.doc)
+          py::arg("name"), py::arg("system"), internal::ref_cycle<1, 3>(),
+          doc.DiagramBuilder.AddNamedSystem.doc)
       .def("RemoveSystem", &DiagramBuilder<T>::RemoveSystem, py::arg("system"),
           doc.DiagramBuilder.RemoveSystem.doc)
       .def("empty", &DiagramBuilder<T>::empty, doc.DiagramBuilder.empty.doc)
@@ -694,12 +763,33 @@ void DoDefineFrameworkDiagramBuilder(py::module m) {
       .def("ExportOutput", &DiagramBuilder<T>::ExportOutput, py::arg("output"),
           py::arg("name") = kUseDefaultName, py_rvp::reference_internal,
           doc.DiagramBuilder.ExportOutput.doc)
-      .def("Build", &DiagramBuilder<T>::Build,
-          // Keep alive, ownership (tr.): `self` keeps `return` alive.
-          py::keep_alive<1, 0>(), doc.DiagramBuilder.Build.doc)
-      .def("BuildInto", &DiagramBuilder<T>::BuildInto, py::arg("target"),
-          // Keep alive, ownership (tr.): `target` keeps `self` alive.
-          py::keep_alive<2, 1>(), doc.DiagramBuilder.BuildInto.doc)
+      .def(
+          "Build",
+          [](DiagramBuilder<T>* self) {
+            // The c++ Build() step would pass life support to the
+            // diagram. Instead of relying on its one-way, uncollectible
+            // support here, abandon it in favor of the builder-diagram
+            // ref_cycle invoked below. We can't have both; that would create
+            // an uncollectible builder-diagram cycle and make those objects
+            // immortal.
+            BuilderLifeSupport<T>::abandon(self);
+            return self->Build();
+          },
+          internal::ref_cycle<0, 1>(), doc.DiagramBuilder.Build.doc)
+      .def(
+          "BuildInto",
+          [](DiagramBuilder<T>* self, Diagram<T>* target) {
+            // The c++ BuildInto() step would pass life support to the
+            // diagram. Instead of relying on its one-way, uncollectible
+            // support here, abandon it in favor of the builder-diagram
+            // ref_cycle invoked below. We can't have both; that would create
+            // an uncollectible builder-diagram cycle and make those objects
+            // immortal.
+            BuilderLifeSupport<T>::abandon(self);
+            self->BuildInto(target);
+          },
+          internal::ref_cycle<1, 2>(), py::arg("target"),
+          doc.DiagramBuilder.BuildInto.doc)
       .def("IsConnectedOrExported", &DiagramBuilder<T>::IsConnectedOrExported,
           py::arg("port"), doc.DiagramBuilder.IsConnectedOrExported.doc)
       .def("num_input_ports", &DiagramBuilder<T>::num_input_ports,
@@ -751,7 +841,18 @@ void DefineRemainingScalarDependentDefinitions(py::module m) {
           "into some other API that only accepts a BasicVector.",
           py_rvp::reference_internal)
       .def("Allocate", &OutputPort<T>::Allocate, doc.OutputPort.Allocate.doc)
-      .def("get_system", &OutputPort<T>::get_system, py_rvp::reference,
+      .def(
+          "get_system",
+          [](const OutputPort<T>& self) {
+            // The `class System` is not bound yet, so we must use a dynamic
+            // return type to avoid referring to a class that doesn't exist.
+            // TODO(jwnimmer-tri) With major surgery to the bindings we could
+            // change the order of operations to work around this, but at the
+            // moment that's too much churn to for the payoff.
+            const System<T>& result = self.get_system();
+            py::object self_py = py::cast(self, py_rvp::reference);
+            return py::cast(&result, py_rvp::reference_internal, self_py);
+          },
           doc.OutputPort.get_system.doc);
 
   DefineTemplateClassWithDefault<LeafOutputPort<T>, OutputPort<T>>(
@@ -839,7 +940,19 @@ void DefineRemainingScalarDependentDefinitions(py::module m) {
       .def("HasValue", &InputPort<T>::HasValue, py::arg("context"),
           doc.InputPort.HasValue.doc)
       .def("Allocate", &InputPort<T>::Allocate, doc.InputPortBase.Allocate.doc)
-      .def("get_system", &InputPort<T>::get_system, py_rvp::reference,
+      .def(
+          "get_system",
+          [](const InputPort<T>& self) {
+            // The `class System` is not bound yet, so we must use a dynamic
+            // return type to avoid referring to a class that doesn't exist.
+            // TODO(jwnimmer-tri) With major surgery to the bindings we could
+            // change the order of operations to work around this, but at the
+            // moment that's too much churn to for the payoff.
+            const System<T>& result = self.get_system();
+            py::object self_py = py::cast(self, py_rvp::reference);
+            return py::cast(&result, py_rvp::reference_internal, self_py);
+          },
+
           doc.InputPort.get_system.doc);
 
   // TODO(russt): Bind relevant WitnessFunction methods.  This is the
@@ -853,24 +966,31 @@ void DefineParameters(py::module m) {
   auto parameters = DefineTemplateClassWithDefault<Parameters<T>>(
       m, "Parameters", GetPyParam<T>(), doc.Parameters.doc);
   DefClone(&parameters);
-  using BasicVectorPtrList = vector<unique_ptr<BasicVector<T>>>;
-  parameters
+  parameters  // BR
       .def(py::init<>(), doc.Parameters.ctor.doc_0args)
-      // TODO(eric.cousineau): Ensure that we can respect keep alive behavior
-      // with lists of pointers.
-      .def(py::init<BasicVectorPtrList, AbstractValuePtrList>(),
+      .def(py::init([](const std::vector<const BasicVector<T>*>& numeric,
+                        const std::vector<const AbstractValue*>& abstract) {
+        return std::make_unique<Parameters<T>>(
+            CloneVectorOfPointers(numeric), CloneVectorOfPointers(abstract));
+      }),
           py::arg("numeric"), py::arg("abstract"),
           doc.Parameters.ctor.doc_2args_numeric_abstract)
-      .def(py::init<BasicVectorPtrList>(), py::arg("numeric"),
-          doc.Parameters.ctor.doc_1args_numeric)
-      .def(py::init<AbstractValuePtrList>(), py::arg("abstract"),
-          doc.Parameters.ctor.doc_1args_abstract)
-      .def(py::init<unique_ptr<BasicVector<T>>>(), py::arg("vec"),
-          // Keep alive, ownership: `vec` keeps `self` alive.
-          py::keep_alive<2, 1>(), doc.Parameters.ctor.doc_1args_vec)
-      .def(py::init<unique_ptr<AbstractValue>>(), py::arg("value"),
-          // Keep alive, ownership: `value` keeps `self` alive.
-          py::keep_alive<2, 1>(), doc.Parameters.ctor.doc_1args_value)
+      .def(py::init([](const std::vector<const BasicVector<T>*>& numeric) {
+        return std::make_unique<Parameters<T>>(CloneVectorOfPointers(numeric));
+      }),
+          py::arg("numeric"), doc.Parameters.ctor.doc_1args_numeric)
+      .def(py::init([](const std::vector<const AbstractValue*>& abstract) {
+        return std::make_unique<Parameters<T>>(CloneVectorOfPointers(abstract));
+      }),
+          py::arg("abstract"), doc.Parameters.ctor.doc_1args_abstract)
+      .def(py::init([](const BasicVector<T>& vec) {
+        return std::make_unique<Parameters<T>>(vec.Clone());
+      }),
+          py::arg("vec"), doc.Parameters.ctor.doc_1args_vec)
+      .def(py::init([](const AbstractValue& value) {
+        return std::make_unique<Parameters<T>>(value.Clone());
+      }),
+          py::arg("value"), doc.Parameters.ctor.doc_1args_value)
       .def("num_numeric_parameter_groups",
           &Parameters<T>::num_numeric_parameter_groups,
           doc.Parameters.num_numeric_parameter_groups.doc)
@@ -885,14 +1005,17 @@ void DefineParameters(py::module m) {
           doc.Parameters.get_mutable_numeric_parameter.doc)
       .def("get_numeric_parameters", &Parameters<T>::get_numeric_parameters,
           py_rvp::reference_internal, doc.Parameters.get_numeric_parameters.doc)
-      // TODO(eric.cousineau): Should this C++ code constrain the number of
-      // parameters???
-      .def("set_numeric_parameters", &Parameters<T>::set_numeric_parameters,
-          // WARNING: This will DELETE the existing parameters. See C++
-          // `AddValueInstantiation` for more information.
-          // Keep alive, ownership: `value` keeps `self` alive.
-          py::keep_alive<2, 1>(), py::arg("numeric_params"),
-          doc.Parameters.set_numeric_parameters.doc)
+      .def(
+          "set_numeric_parameters",
+          [](Parameters<T>& self, const DiscreteValues<T>& numeric_params) {
+            // TODO(eric.cousineau): Should this C++ code constrain the number
+            // of parameters???
+            //
+            // WARNING: This will DELETE the existing parameters. See C++
+            // `AddValueInstantiation` for more information.
+            self.set_numeric_parameters(numeric_params.Clone());
+          },
+          py::arg("numeric_params"), doc.Parameters.set_numeric_parameters.doc)
       .def(
           "get_abstract_parameter",
           [](const Parameters<T>* self, int index) -> auto& {
@@ -910,11 +1033,14 @@ void DefineParameters(py::module m) {
       .def("get_abstract_parameters", &Parameters<T>::get_abstract_parameters,
           py_rvp::reference_internal,
           doc.Parameters.get_abstract_parameters.doc)
-      .def("set_abstract_parameters", &Parameters<T>::set_abstract_parameters,
-          // WARNING: This will DELETE the existing parameters. See C++
-          // `AddValueInstantiation` for more information.
-          // Keep alive, ownership: `value` keeps `self` alive.
-          py::keep_alive<2, 1>(), py::arg("abstract_params"),
+      .def(
+          "set_abstract_parameters",
+          [](Parameters<T>& self, const AbstractValues& abstract_params) {
+            // WARNING: This will DELETE the existing parameters. See C++
+            // `AddValueInstantiation` for more information.
+            self.set_abstract_parameters(abstract_params.Clone());
+          },
+          py::arg("abstract_params"),
           doc.Parameters.set_abstract_parameters.doc)
       .def(
           "SetFrom",
@@ -979,14 +1105,37 @@ void DefineContinuousState(py::module m) {
   auto continuous_state = DefineTemplateClassWithDefault<ContinuousState<T>>(
       m, "ContinuousState", GetPyParam<T>(), doc.ContinuousState.doc);
   DefClone(&continuous_state);
-  continuous_state
-      .def(py::init<unique_ptr<VectorBase<T>>>(), py::arg("state"),
-          doc.ContinuousState.ctor.doc_1args_state)
-      .def(py::init<unique_ptr<VectorBase<T>>, int, int, int>(),
+  continuous_state  // BR
+      .def(py::init<>(), doc.ContinuousState.ctor.doc_0args)
+      // In the next pair of overloads, we'll try matching on BasicVector in
+      // order to preserve its subtype across cloning. In the subsequent pair
+      // of overloads, we'll also allow VectorBase.
+      .def(py::init([](const BasicVector<T>& state) {
+        return std::make_unique<ContinuousState<T>>(state.Clone());
+      }),
+          py::arg("state"), doc.ContinuousState.ctor.doc_1args_state)
+      .def(py::init([](const BasicVector<T>& state, int num_q, int num_v,
+                        int num_z) {
+        return std::make_unique<ContinuousState<T>>(
+            state.Clone(), num_q, num_v, num_z);
+      }),
           py::arg("state"), py::arg("num_q"), py::arg("num_v"),
           py::arg("num_z"),
           doc.ContinuousState.ctor.doc_4args_state_num_q_num_v_num_z)
-      .def(py::init<>(), doc.ContinuousState.ctor.doc_0args)
+      .def(py::init([](const VectorBase<T>& state) {
+        return std::make_unique<ContinuousState<T>>(
+            std::make_unique<BasicVector<T>>(state.CopyToVector()));
+      }),
+          py::arg("state"), doc.ContinuousState.ctor.doc_1args_state)
+      .def(py::init(
+               [](const VectorBase<T>& state, int num_q, int num_v, int num_z) {
+                 return std::make_unique<ContinuousState<T>>(
+                     std::make_unique<BasicVector<T>>(state.CopyToVector()),
+                     num_q, num_v, num_z);
+               }),
+          py::arg("state"), py::arg("num_q"), py::arg("num_v"),
+          py::arg("num_z"),
+          doc.ContinuousState.ctor.doc_4args_state_num_q_num_v_num_z)
       .def("size", &ContinuousState<T>::size, doc.ContinuousState.size.doc)
       .def("num_q", &ContinuousState<T>::num_q, doc.ContinuousState.num_q.doc)
       .def("num_v", &ContinuousState<T>::num_v, doc.ContinuousState.num_v.doc)
@@ -1048,9 +1197,13 @@ void DefineDiscreteValues(py::module m) {
       m, "DiscreteValues", GetPyParam<T>(), doc.DiscreteValues.doc);
   DefClone(&discrete_values);
   discrete_values
-      .def(py::init<unique_ptr<BasicVector<T>>>(), py::arg("datum"),
-          doc.DiscreteValues.ctor.doc_1args_datum)
-      .def(py::init<std::vector<std::unique_ptr<BasicVector<T>>>&&>(),
+      .def(py::init([](const BasicVector<T>& datum) {
+        return std::make_unique<DiscreteValues<T>>(datum.Clone());
+      }),
+          py::arg("datum"), doc.DiscreteValues.ctor.doc_1args_datum)
+      .def(py::init([](const std::vector<const BasicVector<T>*>& data) {
+        return std::make_unique<DiscreteValues<T>>(CloneVectorOfPointers(data));
+      }),
           py::arg("data"), doc.DiscreteValues.ctor.doc_1args_data)
       .def(py::init<>(), doc.DiscreteValues.ctor.doc_0args)
       .def("num_groups", &DiscreteValues<T>::num_groups,

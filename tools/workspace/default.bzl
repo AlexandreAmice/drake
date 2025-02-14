@@ -1,3 +1,4 @@
+load("//tools/workspace:alias.bzl", "alias_repository")
 load("//tools/workspace:mirrors.bzl", "DEFAULT_MIRRORS")
 load("//tools/workspace/abseil_cpp_internal:repository.bzl", "abseil_cpp_internal_repository")  # noqa
 load("//tools/workspace/bazel_skylib:repository.bzl", "bazel_skylib_repository")  # noqa
@@ -12,7 +13,7 @@ load("//tools/workspace/clarabel_cpp_internal:repository.bzl", "clarabel_cpp_int
 load("//tools/workspace/clp_internal:repository.bzl", "clp_internal_repository")  # noqa
 load("//tools/workspace/coinutils_internal:repository.bzl", "coinutils_internal_repository")  # noqa
 load("//tools/workspace/com_jidesoft_jide_oss:repository.bzl", "com_jidesoft_jide_oss_repository")  # noqa
-load("//tools/workspace/common_robotics_utilities:repository.bzl", "common_robotics_utilities_repository")  # noqa
+load("//tools/workspace/common_robotics_utilities_internal:repository.bzl", "common_robotics_utilities_internal_repository", "common_robotics_utilities_repository")  # noqa
 load("//tools/workspace/commons_io:repository.bzl", "commons_io_repository")
 load("//tools/workspace/conex_internal:repository.bzl", "conex_internal_repository")  # noqa
 load("//tools/workspace/crate_universe:repository.bzl", "crate_universe_repositories")  # noqa
@@ -38,9 +39,9 @@ load("//tools/workspace/gz_math_internal:repository.bzl", "gz_math_internal_repo
 load("//tools/workspace/gz_utils_internal:repository.bzl", "gz_utils_internal_repository")  # noqa
 load("//tools/workspace/highway_internal:repository.bzl", "highway_internal_repository")  # noqa
 load("//tools/workspace/ipopt:repository.bzl", "ipopt_repository")
-load("//tools/workspace/ipopt_internal_fromsource:repository.bzl", "ipopt_internal_fromsource_repository")  # noqa
-load("//tools/workspace/ipopt_internal_pkgconfig:repository.bzl", "ipopt_internal_pkgconfig_repository")  # noqa
+load("//tools/workspace/ipopt_internal:repository.bzl", "ipopt_internal_repository")  # noqa
 load("//tools/workspace/lapack:repository.bzl", "lapack_repository")
+load("//tools/workspace/lapack_internal:repository.bzl", "lapack_internal_repository")  # noqa
 load("//tools/workspace/lcm:repository.bzl", "lcm_repository")
 load("//tools/workspace/libblas:repository.bzl", "libblas_repository")
 load("//tools/workspace/libjpeg_turbo_internal:repository.bzl", "libjpeg_turbo_internal_repository")  # noqa
@@ -78,16 +79,18 @@ load("//tools/workspace/qdldl_internal:repository.bzl", "qdldl_internal_reposito
 load("//tools/workspace/qhull_internal:repository.bzl", "qhull_internal_repository")  # noqa
 load("//tools/workspace/ros_xacro_internal:repository.bzl", "ros_xacro_internal_repository")  # noqa
 load("//tools/workspace/rules_cc:repository.bzl", "rules_cc_repository")  # noqa
+load("//tools/workspace/rules_java:repository.bzl", "rules_java_repository")
 load("//tools/workspace/rules_license:repository.bzl", "rules_license_repository")  # noqa
 load("//tools/workspace/rules_python:repository.bzl", "rules_python_repository")  # noqa
 load("//tools/workspace/rules_rust:repository.bzl", "rules_rust_repository")
 load("//tools/workspace/rules_rust_tinyjson:repository.bzl", "rules_rust_tinyjson_repository")  # noqa
+load("//tools/workspace/rules_shell:repository.bzl", "rules_shell_repository")
 load("//tools/workspace/rust_toolchain:repository.bzl", "register_rust_toolchains", "rust_toolchain_repositories")  # noqa
 load("//tools/workspace/scs_internal:repository.bzl", "scs_internal_repository")  # noqa
 load("//tools/workspace/sdformat_internal:repository.bzl", "sdformat_internal_repository")  # noqa
 load("//tools/workspace/snopt:repository.bzl", "snopt_repository")
 load("//tools/workspace/spdlog:repository.bzl", "spdlog_repository")
-load("//tools/workspace/spgrid_internal:repository.bzl", "spgrid_internal_repository")  # noqa
+load("//tools/workspace/spgrid_internal:repository.bzl", "spgrid_module_extension_impl")  # noqa
 load("//tools/workspace/spral_internal:repository.bzl", "spral_internal_repository")  # noqa
 load("//tools/workspace/stable_baselines3_internal:repository.bzl", "stable_baselines3_internal_repository")  # noqa
 load("//tools/workspace/statsjs:repository.bzl", "statsjs_repository")
@@ -103,46 +106,28 @@ load("//tools/workspace/typing_extensions_internal:repository.bzl", "typing_exte
 load("//tools/workspace/uritemplate_py_internal:repository.bzl", "uritemplate_py_internal_repository")  # noqa
 load("//tools/workspace/usockets_internal:repository.bzl", "usockets_internal_repository")  # noqa
 load("//tools/workspace/uwebsockets_internal:repository.bzl", "uwebsockets_internal_repository")  # noqa
-load("//tools/workspace/voxelized_geometry_tools:repository.bzl", "voxelized_geometry_tools_repository")  # noqa
+load("//tools/workspace/voxelized_geometry_tools_internal:repository.bzl", "voxelized_geometry_tools_internal_repository", "voxelized_geometry_tools_repository")  # noqa
 load("//tools/workspace/vtk_internal:repository.bzl", "vtk_internal_repository")  # noqa
 load("//tools/workspace/x11:repository.bzl", "x11_repository")
 load("//tools/workspace/xmlrunner_py:repository.bzl", "xmlrunner_py_repository")  # noqa
 load("//tools/workspace/yaml_cpp_internal:repository.bzl", "yaml_cpp_internal_repository")  # noqa
 load("//tools/workspace/zlib:repository.bzl", "zlib_repository")
 
-# This is the list of modules that our MODULE.bazel already incorporates.
-# It is cross-checked by the workspace_bzlmod_sync_test.py test.
-REPOS_ALREADY_PROVIDED_BY_BAZEL_MODULES = [
-    "build_bazel_apple_support",
-    "bazel_features",
-    "bazel_skylib",
-    "platforms",
-    "rust_toolchain",
-    "rules_cc",
-    "rules_java",
-    "rules_license",
-    "rules_python",
-    "rules_rust",
-]
+# =============================================================================
+# For Bazel projects using Drake as a dependency via the WORKSPACE mechanism.
+# =============================================================================
 
-def add_default_repositories(
-        excludes = [],
-        mirrors = DEFAULT_MIRRORS,
-        *,
-        bzlmod = False):
+def add_default_repositories(excludes = [], mirrors = DEFAULT_MIRRORS):
     """Declares workspace repositories for all externals needed by drake (other
-    than those built into Bazel, of course).  This is intended to be loaded and
-    called from a WORKSPACE file.
+    than those built into Bazel, of course). For users, this is intended to be
+    loaded and called from a WORKSPACE file. (Drake also calls it internally
+    in service of our module extension infrastructure.)
 
     Args:
         excludes: list of string names of repositories to exclude; this can
           be useful if a WORKSPACE file has already supplied its own external
           of a given name.
-        bzlmod: when True, skips repositories declared in our MODULE.bazel;
-          set this to True if you are using bzlmod.
     """
-    if bzlmod:
-        excludes = excludes + REPOS_ALREADY_PROVIDED_BY_BAZEL_MODULES
     if "abseil_cpp_internal" not in excludes:
         abseil_cpp_internal_repository(name = "abseil_cpp_internal", mirrors = mirrors)  # noqa
     if "bazelisk" not in excludes:
@@ -156,6 +141,7 @@ def add_default_repositories(
     if "buildifier" not in excludes:
         buildifier_repository(name = "buildifier", mirrors = mirrors)
     if "cc" not in excludes:
+        # Deprecated 2025-05-01.
         cc_repository(name = "cc")
     if "ccd_internal" not in excludes:
         ccd_internal_repository(name = "ccd_internal", mirrors = mirrors)
@@ -171,6 +157,8 @@ def add_default_repositories(
         com_jidesoft_jide_oss_repository(name = "com_jidesoft_jide_oss", mirrors = mirrors)  # noqa
     if "common_robotics_utilities" not in excludes:
         common_robotics_utilities_repository(name = "common_robotics_utilities", mirrors = mirrors)  # noqa
+    if "common_robotics_utilities_internal" not in excludes:
+        common_robotics_utilities_internal_repository(name = "common_robotics_utilities_internal", mirrors = mirrors)  # noqa
     if "commons_io" not in excludes:
         commons_io_repository(name = "commons_io", mirrors = mirrors)
     if "conex_internal" not in excludes:
@@ -204,6 +192,7 @@ def add_default_repositories(
     if "glib" not in excludes:
         glib_repository(name = "glib")
     if "glx" not in excludes:
+        # Deprecated 2025-05-01.
         glx_repository(name = "glx")
     if "googlebenchmark" not in excludes:
         googlebenchmark_repository(name = "googlebenchmark", mirrors = mirrors)
@@ -220,20 +209,27 @@ def add_default_repositories(
     if "highway_internal" not in excludes:
         highway_internal_repository(name = "highway_internal", mirrors = mirrors)  # noqa
     if "ipopt" not in excludes:
+        # Deprecated 2025-05-01.
         ipopt_repository(name = "ipopt")
-    if "ipopt_internal_fromsource" not in excludes:
-        ipopt_internal_fromsource_repository(name = "ipopt_internal_fromsource", mirrors = mirrors)  # noqa
-    if "ipopt_internal_pkgconfig" not in excludes:
-        ipopt_internal_pkgconfig_repository(name = "ipopt_internal_pkgconfig")
+    if "ipopt_internal" not in excludes:
+        ipopt_internal_repository(name = "ipopt_internal", mirrors = mirrors)  # noqa
     if "lapack" not in excludes:
+        # @lapack is the alias (controlled by //tools/flags) that selects which
+        # LAPACK library we'll use when building.
         lapack_repository(name = "lapack")
+    if "lapack_internal" not in excludes:
+        # @lapack_internal builds BLAS and/or LAPACK from source, but is only
+        # conditionally used / referenced, depending on the //tools/flags.
+        lapack_internal_repository(name = "lapack_internal", mirrors = mirrors)
     if "lcm" not in excludes:
         lcm_repository(name = "lcm", mirrors = mirrors)
     if "libblas" not in excludes:
+        # Deprecated 2025-05-01.
         libblas_repository(name = "libblas")
     if "libjpeg_turbo_internal" not in excludes:
         libjpeg_turbo_internal_repository(name = "libjpeg_turbo_internal", mirrors = mirrors)  # noqa
     if "liblapack" not in excludes:
+        # Deprecated 2025-05-01.
         liblapack_repository(name = "liblapack")
     if "libpfm" not in excludes:
         libpfm_repository(name = "libpfm")
@@ -254,6 +250,8 @@ def add_default_repositories(
     if "mujoco_menagerie_internal" not in excludes:
         mujoco_menagerie_internal_repository(name = "mujoco_menagerie_internal", mirrors = mirrors)  # noqa
     if "mumps_internal" not in excludes:
+        # Remove on 2025-05-01.
+        # Likewise remove mumps from setup/**.txt files.
         mumps_internal_repository(name = "mumps_internal")
     if "mypy_extensions_internal" not in excludes:
         mypy_extensions_internal_repository(name = "mypy_extensions_internal", mirrors = mirrors)  # noqa
@@ -274,6 +272,7 @@ def add_default_repositories(
     if "opencl" not in excludes:
         opencl_repository(name = "opencl")
     if "opengl" not in excludes:
+        # Deprecated 2025-05-01.
         opengl_repository(name = "opengl")
     if "openusd_internal" not in excludes:
         openusd_internal_repository(name = "openusd_internal", mirrors = mirrors)  # noqa
@@ -283,6 +282,14 @@ def add_default_repositories(
         osqp_internal_repository(name = "osqp_internal", mirrors = mirrors)
     if "picosha2_internal" not in excludes:
         picosha2_internal_repository(name = "picosha2_internal", mirrors = mirrors)  # noqa
+    if "pkgconfig_blas_internal" not in excludes:
+        # On 2025-05-01 rename libblas_repository to something more
+        # appropriate with "internal" in the name.
+        libblas_repository(name = "pkgconfig_blas_internal", extra_deprecation = "")  # noqa
+    if "pkgconfig_lapack_internal" not in excludes:
+        # On 2025-05-01 rename liblapack_repository to something more
+        # appropriate with "internal" in the name.
+        liblapack_repository(name = "pkgconfig_lapack_internal", extra_deprecation = "")  # noqa
     if "platforms" not in excludes:
         platforms_repository(name = "platforms", mirrors = mirrors)
     if "poisson_disk_sampling_internal" not in excludes:
@@ -301,6 +308,8 @@ def add_default_repositories(
         ros_xacro_internal_repository(name = "ros_xacro_internal", mirrors = mirrors)  # noqa
     if "rules_cc" not in excludes:
         rules_cc_repository(name = "rules_cc", mirrors = mirrors)
+    if "rules_java" not in excludes:
+        rules_java_repository(name = "rules_java", mirrors = mirrors)
     if "rules_license" not in excludes:
         rules_license_repository(name = "rules_license", mirrors = mirrors)
     if "rules_python" not in excludes:
@@ -311,6 +320,8 @@ def add_default_repositories(
         rules_rust_repository(name = "rules_rust", mirrors = mirrors)
     if "rules_rust_tinyjson" not in excludes:
         rules_rust_tinyjson_repository(name = "rules_rust_tinyjson", mirrors = mirrors)  # noqa
+    if "rules_shell" not in excludes:
+        rules_shell_repository(name = "rules_shell", mirrors = mirrors)
     if "rust_toolchain" not in excludes:
         rust_toolchain_repositories(mirrors = mirrors, excludes = excludes)
     if "scs_internal" not in excludes:
@@ -321,8 +332,6 @@ def add_default_repositories(
         snopt_repository(name = "snopt")
     if "spdlog" not in excludes:
         spdlog_repository(name = "spdlog", mirrors = mirrors)
-    if "spgrid_internal" not in excludes:
-        spgrid_internal_repository(name = "spgrid_internal")
     if "spral_internal" not in excludes:
         spral_internal_repository(name = "spral_internal", mirrors = mirrors)
     if "stable_baselines3_internal" not in excludes:
@@ -355,6 +364,8 @@ def add_default_repositories(
         uwebsockets_internal_repository(name = "uwebsockets_internal", mirrors = mirrors)  # noqa
     if "voxelized_geometry_tools" not in excludes:
         voxelized_geometry_tools_repository(name = "voxelized_geometry_tools", mirrors = mirrors)  # noqa
+    if "voxelized_geometry_tools_internal" not in excludes:
+        voxelized_geometry_tools_internal_repository(name = "voxelized_geometry_tools_internal", mirrors = mirrors)  # noqa
     if "vtk_internal" not in excludes:
         vtk_internal_repository(name = "vtk_internal", mirrors = mirrors)
     if "x11" not in excludes:
@@ -366,39 +377,23 @@ def add_default_repositories(
     if "zlib" not in excludes:
         zlib_repository(name = "zlib")
 
-def add_default_toolchains(
-        excludes = [],
-        *,
-        bzlmod = False):
+def add_default_toolchains(excludes = []):
     """Register toolchains for each language (e.g., "py") not explicitly
     excluded and/or not using an automatically generated toolchain.
 
     Args:
         excludes: List of languages for which a toolchain should not be
             registered.
-        bzlmod: when True, skips toolchains declared in our MODULE.bazel;
-          set this to True if you are using bzlmod.
     """
-    if bzlmod:
-        # All toolchains are in MODULE.bazel already.
-        return
-
     if "py" not in excludes:
-        native.register_toolchains(
-            "//tools/py_toolchain:toolchain",
-        )
-        native.register_toolchains(
-            "//tools/py_toolchain:exec_tools_toolchain",
-        )
+        native.register_toolchains("@python//:all")
     if "rust" not in excludes:
         register_rust_toolchains()
 
 def add_default_workspace(
         repository_excludes = [],
         toolchain_excludes = [],
-        mirrors = DEFAULT_MIRRORS,
-        *,
-        bzlmod = False):
+        mirrors = DEFAULT_MIRRORS):
     """Declare repositories in this WORKSPACE for each dependency of @drake
     (e.g., "eigen") that is not explicitly excluded, and register toolchains
     for each language (e.g., "py") not explicitly excluded and/or not using an
@@ -412,16 +407,123 @@ def add_default_workspace(
         mirrors: Dictionary of mirrors from which to download repository files.
             See mirrors.bzl file in this directory for the file format and
             default values.
-        bzlmod: when True, skips repositories and toolchains declared in our
-          MODULE.bazel; set this to True if you are using bzlmod.
     """
 
-    add_default_repositories(
-        excludes = repository_excludes,
-        mirrors = mirrors,
-        bzlmod = bzlmod,
+    add_default_repositories(excludes = repository_excludes, mirrors = mirrors)
+    add_default_toolchains(excludes = toolchain_excludes)
+
+# =============================================================================
+# For Bazel projects using Drake as a dependency via the MODULE mechanism.
+# =============================================================================
+
+# This is the list of modules that our MODULE.bazel already incorporates.
+# It is cross-checked by the workspace_bzlmod_sync_test.py test.
+REPOS_ALREADY_PROVIDED_BY_BAZEL_MODULES = [
+    "build_bazel_apple_support",
+    "bazel_features",
+    "bazel_skylib",
+    "eigen",
+    "fmt",
+    "platforms",
+    "rust_toolchain",
+    "rules_cc",
+    "rules_java",
+    "rules_license",
+    "rules_python",
+    "rules_rust",
+    "rules_shell",
+    "spdlog",
+    "toolchains_llvm",
+    "zlib",
+]
+
+# This is the list of repositories that Drake provides as a module extension
+# for downstream projects; see comments in drake/MODULE.bazel for details.
+# It is cross-checked by the workspace_bzlmod_sync_test.py test.
+REPOS_EXPORTED = [
+    "blas",
+    "buildifier",
+    "drake_models",
+    "eigen",
+    "fmt",
+    "gflags",
+    "glib",
+    "gtest",
+    "gurobi",
+    "lapack",
+    "lcm",
+    "meshcat",
+    "mosek",
+    "opencl",
+    "pybind11",
+    "pycodestyle",
+    "python",
+    "snopt",
+    "spdlog",
+    "styleguide",
+    "x11",
+    "zlib",
+]
+
+def _drake_dep_repositories_impl(module_ctx):
+    # This sequence should match REPOS_EXPORTED exactly.
+    # Mismatches will be reported as errors by Bazel.
+    mirrors = DEFAULT_MIRRORS
+    blas_repository(name = "blas")
+    buildifier_repository(name = "buildifier", mirrors = mirrors)
+    drake_models_repository(name = "drake_models", mirrors = mirrors)
+    gflags_repository(name = "gflags", mirrors = mirrors)
+    glib_repository(name = "glib")
+    gtest_repository(name = "gtest", mirrors = mirrors)
+    gurobi_repository(name = "gurobi")
+    lapack_repository(name = "lapack")
+    lcm_repository(name = "lcm", mirrors = mirrors)
+    meshcat_repository(name = "meshcat", mirrors = mirrors)
+    mosek_repository(name = "mosek", mirrors = mirrors)
+    opencl_repository(name = "opencl")
+    pybind11_repository(name = "pybind11", mirrors = mirrors)
+    pycodestyle_repository(name = "pycodestyle", mirrors = mirrors)
+    python_repository(name = "python")
+    snopt_repository(name = "snopt")
+    styleguide_repository(name = "styleguide", mirrors = mirrors)
+    x11_repository(name = "x11")
+    zlib_repository(name = "zlib", _legacy_workspace = False)
+    for name in ["eigen", "fmt", "spdlog"]:
+        alias_repository(
+            name = name,
+            aliases = {name: "@drake//tools/workspace/" + name},
+        )
+
+drake_dep_repositories = module_extension(
+    implementation = _drake_dep_repositories_impl,
+    doc = """(Stable API) Provides access to Drake's dependencies for use by
+    downstream projects. See comments in drake/MODULE.bazel for details.""",
+)
+
+def _internal_repositories_impl(module_ctx):
+    # Add the repository rules (shared code with WORKSPACE mode).
+    excludes = (
+        REPOS_ALREADY_PROVIDED_BY_BAZEL_MODULES +
+        REPOS_EXPORTED +
+        ["crate_universe"]
     )
-    add_default_toolchains(
-        excludes = toolchain_excludes,
-        bzlmod = bzlmod,
-    )
+    add_default_repositories(excludes = excludes)
+
+    # Add the MODULE-only deps (not shared with WORKSPACE mode).
+    spgrid_module_extension_impl(module_ctx)
+
+internal_repositories = module_extension(
+    implementation = _internal_repositories_impl,
+    doc = """(Internal use only) Wraps the add_default_repositories repository
+    rule into a bzlmod module extension, excluding repositories that are
+    already covered by modules, drake_dep_repositories, and crate_universe.""",
+)
+
+def _internal_crate_universe_repositories_impl(module_ctx):
+    crate_universe_repositories(mirrors = DEFAULT_MIRRORS)
+
+internal_crate_universe_repositories = module_extension(
+    implementation = _internal_crate_universe_repositories_impl,
+    doc = """(Internal use only) Wraps the crate_universe repository rules to
+    be usable as a bzlmod module extension.""",
+)

@@ -25,6 +25,7 @@
 #include "drake/common/test_utilities/expect_throws_message.h"
 #include "drake/common/test_utilities/is_dynamic_castable.h"
 #include "drake/common/test_utilities/symbolic_test_util.h"
+#include "drake/common/text_logging.h"
 #include "drake/math/matrix_util.h"
 #include "drake/solvers/constraint.h"
 #include "drake/solvers/decision_variable.h"
@@ -3340,6 +3341,23 @@ GTEST_TEST(TestMathematicalProgram, Test2NormSquaredCost) {
   }
 }
 
+GTEST_TEST(TestMathematicalProgram, AddQuadraticErrorCost) {
+  MathematicalProgram prog;
+  auto x = prog.NewContinuousVariables<2>();
+  const Eigen::Vector2d x_desired(1.24, 2.3);
+  const double w1 = 3.4;
+  auto obj1 = prog.AddQuadraticErrorCost(w1, x_desired, x);
+  const double w2 = -1.23;
+  auto obj2 = prog.AddQuadraticErrorCost(w2, x_desired, x);
+  const Eigen::Vector2d x_test(7.6, 8.7);
+  Eigen::VectorXd y(1);
+  obj1.evaluator()->Eval(x_test, &y);
+  const double tol = 1e-13;
+  EXPECT_NEAR(y[0], w1 * (x_test - x_desired).squaredNorm(), tol);
+  obj2.evaluator()->Eval(x_test, &y);
+  EXPECT_NEAR(y[0], w2 * (x_test - x_desired).squaredNorm(), tol);
+}
+
 GTEST_TEST(TestMathematicalProgram, AddL2NormCost) {
   MathematicalProgram prog;
   auto x = prog.NewContinuousVariables<2>();
@@ -3958,7 +3976,9 @@ GTEST_TEST(TestMathematicalProgram, TestAddVisualizationCallback) {
   EXPECT_TRUE(was_called);
 }
 
-GTEST_TEST(TestMathematicalProgram, TestSolverOptions) {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+GTEST_TEST(TestMathematicalProgram, DeprecatedTestSolverOptions) {
   MathematicalProgram prog;
   const SolverId solver_id("solver_id");
   const SolverId wrong_solver_id("wrong_solver_id");
@@ -3987,6 +4007,44 @@ GTEST_TEST(TestMathematicalProgram, TestSolverOptions) {
   EXPECT_EQ(prog.GetSolverOptionsInt(solver_id).size(), 0);
   EXPECT_EQ(prog.GetSolverOptionsStr(dummy_id).at("string_name"), "30.0");
   EXPECT_EQ(prog.GetSolverOptionsStr(solver_id).size(), 0);
+}
+#pragma GCC diagnostic pop
+
+GTEST_TEST(TestMathematicalProgram, TestSolverOptions) {
+  MathematicalProgram prog;
+  const SolverId solver_id("solver_id");
+
+  // Set each type once, directly on the program.
+  prog.SetSolverOption(solver_id, "double_name", 1.0);
+  EXPECT_THAT(prog.solver_options().options.at("solver_id").at("double_name"),
+              testing::VariantWith<double>(1.0));
+  prog.SetSolverOption(solver_id, "int_name", 2);
+  EXPECT_THAT(prog.solver_options().options.at("solver_id").at("int_name"),
+              testing::VariantWith<int>(2));
+  prog.SetSolverOption(solver_id, "string_name", "3");
+  EXPECT_THAT(prog.solver_options().options.at("solver_id").at("string_name"),
+              testing::VariantWith<std::string>("3"));
+
+  // The only solver with options set is the "solver_id".
+  EXPECT_EQ(prog.solver_options().options.size(), 1);
+
+  // Set each type once on an options struct, then set that onto the program.
+  // It erases all of the prior options.
+  const SolverId dummy_id("dummy_id");
+  SolverOptions dummy_options;
+  dummy_options.SetOption(dummy_id, "double_name", 10.0);
+  dummy_options.SetOption(dummy_id, "int_name", 20);
+  dummy_options.SetOption(dummy_id, "string_name", "30.0");
+  prog.SetSolverOptions(dummy_options);
+  EXPECT_THAT(prog.solver_options().options.at("dummy_id").at("double_name"),
+              testing::VariantWith<double>(10.0));
+  EXPECT_THAT(prog.solver_options().options.at("dummy_id").at("int_name"),
+              testing::VariantWith<int>(20));
+  EXPECT_THAT(prog.solver_options().options.at("dummy_id").at("string_name"),
+              testing::VariantWith<std::string>("30.0"));
+
+  // The only solver with options set is the "dummy_id".
+  EXPECT_EQ(prog.solver_options().options.size(), 1);
 }
 
 void CheckNewSosPolynomial(MathematicalProgram::NonnegativePolynomial type) {

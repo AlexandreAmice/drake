@@ -54,6 +54,7 @@ namespace drake {
 
 using Eigen::AngleAxisd;
 using Eigen::Matrix2d;
+using Eigen::MatrixXd;
 using Eigen::Translation3d;
 using Eigen::Vector2d;
 using Eigen::Vector3d;
@@ -670,7 +671,11 @@ class AcrobotPlantTests : public ::testing::Test {
     const std::string url =
         "package://drake/multibody/benchmarks/acrobot/acrobot.sdf";
     std::tie(plant_, scene_graph_) = AddMultibodyPlantSceneGraph(&builder, 0.0);
-    Parser(plant_).AddModelsFromUrl(url);
+    const std::vector<ModelInstanceIndex> instances =
+        Parser(plant_).AddModelsFromUrl(url);
+    DRAKE_DEMAND(instances.size() == 1);
+    model_instance_ = instances[0];
+
     // Sanity check on the availability of the optional source id before using
     // it.
     DRAKE_DEMAND(plant_->get_source_id() != std::nullopt);
@@ -907,22 +912,41 @@ class AcrobotPlantTests : public ::testing::Test {
     discrete_plant_->CalcForcedDiscreteVariableUpdate(*discrete_context_,
                                                       updates.get());
 
+    // This test is verifying the discrete dynamics for our default discrete
+    // solver only, currently SAP. Therefore we first verify this to be true.
+    ASSERT_EQ(discrete_plant_->get_discrete_contact_solver(),
+              DiscreteContactSolver::kSap);
+
     // Copies to plain Eigen vectors to verify the math.
+    const int nv = plant_->num_velocities();
+    const int nq = plant_->num_positions();
     const VectorXd x0 = context_->get_continuous_state_vector().CopyToVector();
+    const VectorXd q0 = x0.segment(0, nq);
+    const VectorXd v0 = x0.segment(nq, nv);
     const VectorXd xdot = derivatives_->CopyToVector();
+    const VectorXd vdot = xdot.segment(nq, nv);
     const VectorXd xnext = updates->get_vector().CopyToVector();
+    const VectorXd vnext = xnext.segment(nq, nv);
+
+    // We verify the discrete update using the value of vdot computed using the
+    // continuous model. However, we must take into consideration that SAP
+    // evaluates the dissipation terms at the "next" state. Therefore the
+    // "continuous" and "discrete" accelerations will differ by:
+    //   a_sap = a0 - M₀⁻¹⋅D⋅(v−v₀)
+    // we take this term into account below.
+    const VectorXd& D = plant_->EvalJointDampingCache(*plant_context_);
+    MatrixXd M = MatrixXd::Zero(2, 2);
+    plant_->CalcMassMatrix(*plant_context_, &M);
+    const VectorXd a_sap = vdot - M.ldlt().solve(D.asDiagonal() * (vnext - v0));
 
     // Verify that xnext is updated using a semi-explicit strategy, that is:
     //   vnext = v0 + dt * vdot
     //   qnext = q0 + dt * vnext
     VectorXd xnext_expected(plant_->num_multibody_states());
-    const int nv = plant_->num_velocities();
-    const int nq = plant_->num_positions();
-    xnext_expected.segment(nq, nv) =
-        x0.segment(nq, nv) + time_step * xdot.segment(nq, nv);
+    const VectorXd vnext_expected = v0 + time_step * a_sap;
+    xnext_expected.segment(nq, nv) = vnext_expected;
     // We use the fact that nq = nv for this case.
-    xnext_expected.segment(0, nq) =
-        x0.segment(0, nq) + time_step * xnext_expected.segment(nq, nv);
+    xnext_expected.segment(0, nq) = q0 + time_step * vnext_expected;
 
     EXPECT_TRUE(CompareMatrices(xnext, xnext_expected, kTolerance,
                                 MatrixCompareType::relative));
@@ -951,6 +975,8 @@ class AcrobotPlantTests : public ::testing::Test {
   RevoluteJoint<double>* elbow_{nullptr};
   // Input port for the actuation:
   systems::FixedInputPortValue* input_port_{nullptr};
+  // The model instance of the acrobot.
+  ModelInstanceIndex model_instance_{};
 
   // Reference benchmark for verification.
   Acrobot<double> acrobot_benchmark_{Vector3d::UnitZ() /* Plane normal */,
@@ -1113,6 +1139,99 @@ TEST_F(AcrobotPlantTests, SetDefaultState) {
   // Calling SetDefaultContext directly works, too.
   plant_->SetDefaultContext(plant_context_);
   EXPECT_EQ(shoulder_->get_angle(*plant_context_), 4.2);
+}
+
+TEST_F(AcrobotPlantTests, SetPositionWithNonFinites) {
+  VectorX<double> p = VectorX<double>::Zero(plant_->num_positions());
+  ASSERT_GT(p.rows(), 0);
+
+  // First confirm we've got the right context and right size of things.
+  EXPECT_NO_THROW(plant_->SetPositions(plant_context_, p));
+
+  for (double bad : {std::numeric_limits<double>::quiet_NaN(),
+                     std::numeric_limits<double>::infinity()}) {
+    p[0] = bad;
+    EXPECT_THROW(plant_->SetPositions(plant_context_, p), std::exception);
+    EXPECT_THROW(plant_->SetPositions(plant_context_, model_instance_, p),
+                 std::exception);
+    EXPECT_THROW(plant_->SetPositions(*plant_context_,
+                                      &plant_context_->get_mutable_state(),
+                                      model_instance_, p),
+                 std::exception);
+  }
+}
+
+TEST_F(AcrobotPlantTests, SetDefaultPositionWithNonFinites) {
+  VectorX<double> p = VectorX<double>::Zero(plant_->num_positions());
+  ASSERT_GT(p.rows(), 0);
+
+  // First confirm we've got the right size of things.
+  EXPECT_NO_THROW(plant_->SetDefaultPositions(p));
+
+  for (double bad : {std::numeric_limits<double>::quiet_NaN(),
+                     std::numeric_limits<double>::infinity()}) {
+    p[0] = bad;
+    EXPECT_THROW(plant_->SetDefaultPositions(p), std::exception);
+    EXPECT_THROW(plant_->SetDefaultPositions(model_instance_, p),
+                 std::exception);
+  }
+}
+
+TEST_F(AcrobotPlantTests, SetVelocitiesWithNonFinites) {
+  VectorX<double> v = VectorX<double>::Zero(plant_->num_velocities());
+  ASSERT_GT(v.rows(), 0);
+
+  // First confirm we've got the right context and right size of things.
+  EXPECT_NO_THROW(plant_->SetVelocities(plant_context_, v));
+
+  for (double bad : {std::numeric_limits<double>::quiet_NaN(),
+                     std::numeric_limits<double>::infinity()}) {
+    v[0] = bad;
+    EXPECT_THROW(plant_->SetVelocities(plant_context_, v), std::exception);
+    EXPECT_THROW(plant_->SetVelocities(plant_context_, model_instance_, v),
+                 std::exception);
+    EXPECT_THROW(plant_->SetVelocities(*plant_context_,
+                                       &plant_context_->get_mutable_state(),
+                                       model_instance_, v),
+                 std::exception);
+  }
+}
+
+TEST_F(AcrobotPlantTests, SetVelocitiesInArrayWithNonFinites) {
+  VectorX<double> v_all = VectorX<double>::Zero(plant_->num_velocities());
+  ASSERT_GT(v_all.rows(), 0);
+  VectorX<double> v_instance =
+      VectorX<double>::Zero(plant_->num_velocities(model_instance_));
+
+  // First confirm we've got the right context and right size of things.
+  EXPECT_NO_THROW(
+      plant_->SetVelocitiesInArray(model_instance_, v_instance, &v_all));
+
+  for (double bad : {std::numeric_limits<double>::quiet_NaN(),
+                     std::numeric_limits<double>::infinity()}) {
+    v_instance[0] = bad;
+    EXPECT_THROW(
+        plant_->SetVelocitiesInArray(model_instance_, v_instance, &v_all),
+        std::exception);
+  }
+}
+
+TEST_F(AcrobotPlantTests, SetPositionAndVelocitiesWithNonFinites) {
+  VectorX<double> q = VectorX<double>::Zero(plant_->num_multibody_states());
+  ASSERT_GT(q.rows(), 0);
+
+  // First confirm we've got the right context and right size of things.
+  EXPECT_NO_THROW(plant_->SetPositionsAndVelocities(plant_context_, q));
+
+  for (double bad : {std::numeric_limits<double>::quiet_NaN(),
+                     std::numeric_limits<double>::infinity()}) {
+    q[0] = bad;
+    EXPECT_THROW(plant_->SetPositionsAndVelocities(plant_context_, q),
+                 std::exception);
+    EXPECT_THROW(
+        plant_->SetPositionsAndVelocities(plant_context_, model_instance_, q),
+        std::exception);
+  }
 }
 
 GTEST_TEST(MultibodyPlantTest, SetDefaultFreeBodyPose) {
@@ -4862,7 +4981,7 @@ GTEST_TEST(MultibodyPlantTest, AutoDiffAcrobotParameters) {
 }
 
 GTEST_TEST(MultibodyPlantTests, GetConstraintIds) {
-  // Set up a plant with 3 constraints with arbitrary parameters.
+  // Set up a plant with each constraint type with arbitrary parameters.
   MultibodyPlant<double> plant(0.01);
 
   EXPECT_EQ(plant.GetConstraintIds().size(), 0);
@@ -4926,12 +5045,6 @@ GTEST_TEST(MultibodyPlantTests, ConstraintActiveStatus) {
   DRAKE_EXPECT_THROWS_MESSAGE(plant.set_discrete_contact_approximation(
                                   DiscreteContactApproximation::kTamsi),
                               ".*TAMSI does not support constraints.*");
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-  DRAKE_EXPECT_THROWS_MESSAGE(
-      plant.set_discrete_contact_solver(DiscreteContactSolver::kTamsi),
-      ".*TAMSI does not support constraints.*");
-#pragma GCC diagnostic pop
 
   plant.Finalize();
 
@@ -5817,24 +5930,6 @@ GTEST_TEST(MultibodyPlantTest, RenameModelInstance) {
 GTEST_TEST(MultibodyPlantTests, DiscreteContactApproximation) {
   MultibodyPlant<double> plant(0.01);
 
-  auto set_solver_and_check_approximation =
-      [&plant](DiscreteContactSolver solver) {
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-        plant.set_discrete_contact_solver(solver);
-#pragma GCC diagnostic pop
-        EXPECT_EQ(plant.get_discrete_contact_solver(), solver);
-        if (solver == DiscreteContactSolver::kTamsi) {
-          // TAMSI can only solve the TAMSI approximation.
-          EXPECT_EQ(plant.get_discrete_contact_approximation(),
-                    DiscreteContactApproximation::kTamsi);
-        } else {
-          // SAP can solve all approximations other than TAMSI.
-          EXPECT_EQ(plant.get_discrete_contact_approximation(),
-                    DiscreteContactApproximation::kSap);
-        }
-      };
-
   auto set_approximation_and_check_solver =
       [&plant](DiscreteContactApproximation approximation) {
         plant.set_discrete_contact_approximation(approximation);
@@ -5850,19 +5945,20 @@ GTEST_TEST(MultibodyPlantTests, DiscreteContactApproximation) {
         }
       };
 
-  // Verify that setting the solver sets a consistent contact approximation.
-  set_solver_and_check_approximation(DiscreteContactSolver::kTamsi);
-  set_solver_and_check_approximation(DiscreteContactSolver::kSap);
-
   // Verify that setting an apprximation sets the proper solver.
-  set_solver_and_check_approximation(DiscreteContactSolver::kTamsi);
+  // We reset to TAMSI every other approximation to make sure SAP approximations
+  // are changing the solver back to SAP.
+  set_approximation_and_check_solver(DiscreteContactApproximation::kTamsi);
   set_approximation_and_check_solver(DiscreteContactApproximation::kSap);
 
-  set_solver_and_check_approximation(DiscreteContactSolver::kTamsi);
+  set_approximation_and_check_solver(DiscreteContactApproximation::kTamsi);
   set_approximation_and_check_solver(DiscreteContactApproximation::kLagged);
 
-  set_solver_and_check_approximation(DiscreteContactSolver::kTamsi);
+  set_approximation_and_check_solver(DiscreteContactApproximation::kTamsi);
   set_approximation_and_check_solver(DiscreteContactApproximation::kSimilar);
+
+  // Make sure we can go back to TAMSI after kSimilar.
+  set_approximation_and_check_solver(DiscreteContactApproximation::kTamsi);
 
   // Post-finalize calls to set_discrete_contact_approximation() throws.
   plant.Finalize();

@@ -1,7 +1,9 @@
 #include "drake/common/yaml/yaml_write_archive.h"
 
+#include <filesystem>
 #include <vector>
 
+#include <fmt/args.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
@@ -67,14 +69,93 @@ TEST_F(YamlWriteArchiveTest, Double) {
   test(-std::numeric_limits<double>::infinity(), "-.inf");
 }
 
+TEST_F(YamlWriteArchiveTest, Bytes) {
+  const auto test = [](const std::string& value, const std::string& expected) {
+    const BytesStruct x{StringToByteVector(value)};
+    EXPECT_EQ(Save(x), WrapDoc(expected));
+  };
+
+  test("", "!!binary \"\"");
+  test("all ascii", "!!binary YWxsIGFzY2lp");
+  test("other\x03\xffstuff", "!!binary b3RoZXID/3N0dWZm");
+}
+
 TEST_F(YamlWriteArchiveTest, String) {
   const auto test = [](const std::string& value, const std::string& expected) {
     const StringStruct x{value};
     EXPECT_EQ(Save(x), WrapDoc(expected));
   };
 
+  // We'll use these named fmt args to help make our expected values clear.
+  fmt::dynamic_format_arg_store<fmt::format_context> args;
+  args.push_back(fmt::arg("bs", '\\'));  // backslash
+  args.push_back(fmt::arg("dq", '"'));   // double quote
+
+  // Plain string.
   test("a", "a");
-  test("1", "1");
+
+  // Needs quoting for special characters. Note that there are several valid
+  // ways to quote and/or escape these, but for now we just check against the
+  // exact choice that yaml-cpp uses. In the future if we see new outputs, we
+  // could allow them too.
+  test("'", fmt::vformat("{dq}'{dq}", args));
+  test("\"", fmt::vformat("{dq}{bs}{dq}{dq}", args));
+
+  // Needs quoting to avoid being misinterpreted as another data type.
+  test("1", "'1'");
+  test("1.0", "'1.0'");
+  test(".NaN", "'.NaN'");
+  test("true", "'true'");
+  test("NO", "'NO'");
+  test("null", "'null'");
+  test("190:20:30", "'190:20:30'");  // YAML has sexagesimal literals.
+
+  // Similar to things that would be misinterpreted but actually a-ok.
+  test("nonnull", "nonnull");
+  test("NaN", "NaN");
+  test("=1.0", "=1.0");
+  test("00:1A:2B:3C:4D:5E", "00:1A:2B:3C:4D:5E");
+}
+
+TEST_F(YamlWriteArchiveTest, AllScalars) {
+  AllScalarsStruct x;
+  x.some_bool = true;
+  x.some_float = 100.0;
+  x.some_double = 101.0;
+  x.some_int32 = 102;
+  x.some_uint32 = 103;
+  x.some_int64 = 104;
+  x.some_uint64 = 105;
+  x.some_string = "foo";
+  x.some_path = "/test/path";
+  x.some_bytes = StringToByteVector("\x05\x06\x07");
+  EXPECT_EQ(Save(x), R"""(doc:
+  some_bool: true
+  some_float: 100.0
+  some_double: 101.0
+  some_int32: 102
+  some_uint32: 103
+  some_int64: 104
+  some_uint64: 105
+  some_string: foo
+  some_path: /test/path
+  some_bytes: !!binary BQYH
+)""");
+}
+
+TEST_F(YamlWriteArchiveTest, Path) {
+  const auto test = [](const std::filesystem::path& value,
+                       const std::string& expected) {
+    const PathStruct x{value};
+    EXPECT_EQ(Save(x), WrapDoc(expected));
+  };
+
+  test("", "''");
+  test("/absolute/path", "/absolute/path");
+  test("relative/path", "relative/path");
+  // Some representative value that looks like a primitive; we're simply looking
+  // for some evidence that path is treated as a string.
+  test("1234", "'1234'");
 }
 
 TEST_F(YamlWriteArchiveTest, StdArray) {
@@ -202,13 +283,25 @@ TEST_F(YamlWriteArchiveTest, Optional) {
   test(1.0, "doc:\n  value: 1.0\n");
 }
 
+TEST_F(YamlWriteArchiveTest, OptionalBytes) {
+  // Smoke test for compatibility for the odd scalar: vector<byte>.
+  const auto test_bytes = [](const std::optional<std::vector<std::byte>>& value,
+                             const std::string& expected) {
+    const OptionalBytesStruct x(value);
+    EXPECT_EQ(Save(x), expected);
+  };
+  test_bytes(std::nullopt, "doc:\n");
+  test_bytes(StringToByteVector("other\x03\xffstuff"),
+             "doc:\n  value: !!binary b3RoZXID/3N0dWZm\n");
+}
+
 TEST_F(YamlWriteArchiveTest, Variant) {
   const auto test = [](const Variant4& value, const std::string& expected) {
     const VariantStruct x{value};
     EXPECT_EQ(Save(x), WrapDoc(expected));
   };
 
-  test(Variant4(std::string()), "\"\"");
+  test(Variant4(std::string()), "''");
   test(Variant4(std::string("foo")), "foo");
   test(Variant4(1.0), "!!float 1.0");
   test(Variant4(DoubleStruct{1.0}), "!DoubleStruct\n    value: 1.0");
@@ -228,6 +321,7 @@ TEST_F(YamlWriteArchiveTest, PrimitiveVariant) {
   test(10, "!!int 10");
   test(1.0, "!!float 1.0");
   test(std::string("foo"), "!!str foo");
+  test(StringToByteVector("other\x03\xffstuff"), "!!binary b3RoZXID/3N0dWZm");
 }
 
 TEST_F(YamlWriteArchiveTest, EigenVector) {

@@ -98,7 +98,7 @@ class WeldJoint final : public Joint<T> {
   void do_set_default_positions(const VectorX<double>&) override { return; }
 
   // Joint<T> overrides:
-  std::unique_ptr<typename Joint<T>::BluePrint> MakeImplementationBlueprint(
+  std::unique_ptr<internal::Mobilizer<T>> MakeMobilizerForJoint(
       const internal::SpanningForest::Mobod& mobod) const override;
 
   std::unique_ptr<Joint<double>> DoCloneToScalar(
@@ -109,6 +109,8 @@ class WeldJoint final : public Joint<T> {
 
   std::unique_ptr<Joint<symbolic::Expression>> DoCloneToScalar(
       const internal::MultibodyTree<symbolic::Expression>& x) const override;
+
+  std::unique_ptr<Joint<T>> DoShallowClone() const override;
 
   // Make WeldJoint templated on every other scalar type a friend of
   // WeldJoint<T> so that CloneToScalar<ToAnyOtherScalar>() can access

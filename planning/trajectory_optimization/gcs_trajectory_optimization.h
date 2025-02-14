@@ -917,12 +917,6 @@ class GcsTrajectoryOptimization final {
   /** Returns a Graphviz string describing the graph vertices and edges.  If
   `result` is supplied, then the graph will be annotated with the solution
   values.
-  @param show_slacks determines whether the values of the intermediate
-  (slack) variables are also displayed in the graph.
-  @param precision sets the floating point precision (how many digits are
-  generated) of the annotations.
-  @param scientific sets the floating point formatting to scientific (if true)
-  or fixed (if false).
   */
   std::string GetGraphvizString(
       const solvers::MathematicalProgramResult* result = nullptr,
@@ -1370,8 +1364,8 @@ class GcsTrajectoryOptimization final {
 
 /** Returns a list of indices in the plant's generalized positions which
 correspond to a continuous revolute joint (a revolute joint with no joint
-limits). This includes the revolute component of PlanarJoint and
-RpyFloatingJoint. */
+limits). This includes UniversalJoint, and the revolute component of PlanarJoint
+and RpyFloatingJoint. */
 std::vector<int> GetContinuousRevoluteJointIndices(
     const multibody::MultibodyPlant<double>& plant);
 

@@ -11,6 +11,19 @@ problems.
 
 # MultibodyPlant
 
+## Parsing {#mbp-parsing}
+
+If you have a model file (e.g., .urdf, .sdf, .xml, .usd, etc.) that you are loading into a `MultibodyPlant` using the `Parser` class, and the model is not loading properly, then there are a few useful resources you might consider.
+
+Documentation for the specific XML elements and attributes supported by the parser can be found [here](https://drake.mit.edu/doxygen_cxx/group__multibody__parsing.html).
+
+If you do run into some of the known limitations in Drake's parsing support, you may consider using the [`make_drake_compatible_model`](https://manipulation.mit.edu/python/make_drake_compatible_model.html) tool to convert your model file and assets into a format that Drake can parse. It is available in the [manipulation](https://manipulation.mit.edu/) Python package, and be used via e.g.:
+```bash
+python3 -m venv venv
+venv/bin/pip install manipulation[mesh] --extra-index-url https://drake-packages.csail.mit.edu/whl/nightly/
+venv/bin/python -m manipulation.make_drake_compatible_model {input_file} {output_file}
+```
+
 ## Unconnected QueryObject port {#mbp-unconnected-query-object-port}
 
 The error message will include the message, "The provided context doesn't show a
@@ -165,6 +178,34 @@ env/bin/pip install drake
 source env/bin/activate
 ```
 
+# Image rendering
+
+## GL and/or DISPLAY {#gl-init}
+
+When performing image rendering (i.e., camera simulation), sometimes you may
+need to configure your computer to provide Drake sufficient access to core
+graphics libraries.
+
+Drake renders images using the
+[RenderEngine](https://drake.mit.edu/doxygen_cxx/classdrake_1_1geometry_1_1render_1_1_render_engine.html)
+abstract base class, which is typically configured using the
+[CameraConfig](https://drake.mit.edu/doxygen_cxx/structdrake_1_1systems_1_1sensors_1_1_camera_config.html)
+data structure via YAML, which can specify a concrete `RenderEngine` subclass to
+be used. Refer to the
+[hardware_sim](https://github.com/RobotLocomotion/drake/tree/master/examples/hardware_sim)
+example for details.
+
+If you are using either `RenderEngineGl`, or `RenderEngineVtk` under the
+(non-default) setting `backend = "GLX"`, then you must ensure that prior to
+using Drake the `$DISPLAY` environment variable is set to an available X11
+display server (e.g., `":1"`). If you are running as desktop user (not over
+ssh), then `$DISPLAY` will probably already be set correctly.
+
+For remote rendering (e.g., in the cloud) we recommend avoiding needing any
+`$DISPLAY` by using only `RenderEngineVtk` and only with its default `backend`.
+If you do need a display in the cloud, you'll need to run a program such as
+`PyVirtualDisplay`, `Xvfb`, or a full `Xorg` server to provide it.
+
 # Build problems
 
 ## Out of memory {#build-oom}
@@ -197,6 +238,36 @@ Note that the concurrency level passed to `make` (e.g., `make -j 2`) does not
 propagate through to affect the concurrency of most of Drake's build steps; you
 need to configure the dotfile in order to control the build concurrency.
 
+# Network Configuration
+
+## LCM on macOS {#lcm-macos}
+
+When building and testing Drake from source on macOS 15 (Sequoia), you may
+encounter issues with [LCM](https://lcm-proj.github.io/lcm/index.html).
+In particular, an error message that can arise is: "LCM self test failed!!
+Check your routing tables and firewall settings." LCM relies on
+[UDP Multicast](https://lcm-proj.github.io/lcm/content/multicast-setup.html)
+over loopback, so multicast traffic must be enabled over the loopback
+interface on your computer in order for it to work.
+
+Sometimes this is not explicitly enabled on macOS. If you see this error,
+check the routing table by running `netstat -nr`. The following entry in the
+IPv4 table is correct:
+
+```
+Internet:
+Destination        Gateway            Flags               Netif Expire
+...
+224.0.0/4          lo0                UmS                   lo0
+```
+
+If you see a different interface for this address, such as `en0`, then
+run the following to change it to loopback (`lo0`):
+
+```
+sudo route -nv delete 224.0.0.0/4
+sudo route -nv add -net 224.0.0.0/4 -interface lo0
+```
 
 <!-- Links to the various Drake doxygen pages.
      Order determined by directory structure first and names second.

@@ -67,16 +67,19 @@ GTEST_TEST(MaxCliqueSolverViaMipTest, TestConstructorSettersAndGetters) {
   solvers::SolverOptions options{};
   options.SetOption(solvers::CommonSolverOption::kPrintToConsole, 1);
   solver.SetSolverOptions(options);
-  EXPECT_TRUE(solver.GetSolverOptions().get_print_to_console());
+  EXPECT_EQ(solver.GetSolverOptions(), options);
 
   // Test the constructor with the initial guess and solver options passed.
   MaxCliqueSolverViaMip solver2{initial_guess, options};
   EXPECT_TRUE(solver2.GetInitialGuess().has_value());
   EXPECT_TRUE(
       CompareMatrices(solver2.GetInitialGuess().value(), initial_guess));
-  EXPECT_TRUE(solver2.GetSolverOptions().get_print_to_console());
+  EXPECT_EQ(solver2.GetSolverOptions(), options);
 }
 
+// Deprecated 2025-05-01.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 GTEST_TEST(MaxCliqueSolverViaMipTest, TestClone) {
   const Eigen::Vector2d initial_guess = Eigen::Vector2d::Ones();
   solvers::SolverOptions options{};
@@ -88,8 +91,9 @@ GTEST_TEST(MaxCliqueSolverViaMipTest, TestClone) {
   ASSERT_FALSE(solver_clone_mip == nullptr);
   EXPECT_TRUE(CompareMatrices(solver.GetInitialGuess().value(),
                               solver_clone_mip->GetInitialGuess().value()));
-  EXPECT_EQ(solver_clone_mip->GetSolverOptions().get_print_to_console(), 1);
+  EXPECT_EQ(solver_clone_mip->GetSolverOptions(), options);
 }
+#pragma GCC diagnostic pop
 
 GTEST_TEST(MaxCliqueSolverViaMipTest, CompleteGraph) {
   for (const auto n : {3, 8}) {

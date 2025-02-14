@@ -91,6 +91,8 @@ class RigidBodyFrame final : public Frame<T> {
   std::unique_ptr<Frame<symbolic::Expression>> DoCloneToScalar(
       const internal::MultibodyTree<symbolic::Expression>&) const override;
 
+  std::unique_ptr<Frame<T>> DoShallowClone() const override;
+
   math::RigidTransform<T> DoCalcPoseInBodyFrame(
       const systems::Parameters<T>&) const override {
     return math::RigidTransform<T>::Identity();
@@ -703,7 +705,7 @@ class RigidBody : public MultibodyElement<T> {
 
   /// (Advanced) Extract acceleration of this body's origin in world, expressed
   /// in world.
-  /// @param[in] vc velocity kinematics cache.
+  /// @param[in] ac acceleration kinematics cache.
   /// @retval a_WBo_W acceleration of body origin Bo in world W, expressed in W.
   const Vector3<T>& get_origin_acceleration_in_world(
       const internal::AccelerationKinematicsCache<T>& ac) const {

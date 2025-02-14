@@ -344,11 +344,15 @@ drake_cc_library(
     deps = [
         ":bvh",
         ":contact_surface_utility",
+        ":hydroelastic_internal",
         ":mesh_field",
         ":mesh_intersection",
         ":mesh_plane_intersection",
         ":plane",
         ":posed_half_space",
+        ":triangle_surface_mesh",
+        ":volume_mesh_topology",
+        ":volume_to_surface_mesh",
         "//common:default_scalars",
         "//geometry/query_results:contact_surface",
     ],
@@ -1055,11 +1059,13 @@ drake_cc_googletest(
     name = "boxes_overlap_test",
     deps = [
         ":boxes_overlap",
+        "//common:hwy_dynamic",
         "//common/test_utilities:maybe_pause_for_user",
         "//geometry:meshcat",
         "//geometry:rgba",
         "//geometry:shape_specification",
         "//geometry/test_utilities:boxes_overlap_transforms",
+        "@highway_internal//:hwy_test_util",
     ],
 )
 
@@ -1445,6 +1451,7 @@ drake_cc_googletest(
 
 drake_cc_googletest(
     name = "make_cylinder_mesh_test",
+    shard_count = 2,
     deps = [
         ":make_cylinder_mesh",
         ":proximity_utilities",

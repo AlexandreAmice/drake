@@ -259,7 +259,7 @@ class QuaternionFloatingJoint final : public Joint<T> {
   /// velocity of the child frame M's origin in the parent frame F is `v_FM`.
   /// @param[in,out] context
   ///   A Context for the MultibodyPlant this joint belongs to.
-  /// @param[in] w_FM
+  /// @param[in] v_FM
   ///   A vector in ℝ³ with the translational velocity of the child frame M's
   ///   origin in the parent frame F, expressed in F. Refer to this class's
   ///   documentation for further details and definitions of these frames.
@@ -397,7 +397,7 @@ class QuaternionFloatingJoint final : public Joint<T> {
 
   void do_set_default_positions(
       const VectorX<double>& default_positions) override {
-    if (this->has_implementation()) {
+    if (this->has_mobilizer()) {
       get_mutable_mobilizer().set_default_position(default_positions);
     }
   }
@@ -417,7 +417,7 @@ class QuaternionFloatingJoint final : public Joint<T> {
   }
 
   // Joint<T> overrides:
-  std::unique_ptr<typename Joint<T>::BluePrint> MakeImplementationBlueprint(
+  std::unique_ptr<internal::Mobilizer<T>> MakeMobilizerForJoint(
       const internal::SpanningForest::Mobod& mobod) const override;
 
   std::unique_ptr<Joint<double>> DoCloneToScalar(
@@ -428,6 +428,8 @@ class QuaternionFloatingJoint final : public Joint<T> {
 
   std::unique_ptr<Joint<symbolic::Expression>> DoCloneToScalar(
       const internal::MultibodyTree<symbolic::Expression>&) const override;
+
+  std::unique_ptr<Joint<T>> DoShallowClone() const override;
 
   // Make QuaternionFloatingJoint templated on every other scalar type a friend
   // of QuaternionFloatingJoint<T> so that CloneToScalar<ToAnyOtherScalar>() can

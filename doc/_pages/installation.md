@@ -24,7 +24,7 @@ officially supports:
 | Ubuntu 22.04 LTS (Jammy Jellyfish) | x86_64       | 3.10 ⁽³⁾   | March 2026      |
 | Ubuntu 24.04 LTS (Noble Numbat)    | x86_64       | 3.12 ⁽³⁾   | March 2028      |
 | macOS Sonoma (14)                  | arm64        | 3.12 ⁽³⁾   | October 2025    |
-| macOS Sequoia (15) ⁽⁵⁾             | arm64        | TBD        | October 2026    |
+| macOS Sequoia (15)                 | arm64        | 3.12 ⁽³⁾   | October 2026    |
 
 "Official support" means that we have Continuous Integration test coverage to
 notice regressions, so if it doesn't work for you then please file a bug report.
@@ -35,9 +35,8 @@ with other versions of Python. However, these are not supported so if it doesn't
 work for you then please file a pull request with the fix, not a bug report.
 
 ⁽¹⁾ Drake features that perform image rendering (e.g., camera simulation)
-require a working display server.  Most personal computers will have this
-already built in, but some cloud or docker environments may require extra
-setup steps.
+maybe require extra setup. See the
+[troubleshooting](/troubleshooting.html#gl-init) page for details.
 
 ⁽²⁾ CPython is the only Python implementation supported.
 Drake is not tested regularly with Anaconda, so if you are using Anaconda you
@@ -53,9 +52,6 @@ timeline for changing which Python versions are supported.
 
 ⁽⁴⁾ These end-of-life dates are estimates.
 Refer to [OS Support](/stable.html#os-support) for details.
-
-⁽⁵⁾ Sequoia support is in development; refer to
-[#21910](https://github.com/RobotLocomotion/drake/issues/21910) for details.
 
 Additionally, if you are compiling your own C++ code against Drake's C++ code
 and are using Drake's pre-compiled binaries, then you must use the same
@@ -109,7 +105,10 @@ To use Gurobi, you must build Drake from source.
 For Python, refer to
 [Using the Python Bindings](/python_bindings.html#using-the-python-bindings).
 
-For C++, refer to either the
+For C++ sample projects that show how to import Drake as a CMake external
+project, please see our gallery of
+[external examples](https://github.com/RobotLocomotion/drake-external-examples),
+specifically either the
 [example CMake project for apt (deb)](https://github.com/RobotLocomotion/drake-external-examples/tree/main/drake_cmake_installed_apt)
 or the
 [example CMake project for tar.gz download](https://github.com/RobotLocomotion/drake-external-examples/tree/main/drake_cmake_installed).

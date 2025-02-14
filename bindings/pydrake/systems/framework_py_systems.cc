@@ -9,6 +9,7 @@
 #include "drake/bindings/pydrake/common/wrap_pybind.h"
 #include "drake/bindings/pydrake/documentation_pybind.h"
 #include "drake/bindings/pydrake/pydrake_pybind.h"
+#include "drake/bindings/pydrake/systems/value_producer_pybind.h"
 #include "drake/systems/framework/diagram.h"
 #include "drake/systems/framework/leaf_system.h"
 #include "drake/systems/framework/system.h"
@@ -16,6 +17,7 @@
 #include "drake/systems/framework/system_visitor.h"
 #include "drake/systems/framework/vector_system.h"
 #include "drake/systems/framework/witness_function.h"
+#include "drake/systems/framework/wrapped_system.h"
 
 using std::make_unique;
 using std::string;
@@ -44,6 +46,7 @@ using systems::SystemVisitor;
 using systems::UnrestrictedUpdateEvent;
 using systems::VectorSystem;
 using systems::WitnessFunction;
+using systems::internal::WrappedSystem;
 
 // NOLINTNEXTLINE(build/namespaces): Emulate placement in namespace.
 using namespace drake::systems;
@@ -90,8 +93,7 @@ struct Impl {
     // (LeafSystemPublic::*)(...), since this typeid is not exposed in pybind.
     // If needed, solution is to expose it as an intermediate type if needed.
 
-    // Expose protected methods for binding, no need for virtual overrides
-    // (ordered by how they are bound).
+    // Expose protected methods for binding, no need for virtual overrides.
     using Base::DeclareAbstractInputPort;
     using Base::DeclareAbstractOutputPort;
     using Base::DeclareAbstractParameter;
@@ -109,6 +111,7 @@ struct Impl {
     using Base::get_mutable_forced_discrete_update_events;
     using Base::get_mutable_forced_publish_events;
     using Base::get_mutable_forced_unrestricted_update_events;
+    using Base::HandlePostConstructionScalarConversion;
     using Base::MakeWitnessFunction;
 
     // Because `LeafSystem<T>::DoCalcTimeDerivatives` is protected, and we had
@@ -302,8 +305,9 @@ struct Impl {
     // TODO(eric.cousineau): Show constructor, but somehow make sure `pybind11`
     // knows this is abstract?
     auto system_cls =
-        DefineTemplateClassWithDefault<System<T>, SystemBase, PySystem>(
-            m, "System", GetPyParam<T>(), doc.System.doc);
+        DefineTemplateClassWithDefault<System<T>, SystemBase, PySystem>(m,
+            "System", GetPyParam<T>(), doc.System.doc, std::nullopt,
+            py::dynamic_attr());
     system_cls
         // Resource allocation and initialization.
         .def("AllocateContext", &System<T>::AllocateContext,
@@ -366,6 +370,12 @@ struct Impl {
             py::arg("context"), py::arg("port_index"), py_rvp::reference,
             // Keep alive, ownership: `return` keeps `Context` alive.
             py::keep_alive<0, 2>(), doc.System.EvalVectorInput.doc)
+        // Constraints.
+        .def("num_constraints", &System<T>::num_constraints,
+            doc.System.num_constraints.doc)
+        // (For now, bind privately since ExternalSystemConstraint is private.)
+        .def("_AddExternalConstraint", &System<T>::AddExternalConstraint,
+            py::arg("constraint"), doc.System.AddExternalConstraint.doc)
         // Calculations.
         .def("CalcTimeDerivatives", &System<T>::CalcTimeDerivatives,
             py::arg("context"), py::arg("derivatives"),
@@ -549,13 +559,24 @@ Note: The above is for the C++ documentation. For Python, use
             doc.System.ToSymbolicMaybe.doc)
         .def("FixInputPortsFrom", &System<T>::FixInputPortsFrom,
             py::arg("other_system"), py::arg("other_context"),
-            py::arg("target_context"), doc.System.FixInputPortsFrom.doc);
+            py::arg("target_context"), doc.System.FixInputPortsFrom.doc)
+        .def("get_system_scalar_converter",
+            &System<T>::get_system_scalar_converter, py_rvp::reference_internal,
+            doc.System.get_system_scalar_converter.doc);
     auto def_to_scalar_type = [&cls](auto dummy) {
       using U = decltype(dummy);
       AddTemplateMethod(
           cls, "ToScalarType",
           [](const System<T>& self) { return self.template ToScalarType<U>(); },
           GetPyParam<U>(), doc.System.ToScalarType.doc_0args);
+      AddTemplateMethod(
+          cls, "_HandlePostConstructionScalarConversion",
+          [](System<T>& self, const System<U>& from) {
+            LeafSystemPublic::HandlePostConstructionScalarConversion(
+                from, &self);
+          },
+          GetPyParam<U>(),
+          doc.System.HandlePostConstructionScalarConversion.doc);
     };
     type_visit(def_to_scalar_type, CommonScalarPack{});
 
@@ -569,8 +590,6 @@ Note: The above is for the C++ documentation. For Python, use
   }
 
   static void DefineLeafSystem(py::module m) {
-    using AllocCallback = typename LeafOutputPort<T>::AllocCallback;
-    using CalcCallback = typename LeafOutputPort<T>::CalcCallback;
     using CalcVectorCallback = typename LeafOutputPort<T>::CalcVectorCallback;
     auto leaf_system_cls =
         DefineTemplateClassWithDefault<LeafSystem<T>, PyLeafSystem, System<T>>(
@@ -598,13 +617,17 @@ Note: The above is for the C++ documentation. For Python, use
             doc.LeafSystem.DeclareAbstractParameter.doc)
         .def("DeclareNumericParameter", &PyLeafSystem::DeclareNumericParameter,
             py::arg("model_vector"), doc.LeafSystem.DeclareNumericParameter.doc)
-        .def("DeclareAbstractOutputPort",
-            WrapCallbacks([](PyLeafSystem* self, const std::string& name,
-                              AllocCallback arg1, CalcCallback arg2,
-                              const std::set<DependencyTicket>& arg3)
-                              -> const OutputPort<T>& {
-              return self->DeclareAbstractOutputPort(name, arg1, arg2, arg3);
-            }),
+        .def(
+            "DeclareAbstractOutputPort",
+            [](PyLeafSystem* self, const std::string& name, py::function alloc,
+                std::function<void(py::object, py::object)> calc,
+                const std::set<DependencyTicket>& prerequisites_of_calc)
+                -> const OutputPort<T>& {
+              return self->DeclareAbstractOutputPort(name,
+                  MakeCppCompatibleAllocateCallback(std::move(alloc)),
+                  MakeCppCompatibleCalcCallback(std::move(calc)),
+                  prerequisites_of_calc);
+            },
             py_rvp::reference_internal, py::arg("name"), py::arg("alloc"),
             py::arg("calc"),
             py::arg("prerequisites_of_calc") =
@@ -1057,6 +1080,16 @@ Note: The above is for the C++ documentation. For Python, use
     }
   }
 
+  static void DefineWrappedSystem(py::module m) {
+    using Class = WrappedSystem<T>;
+    auto cls = DefineTemplateClassWithDefault<Class, Diagram<T>>(m,
+        "_WrappedSystem", GetPyParam<T>(),
+        "Wrapper that enables scalar-conversion of Python leaf systems.");
+    cls  // BR
+        .def("unwrap", &Class::unwrap, py_rvp::reference_internal,
+            "Returns the underlying system.");
+  }
+
   template <typename PyClass>
   static void DefineSystemVisitor(py::module m, PyClass* system_cls) {
     // TODO(eric.cousineau): Bind virtual methods once we provide a function
@@ -1244,17 +1277,37 @@ void DefineSystemScalarConverter(PyClass* cls) {
           &SystemScalarConverter::IsConvertible<T, U>, GetPyParam<T, U>(),
           cls_doc.IsConvertible.doc);
       using system_scalar_converter_internal::AddPydrakeConverterFunction;
-      using ConverterFunction =
-          std::function<std::unique_ptr<System<T>>(const System<U>&)>;
-      AddTemplateMethod(converter, "_Add",
-          WrapCallbacks(
-              [](SystemScalarConverter* self, const ConverterFunction& func) {
-                const std::function<System<T>*(const System<U>&)> bare_func =
-                    [func](const System<U>& other) {
-                      return func(other).release();
-                    };
-                AddPydrakeConverterFunction(self, bare_func);
-              }),
+      // N.B. The "_AddConstructor" method is called by scalar_conversion.py
+      // to register a constructor, similar to MaybeAddConstructor in C++.
+      using ConverterFunction = std::function<System<T>*(const System<U>&)>;
+      AddTemplateMethod(
+          converter, "_AddConstructor",
+          [](SystemScalarConverter* self,
+              py::function python_converter_function) {
+            AddPydrakeConverterFunction(self,
+                ConverterFunction{
+                    [python_converter_function](const System<U>& system_u_cpp) {
+                      py::gil_scoped_acquire guard;
+                      // Call the Python converter function.
+                      py::object system_u_py =
+                          py::cast(system_u_cpp, py_rvp::reference_internal);
+                      py::object system_t_py =
+                          python_converter_function(system_u_py);
+                      DRAKE_THROW_UNLESS(!system_t_py.is_none());
+                      // Cast its result to a shared_ptr.
+                      std::shared_ptr<System<T>> system_t_cpp =
+                          make_shared_ptr_from_py_object<System<T>>(
+                              std::move(system_t_py));
+                      // Wrap the result in a Diagram so we have a unique_ptr
+                      // instead of a shared_ptr.
+                      std::unique_ptr<System<T>> result =
+                          std::make_unique<WrappedSystem<T>>(
+                              std::move(system_t_cpp));
+                      // Our contract is to return an owned raw pointer. Our
+                      // caller will wrap the unique_ptr back around it.
+                      return result.release();
+                    }});
+          },
           GetPyParam<T, U>());
     };
     // N.B. When changing the pairs of supported types below, ensure that these
@@ -1304,6 +1357,7 @@ void DefineFrameworkPySystems(py::module m) {
     Impl<T>::DefineLeafSystem(m);
     Impl<T>::DefineDiagram(m);
     Impl<T>::DefineVectorSystem(m);
+    Impl<T>::DefineWrappedSystem(m);
     Impl<T>::DefineSystemVisitor(m, cls_system);
   };
   type_visit(bind_common_scalar_types, CommonScalarPack{});

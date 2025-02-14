@@ -2,7 +2,7 @@
 
 load("@drake//tools/install:install.bzl", "install")
 load("@drake//tools/skylark:cc.bzl", "cc_library")
-load("@drake//tools/workspace/snopt:fortran.bzl", "fortran_module")
+load("@drake//tools/workspace/gfortran:fortran.bzl", "fortran_module")
 
 licenses(["notice"])  # BSD-3-Clause
 
@@ -101,6 +101,7 @@ cc_library(
 fortran_module(
     src = "src/blas_iface.f90",
     name = "spral_blas_iface",
+    deps = ["@blas"],
 )
 
 fortran_module(
@@ -124,6 +125,7 @@ fortran_module(
 fortran_module(
     name = "spral_lapack_iface",
     src = "src/lapack_iface.f90",
+    deps = ["@lapack"],
 )
 
 fortran_module(

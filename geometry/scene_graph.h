@@ -69,18 +69,12 @@ class QueryObject;
      update geometry pose/configuration values.
 
  @section geom_sys_inputs Inputs
- @cond
- In future versions, this will *also* include velocity and (possibly)
- acceleration ports.
- // TODO(SeanCurtis-TRI): Modify this to reflect the number of actual port
- // types.
- @endcond
 
  For each registered geometry source, there is one input port for each order
- of kinematics values (e.g., pose, velocity, acceleration, and configuration).
- If a source registers a frame or a deformable geometry, it must connect to the
- corresponding ports. Failure to connect to the ports (or to provide valid
- kinematics values) will lead to runtime exceptions.
+ of kinematics values (i.e., pose and configuration). If a source registers a
+ frame or a deformable geometry, it must connect to the corresponding ports.
+ Failure to connect to the ports (or to provide valid kinematics values) will
+ lead to runtime exceptions.
 
  __pose port__: An abstract-valued port providing an instance of
  FramePoseVector. For each registered frame, this "pose vector" maps the
@@ -699,8 +693,8 @@ class SceneGraph final : public systems::LeafSystem<T> {
   /** @name     Managing RenderEngine instances      */
   //@{
 
-  /** Adds a new render engine to this %SceneGraph. The %SceneGraph owns the
-   render engine. The render engine's name should be referenced in the
+  /** Adds a new render engine to this %SceneGraph.
+   The render engine's name should be referenced in the
    @ref render::ColorRenderCamera "ColorRenderCamera" or
    @ref render::DepthRenderCamera "DepthRenderCamera" provided in the render
    queries (see QueryObject::RenderColorImage() as an example).
@@ -724,14 +718,28 @@ class SceneGraph final : public systems::LeafSystem<T> {
    existing geometries (see @ref scene_graph_versioning).
 
    @param name      The unique name of the renderer.
-   @param renderer  The `renderer` to add.
+   @param renderer  The `renderer` to add. (It will be copied / cloned, which
+   means the lifetime of the argument need not extend past this call.)
    @throws std::exception if the name is not unique.  */
-  void AddRenderer(std::string name,
-                   std::unique_ptr<render::RenderEngine> renderer);
+  void AddRenderer(std::string name, const render::RenderEngine& renderer);
 
   /** systems::Context-modifying variant of AddRenderer(). Rather than
    modifying %SceneGraph's model, it modifies the copy of the model stored in
    the provided context.  */
+  void AddRenderer(systems::Context<T>* context, std::string name,
+                   const render::RenderEngine& renderer) const;
+
+  /** Non-copying variant of AddRenderer().
+   The %SceneGraph takes ownership the render engine instead of copying it.
+   The calling code must not retain a raw pointer to the renderer.
+   @exclude_from_pydrake_mkdoc{Not bound in pydrake.} */
+  void AddRenderer(std::string name,
+                   std::unique_ptr<render::RenderEngine> renderer);
+
+  /** Non-copying, context-modifying variant of AddRenderer().
+   The %SceneGraph takes ownership the render engine instead of copying it.
+   The calling code must not retain a raw pointer to the renderer.
+   @exclude_from_pydrake_mkdoc{Not bound in pydrake.} */
   void AddRenderer(systems::Context<T>* context, std::string name,
                    std::unique_ptr<render::RenderEngine> renderer) const;
 

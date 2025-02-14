@@ -12,10 +12,11 @@ class TestWorkspaceBzlmodSync(unittest.TestCase):
         path = Path(manifest.Rlocation(respath))
         return path.read_text(encoding="utf-8")
 
-    def _parse_modules(self, content):
-        """Given the contents of MODULE.bazel, returns a dictionary mapping
-        from module_name to module_version.
+    def _parse_modules(self):
+        """Parses MODULE.bazel to return a dictionary mapping from module_name
+        to module_version.
         """
+        content = self._read(f"drake/MODULE.bazel")
         result = {}
         for line in content.splitlines():
             # Only match bazel_dep lines.
@@ -32,16 +33,20 @@ class TestWorkspaceBzlmodSync(unittest.TestCase):
             result[kwargs["name"]] = kwargs["version"]
         return result
 
-    def _parse_repo_rule_version(self, content):
-        """Given the contents of a repository.bzl that calls 'github_archive',
-        returns the version number it pins to.
+    def _parse_repo_rule_version(self, repo_name):
+        """Parses tools/workspace/{repo_name}/repository.bzl to find the call
+        to 'github_archive' and returns the version number it pins to.
         """
+        content = self._read(
+            f"drake/tools/workspace/{repo_name}/repository.bzl")
         assert "github_archive" in content, content
         for line in content.splitlines():
             line = line.strip()
             if not line.startswith("commit = "):
                 continue
             _, version, _ = line.split('"')
+            if version.startswith("v"):
+                version = version[1:]
             return version
         self.fail(f"No 'commit = ...' found in:\n{content}")
 
@@ -59,35 +64,42 @@ class TestWorkspaceBzlmodSync(unittest.TestCase):
         and WORKSPACE. This test ensures that the versions pinned in each file
         are correctly synchronized.
         """
-        modules = self._parse_modules(self._read(f"drake/MODULE.bazel"))
+        modules = self._parse_modules()
 
         # Don't check modules that are known to be module-only.
         del modules["bazel_features"]
-        del modules["rules_java"]
+        del modules["toolchains_llvm"]
 
-        # Don't check module that are documented to purposefully skew versions.
+        # Don't check modules whose repository rule twin is pkgconfig (and thus
+        # doesn't have a github pinned version that we need to keep in sync).
+        del modules["eigen"]
+        del modules["fmt"]
+        del modules["spdlog"]
+        del modules["zlib"]
+
+        # Don't check modules that are documented to skew versions on purpose.
         del modules["rules_python"]
 
         # Check that the module version matches the workspace version.
         self.assertTrue(modules)
         for module_name, module_version in modules.items():
             repo_name = self._module_name_to_repo_name(module_name)
-            workspace_version = self._parse_repo_rule_version(self._read(
-                f"drake/tools/workspace/{repo_name}/repository.bzl"))
+            workspace_version = self._parse_repo_rule_version(repo_name)
             self.assertEqual(workspace_version, module_version)
 
-    def _parse_workspace_already_provided(self, content):
-        """Given the contents of default.bzl, returns the list of
-        REPOS_ALREADY_PROVIDED_BY_BAZEL_MODULES.
+    def _parse_workspace_list_constant(self, name):
+        """Returns the contents of the list constant named `name` in our
+        tools/workspace/default.bzl.
         """
+        content = self._read("drake/tools/workspace/default.bzl")
         result = None
         for line in content.splitlines():
             line = line.strip()
-            if line == "REPOS_ALREADY_PROVIDED_BY_BAZEL_MODULES = [":
+            if line == f"{name} = [":
                 result = list()
                 continue
             if result is None:
-                # We haven't seen the REPOS_ALREADY_... line yet.
+                # We haven't seen the opening line yet.
                 continue
             if line == "]":
                 break
@@ -102,55 +114,49 @@ class TestWorkspaceBzlmodSync(unittest.TestCase):
         provided by MODULE.bazel. This test ensures that the list is correctly
         synchronized.
         """
-        modules = self._parse_modules(self._read(f"drake/MODULE.bazel"))
+        modules = self._parse_modules()
 
         # These workspace-only repositories are irrelevant for bzlmod.
         modules["rust_toolchain"] = None
 
-        # Check that default.bzl's constant matches the inventory of modules.
-        repo_names = sorted([
+        repo_names_in_module = sorted([
             self._module_name_to_repo_name(module_name)
             for module_name in modules.keys()
         ])
-        self.assertEqual(repo_names, self._parse_workspace_already_provided(
-            self._read("drake/tools/workspace/default.bzl")))
+        repo_names_in_default = self._parse_workspace_list_constant(
+            name="REPOS_ALREADY_PROVIDED_BY_BAZEL_MODULES")
+        self.assertEqual(repo_names_in_module, repo_names_in_default)
 
-    def _canonicalize_workspace(self, content):
-        """Given the contents of WORKSPACE or WORKSPACE.bzlmod, returns a
-        modified copy that:
-        - strips away comments and blank lines, and
-        - fuzzes out the `bzlmod = ...` attribute, and
-        - strips some known workspace-only content.
+    def _parse_module_drake_dep_repositories(self):
+        """Parses MODULE.bazel to return the list of drake_dep_repositories.
         """
-        needle1 = "add_default_workspace(bzlmod = False)"
-        needle2 = "add_default_workspace(bzlmod = True)"
-        replacement = "add_default_workspace(bzlmod = ...)"
-        result = []
+        content = self._read(f"drake/MODULE.bazel")
+        result = None
         for line in content.splitlines():
-            if "#" in line:
-                line, _ = line.split("#", maxsplit=1)
             line = line.strip()
-            if not line:
+            if line == "drake_dep_repositories,":
+                result = list()
                 continue
-            if "apple_cc_configure" in line:
-                # The apple_cc_configure function should only be used when
-                # bzlmod is disabled; as such, it should not be in both files.
+            if result is None:
+                # We haven't seen the opening line yet.
                 continue
-            if line in (needle1, needle2):
-                line = replacement
-            result.append(line)
-        return "\n".join(result) + "\n"
+            if line == ")":
+                break
+            assert line.startswith('"'), line
+            assert line.endswith('",'), line
+            result.append(line[1:-2])
+        assert result, content
+        return sorted(result)
 
-    def test_workspace_copies(self):
-        """Checks that our WORKSPACE and WORKSPACE.bzlmod are identical,
-        modulo comments and the `bzlmod = ...` attribute.
+    def test_default_exported_sync(self):
+        """Our default.bzl has a list of REPOS_EXPORTED that must match the
+        drake_dep_repositories listed in MODULE.bazel. This test ensures that
+        the lists are correctly synchronized.
         """
-        workspace1 = self._canonicalize_workspace(
-            self._read(f"drake/WORKSPACE"))
-        workspace2 = self._canonicalize_workspace(
-            self._read(f"drake/WORKSPACE.bzlmod"))
-        self.maxDiff = None
-        self.assertMultiLineEqual(workspace1, workspace2)
+        repo_names_in_module = self._parse_module_drake_dep_repositories()
+        repo_names_in_default = self._parse_workspace_list_constant(
+            name="REPOS_EXPORTED")
+        self.assertEqual(repo_names_in_module, repo_names_in_default)
 
 
 assert __name__ == '__main__'

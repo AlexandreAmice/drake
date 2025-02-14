@@ -35,19 +35,11 @@ clone) **must** be named ``drake``.
 
 The most recent versions that we have tested for compatibility are:
 * Ubuntu 22.04 (Jammy)
-* Bazel 6.4.0
-* CLion 2023.3.2
-    * Bazel plugin 2023.11.23.0.1-api-version-233
+* Bazel 8.0.0
+* CLion 2024.3.2
+    * Bazel plugin 2025.01.07.0.1-api-version-243
 
 Different CLion versions will normally choose a compatible Bazel plugin.
-
-## Current CLion/Bazel problem
-
-We are seeing CLion confused about Drake header files, possibly due to
-Bazel's "sandboxing" which uses symbolic links to construct a source tree
-containing only files that appear in the current workspace. We do not
-yet have a diagnosis or workaround. CLion is still usable but symbols within
-header files are not properly recognized, .cc files work fine.
 
 ## Upgrading CLion
 
@@ -80,8 +72,9 @@ Settings`` or ``File > Settings``), select ``Plugins``, then choose the
 prompted to restart CLion.
 
 To use Drake in CLion you **must** use Drake's bazel wrapper.
-Open ``Settings > Bazel Settings``.  For ``Bazel binary location`` select the
-path to ``drake/tools/clion/bazel_wrapper`` from any recent Drake source tree
+Open ``Settings > Other Settings > Bazel Settings``.
+For ``Bazel binary location`` select the path to
+``drake/tools/clion/bazel_wrapper`` from any recent Drake source tree
 (it doesn't have to match the current project open in CLion).
 
 ## Setting up Drake in CLion
@@ -176,9 +169,6 @@ CLion such that the modification may not be immediately apparent. When in doubt,
 select away from the target file and back; this will cause the file to refresh
 and you can confirm that the file has been modified as expected.
 
-First, make sure you have installed ``clang-format-15``
-(see [Tools for Code Style Compliance](/code_style_tools.html)).
-
 ### Clang format selected file
 
 Open the ``Edit Tool`` for external tools as outlined above and enter the
@@ -186,9 +176,9 @@ following values for the fields:
 
 * **Name:** ``Clang Format Full File``
 * **Description:** ``Apply clang-format to the active file``
-* **Program:** ``clang-format-15``
-* **Arguments:** ``-i $FileName$``
-* **Working directory:** ``$FileDir$``
+* **Program:** ``bazel``
+* **Arguments:** ``run //tools/lint:clang-format -- -i $FilePath$``
+* **Working directory:** ``$Projectpath$``
 * **Advanced Options:** Uncheck ``Open console for tool output``
 
 Leave the checkbox options in their default state.
@@ -200,9 +190,9 @@ following values for the fields:
 
 * **Name:** ``Clang Format Selected Lines``
 * **Description:** ``Apply clang-format to the selected lines``
-* **Program:** ``clang-format-15``
-* **Arguments:** ``-lines $SelectionStartLine$:$SelectionEndLine$ -i $FileName$``
-* **Working directory:** ``$FileDir$``
+* **Program:** ``bazel``
+* **Arguments:** ``run //tools/lint:clang-format -- -lines $SelectionStartLine$:$SelectionEndLine$ -i $FilePath$``
+* **Working directory:** ``$Projectpath$``
 * **Advanced Options:** Uncheck ``Open console for tool output``
 
 Leave the checkbox options in their default state.
