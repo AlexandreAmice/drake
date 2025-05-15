@@ -27,6 +27,7 @@
 #include <vtkOpenGLTexture.h>            // vtkRenderingOpenGL2
 #include <vtkPNGReader.h>                // vtkIOImage
 #include <vtkPlaneSource.h>              // vtkFiltersSources
+#include <vtkPointData.h>                // vtkCommonDataModel
 #include <vtkProperty.h>                 // vtkRenderingCore
 #include <vtkRenderPassCollection.h>     // vtkRenderingOpenGL2
 #include <vtkSequencePass.h>             // vtkRenderingOpenGL2
@@ -44,6 +45,7 @@
 #include "drake/common/never_destroyed.h"
 #include "drake/common/overloaded.h"
 #include "drake/common/text_logging.h"
+#include "drake/common/yaml/yaml_io.h"
 #include "drake/geometry/proximity/polygon_to_triangle_mesh.h"
 #include "drake/geometry/render/shaders/depth_shaders.h"
 #include "drake/geometry/render_vtk/internal_make_render_window.h"
@@ -246,9 +248,10 @@ void RenderEngineVtk::ImplementGeometry(const Convex& convex, void* user_data) {
   if (!render_mesh.material.has_value()) {
     render_mesh.material = MakeDiffuseMaterial(default_diffuse_);
   }
-  // We don't use convex.scale() because it's already built in to the convex
+  // We don't use convex.scale3() because it's already built in to the convex
   // hull.
-  ImplementRenderMesh(std::move(render_mesh), /* scale =*/1.0, data);
+  const Vector3d kUnitScale(1, 1, 1);
+  ImplementRenderMesh(std::move(render_mesh), kUnitScale, data);
 }
 
 void RenderEngineVtk::ImplementGeometry(const Cylinder& cylinder,
@@ -309,6 +312,18 @@ bool RenderEngineVtk::DoRegisterVisual(GeometryId id, const Shape& shape,
   return data.accepted;
 }
 
+bool RenderEngineVtk::DoRegisterDeformableVisual(
+    GeometryId id, const std::vector<RenderMesh>& render_meshes,
+    const PerceptionProperties& properties) {
+  const Vector3d kUnitScale(1, 1, 1);
+  RegistrationData data{properties, RigidTransformd::Identity(), id};
+  for (const RenderMesh& render_mesh : render_meshes) {
+    auto copy = render_mesh;
+    ImplementRenderMesh(std::move(copy), kUnitScale, data);
+  }
+  return true;
+}
+
 void RenderEngineVtk::DoUpdateVisualPose(GeometryId id,
                                          const RigidTransformd& X_WG) {
   vtkSmartPointer<vtkTransform> vtk_X_WG = ConvertToVtkTransform(X_WG);
@@ -327,6 +342,42 @@ void RenderEngineVtk::DoUpdateVisualPose(GeometryId id,
       } else {
         part.actor->SetUserTransform(vtk_X_WG);
       }
+    }
+  }
+}
+
+void RenderEngineVtk::DoUpdateDeformableConfigurations(
+    GeometryId id, const std::vector<VectorX<double>>& q_WGs,
+    const std::vector<VectorX<double>>& nhats_W) {
+  for (const Prop& prop : props_.at(id)) {
+    // We checked ssize(q_WGs) == ssize(nhats_W) in the base class.
+    DRAKE_THROW_UNLESS(ssize(q_WGs) == ssize(prop.parts));
+    for (int p = 0; p < ssize(prop.parts); ++p) {
+      const Part& part = prop.parts[p];
+      const Eigen::Map<const Matrix3X<double>> q_WG(q_WGs[p].data(), 3,
+                                                    q_WGs[p].size() / 3);
+      const Eigen::Map<const Matrix3X<double>> nhat_W(nhats_W[p].data(), 3,
+                                                      q_WGs[p].size() / 3);
+      // Retrieve and update the vertex positions for the actor.
+      vtkSmartPointer<vtkDataSet> dataset = part.actor->GetMapper()->GetInput();
+      DRAKE_THROW_UNLESS(dataset != nullptr);
+      vtkSmartPointer<vtkPoints> points = dataset->GetPoints();
+      DRAKE_THROW_UNLESS(points != nullptr &&
+                         q_WG.cols() == points->GetNumberOfPoints());
+      vtkSmartPointer<vtkDataArray> normals =
+          dataset->GetPointData()->GetNormals();
+      DRAKE_THROW_UNLESS(normals != nullptr &&
+                         nhat_W.cols() == normals->GetNumberOfTuples());
+      for (vtkIdType i = 0; i < points->GetNumberOfPoints(); ++i) {
+        points->SetPoint(i, q_WG(0, i), q_WG(1, i), q_WG(2, i));
+      }
+      for (vtkIdType i = 0; i < normals->GetNumberOfTuples(); ++i) {
+        normals->SetTuple3(i, nhat_W(0, i), nhat_W(1, i), nhat_W(2, i));
+      }
+
+      // Notify VTK that the data has changed
+      points->Modified();
+      normals->Modified();
     }
   }
 }
@@ -558,7 +609,12 @@ RenderEngineVtk::RenderEngineVtk(const RenderEngineVtk& other)
   }
 }
 
-void RenderEngineVtk::ImplementRenderMesh(RenderMesh&& mesh, double scale,
+std::string RenderEngineVtk::DoGetParameterYaml() const {
+  return yaml::SaveYamlString(parameters_, "RenderEngineVtkParams");
+}
+
+void RenderEngineVtk::ImplementRenderMesh(RenderMesh&& mesh,
+                                          const Vector3<double>& scale,
                                           const RegistrationData& data) {
   const RenderMaterial material = mesh.material.has_value()
                                       ? *mesh.material
@@ -567,14 +623,13 @@ void RenderEngineVtk::ImplementRenderMesh(RenderMesh&& mesh, double scale,
   vtkSmartPointer<vtkPolyDataAlgorithm> mesh_source =
       CreateVtkMesh(std::move(mesh));
 
-  if (scale == 1) {
+  if ((scale.array() == 1).all()) {
     ImplementPolyData(mesh_source.GetPointer(), material, data);
     return;
   }
 
   vtkNew<vtkTransform> transform;
-  // TODO(SeanCurtis-TRI): Should I be allowing only isotropic scale.
-  transform->Scale(scale, scale, scale);
+  transform->Scale(scale.x(), scale.y(), scale.z());
   vtkNew<vtkTransformPolyDataFilter> transform_filter;
   transform_filter->SetInputConnection(mesh_source->GetOutputPort());
   transform_filter->SetTransform(transform.GetPointer());
@@ -588,7 +643,7 @@ bool RenderEngineVtk::ImplementObj(const Mesh& mesh,
   std::vector<RenderMesh> meshes = LoadRenderMeshesFromObj(
       mesh.source(), data.properties, default_diffuse_, diagnostic_);
   for (auto& render_mesh : meshes) {
-    ImplementRenderMesh(std::move(render_mesh), mesh.scale(), data);
+    ImplementRenderMesh(std::move(render_mesh), mesh.scale3(), data);
   }
   return true;
 }
@@ -614,7 +669,9 @@ bool RenderEngineVtk::ImplementGltf(const Mesh& mesh,
     uri_loader->SetMeshSource(&mesh_source);
     vtkSmartPointer<vtkResourceStream> gltf_stream =
         uri_loader->MakeGltfStream();
-    importer->SetInputStream(gltf_stream, uri_loader, /* binary= */ false);
+    importer->SetStream(gltf_stream);
+    importer->SetStreamURILoader(uri_loader);
+    importer->SetStreamIsBinary(false);
   }
   importer->Update();
 
@@ -635,7 +692,7 @@ bool RenderEngineVtk::ImplementGltf(const Mesh& mesh,
   // This includes the rotation from y-up to z-up and the requested scale.
   const RigidTransformd X_GF(RotationMatrixd::MakeXRotation(M_PI / 2));
   vtkSmartPointer<vtkTransform> T_GF_transform =
-      ConvertToVtkTransform(X_GF, mesh.scale());
+      ConvertToVtkTransform(X_GF, mesh.scale3());
   vtkMatrix4x4* T_GF = T_GF_transform->GetMatrix();
 
   // Color.
@@ -916,6 +973,7 @@ void RenderEngineVtk::InitializePipelines() {
     vtkNew<vtkRenderPassCollection> passes;
     vtkNew<vtkShadowMapPass> shadows;
     passes->AddItem(shadows->GetShadowMapBakerPass());
+    shadows->GetShadowMapBakerPass()->SetExponentialConstant(80.0);
     shadows->GetShadowMapBakerPass()->SetResolution(
         parameters_.shadow_map_size);
     // The shadow map pass gets the full render sequence so that we get opaque

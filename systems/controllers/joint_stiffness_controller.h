@@ -127,17 +127,6 @@ class JointStiffnessController final : public LeafSystem<T> {
   }
 
   /**
-   * Returns the output port for the generalized forces implementing the
-   * control. */
-  DRAKE_DEPRECATED("2025-04-01",
-                   "Use get_output_port_actuation() instead, which multiplies "
-                   "the generalized force by B⁻¹ to be consumed by "
-                   "MultibodyPlant's actuation input port.")
-  const OutputPort<T>& get_output_port_generalized_force() const {
-    return this->get_output_port(output_port_index_force_);
-  }
-
-  /**
    * Returns the output port implementing the control in the form (and order)
    * expected for the plant's actuation input port. */
   const OutputPort<T>& get_output_port_actuation() const {
@@ -159,10 +148,8 @@ class JointStiffnessController final : public LeafSystem<T> {
       const Eigen::Ref<const Eigen::VectorXd>& kp,
       const Eigen::Ref<const Eigen::VectorXd>& kd);
 
-  template <typename> friend class JointStiffnessController;
-
-  // Calculator for the deprecated output port.
-  void CalcOutputForce(const Context<T>& context, BasicVector<T>* force) const;
+  template <typename>
+  friend class JointStiffnessController;
 
   // This is the calculator method for the output port.
   void CalcOutputActuation(const Context<T>& context,
@@ -179,7 +166,6 @@ class JointStiffnessController final : public LeafSystem<T> {
   int input_port_index_estimated_state_{0};
   int input_port_index_desired_state_{0};
   int output_port_index_actuation_{0};
-  int output_port_index_force_{0};
 
   Eigen::VectorXd kp_, kd_;
   Eigen::SparseMatrix<double> Binv_;

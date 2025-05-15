@@ -37,7 +37,7 @@ class SingleOutputVectorSource : public LeafSystem<T> {
   /// vector to the single-argument constructor of `const BasicVector<T>&`.
   SingleOutputVectorSource() = delete;
 
-  ~SingleOutputVectorSource() override = default;
+  ~SingleOutputVectorSource() override;
 
   /// Returns the sole output port.
   const OutputPort<T>& get_output_port() const {
@@ -81,8 +81,8 @@ class SingleOutputVectorSource : public LeafSystem<T> {
   ///
   /// @param converter is per LeafSystem::LeafSystem constructor documentation;
   /// see that function documentation for details.
-  SingleOutputVectorSource(
-      SystemScalarConverter converter, const BasicVector<T>& model_vector)
+  SingleOutputVectorSource(SystemScalarConverter converter,
+                           const BasicVector<T>& model_vector)
       : LeafSystem<T>(std::move(converter)) {
     this->DeclareVectorOutputPort(
         kUseDefaultName, model_vector,

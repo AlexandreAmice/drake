@@ -10,6 +10,7 @@
 namespace drake {
 namespace systems {
 
+// clang-format off
 /**
  A fifth-order, seven-stage, first-same-as-last (FSAL) Runge Kutta integrator
  with a fourth order error estimate.
@@ -43,12 +44,13 @@ namespace systems {
  @tparam_nonsymbolic_scalar
  @ingroup integrators
  */
+// clang-format on
 template <typename T>
 class RungeKutta5Integrator final : public IntegratorBase<T> {
  public:
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(RungeKutta5Integrator);
 
-  ~RungeKutta5Integrator() override = default;
+  ~RungeKutta5Integrator() override;
 
   explicit RungeKutta5Integrator(const System<T>& system,
                                  Context<T>* context = nullptr)
@@ -74,6 +76,8 @@ class RungeKutta5Integrator final : public IntegratorBase<T> {
  private:
   void DoInitialize() override;
   bool DoStep(const T& h) override;
+
+  std::unique_ptr<IntegratorBase<T>> DoClone() const override;
 
   // Vector used in error estimate calculations.
   std::unique_ptr<BasicVector<T>> err_est_vec_;

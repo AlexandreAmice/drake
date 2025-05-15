@@ -1,11 +1,15 @@
 #include "drake/bindings/pydrake/common/cpp_template_pybind.h"
 #include "drake/bindings/pydrake/common/default_scalars_pybind.h"
+#include "drake/bindings/pydrake/common/deprecation_pybind.h"
 #include "drake/bindings/pydrake/common/eigen_pybind.h"
+#include "drake/bindings/pydrake/common/serialize_pybind.h"
 #include "drake/bindings/pydrake/documentation_pybind.h"
 #include "drake/bindings/pydrake/pydrake_pybind.h"
 #include "drake/systems/primitives/adder.h"
 #include "drake/systems/primitives/affine_system.h"
 #include "drake/systems/primitives/barycentric_system.h"
+#include "drake/systems/primitives/bus_creator.h"
+#include "drake/systems/primitives/bus_selector.h"
 #include "drake/systems/primitives/constant_value_source.h"
 #include "drake/systems/primitives/constant_vector_source.h"
 #include "drake/systems/primitives/demultiplexer.h"
@@ -24,6 +28,7 @@
 #include "drake/systems/primitives/port_switch.h"
 #include "drake/systems/primitives/random_source.h"
 #include "drake/systems/primitives/saturation.h"
+#include "drake/systems/primitives/selector.h"
 #include "drake/systems/primitives/shared_pointer_system.h"
 #include "drake/systems/primitives/sine.h"
 #include "drake/systems/primitives/sparse_matrix_gain.h"
@@ -63,6 +68,42 @@ PYBIND11_MODULE(primitives, m) {
           doc.PerceptronActivationType.kReLU.doc)
       .value("kTanh", PerceptronActivationType::kTanh,
           doc.PerceptronActivationType.kTanh.doc);
+
+  {
+    using Class = SelectorParams;
+    py::class_<Class> cls(m, "SelectorParams", doc.SelectorParams.doc);
+    {
+      using Nested = Class::InputPortParams;
+      py::class_<Nested> nested(
+          cls, "InputPortParams", doc.SelectorParams.InputPortParams.doc);
+      nested.def(ParamInit<Nested>());
+      DefAttributesUsingSerialize(&nested, doc.SelectorParams.InputPortParams);
+      DefReprUsingSerialize(&nested);
+      DefCopyAndDeepCopy(&nested);
+    }
+    {
+      using Nested = Class::OutputSelection;
+      py::class_<Nested> nested(
+          cls, "OutputSelection", doc.SelectorParams.OutputSelection.doc);
+      nested.def(ParamInit<Nested>());
+      DefAttributesUsingSerialize(&nested, doc.SelectorParams.OutputSelection);
+      DefReprUsingSerialize(&nested);
+      DefCopyAndDeepCopy(&nested);
+    }
+    {
+      using Nested = Class::OutputPortParams;
+      py::class_<Nested> nested(
+          cls, "OutputPortParams", doc.SelectorParams.OutputPortParams.doc);
+      nested.def(ParamInit<Nested>());
+      DefAttributesUsingSerialize(&nested, doc.SelectorParams.OutputPortParams);
+      DefReprUsingSerialize(&nested);
+      DefCopyAndDeepCopy(&nested);
+    }
+    cls.def(ParamInit<Class>());
+    DefAttributesUsingSerialize(&cls, doc.SelectorParams);
+    DefReprUsingSerialize(&cls);
+    DefCopyAndDeepCopy(&cls);
+  }
 
   // N.B. Capturing `&doc` should not be required; workaround per #9600.
   auto bind_common_scalar_types = [&m, &doc](auto dummy) {
@@ -124,6 +165,33 @@ PYBIND11_MODULE(primitives, m) {
             &TimeVaryingAffineSystem<T>::configure_random_state,
             py::arg("covariance"),
             doc.TimeVaryingAffineSystem.configure_random_state.doc);
+
+    DefineTemplateClassWithDefault<BusCreator<T>, LeafSystem<T>>(
+        m, "BusCreator", GetPyParam<T>(), doc.BusCreator.doc)
+        .def(py::init<std::variant<std::string, UseDefaultName>>(),
+            py::arg("output_port_name") = kUseDefaultName,
+            doc.BusCreator.ctor.doc)
+        .def("DeclareVectorInputPort", &BusCreator<T>::DeclareVectorInputPort,
+            py::arg("name"), py::arg("size"), py_rvp::reference_internal,
+            doc.BusCreator.DeclareVectorInputPort.doc)
+        .def("DeclareAbstractInputPort",
+            &BusCreator<T>::DeclareAbstractInputPort, py::arg("name"),
+            py::arg("model_value"), py_rvp::reference_internal,
+            doc.BusCreator.DeclareAbstractInputPort.doc);
+
+    DefineTemplateClassWithDefault<BusSelector<T>, LeafSystem<T>>(
+        m, "BusSelector", GetPyParam<T>(), doc.BusSelector.doc)
+        .def(py::init<std::variant<std::string, UseDefaultName>>(),
+            py::arg("input_port_name") = kUseDefaultName,
+            doc.BusSelector.ctor.doc)
+        .def("DeclareVectorOutputPort",
+            &BusSelector<T>::DeclareVectorOutputPort, py::arg("name"),
+            py::arg("size"), py_rvp::reference_internal,
+            doc.BusSelector.DeclareVectorOutputPort.doc)
+        .def("DeclareAbstractOutputPort",
+            &BusSelector<T>::DeclareAbstractOutputPort, py::arg("name"),
+            py::arg("model_value"), py_rvp::reference_internal,
+            doc.BusSelector.DeclareAbstractOutputPort.doc);
 
     DefineTemplateClassWithDefault<ConstantValueSource<T>, LeafSystem<T>>(
         m, "ConstantValueSource", GetPyParam<T>(), doc.ConstantValueSource.doc)
@@ -211,6 +279,11 @@ PYBIND11_MODULE(primitives, m) {
         .def(py::init<const Eigen::Ref<const VectorXd>&>(), py::arg("k"),
             doc.Gain.ctor.doc_1args);
 
+    DefineTemplateClassWithDefault<Selector<T>, LeafSystem<T>>(
+        m, "Selector", GetPyParam<T>(), doc.Selector.doc)
+        .def(py::init<SelectorParams>(), py::arg("params"),
+            doc.Selector.ctor.doc);
+
     DefineTemplateClassWithDefault<Sine<T>, LeafSystem<T>>(
         m, "Sine", GetPyParam<T>(), doc.Sine.doc)
         .def(py::init<double, double, double, int, bool>(),
@@ -225,7 +298,14 @@ PYBIND11_MODULE(primitives, m) {
 
     DefineTemplateClassWithDefault<Integrator<T>, LeafSystem<T>>(
         m, "Integrator", GetPyParam<T>(), doc.Integrator.doc)
-        .def(py::init<int>(), doc.Integrator.ctor.doc)
+        .def(py::init<int>(), py::arg("size"),
+            doc.Integrator.ctor.doc_1args_size)
+        .def(py::init<const VectorXd&>(), py::arg("initial_value"),
+            doc.Integrator.ctor.doc_1args_initial_value)
+        .def("set_default_integral_value",
+            &Integrator<T>::set_default_integral_value,
+            py::arg("initial_value"),
+            doc.Integrator.set_default_integral_value.doc)
         .def("set_integral_value", &Integrator<T>::set_integral_value,
             py::arg("context"), py::arg("value"),
             doc.Integrator.set_integral_value.doc);
@@ -802,17 +882,27 @@ PYBIND11_MODULE(primitives, m) {
   m.def("IsDetectable", &IsDetectable, py::arg("sys"),
       py::arg("threshold") = std::nullopt, doc.IsDetectable.doc);
 
-  m.def("DiscreteTimeApproximation",
-      overload_cast_explicit<std::unique_ptr<LinearSystem<double>>,
-          const LinearSystem<double>&, double>(&DiscreteTimeApproximation),
-      py::arg("system"), py::arg("time_period"),
-      doc.DiscreteTimeApproximation.doc_linearsystem);
+  {
+    constexpr char kDocDeprecation[] =
+        "The DiscreteTimeApproximation function defined in the "
+        "pydrake.systems.primitives module is deprecated and will be removed "
+        "on or after 2025-08-01. Instead, import the function from the "
+        "pydrake.systems.analysis module.";
 
-  m.def("DiscreteTimeApproximation",
-      overload_cast_explicit<std::unique_ptr<AffineSystem<double>>,
-          const AffineSystem<double>&, double>(&DiscreteTimeApproximation),
-      py::arg("system"), py::arg("time_period"),
-      doc.DiscreteTimeApproximation.doc_affinesystem);
+    m.def("DiscreteTimeApproximation",
+        WrapDeprecated(kDocDeprecation,
+            overload_cast_explicit<std::unique_ptr<LinearSystem<double>>,
+                const LinearSystem<double>&, double>(
+                &DiscreteTimeApproximation)),
+        py::arg("system"), py::arg("time_period"), kDocDeprecation);
+
+    m.def("DiscreteTimeApproximation",
+        WrapDeprecated(kDocDeprecation,
+            overload_cast_explicit<std::unique_ptr<AffineSystem<double>>,
+                const AffineSystem<double>&, double>(
+                &DiscreteTimeApproximation)),
+        py::arg("system"), py::arg("time_period"), kDocDeprecation);
+  }
 }  // NOLINT(readability/fn_size)
 
 }  // namespace pydrake

@@ -1,3 +1,4 @@
+#include "drake/bindings/pydrake/common/default_scalars_pybind.h"
 #include "drake/bindings/pydrake/common/deprecation_pybind.h"
 #include "drake/bindings/pydrake/common/serialize_pybind.h"
 #include "drake/bindings/pydrake/common/sorted_pair_pybind.h"
@@ -63,11 +64,15 @@ PYBIND11_MODULE(parsing, m) {
     cls  // BR
         .def(py::init<>(), cls_doc.ctor.doc)
         .def(py::init<const Class&>(), py::arg("other"), "Copy constructor")
-        .def("Add", &Class::Add, py::arg("package_name"),
-            py::arg("package_path"), cls_doc.Add.doc)
+        .def("Add",
+            py::overload_cast<const std::string&, const std::filesystem::path&>(
+                &Class::Add),
+            py::arg("package_name"), py::arg("package_path"), cls_doc.Add.doc)
         .def("AddMap", &Class::AddMap, py::arg("other_map"), cls_doc.AddMap.doc)
-        .def("AddPackageXml", &Class::AddPackageXml, py::arg("filename"),
-            cls_doc.AddPackageXml.doc)
+        .def("AddPackageXml",
+            py::overload_cast<const std::filesystem::path&>(
+                &Class::AddPackageXml),
+            py::arg("filename"), cls_doc.AddPackageXml.doc)
         .def("AddRemote", &Class::AddRemote, py::arg("package_name"),
             py::arg("params"))
         .def("Contains", &Class::Contains, py::arg("package_name"),
@@ -87,8 +92,10 @@ PYBIND11_MODULE(parsing, m) {
             py::arg("package_name"), cls_doc.GetPath.doc)
         .def("ResolveUrl", &Class::ResolveUrl, py::arg("url"),
             cls_doc.ResolveUrl.doc)
-        .def("PopulateFromFolder", &Class::PopulateFromFolder, py::arg("path"),
-            cls_doc.PopulateFromFolder.doc)
+        .def("PopulateFromFolder",
+            py::overload_cast<const std::filesystem::path&>(
+                &Class::PopulateFromFolder),
+            py::arg("path"), cls_doc.PopulateFromFolder.doc)
         .def("PopulateFromEnvironment", &Class::PopulateFromEnvironment,
             py::arg("environment_variable"),
             cls_doc.PopulateFromEnvironment.doc)
@@ -112,20 +119,19 @@ PYBIND11_MODULE(parsing, m) {
         .def(py::init<MultibodyPlant<double>*, std::string_view>(),
             py::arg("plant"), py::arg("model_name_prefix"),
             cls_doc.ctor.doc_2args_plant_model_name_prefix)
+        .def(py::init<systems::DiagramBuilder<double>*, MultibodyPlant<double>*,
+                 geometry::SceneGraph<double>*, std::string_view>(),
+            py::arg("builder"), py::arg("plant") = nullptr,
+            py::arg("scene_graph") = nullptr, py::arg("model_name_prefix") = "",
+            cls_doc.ctor.doc_4args_builder_plant_scene_graph_model_name_prefix)
+        .def("builder", &Class::builder, py_rvp::reference, cls_doc.builder.doc)
         .def("plant", &Class::plant, py_rvp::reference, cls_doc.plant.doc)
         .def("scene_graph", &Class::scene_graph, py_rvp::reference,
             cls_doc.scene_graph.doc)
         .def("package_map", &Class::package_map, py_rvp::reference_internal,
             cls_doc.package_map.doc)
-        .def(
-            "AddModels",
-            // Pybind11 won't implicitly convert strings to
-            // std::filesystem::path, but C++ will. Use a lambda to avoid wider
-            // disruptions in python bindings.
-            [](Parser& self, const std::string& file_name) {
-              return self.AddModels(file_name);
-            },
-            py::arg("file_name"), cls_doc.AddModels.doc)
+        .def("AddModels", &Class::AddModels, py::arg("file_name"),
+            cls_doc.AddModels.doc)
         .def("AddModelsFromUrl", &Class::AddModelsFromUrl, py::arg("url"),
             cls_doc.AddModelsFromUrl.doc)
         .def("AddModelsFromString", &Class::AddModelsFromString,
@@ -281,17 +287,29 @@ PYBIND11_MODULE(parsing, m) {
       py::arg("directives"), py::arg("plant"), py::arg("parser") = nullptr,
       doc.parsing.ProcessModelDirectives.doc_4args);
 
-  m.def("GetScopedFrameByName", &parsing::GetScopedFrameByName,
-      py::arg("plant"), py::arg("full_name"),
-      py::return_value_policy::reference,
-      py::keep_alive<0, 1>(),  // `return` keeps `plant` alive.
-      doc.parsing.GetScopedFrameByName.doc);
+  type_visit(
+      [&m]<typename T>(T) {
+        m.def("GetScopedFrameByName",
+            overload_cast_explicit<const Frame<T>&, const MultibodyPlant<T>&,
+                const std::string&>(&parsing::GetScopedFrameByName),
+            py::arg("plant"), py::arg("full_name"),
+            py::return_value_policy::reference,
+            py::keep_alive<0, 1>(),  // `return` keeps `plant` alive.
+            doc.parsing.GetScopedFrameByName.doc);
+      },
+      CommonScalarPack{});
 
-  m.def("GetScopedFrameByNameMaybe", &parsing::GetScopedFrameByNameMaybe,
-      py::arg("plant"), py::arg("full_name"),
-      py::return_value_policy::reference,
-      py::keep_alive<0, 1>(),  // `return` keeps `plant` alive.
-      doc.parsing.GetScopedFrameByNameMaybe.doc);
+  type_visit(
+      [&m]<typename T>(T) {
+        m.def("GetScopedFrameByNameMaybe",
+            overload_cast_explicit<const Frame<T>*, const MultibodyPlant<T>&,
+                const std::string&>(&parsing::GetScopedFrameByNameMaybe),
+            py::arg("plant"), py::arg("full_name"),
+            py::return_value_policy::reference,
+            py::keep_alive<0, 1>(),  // `return` keeps `plant` alive.
+            doc.parsing.GetScopedFrameByNameMaybe.doc);
+      },
+      CommonScalarPack{});
 }
 
 }  // namespace pydrake

@@ -27,6 +27,14 @@ Refer to [Installation via Pip](/pip.html#stable-releases) for how to install
 Drake's releases using pip, or the general [Installation](/installation.html)
 instructions for alternative options.
 
+For examples of using Drake from Python, please see our gallery of
+[external examples](https://github.com/RobotLocomotion/drake-external-examples).
+
+* The [`drake_pip` example](https://github.com/RobotLocomotion/drake-external-examples/tree/main/drake_pip)
+shows how to use Drake via pip.
+* The [`drake_poetry` example](https://github.com/RobotLocomotion/drake-external-examples/tree/main/drake_poetry)
+shows how to use Drake via poetry.
+
 # Using the Python Bindings
 
 ## Check Installation
@@ -71,7 +79,7 @@ from pydrake.systems.framework import DiagramBuilder
 
 builder = DiagramBuilder()
 plant, _ = AddMultibodyPlantSceneGraph(builder, 0.0)
-Parser(plant).AddModels(
+Parser(builder).AddModels(
     FindResourceOrThrow("drake/examples/pendulum/Pendulum.urdf"))
 plant.Finalize()
 diagram = builder.Build()
@@ -96,7 +104,7 @@ from pydrake.all import (
 
 builder = DiagramBuilder()
 plant, _ = AddMultibodyPlantSceneGraph(builder, 0.0)
-Parser(plant).AddModels(
+Parser(builder).AddModels(
     FindResourceOrThrow("drake/examples/pendulum/Pendulum.urdf"))
 plant.Finalize()
 diagram = builder.Build()
@@ -111,7 +119,7 @@ import pydrake.all
 
 builder = pydrake.systems.framework.DiagramBuilder()
 plant, _ = pydrake.multibody.plant.AddMultibodyPlantSceneGraph(builder, 0.0)
-pydrake.multibody.parsing.Parser(plant).AddModels(
+pydrake.multibody.parsing.Parser(builder).AddModels(
   pydrake.common.FindResourceOrThrow(
       "drake/examples/pendulum/Pendulum.urdf"))
 plant.Finalize()

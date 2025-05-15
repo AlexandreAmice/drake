@@ -1,7 +1,13 @@
 # -*- mode: cmake -*-
 # vi: set ft=cmake :
 
-cmake_minimum_required(VERSION 3.18)
+# The minimum required CMake version should match the minimum listed in
+# doc/_pages/from_source.md, which is also the minimum installed by
+# setup/install_prereqs across all platforms.
+# When this changes, drake-external-examples/drake_cmake_external/CMakeLists.txt
+# should be changed accordingly so that downstream users are synced with
+# Drake itself.
+cmake_minimum_required(VERSION 3.22)
 
 project(drake
   DESCRIPTION "Model-based design and verification for robotics"
@@ -206,7 +212,7 @@ set(CMAKE_CXX_STANDARD 20)
 if(APPLE)
   # The macOS python version should match what's listed in both the
   # tools/workspace/python/repository.bzl and doc/_pages/installation.md.
-  set(SUPPORTED_PYTHON_VERSION 3.12)
+  set(SUPPORTED_PYTHON_VERSION 3.13)
 else()
   if(UNIX_DISTRIBUTION_CODENAME STREQUAL noble)
     set(SUPPORTED_PYTHON_VERSION 3.12)
@@ -323,9 +329,11 @@ function(symlink_external_repository_includes NAME TARGET)
 endfunction()
 
 # Symlinks the C++ libraries for TARGET as workspace/NAME/lib/*, e.g.
-#  workspace/fmt/lib/libfmt.so.6.1.2 -> .../build/install/lib/fmt/libfmt.so.6.1.2
-#  workspace/fmt/lib/libfmt.so.6 -> .../build/install/lib/fmt/libfmt.so.6.1.2
-function(symlink_external_repository_libs NAME TARGET)
+#  workspace/fmt/lib/libfmt.so.6.1.2 -> .../build/install/lib/libfmt.so.6.1.2
+#  workspace/fmt/lib/libfmt.so.6 -> .../build/install/lib/libfmt.so.6.1.2
+# If USE_SO_MINOR_VERSION is ON, the last line above uses .so.x.y instead, i.e.
+#  workspace/fmt/lib/libfmt.so.6.1 -> ../build/install/lib/libfmt.so.6.1.2
+function(symlink_external_repository_libs NAME TARGET USE_SO_MINOR_VERSION)
   set(workspace "${CMAKE_CURRENT_BINARY_DIR}/external/workspace")
   file(MAKE_DIRECTORY "${workspace}/${NAME}/lib")
   # Link the full library name (i.e., libfmt.so.6.1.2 in the case of shared).
@@ -337,10 +345,17 @@ function(symlink_external_repository_libs NAME TARGET)
   file(CREATE_LINK "${location}" "${workspace}/${NAME}/lib/${basename}" SYMBOLIC)
   # Link the SONAME spelling in case of shared libraries.
   # If the basename does not match this pattern, this part is all a no-op.
-  string(REGEX REPLACE "(\\.so\\.[0-9]+)\\.[0-9]+\\.[0-9]+$" "\\1"
+  if(USE_SO_MINOR_VERSION)
+    string(REGEX REPLACE "(\\.so\\.[0-9]+\\.[0-9]+)\\.[0-9]+$" "\\1"
       other_basename "${basename}")
-  string(REGEX REPLACE "(\\.[0-9]+)\\.[0-9]+\\.[0-9]+\\.dylib$" "\\1.dylib"
+    string(REGEX REPLACE "(\\.[0-9]+\\.[0-9]+)\\.[0-9]+\\.dylib$" "\\1.dylib"
       other_basename "${other_basename}")
+  else()
+    string(REGEX REPLACE "(\\.so\\.[0-9]+)\\.[0-9]+\\.[0-9]+$" "\\1"
+      other_basename "${basename}")
+    string(REGEX REPLACE "(\\.[0-9]+)\\.[0-9]+\\.[0-9]+\\.dylib$" "\\1.dylib"
+      other_basename "${other_basename}")
+  endif()
   file(CREATE_LINK "${location}" "${workspace}/${NAME}/lib/${other_basename}" SYMBOLIC)
 endfunction()
 
@@ -394,7 +409,7 @@ option(WITH_USER_FMT "Use user-provided fmt" ${DEFAULT_WITH_USER_LIBS})
 if(WITH_USER_FMT)
   find_package(fmt CONFIG REQUIRED)
   symlink_external_repository_includes(fmt fmt::fmt)
-  symlink_external_repository_libs(fmt fmt::fmt)
+  symlink_external_repository_libs(fmt fmt::fmt OFF)
   override_module(fmt)
 endif()
 
@@ -408,7 +423,16 @@ if(WITH_USER_SPDLOG)
   endif()
   find_package(spdlog CONFIG REQUIRED)
   symlink_external_repository_includes(spdlog spdlog::spdlog)
-  symlink_external_repository_libs(spdlog spdlog::spdlog)
+  # Modern versions of spdlog (i.e. >= 1.11.0) specify a minor version in the
+  # SONAME spelling, while older versions only use the major version.
+  # We support that logic here to provide compatibility with both.
+  # See https://github.com/gabime/spdlog/releases/tag/v1.11.0 for details.
+  set(SPDLOG_USE_SO_MINOR_VERSION ON)
+  if(${spdlog_VERSION_MAJOR} LESS 1 OR
+     (${spdlog_VERSION_MAJOR} EQUAL 1 AND ${spdlog_VERSION_MINOR} LESS 11))
+     set(SPDLOG_USE_SO_MINOR_VERSION OFF)
+  endif()
+  symlink_external_repository_libs(spdlog spdlog::spdlog ${SPDLOG_USE_SO_MINOR_VERSION})
   override_module(spdlog)
 endif()
 
@@ -470,15 +494,37 @@ else()
   if(WITH_USER_ZLIB)
     find_package(ZLIB REQUIRED)
     symlink_external_repository_includes(zlib ZLIB::ZLIB)
-    symlink_external_repository_libs(zlib ZLIB::ZLIB)
+    symlink_external_repository_libs(zlib ZLIB::ZLIB OFF)
     override_module(zlib)
   endif()
 endif()
 
 set(BAZEL_CONFIG)
 
-option(WITH_GUROBI "Build with support for Gurobi" OFF)
+# Defines common options for open-source solver dependencies.
+# By default, these are all ON.
+# Passes the corresponding options to Bazel.
+function(open_solver_option SOLVER)
+  string(TOUPPER "WITH_${SOLVER}" OPTION_NAME)
+  string(TOLOWER "with_${SOLVER}" OPTION_BAZEL_ARG)
+  option("${OPTION_NAME}" "Build with support for ${SOLVER}" ON)
+  if(${OPTION_NAME})
+    string(APPEND BAZEL_CONFIG " --@drake//tools/flags:${OPTION_BAZEL_ARG}=True")
+  else()
+    string(APPEND BAZEL_CONFIG " --@drake//tools/flags:${OPTION_BAZEL_ARG}=False")
+  endif()
+  set(BAZEL_CONFIG ${BAZEL_CONFIG} PARENT_SCOPE)
+endfunction()
 
+open_solver_option("Clarabel")
+open_solver_option("CLP")
+open_solver_option("CSDP")
+open_solver_option("Ipopt")
+open_solver_option("NLopt")
+open_solver_option("OSQP")
+open_solver_option("SCS")
+
+option(WITH_GUROBI "Build with support for Gurobi" OFF)
 if(WITH_GUROBI)
   find_package(Gurobi 10.0 EXACT MODULE REQUIRED)
 
@@ -491,13 +537,11 @@ if(WITH_GUROBI)
 endif()
 
 option(WITH_MOSEK "Build with support for MOSEK" OFF)
-
 if(WITH_MOSEK)
   string(APPEND BAZEL_CONFIG " --config=mosek")
 endif()
 
 option(WITH_OPENMP "Build with support for OpenMP" OFF)
-
 if(WITH_OPENMP)
   string(APPEND BAZEL_CONFIG " --config=omp")
 endif()
@@ -616,6 +660,7 @@ endforeach()
 configure_file(cmake/bazel.rc.in drake_build_cwd/.bazelrc @ONLY)
 configure_file(cmake/MODULE.bazel.in drake_build_cwd/MODULE.bazel @ONLY)
 file(CREATE_LINK "${PROJECT_SOURCE_DIR}/.bazeliskrc" drake_build_cwd/.bazeliskrc SYMBOLIC)
+file(CREATE_LINK "${PROJECT_SOURCE_DIR}/.bazelversion" drake_build_cwd/.bazelversion SYMBOLIC)
 
 find_package(Git)
 
@@ -643,10 +688,10 @@ add_custom_target(drake_version ALL
 
 add_custom_target(drake_cxx_python ALL
   COMMAND "${Bazel_EXECUTABLE}" build ${BAZEL_INSTALL_TARGET}
-  DEPENDS "${PROJECT_BINARY_DIR}/VERSION.TXT"
   WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/drake_build_cwd"
   USES_TERMINAL
 )
+add_dependencies(drake_cxx_python drake_version)
 
 install(CODE
   "execute_process(

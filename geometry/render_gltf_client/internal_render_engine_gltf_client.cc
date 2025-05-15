@@ -22,6 +22,7 @@
 #include "drake/common/overloaded.h"
 #include "drake/common/ssize.h"
 #include "drake/common/text_logging.h"
+#include "drake/common/yaml/yaml_io.h"
 
 namespace drake {
 namespace geometry {
@@ -239,7 +240,8 @@ std::map<int, Matrix4<double>> FindRootNodes(const nlohmann::json& gltf) {
                      properties from the targeted nodes. */
 void SetRootPoses(nlohmann::json* gltf,
                   const std::map<int, Matrix4<double>>& root_nodes,
-                  const math::RigidTransformd& X_WG, double scale, bool strip) {
+                  const math::RigidTransformd& X_WG,
+                  const Vector3<double>& scale, bool strip) {
   /* We have to do some extra work for poses. A *correct* glTF file is defined
    in the file's frame F as y up. Drake poses things in a geometry frame G which
    is z up. When VTK exports a glTF file, it doesn't rotate from F to G (y up
@@ -264,7 +266,11 @@ void SetRootPoses(nlohmann::json* gltf,
   // T_WF isn't truly T_WF at construction. We'll construct it piecemeal as
   // we concatenate transforms on its right side as indicated above.
   Matrix4<double> T_WF = X_WG.GetAsMatrix4();
-  T_WF.block<3, 3>(0, 0) *= scale;  // S_WG.
+  // S_WG is `scale` on the diagonal. Multiplication with X_WG has the effect of
+  // scaling the corresponding columns.
+  for (int i = 0; i < 3; ++i) {
+    T_WF.block<3, 1>(0, i) *= scale(i);
+  }
   const math::RigidTransformd X_GF(
       math::RotationMatrixd::MakeXRotation(M_PI / 2));
   T_WF *= X_GF.GetAsMatrix4();
@@ -471,6 +477,10 @@ void RenderEngineGltfClient::DoRenderLabelImage(
   }
 }
 
+std::string RenderEngineGltfClient::DoGetParameterYaml() const {
+  return yaml::SaveYamlString(get_params(), "RenderEngineGltfClientParams");
+}
+
 void RenderEngineGltfClient::ExportScene(const std::string& export_path,
                                          ImageType image_type) const {
   // TODO(SeanCurtis-TRI): Given the ability to edit the gltf in place, we
@@ -637,14 +647,14 @@ bool RenderEngineGltfClient::ImplementGltf(
   // of materials.
 
   std::map<int, Matrix4<double>> root_nodes = FindRootNodes(mesh_data);
-  SetRootPoses(&mesh_data, root_nodes, data.X_WG, mesh.scale(), true);
+  SetRootPoses(&mesh_data, root_nodes, data.X_WG, mesh.scale3(), true);
 
   DRAKE_DEMAND(!gltfs_.contains(data.id));
   const MeshSource& mesh_source = mesh.source();
   const std::string gltf_name = mesh_source.description();
   gltfs_.insert({data.id,
                  {gltf_name, std::move(mesh_data), std::move(root_nodes),
-                  mesh.scale(), GetRenderLabelOrThrow(data.properties)}});
+                  mesh.scale3(), GetRenderLabelOrThrow(data.properties)}});
   return true;
 }
 

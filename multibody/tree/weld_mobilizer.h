@@ -16,8 +16,8 @@ namespace drake {
 namespace multibody {
 namespace internal {
 
-// This mobilizer fixes the relative pose `X_FM` of an outboard frame M in an
-// inboard frame F as if "welding" them together at this fixed relative pose.
+// This mobilizer fixes the relative pose of an outboard frame M to be
+// coincident with an inboard frame F as if "welding" them together.
 // Therefore, this mobilizer has no associated state with it.
 //
 // @tparam_default_scalar
@@ -35,33 +35,60 @@ class WeldMobilizer final : public MobilizerImpl<T, 0, 0> {
   using HMatrix = typename MobilizerBase::template HMatrix<U>;
 
   // Constructor for a %WeldMobilizer between the `inboard_frame_F` and
-  // `outboard_frame_M`.
-  // @param[in] X_FM Pose of `outboard_frame_M` in the `inboard_frame_F`.
+  // `outboard_frame_M`. The frames will be held coincident forever.
   WeldMobilizer(const SpanningForest::Mobod& mobod,
                 const Frame<T>& inboard_frame_F,
-                const Frame<T>& outboard_frame_M,
-                const math::RigidTransform<double>& X_FM)
-      : MobilizerBase(mobod, inboard_frame_F, outboard_frame_M), X_FM_(X_FM) {}
+                const Frame<T>& outboard_frame_M)
+      : MobilizerBase(mobod, inboard_frame_F, outboard_frame_M) {}
 
   ~WeldMobilizer() final;
 
-  std::unique_ptr<internal::BodyNode<T>> CreateBodyNode(
-      const internal::BodyNode<T>* parent_node, const RigidBody<T>* body,
+  std::unique_ptr<BodyNode<T>> CreateBodyNode(
+      const BodyNode<T>* parent_node, const RigidBody<T>* body,
       const Mobilizer<T>* mobilizer) const final;
 
-  // @retval X_FM The pose of the outboard frame M in the inboard frame F.
-  const math::RigidTransform<double>& get_X_FM() const { return X_FM_; }
-
   // Computes the across-mobilizer transform `X_FM`, which for this mobilizer
-  // is independent of the state stored in `context`.
-  math::RigidTransform<T> calc_X_FM(const T*) const { return X_FM_.cast<T>(); }
+  // is always the identity transform since F==M by construction.
+  math::RigidTransform<T> calc_X_FM(const T*) const {
+    return math::RigidTransform<T>();
+  }
 
-  // Computes the across-mobilizer velocity V_FM which for this mobilizer is
-  // always zero since the outboard frame M is fixed to the inboard frame F.
+  /* We should do exactly nothing to update X_FM since it remains identity
+  forever. */
+  void update_X_FM(const T*, math::RigidTransform<T>* X_FM) const {
+    DRAKE_ASSERT(X_FM != nullptr);
+    DRAKE_ASSERT(X_FM->IsExactlyIdentity());
+    // Do nothing.
+  }
+
+  /* Since X_FM is identity, X_AF * X_FM is just X_AF. */
+  math::RigidTransform<T> post_multiply_by_X_FM(
+      const math::RigidTransform<T>& X_AF,
+      const math::RigidTransform<T>&) const {
+    return X_AF;
+  }
+
+  /* Since X_FM is identity, X_FM * X_MB is just X_MB. */
+  math::RigidTransform<T> pre_multiply_by_X_FM(
+      const math::RigidTransform<T>&,
+      const math::RigidTransform<T>& X_MB) const {
+    return X_MB;
+  }
+
+  /* Since R_FM is identity, applying it to a vector does nothing. */
+  Vector3<T> apply_R_FM(const math::RotationMatrix<T>&,
+                        const Vector3<T>& v_M) const {
+    return v_M;
+  }
+
+  /* Computes the across-mobilizer velocity V_FM which for this mobilizer is
+  always zero. */
   SpatialVelocity<T> calc_V_FM(const T*, const T*) const {
     return SpatialVelocity<T>::Zero();
   }
 
+  /* Computes the across-mobilizer acceleration A_FM which for this mobilizer is
+  always zero. */
   SpatialAcceleration<T> calc_A_FM(const T*, const T*, const T*) const {
     return SpatialAcceleration<T>::Zero();
   }
@@ -90,18 +117,6 @@ class WeldMobilizer final : public MobilizerImpl<T, 0, 0> {
 
   bool is_velocity_equal_to_qdot() const override { return true; }
 
-  // This override is a no-op since this mobilizer has no generalized
-  // velocities associated with it.
-  void MapVelocityToQDot(const systems::Context<T>& context,
-                         const Eigen::Ref<const VectorX<T>>& v,
-                         EigenPtr<VectorX<T>> qdot) const final;
-
-  // This override is a no-op since this mobilizer has no generalized
-  // velocities associated with it.
-  void MapQDotToVelocity(const systems::Context<T>& context,
-                         const Eigen::Ref<const VectorX<T>>& qdot,
-                         EigenPtr<VectorX<T>> v) const final;
-
   bool can_rotate() const final { return false; }
   bool can_translate() const final { return false; }
 
@@ -111,6 +126,38 @@ class WeldMobilizer final : public MobilizerImpl<T, 0, 0> {
 
   void DoCalcNplusMatrix(const systems::Context<T>& context,
                          EigenPtr<MatrixX<T>> Nplus) const final;
+
+  // Generally, q̈ = Ṅ(q,q̇)⋅v + N(q)⋅v̇. For this mobilizer, Ṅ = 0x0 matrix.
+  void DoCalcNDotMatrix(const systems::Context<T>& context,
+                        EigenPtr<MatrixX<T>> Ndot) const final;
+
+  // Generally, v̇ = Ṅ⁺(q,q̇)⋅q̇ + N⁺(q)⋅q̈. For this mobilizer, Ṅ⁺ = 0x0 matrix.
+  void DoCalcNplusDotMatrix(const systems::Context<T>& context,
+                            EigenPtr<MatrixX<T>> NplusDot) const final;
+
+  // This override is a no-op since this mobilizer has no generalized
+  // velocities associated with it.
+  void DoMapVelocityToQDot(const systems::Context<T>& context,
+                           const Eigen::Ref<const VectorX<T>>& v,
+                           EigenPtr<VectorX<T>> qdot) const final;
+
+  // This override is a no-op since this mobilizer has no generalized
+  // velocities associated with it.
+  void DoMapQDotToVelocity(const systems::Context<T>& context,
+                           const Eigen::Ref<const VectorX<T>>& qdot,
+                           EigenPtr<VectorX<T>> v) const final;
+
+  // This override is a no-op since this mobilizer has no generalized
+  // velocities associated with it.
+  void DoMapAccelerationToQDDot(const systems::Context<T>& context,
+                                const Eigen::Ref<const VectorX<T>>& vdot,
+                                EigenPtr<VectorX<T>> qddot) const final;
+
+  // This override is a no-op since this mobilizer has no generalized
+  // velocities associated with it.
+  void DoMapQDDotToAcceleration(const systems::Context<T>& context,
+                                const Eigen::Ref<const VectorX<T>>& qddot,
+                                EigenPtr<VectorX<T>> vdot) const final;
 
   std::unique_ptr<Mobilizer<double>> DoCloneToScalar(
       const MultibodyTree<double>& tree_clone) const final;
@@ -126,9 +173,6 @@ class WeldMobilizer final : public MobilizerImpl<T, 0, 0> {
   template <typename ToScalar>
   std::unique_ptr<Mobilizer<ToScalar>> TemplatedDoCloneToScalar(
       const MultibodyTree<ToScalar>& tree_clone) const;
-
-  // Pose of the outboard frame M in the inboard frame F.
-  math::RigidTransform<double> X_FM_;
 };
 
 }  // namespace internal

@@ -452,9 +452,11 @@ drake_cc_library(
     implementation_deps = [
         ":volume_to_surface_mesh",
         "//common:essential",
+        "//solvers:choose_best_solver",
         "//solvers:clarabel_solver",
         "//solvers:mathematical_program",
         "//solvers:mathematical_program_result",
+        "//solvers:osqp_solver",
     ],
 )
 
@@ -1420,6 +1422,7 @@ drake_cc_googletest(
     deps = [
         ":make_convex_hull_mesh",
         "//common:find_resource",
+        "//common/test_utilities:eigen_matrix_compare",
         "//common/test_utilities:expect_throws_message",
     ],
 )

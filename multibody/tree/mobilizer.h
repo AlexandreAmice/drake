@@ -264,6 +264,7 @@ class Mobilizer : public MultibodyElement<T> {
       throw std::runtime_error(
           "The provided inboard and outboard frames reference the same object");
     }
+    this->set_is_ephemeral(true);  // Mobilizers are never added by users.
   }
 
   ~Mobilizer() override;
@@ -598,22 +599,88 @@ class Mobilizer : public MultibodyElement<T> {
     DoCalcNplusMatrix(context, Nplus);
   }
 
+  // Computes the matrix Ṅ(q,q̇) that helps relate q̈ (2ⁿᵈ time derivative of the
+  // generalized positions) to v̇ (1ˢᵗ time derivative of generalized velocities)
+  // via q̈ = Ṅ(q,q̇)⋅v + N(q)⋅v̇, where N(q) is formed by CalcNMatrix().
+  // @param[in] context stores generalized positions q and velocities v.
+  // @param[out] Ndot The matrix Ṅ(q,q̇). On input Ndot must have size
+  //   nq x nv where nq is the number of generalized positions and
+  //   nv is the number of generalized velocities for this mobilizer.
+  void CalcNDotMatrix(const systems::Context<T>& context,
+                      EigenPtr<MatrixX<T>> Ndot) const {
+    DRAKE_DEMAND(Ndot != nullptr);
+    DRAKE_DEMAND(Ndot->rows() == num_positions());
+    DRAKE_DEMAND(Ndot->cols() == num_velocities());
+    DoCalcNDotMatrix(context, Ndot);
+  }
+
+  // Computes the matrix Ṅ⁺(q,q̇) that helps relate v̇ (1ˢᵗ time derivative of
+  // generalized velocities) to q̈ (2ⁿᵈ time derivative of generalized positions)
+  // via v̇ = Ṅ⁺(q,q̇)⋅q̇ + N⁺(q)⋅q̈, where N⁺(q) is formed by CalcNPlusMatrix().
+  // @param[in] context stores generalized positions q and velocities v.
+  // @param[out] NplusDot The matrix Ṅ(q,q̇). On input NplusDot must have size
+  //   nv x nq where nv is the number of generalized velocities and
+  //   nq is the number of generalized positions for this mobilizer.
+  void CalcNplusDotMatrix(const systems::Context<T>& context,
+                          EigenPtr<MatrixX<T>> NplusDot) const {
+    DRAKE_DEMAND(NplusDot != nullptr);
+    DRAKE_DEMAND(NplusDot->rows() == num_velocities());
+    DRAKE_DEMAND(NplusDot->cols() == num_positions());
+    DoCalcNplusDotMatrix(context, NplusDot);
+  }
+
   virtual bool is_velocity_equal_to_qdot() const = 0;
 
   // Computes the kinematic mapping `q̇ = N(q)⋅v` between generalized
   // velocities v and time derivatives of the generalized positions `qdot`.
   // The generalized positions vector is stored in `context`.
-  virtual void MapVelocityToQDot(const systems::Context<T>& context,
-                                 const Eigen::Ref<const VectorX<T>>& v,
-                                 EigenPtr<VectorX<T>> qdot) const = 0;
+  void MapVelocityToQDot(const systems::Context<T>& context,
+                         const Eigen::Ref<const VectorX<T>>& v,
+                         EigenPtr<VectorX<T>> qdot) const {
+    DRAKE_ASSERT(v.size() == num_velocities());
+    DRAKE_ASSERT(qdot != nullptr);
+    DRAKE_ASSERT(qdot->size() == num_positions());
+    DoMapVelocityToQDot(context, v, qdot);
+  }
 
   // Computes the mapping `v = N⁺(q)⋅q̇` from time derivatives of the
   // generalized positions `qdot` to generalized velocities v, where `N⁺(q)` is
   // the left pseudo-inverse of `N(q)` defined by MapVelocityToQDot().
   // The generalized positions vector is stored in `context`.
-  virtual void MapQDotToVelocity(const systems::Context<T>& context,
-                                 const Eigen::Ref<const VectorX<T>>& qdot,
-                                 EigenPtr<VectorX<T>> v) const = 0;
+  void MapQDotToVelocity(const systems::Context<T>& context,
+                         const Eigen::Ref<const VectorX<T>>& qdot,
+                         EigenPtr<VectorX<T>> v) const {
+    DRAKE_ASSERT(qdot.size() == num_positions());
+    DRAKE_ASSERT(v != nullptr);
+    DRAKE_ASSERT(v->size() == num_velocities());
+    DoMapQDotToVelocity(context, qdot, v);
+  }
+
+  // Calculates q̈ from v̇, v, q using q̈ = N(q)⋅v̇ + Ṅ(q,v)⋅v.
+  // @param[in] context stores generalized positions q and velocities v.
+  // @param[in] vdot (v̇) 1ˢᵗ time derivatives of generalized velocities.
+  // @param[out] qddot (q̈) 2ⁿᵈ time derivatives of the generalized positions.
+  void MapAccelerationToQDDot(const systems::Context<T>& context,
+                              const Eigen::Ref<const VectorX<T>>& vdot,
+                              EigenPtr<VectorX<T>> qddot) const {
+    DRAKE_DEMAND(vdot.size() == num_velocities());
+    DRAKE_DEMAND(qddot != nullptr);
+    DRAKE_DEMAND(qddot->size() == num_positions());
+    DoMapAccelerationToQDDot(context, vdot, qddot);
+  }
+
+  // Calculates v̇ from q̈, v, q using v̇ = N⁺(q)⋅q̈ + Ṅ⁺(q,v)⋅q̇ where q̇ = N(q)⋅v.
+  // @param[in] context stores generalized positions q and velocities v.
+  // @param[in] qddot (q̈) 2ⁿᵈ time derivatives of the generalized positions.
+  // @param[out] vdot (v̇) 1ˢᵗ time derivatives of generalized velocities.
+  void MapQDDotToAcceleration(const systems::Context<T>& context,
+                              const Eigen::Ref<const VectorX<T>>& qddot,
+                              EigenPtr<VectorX<T>> vdot) const {
+    DRAKE_DEMAND(qddot.size() == num_positions());
+    DRAKE_DEMAND(vdot != nullptr);
+    DRAKE_DEMAND(vdot->size() == num_velocities());
+    DoMapQDDotToAcceleration(context, qddot, vdot);
+  }
   // @}
 
   // Returns a const Eigen expression of the vector of generalized positions
@@ -736,6 +803,50 @@ class Mobilizer : public MultibodyElement<T> {
   // not the nullptr and that Nplus has the proper size.
   virtual void DoCalcNplusMatrix(const systems::Context<T>& context,
                                  EigenPtr<MatrixX<T>> Nplus) const = 0;
+
+  // NVI to CalcNDotMatrix(). Implementations can safely assume that Ndot is
+  // not the nullptr and that Ndot has the proper size.
+  // TODO(Mitiguy) change this function to a pure virtual function when it has
+  //  been overridden in all subclasses.
+  virtual void DoCalcNDotMatrix(const systems::Context<T>& context,
+                                EigenPtr<MatrixX<T>> Ndot) const;
+
+  // NVI to CalcNplusDotMatrix(). Implementations can safely assume that
+  // NplusDot is not the nullptr and that NplusDot has the proper size.
+  // TODO(Mitiguy) change this function to a pure virtual function when it has
+  //  been overridden in all subclasses.
+  virtual void DoCalcNplusDotMatrix(const systems::Context<T>& context,
+                                    EigenPtr<MatrixX<T>> NplusDot) const;
+
+  // NVI to MapVelocityToQDot(). Implementations can safely assume that
+  // v has size kNv, qdot is not the nullptr, and qdot has size kNq.
+  virtual void DoMapVelocityToQDot(const systems::Context<T>& context,
+                                   const Eigen::Ref<const VectorX<T>>& v,
+                                   EigenPtr<VectorX<T>> qdot) const = 0;
+
+  // NVI to MapQDotToVelocity(). Implementations can safely assume that
+  // qdot has size kNq, v is not the nullptr, and v has size kNv
+  virtual void DoMapQDotToVelocity(const systems::Context<T>& context,
+                                   const Eigen::Ref<const VectorX<T>>& qdot,
+                                   EigenPtr<VectorX<T>> v) const = 0;
+
+  // NVI to MapAccelerationToQDDot(). Implementations can safely assume that
+  // vdot has size kNv, qddot is not the nullptr, and qddot has size kNq.
+  // TODO(Mitiguy) change this function to a pure virtual function when it has
+  //  been overridden in all subclasses.
+  virtual void DoMapAccelerationToQDDot(
+      const systems::Context<T>& context,
+      const Eigen::Ref<const VectorX<T>>& vdot,
+      EigenPtr<VectorX<T>> qddot) const;
+
+  // NVI to MapQDDotToAcceleration(). Implementations can safely assume that
+  // qddot has size kNq, vdot is not the nullptr, and vdot has size kNv.
+  // TODO(Mitiguy) change this function to a pure virtual function when it has
+  //  been overridden in all subclasses.
+  virtual void DoMapQDDotToAcceleration(
+      const systems::Context<T>& context,
+      const Eigen::Ref<const VectorX<T>>& qddot,
+      EigenPtr<VectorX<T>> vdot) const;
 
   // @name Methods to make a clone templated on different scalar types.
   //

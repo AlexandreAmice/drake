@@ -28,6 +28,7 @@
 #include "drake/common/test_utilities/expect_no_throw.h"
 #include "drake/common/test_utilities/expect_throws_message.h"
 #include "drake/common/text_logging.h"
+#include "drake/common/yaml/yaml_io.h"
 #include "drake/geometry/read_gltf_to_memory.h"
 #include "drake/geometry/shape_specification.h"
 #include "drake/math/rigid_transform.h"
@@ -94,6 +95,7 @@ using Eigen::AngleAxisd;
 using Eigen::Vector2d;
 using Eigen::Vector3d;
 using Eigen::Vector4d;
+using Eigen::VectorXd;
 using math::RigidTransformd;
 using math::RollPitchYawd;
 using math::RotationMatrixd;
@@ -718,6 +720,21 @@ class RenderEngineVtkTest : public ::testing::Test {
   unique_ptr<RenderEngineVtk> renderer_;
 };
 
+TEST_F(RenderEngineVtkTest, ParameterMatching) {
+  auto make_yaml = [](const RenderEngineVtkParams& params) {
+    return yaml::SaveYamlString(params, "RenderEngineVtkParams");
+  };
+  const RenderEngineVtkParams params1{
+      .lights = {LightParameter{.type = "spot"}}};
+  const RenderEngineVtkParams params2;
+
+  const RenderEngineVtk engine(params1);
+  const std::string from_engine = engine.GetParameterYaml();
+
+  EXPECT_EQ(from_engine, make_yaml(params1));
+  EXPECT_NE(from_engine, make_yaml(params2));
+}
+
 // Tests an empty image -- confirms that it clears to the "empty" color -- no
 // use of "inlier" or "outlier" pixel locations.
 TEST_F(RenderEngineVtkTest, NoBodyTest) {
@@ -783,6 +800,64 @@ TEST_F(RenderEngineVtkTest, MeshTest) {
         renderer_.get(),
         fmt::format("Mesh test {}", use_texture ? "textured" : "rgba").c_str());
   }
+}
+
+// Confirm that non-uniform scale is correctly applied. We'll create
+// two renderings: one with a reference mesh and one with the mesh pre-scaled
+// (applying the inverse scale to the Shape). The two images should end up
+// identical.
+TEST_F(RenderEngineVtkTest, NonUniformScaleTest) {
+  RenderEngineVtk ref_engine;
+  RenderEngineVtk scale_engine;
+
+  const auto convex_id = GeometryId::get_new_id();
+  const auto mesh_id = GeometryId::get_new_id();
+  PerceptionProperties material;
+  material.AddProperty("label", "id", RenderLabel::kDontCare);
+
+  const fs::path unit_obj =
+      FindResourceOrThrow("drake/geometry/test/rotated_cube_unit_scale.obj");
+  const fs::path scale_obj =
+      FindResourceOrThrow("drake/geometry/test/rotated_cube_squished.obj");
+
+  const Vector3d unit_scale(1, 1, 1);
+  ref_engine.RegisterVisual(mesh_id, Mesh(unit_obj, unit_scale), material,
+                            RigidTransformd(Vector3d(-1.5, 0, 0)),
+                            /* needs_update =*/false);
+  ref_engine.RegisterVisual(convex_id, Convex(unit_obj, unit_scale), material,
+                            RigidTransformd(Vector3d(1.5, 0, 0)),
+                            /* needs_update =*/false);
+
+  // This should be the scale factor documented in rotated_cube_squished.obj
+  const Vector3d stretch(2, 4, 8);
+  scale_engine.RegisterVisual(mesh_id, Mesh(scale_obj, stretch), material,
+                              RigidTransformd(Vector3d(-1.5, 0, 0)),
+                              /* needs_update =*/false);
+  scale_engine.RegisterVisual(convex_id, Convex(scale_obj, stretch), material,
+                              RigidTransformd(Vector3d(1.5, 0, 0)),
+                              /* needs_update =*/false);
+
+  // The camera is above the Wz = 0 plane, looking generally down and in the
+  // +Wy direction.
+  const RigidTransformd X_WC(RotationMatrixd::MakeXRotation(-3.2 * M_PI / 4),
+                             Vector3d(0, -3, 4.4));
+  ref_engine.UpdateViewpoint(X_WC);
+  scale_engine.UpdateViewpoint(X_WC);
+
+  const ColorRenderCamera camera(depth_camera_.core(), FLAGS_show_window);
+  const int w = camera.core().intrinsics().width();
+  const int h = camera.core().intrinsics().height();
+  ImageRgba8U ref_color(w, h);
+  ImageRgba8U scale_color(w, h);
+  EXPECT_NO_THROW(ref_engine.RenderColorImage(camera, &ref_color));
+  EXPECT_NO_THROW(scale_engine.RenderColorImage(camera, &scale_color));
+
+  const std::source_location& caller = std::source_location::current();
+  const std::string stem = fmt::format("line_{:0>4}", caller.line());
+  SaveTestOutputImage(ref_color, fmt::format("{0}_ref_color.png", stem));
+  SaveTestOutputImage(scale_color, fmt::format("{0}_scale_color.png", stem));
+
+  EXPECT_EQ(ref_color, scale_color);
 }
 
 // Repeats various mesh-based tests, but this time the meshes are loaded from
@@ -887,7 +962,7 @@ TEST_F(RenderEngineVtkTest, GltfTextureSupport) {
   ImageRgba8U expected_image;
   const std::string ref_filename = FindResourceOrThrow(
       "drake/geometry/render/test/fully_textured_pyramid_rendered.png");
-  systems::sensors::LoadImage(ref_filename, &expected_image);
+  ASSERT_TRUE(systems::sensors::LoadImage(ref_filename, &expected_image));
   // We're testing to see if the images are *coarsely* equal. This accounts for
   // the differences in CI's rendering technology from a local GPU. The images
   // are deemed equivalent if 80% of the channel values are within 20 of the
@@ -1418,6 +1493,146 @@ TEST_F(RenderEngineVtkTest, DefaultProperties_RenderLabel) {
   PerformCenterShapeTest(&renderer, "Default properties; don't care label");
 }
 
+// Performs the shape-centered-in-the-image test with a deformable mesh. In
+// particular, we register a deformable geometry with a single mesh (with or
+// without texture) and update the vertex positions and normals with some
+// curated values. We then render color, depth, and label images to verify they
+// match our expectations at certain pixel locations. Though this doesn't
+// explicitly confirm the vertex positions and normals of all vertices are
+// correctly updated, it proves some updates happened and provides strong
+// indications that the updates are as expected. Note that this only tests a
+// deformable geometry with a single render mesh, and we use the success of that
+// test to indicate vertices are correctly updated for all meshes.
+TEST_F(RenderEngineVtkTest, DeformableTest) {
+  for (const bool use_texture : {false, true}) {
+    Init(X_WC_, true /* add terrain*/);
+    ResetExpectations();
+    const fs::path filename =
+        use_texture
+            ? FindResourceOrThrow("drake/geometry/render/test/meshes/box.obj")
+            : FindResourceOrThrow(
+                  "drake/geometry/render/test/meshes/box_no_mtl.obj");
+    const RenderLabel deformable_label(847);
+    expected_label_ = deformable_label;
+    const PerceptionProperties material = simple_material(use_texture);
+    // This is a dummy placeholder to allow invoking LoadRenderMeshesFromObj(),
+    // the actual diffuse color either comes from the mtl file or the
+    // perception properties.
+    const Rgba unused_diffuse_color(1, 1, 1, 1);
+    std::vector<geometry::internal::RenderMesh> render_meshes =
+        geometry::internal::LoadRenderMeshesFromObj(filename, material,
+                                                    unused_diffuse_color);
+    ASSERT_EQ(render_meshes.size(), 1);
+
+    const GeometryId id = GeometryId::get_new_id();
+    renderer_->RegisterDeformableVisual(id, render_meshes, material);
+    expected_color_ = use_texture ? kTextureColor : default_color_;
+    PerformCenterShapeTest(
+        renderer_.get(),
+        fmt::format("Deformable test, initial pose, has texture: {}",
+                    use_texture)
+            .c_str());
+
+    const Eigen::Matrix<double, Eigen::Dynamic, 3, Eigen::RowMajor>&
+        initial_q_WG = render_meshes[0].positions;
+    const Eigen::Matrix<double, Eigen::Dynamic, 3, Eigen::RowMajor>&
+        initial_nhat_W = render_meshes[0].normals;
+    // Helper lambda to translate all vertex positions by the same vector.
+    auto translate_all_vertices = [&initial_q_WG](const Vector3d& t_W) {
+      auto result = initial_q_WG;
+      for (int i = 0; i < result.rows(); ++i) {
+        result.row(i) += t_W;
+      }
+      return result;
+    };
+    // Helper lambda to reshape an Nx3 matrix to a flat vector with 3N entries.
+    auto flatten = [](const Eigen::Matrix<double, Eigen::Dynamic, 3,
+                                          Eigen::RowMajor>& input) {
+      return VectorXd(Eigen::Map<const VectorXd>(input.data(), input.size()));
+    };
+
+    // The box has half edge length 1.0 and has its center and the center of the
+    // image. Assuming infinite resolution, when the box is translated by (t_x,
+    // 0, 0), we expect the center of the image to be part of the box if t_x is
+    // in the interval (-1, 1) and part of the terrain if t_x < -1 or if
+    // t_x > 1. With finite resolution, the boundary is somewhat "blurred".
+
+    // Pixel at center renders box.
+    renderer_->UpdateDeformableConfigurations(
+        id,
+        std::vector<VectorXd>{
+            flatten(translate_all_vertices(Vector3d(0.99, 0, 0)))},
+        std::vector<VectorXd>{flatten(initial_nhat_W)});
+    PerformCenterShapeTest(
+        renderer_.get(),
+        fmt::format("Deformable test, translation 1, has texture: {}",
+                    use_texture)
+            .c_str());
+
+    // Pixel at center renders the terrain.
+    expected_color_ = expected_outlier_color_;
+    expected_object_depth_ = expected_outlier_depth_;
+    expected_label_ = expected_outlier_label_;
+    renderer_->UpdateDeformableConfigurations(
+        id,
+        std::vector<VectorXd>{
+            flatten(translate_all_vertices(Vector3d(1.01, 0, 0.0)))},
+        std::vector<VectorXd>{flatten(initial_nhat_W)});
+    PerformCenterShapeTest(
+        renderer_.get(),
+        fmt::format("Deformable test, translation 2, has texture: {}",
+                    use_texture)
+            .c_str());
+
+    // Test normals are updated by making all vertex normals point along the
+    // direction of (1, 0, 1) in the world frame. As a result, angle between the
+    // normal and the light direction is 45 degrees.
+    auto new_nhat_W = initial_nhat_W;
+    for (int r = 0; r < new_nhat_W.rows(); ++r) {
+      new_nhat_W.row(r) = Vector3d(1, 0, 1).normalized();
+    }
+
+    // With the prescribed normals, we expect to see rgb values scaled by
+    // cos(π/4). We also expect the object depth to increase by 0.5 as we
+    // translate all vertices in the -z direction by 0.5.
+    ResetExpectations();
+    const TestColor original_color =
+        use_texture ? kTextureColor : default_color_;
+    const Vector3d original_rgb(original_color.r, original_color.g,
+                                original_color.b);
+    const Vector3d expected_rgb = original_rgb * std::cos(M_PI / 4.0);
+    expected_color_ = TestColor(static_cast<int>(expected_rgb[0]),
+                                static_cast<int>(expected_rgb[1]),
+                                static_cast<int>(expected_rgb[2]));
+    expected_label_ = deformable_label;
+    expected_object_depth_ += 0.5;
+
+    renderer_->UpdateDeformableConfigurations(
+        id,
+        std::vector<VectorXd>{
+            flatten(translate_all_vertices(Vector3d(0, 0, -0.5)))},
+        std::vector<VectorXd>{flatten(new_nhat_W)});
+    PerformCenterShapeTest(
+        renderer_.get(),
+        fmt::format("Deformable test, rotation, has texture: {}", use_texture)
+            .c_str());
+
+    // Now we remove the geometry, and the center pixel should again render the
+    // terrain.
+    renderer_->RemoveGeometry(id);
+    expected_color_ = expected_outlier_color_;
+    expected_object_depth_ = expected_outlier_depth_;
+    expected_label_ = expected_outlier_label_;
+    PerformCenterShapeTest(
+        renderer_.get(),
+        fmt::format("Deformable test, reset, has texture: {}", use_texture)
+            .c_str());
+
+    // Confirm that we can still add the geometry back.
+    renderer_->RegisterDeformableVisual(id, render_meshes, material);
+  }
+}
+
 // This class exists solely for the purpose of injecting an arbitrary texture
 // onto an actor and confirm that the texture is preserved over the copy.
 // For simplicity, we'll only register shapes that map to vtkActor types.
@@ -1869,34 +2084,34 @@ TEST_F(RenderEngineVtkTest, EnvironmentMap) {
       {.description = "Facing +Wz, toward the blue face, magenta behind; HDR",
        .R_WC = RotationMatrixd(),
        .bg_color = Rgba(0, 0, 1),
-       .sphere_color = Rgba(0.9882, 0.6353, 0.9098),  // magenta-ish
+       .sphere_color = Rgba(0.61176471, 0.38039216, 0.56470588),  // magenta-ish
        .map_path = hdr_path},
       {.description = "Facing blue; testing the skybox",
        .R_WC = RotationMatrixd(),
        .bg_color = Rgba(0, 0, 1),
-       .sphere_color = Rgba(0.9882, 0.6353, 0.9098),  // magenta-ish
+       .sphere_color = Rgba(0.61176471, 0.38039216, 0.56470588),  // magenta-ish
        .map_path = hdr_path,
        .show_map = false},
       {.description = "Facing blue; testing the clone",
        .R_WC = RotationMatrixd(),
        .bg_color = Rgba(0, 0, 1),
-       .sphere_color = Rgba(0.9882, 0.6353, 0.9098),  // magenta-ish
+       .sphere_color = Rgba(0.61176471, 0.38039216, 0.56470588),  // magenta-ish
        .map_path = hdr_path,
        .render_clone = true},
       {.description = "Facing +Wy, toward the green face, yellow behind; HDR",
        .R_WC = RotationMatrixd::MakeXRotation(M_PI / 2),
        .bg_color = Rgba(0, 1, 0),
-       .sphere_color = Rgba(0.9843, 0.9098, 0.6353),  // yellow-ish
+       .sphere_color = Rgba(0.60784314, 0.56470588, 0.38039216),  // yellow-ish
        .map_path = hdr_path},
       {.description = "Facing +Wx, toward the red face, cyan behind; HDR",
        .R_WC = RotationMatrixd::MakeYRotation(M_PI / 2),
        .bg_color = Rgba(1, 0, 0),
-       .sphere_color = Rgba(0.5177, 0.9804, 0.9765),  // cyan-ish
+       .sphere_color = Rgba(0.30980392, 0.60392157, 0.60392157),  // cyan-ish
        .map_path = hdr_path},
       {.description = "Facing +Wz, toward the blue face, magenta behind; LDR",
        .R_WC = RotationMatrixd(),
        .bg_color = Rgba(0.0588, 0.0588, 0.9255),
-       .sphere_color = Rgba(0.7255, 0.4275, 0.6275),  // magenta-ish
+       .sphere_color = Rgba(0.45098039, 0.25490196, 0.39607843),  // magenta-ish
        .map_path = ldr_path},
   };
 
@@ -2020,7 +2235,7 @@ TEST_F(RenderEngineVtkTest, PbrMaterialPromotion) {
 
     // We should still basically be green (because of the green texture), but
     // the saturation and brightness changes in the presence of PBR material.
-    const TestColor pbr_texture_color(66, 152, 68, 255);
+    const TestColor pbr_texture_color(60, 150, 63, 255);
     test_sphere_color(pbr_texture_color, renderer_.get(),
                       std::source_location::current());
   }

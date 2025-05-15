@@ -29,6 +29,7 @@ std::unique_ptr<FemModel<T>> FemModel<T>::Clone() const {
   std::unique_ptr<FemModel<T>> result = this->DoClone();
   result->UpdateFemStateSystem();
   result->dirichlet_bc_ = this->dirichlet_bc_;
+  result->parallelism_ = this->parallelism_;
   return result;
 }
 
@@ -50,16 +51,15 @@ void FemModel<T>::CalcResidual(const FemState<T>& fem_state,
 
 template <typename T>
 void FemModel<T>::CalcTangentMatrix(
-    const FemState<T>& fem_state, const Vector3<T>& weights,
+    const FemState<T>& fem_state,
     contact_solvers::internal::Block3x3SparseSymmetricMatrix* tangent_matrix)
     const {
   if constexpr (std::is_same_v<T, double>) {
     DRAKE_DEMAND(tangent_matrix != nullptr);
     DRAKE_DEMAND(tangent_matrix->rows() == num_dofs());
     DRAKE_DEMAND(tangent_matrix->cols() == num_dofs());
-    DRAKE_THROW_UNLESS(weights.minCoeff() >= 0.0);
     ThrowIfModelStateIncompatible(__func__, fem_state);
-    DoCalcTangentMatrix(fem_state, weights, tangent_matrix);
+    DoCalcTangentMatrix(fem_state, tangent_matrix);
     dirichlet_bc_.ApplyBoundaryConditionToTangentMatrix(tangent_matrix);
   } else {
     throw std::logic_error(
@@ -86,9 +86,12 @@ void FemModel<T>::ApplyBoundaryCondition(FemState<T>* fem_state) const {
 }
 
 template <typename T>
-FemModel<T>::FemModel()
+FemModel<T>::FemModel(const Vector3<T>& tangent_matrix_weights)
     : fem_state_system_(std::make_unique<internal::FemStateSystem<T>>(
-          VectorX<T>(0), VectorX<T>(0), VectorX<T>(0))) {}
+          VectorX<T>(0), VectorX<T>(0), VectorX<T>(0))),
+      tangent_matrix_weights_(tangent_matrix_weights) {
+  DRAKE_DEMAND(tangent_matrix_weights.minCoeff() >= 0.0);
+}
 
 template <typename T>
 void FemModel<T>::ThrowIfModelStateIncompatible(

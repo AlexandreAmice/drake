@@ -3,6 +3,7 @@ from functools import partial
 import textwrap
 import unittest
 import warnings
+import weakref
 
 import numpy as np
 import scipy.sparse
@@ -936,6 +937,33 @@ class TestMathematicalProgram(unittest.TestCase):
         self.assertEqual(
             prog.generic_costs()[0].evaluator(), cost_binding.evaluator())
 
+    def test_cost_and_constraint_python_wrapper_lost(self):
+        # Ensure cost and constraints python wrappers are kept alive when added
+        # to a mathematical program. See issue #20131 for original problem
+        # description.
+
+        # Make some objects in a function to let most of them be deleted at
+        # scope exit. We will test if the contents of the first return value
+        # ("keepers") succeed in keeping alive the objects tracked by "spies".
+        def make_object_graph():
+            spies = []
+            prog = mp.MathematicalProgram()
+            x = prog.NewContinuousVariables(1, 'x')
+
+            cost = mp.LinearCost([1.0], 0.0)
+            spies.append(weakref.finalize(cost, lambda: None))
+
+            constraint = mp.LinearConstraint(np.array([1.0]), np.array([1]),
+                                             np.array([np.inf]))
+            spies.append(weakref.finalize(constraint, lambda: None))
+
+            cost_binding = prog.AddCost(cost, vars=x)
+            constraint_binding = prog.AddConstraint(constraint, vars=x)
+            return [cost_binding, constraint_binding], spies
+
+        keepers, spies = make_object_graph()
+        self.assertTrue(all(spy.alive for spy in spies))
+
     def get_different_scalar_type(self, T):
         # Gets U such that U != T.
         next_index = SCALAR_TYPES.index(T) + 1
@@ -1342,22 +1370,12 @@ class TestMathematicalProgram(unittest.TestCase):
         dut.SetOption(solver_id=solver_id, key="float_key", value=1.0)
         dut.SetOption(solver_id=solver_id, key="int_key", value=2)
         dut.SetOption(solver_id=solver_id, key="str_key", value="3")
-        with catch_drake_warnings(expected_count=1):
-            dut.SetOption(solver_id=solver_id, solver_option="dep_float_key",
-                          option_value=4.0)
-        with catch_drake_warnings(expected_count=1):
-            dut.SetOption(solver_id=solver_id, solver_option="dep_int_key",
-                          option_value=5)
-        with catch_drake_warnings(expected_count=1):
-            dut.SetOption(solver_id=solver_id, solver_option="dep_str_key",
-                          option_value="6")
         dut.SetOption(CSO.kPrintToConsole, True)
         dut.SetOption(CSO.kPrintFileName, "print.log")
         dut.SetOption(CSO.kStandaloneReproductionFileName, "repro.txt")
         dut.SetOption(CSO.kMaxThreads, 4)
         expected_dummy = {
             "float_key": 1.0, "int_key": 2, "str_key": "3",
-            "dep_float_key": 4.0, "dep_int_key": 5, "dep_str_key": "6",
         }
         expected_common = {
             CSO.kPrintToConsole: True,
@@ -1372,19 +1390,6 @@ class TestMathematicalProgram(unittest.TestCase):
                 for key, value in expected_common.items()
             )
         })
-        with catch_drake_warnings(expected_count=1):
-            self.assertDictEqual(dut.GetOptions(solver_id), expected_dummy)
-        with catch_drake_warnings(expected_count=1):
-            self.assertEqual(dut.common_solver_options(), expected_common)
-        with catch_drake_warnings(expected_count=1):
-            self.assertEqual(dut.get_print_to_console(), True)
-        with catch_drake_warnings(expected_count=1):
-            self.assertEqual(dut.get_print_file_name(), "print.log")
-        with catch_drake_warnings(expected_count=1):
-            self.assertEqual(dut.get_standalone_reproduction_file_name(),
-                             "repro.txt")
-        with catch_drake_warnings(expected_count=1):
-            self.assertEqual(dut.get_max_threads(), 4)
         self.assertTrue(dut == dut)
         self.assertFalse(dut != dut)
         copy.deepcopy(dut)

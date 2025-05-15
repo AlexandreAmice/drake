@@ -28,7 +28,7 @@ CalcSpatialInertiaResult CalcMeshSpatialInertia(const Mesh& mesh,
   const auto& extension = mesh.extension();
   if (extension == ".obj") {
     return internal::CalcSpatialInertiaImpl(
-        geometry::ReadObjToTriangleSurfaceMesh(mesh.source(), mesh.scale()),
+        geometry::ReadObjToTriangleSurfaceMesh(mesh.source(), mesh.scale3()),
         density);
   }
   if (extension == ".vtk") {
@@ -194,10 +194,10 @@ CalcSpatialInertiaResult CalcSpatialInertiaImpl(
 
   auto result = SpatialInertia<double>{mass, p_GoGcm, G_GGo_G,
                                        /* skip_validity_check = */ true};
-  std::string message = result.CriticizeNotPhysicallyValid();
-  if (!message.empty()) {
-    return message;
-  }
+  std::optional<std::string> invalidity_report =
+      result.CreateInvalidityReport();
+  if (invalidity_report.has_value()) return *invalidity_report;
+
   return result;
 }
 

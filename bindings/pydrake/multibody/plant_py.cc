@@ -103,6 +103,28 @@ void DoScalarDependentDefinitions(py::module m, T) {
     AddValueInstantiation<Class>(m);
   }
 
+  // DeformableContactInfo
+  {
+    using Class = DeformableContactInfo<T>;
+    constexpr auto& cls_doc = doc.DeformableContactInfo;
+    auto cls = DefineTemplateClassWithDefault<Class>(
+        m, "DeformableContactInfo", param, cls_doc.doc);
+    if constexpr (!std::is_same_v<T, symbolic::Expression>) {
+      cls  // BR
+          .def(py::init<geometry::GeometryId, geometry::GeometryId,
+                   geometry::PolygonSurfaceMesh<T>, SpatialForce<T>>(),
+              py::arg("id_A"), py::arg("id_B"), py::arg("contact_mesh_W"),
+              py::arg("F_Ac_W"), cls_doc.ctor.doc)
+          .def("id_A", &Class::id_A, cls_doc.id_A.doc)
+          .def("id_B", &Class::id_B, cls_doc.id_B.doc)
+          .def("contact_mesh", &Class::contact_mesh, py_rvp::reference_internal,
+              cls_doc.contact_mesh.doc)
+          .def("F_Ac_W", &Class::F_Ac_W, cls_doc.F_Ac_W.doc);
+    }
+    DefCopyAndDeepCopy(&cls);
+    AddValueInstantiation<Class>(m);
+  }
+
   // ContactResults
   {
     using Class = ContactResults<T>;
@@ -119,6 +141,11 @@ void DoScalarDependentDefinitions(py::module m, T) {
             cls_doc.num_hydroelastic_contacts.doc)
         .def("hydroelastic_contact_info", &Class::hydroelastic_contact_info,
             py::arg("i"), cls_doc.hydroelastic_contact_info.doc)
+        .def("num_deformable_contacts", &Class::num_deformable_contacts,
+            cls_doc.num_deformable_contacts.doc)
+        .def("deformable_contact_info", &Class::deformable_contact_info,
+            py::arg("i"), py_rvp::reference_internal,
+            cls_doc.deformable_contact_info.doc)
         .def("plant", &Class::plant, py_rvp::reference, cls_doc.plant.doc)
         .def("SelectHydroelastic", &Class::SelectHydroelastic,
             py::arg("selector"), cls_doc.SelectHydroelastic.doc);
@@ -293,6 +320,23 @@ void DoScalarDependentDefinitions(py::module m, T) {
             py::arg("stiffness") = std::numeric_limits<double>::infinity(),
             py::arg("damping") = 0.0, py_rvp::reference_internal,
             cls_doc.AddDistanceConstraint.doc)
+        .def("GetDefaultDistanceConstraintParams",
+            &Class::GetDefaultDistanceConstraintParams,
+            cls_doc.GetDefaultDistanceConstraintParams.doc)
+        .def("GetDistanceConstraintParams",
+            overload_cast_explicit<const std::map<MultibodyConstraintId,
+                                       DistanceConstraintParams>&,
+                const Context<T>&>(&Class::GetDistanceConstraintParams),
+            py::arg("context"), cls_doc.GetDistanceConstraintParams.doc_1args)
+        .def("GetDistanceConstraintParams",
+            overload_cast_explicit<const DistanceConstraintParams&,
+                const Context<T>&, MultibodyConstraintId>(
+                &Class::GetDistanceConstraintParams),
+            py::arg("context"), py::arg("id"),
+            cls_doc.GetDistanceConstraintParams.doc_2args)
+        .def("SetDistanceConstraintParams", &Class::SetDistanceConstraintParams,
+            py::arg("context"), py::arg("id"), py::arg("params"),
+            cls_doc.SetDistanceConstraintParams.doc)
         .def("AddBallConstraint", &Class::AddBallConstraint, py::arg("body_A"),
             py::arg("p_AP"), py::arg("body_B"), py::arg("p_BQ") = std::nullopt,
             py_rvp::reference_internal, cls_doc.AddBallConstraint.doc)
@@ -1162,20 +1206,6 @@ void DoScalarDependentDefinitions(py::module m, T) {
         .def("set_stiction_tolerance", &Class::set_stiction_tolerance,
             py::arg("v_stiction") = 0.001, cls_doc.set_stiction_tolerance.doc)
         .def(
-            "GetPositions",
-            [](const MultibodyPlant<T>* self, const Context<T>& context)
-                -> VectorX<T> { return self->GetPositions(context); },
-            py_rvp::reference, py::arg("context"),
-            cls_doc.GetPositions.doc_1args)
-        .def(
-            "GetPositions",
-            [](const MultibodyPlant<T>* self, const Context<T>& context,
-                ModelInstanceIndex model_instance) -> VectorX<T> {
-              return self->GetPositions(context, model_instance);
-            },
-            py_rvp::reference, py::arg("context"), py::arg("model_instance"),
-            cls_doc.GetPositions.doc_2args)
-        .def(
             "SetPositions",
             [](const MultibodyPlant<T>* self, Context<T>* context,
                 const Eigen::Ref<const VectorX<T>>& q) {
@@ -1219,20 +1249,6 @@ void DoScalarDependentDefinitions(py::module m, T) {
             },
             py::arg("model_instance"), py::arg("q_instance"),
             cls_doc.SetDefaultPositions.doc_2args)
-        .def(
-            "GetVelocities",
-            [](const MultibodyPlant<T>* self, const Context<T>& context)
-                -> VectorX<T> { return self->GetVelocities(context); },
-            py_rvp::reference, py::arg("context"),
-            cls_doc.GetVelocities.doc_1args)
-        .def(
-            "GetVelocities",
-            [](const MultibodyPlant<T>* self, const Context<T>& context,
-                ModelInstanceIndex model_instance) -> VectorX<T> {
-              return self->GetVelocities(context, model_instance);
-            },
-            py_rvp::reference, py::arg("context"), py::arg("model_instance"),
-            cls_doc.GetVelocities.doc_2args)
         .def(
             "SetVelocities",
             [](const MultibodyPlant<T>* self, Context<T>* context,
@@ -1608,6 +1624,27 @@ PYBIND11_MODULE(plant, m) {
   }
 
   {
+    using Class = DistanceConstraintParams;
+    constexpr auto& cls_doc = doc.DistanceConstraintParams;
+    py::class_<Class> cls(m, "DistanceConstraintParams", cls_doc.doc);
+    cls  // BR
+        .def(py::init<>(), cls_doc.ctor.doc_0args)
+        .def(py::init<BodyIndex, Vector3<double>&, BodyIndex, Vector3<double>&,
+                 double, double, double>(),
+            py::arg("bodyA"), py::arg("p_AP"), py::arg("bodyB"),
+            py::arg("p_BQ"), py::arg("distance"), py::arg("stiffness"),
+            py::arg("damping"), cls_doc.ctor.doc_7args)
+        .def("bodyA", &Class::bodyA, cls_doc.bodyA.doc)
+        .def("bodyB", &Class::bodyB, cls_doc.bodyB.doc)
+        .def("p_AP", &Class::p_AP, cls_doc.p_AP.doc)
+        .def("p_BQ", &Class::p_BQ, cls_doc.p_BQ.doc)
+        .def("distance", &Class::distance, cls_doc.distance.doc)
+        .def("stiffness", &Class::stiffness, cls_doc.stiffness.doc)
+        .def("damping", &Class::damping, cls_doc.damping.doc);
+    DefCopyAndDeepCopy(&cls);
+  }
+
+  {
     using Class = ContactModel;
     constexpr auto& cls_doc = doc.ContactModel;
     py::enum_<Class>(m, "ContactModel", cls_doc.doc)
@@ -1684,7 +1721,22 @@ PYBIND11_MODULE(plant, m) {
                   config, resolution_hint);
             },
             py::arg("geometry_instance"), py::arg("config"),
-            py::arg("resolution_hint"), cls_doc.RegisterDeformableBody.doc)
+            py::arg("resolution_hint"),
+            cls_doc.RegisterDeformableBody.doc_3args)
+        .def(
+            "RegisterDeformableBody",
+            [](Class& self, const geometry::GeometryInstance& geometry_instance,
+                ModelInstanceIndex model_instance,
+                const fem::DeformableBodyConfig<T>& config,
+                double resolution_hint) {
+              return self.RegisterDeformableBody(
+                  std::make_unique<geometry::GeometryInstance>(
+                      geometry_instance),
+                  model_instance, config, resolution_hint);
+            },
+            py::arg("geometry_instance"), py::arg("model_instance"),
+            py::arg("config"), py::arg("resolution_hint"),
+            cls_doc.RegisterDeformableBody.doc_4args)
         .def("SetWallBoundaryCondition", &Class::SetWallBoundaryCondition,
             py::arg("id"), py::arg("p_WQ"), py::arg("n_W"),
             cls_doc.SetWallBoundaryCondition.doc)
@@ -1693,6 +1745,10 @@ PYBIND11_MODULE(plant, m) {
             py::arg("shape"), py::arg("X_BG"), cls_doc.AddFixedConstraint.doc)
         .def("GetDiscreteStateIndex", &Class::GetDiscreteStateIndex,
             py::arg("id"), cls_doc.GetDiscreteStateIndex.doc)
+        .def("SetPositions", &Class::SetPositions, py::arg("context"),
+            py::arg("id"), py::arg("q"), cls_doc.SetPositions.doc)
+        .def("GetPositions", &Class::GetPositions, py::arg("context"),
+            py::arg("id"), cls_doc.GetPositions.doc)
         .def("GetReferencePositions", &Class::GetReferencePositions,
             py::arg("id"), py_rvp::reference_internal,
             cls_doc.GetReferencePositions.doc)
@@ -1703,7 +1759,15 @@ PYBIND11_MODULE(plant, m) {
             [](const Class* self, geometry::GeometryId geometry_id) {
               return self->GetBodyId(geometry_id);
             },
-            py::arg("geometry_id"), cls_doc.GetBodyId.doc_1args_geometry_id);
+            py::arg("geometry_id"), cls_doc.GetBodyId.doc_1args_geometry_id)
+        .def("GetBodyIds", &Class::GetBodyIds, py::arg("model_instance"),
+            cls_doc.GetBodyIds.doc)
+        /* The parallelism configuration is for internal-use only and thus the
+         naming choice. This will go away when we figure out a more principled
+         way of using threads in a single deformable sim. */
+        .def("_set_parallelism", &Class::SetParallelism, py::arg("parallelism"),
+            cls_doc.SetParallelism.doc)
+        .def("_parallelism", &Class::parallelism, cls_doc.parallelism.doc);
   }
 
   type_visit([m](auto dummy) { DoScalarDependentDefinitions(m, dummy); },

@@ -85,8 +85,8 @@ class RpyBallMobilizer final : public MobilizerImpl<T, 3, 3> {
 
   ~RpyBallMobilizer() final;
 
-  std::unique_ptr<internal::BodyNode<T>> CreateBodyNode(
-      const internal::BodyNode<T>* parent_node, const RigidBody<T>* body,
+  std::unique_ptr<BodyNode<T>> CreateBodyNode(
+      const BodyNode<T>* parent_node, const RigidBody<T>* body,
       const Mobilizer<T>* mobilizer) const final;
 
   bool has_quaternion_dofs() const final { return false; }
@@ -185,6 +185,13 @@ class RpyBallMobilizer final : public MobilizerImpl<T, 3, 3> {
                                    Vector3<T>::Zero());
   }
 
+  /* We're not attempting to optimize the update, but could improve slightly
+  since the translation never changes (always zero). */
+  void update_X_FM(const T* q, math::RigidTransform<T>* X_FM) const {
+    DRAKE_ASSERT(q != nullptr && X_FM != nullptr);
+    *X_FM = calc_X_FM(q);
+  }
+
   // Computes the across-mobilizer velocity V_FM(q, v) of the outboard frame
   // M measured and expressed in frame F as a function of the input generalized
   // velocity v which contains the components of the angular velocity w_FM
@@ -236,6 +243,13 @@ class RpyBallMobilizer final : public MobilizerImpl<T, 3, 3> {
 
   bool is_velocity_equal_to_qdot() const override { return false; }
 
+ protected:
+  void DoCalcNMatrix(const systems::Context<T>& context,
+                     EigenPtr<MatrixX<T>> N) const final;
+
+  void DoCalcNplusMatrix(const systems::Context<T>& context,
+                         EigenPtr<MatrixX<T>> Nplus) const final;
+
   // Maps the generalized velocity v, which corresponds to the angular velocity
   // w_FM, to time derivatives of roll-pitch-yaw angles θ₀, θ₁, θ₂ in qdot.
   //
@@ -254,9 +268,9 @@ class RpyBallMobilizer final : public MobilizerImpl<T, 3, 3> {
   // in large errors for qdot), this method aborts when the absolute value of
   // the cosine of θ₁ is smaller than 10⁻³, a number arbitrarily chosen to this
   // end.
-  void MapVelocityToQDot(const systems::Context<T>& context,
-                         const Eigen::Ref<const VectorX<T>>& v,
-                         EigenPtr<VectorX<T>> qdot) const override;
+  void DoMapVelocityToQDot(const systems::Context<T>& context,
+                           const Eigen::Ref<const VectorX<T>>& v,
+                           EigenPtr<VectorX<T>> qdot) const final;
 
   // Maps time derivatives of the roll-pitch-yaw angles θ₀, θ₁, θ₂ in qdot to
   // the generalized velocity v, which corresponds to the angular velocity
@@ -270,16 +284,9 @@ class RpyBallMobilizer final : public MobilizerImpl<T, 3, 3> {
   // @param[out] v
   //   A vector of generalized velocities for this Mobilizer which should
   //   correspond to a vector in ℝ³ for an angular velocity w_FM of M in F.
-  void MapQDotToVelocity(const systems::Context<T>& context,
-                         const Eigen::Ref<const VectorX<T>>& qdot,
-                         EigenPtr<VectorX<T>> v) const override;
-
- protected:
-  void DoCalcNMatrix(const systems::Context<T>& context,
-                     EigenPtr<MatrixX<T>> N) const final;
-
-  void DoCalcNplusMatrix(const systems::Context<T>& context,
-                         EigenPtr<MatrixX<T>> Nplus) const final;
+  void DoMapQDotToVelocity(const systems::Context<T>& context,
+                           const Eigen::Ref<const VectorX<T>>& qdot,
+                           EigenPtr<VectorX<T>> v) const final;
 
   std::unique_ptr<Mobilizer<double>> DoCloneToScalar(
       const MultibodyTree<double>& tree_clone) const override;

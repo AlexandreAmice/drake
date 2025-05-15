@@ -54,6 +54,7 @@ using drake::trajectories::PiecewiseConstantCurvatureTrajectory;
 using drake::trajectories::Trajectory;
 using Eigen::Vector2d;
 using Eigen::Vector3d;
+using Eigen::VectorXd;
 using geometry::GeometryId;
 using geometry::GeometryInstance;
 using geometry::SceneGraph;
@@ -99,7 +100,7 @@ class SdfParserTest : public test::DiagnosticPolicyTestBase {
       const std::optional<std::string>& parent_model_name = {}) {
     const DataSource data_source{DataSource::kFilename, &file_name};
     internal::CollisionFilterGroupResolver resolver{&plant_};
-    ParsingWorkspace w{options_, package_map_, diagnostic_policy_,
+    ParsingWorkspace w{options_, package_map_, diagnostic_policy_, nullptr,
                        &plant_,  &resolver,    TestingSelect};
     std::optional<ModelInstanceIndex> result =
         AddModelFromSdf(data_source, model_name, parent_model_name, w);
@@ -114,7 +115,7 @@ class SdfParserTest : public test::DiagnosticPolicyTestBase {
       const std::optional<std::string>& parent_model_name = {}) {
     const DataSource data_source{DataSource::kFilename, &file_name};
     internal::CollisionFilterGroupResolver resolver{&plant_};
-    ParsingWorkspace w{options_, package_map_, diagnostic_policy_,
+    ParsingWorkspace w{options_, package_map_, diagnostic_policy_, nullptr,
                        &plant_,  &resolver,    TestingSelect};
     auto result = AddModelsFromSdf(data_source, parent_model_name, w);
     last_parsed_groups_ = ConvertInstancedNamesToStrings(
@@ -127,7 +128,7 @@ class SdfParserTest : public test::DiagnosticPolicyTestBase {
       const std::optional<std::string>& parent_model_name = {}) {
     const DataSource data_source{DataSource::kContents, &file_contents};
     internal::CollisionFilterGroupResolver resolver{&plant_};
-    ParsingWorkspace w{options_, package_map_, diagnostic_policy_,
+    ParsingWorkspace w{options_, package_map_, diagnostic_policy_, nullptr,
                        &plant_,  &resolver,    TestingSelect};
     auto result = AddModelsFromSdf(data_source, parent_model_name, w);
     last_parsed_groups_ = ConvertInstancedNamesToStrings(
@@ -525,7 +526,7 @@ TEST_F(SdfParserTest, ZeroMassNonZeroInertia) {
     </inertial>
   </link>
 </model>)""");
-  EXPECT_THAT(TakeWarning(), ::testing::MatchesRegex(expected_message));
+  EXPECT_THAT(TakeWarning(), MatchesRegex(expected_message));
 }
 
 TEST_F(SdfParserTest, FloatingBodyPose) {
@@ -725,9 +726,9 @@ TEST_F(SdfParserTest, StaticModelWithJoints) {
     </axis>
   </joint>
 </model>)""");
-  EXPECT_THAT(TakeError(),
-              ::testing::MatchesRegex(
-                  ".*Only fixed joints are permitted in static models."));
+  EXPECT_THAT(
+      TakeError(),
+      MatchesRegex(".*Only fixed joints are permitted in static models."));
 }
 
 // Revolute joints should have an axis and 1-dof joints should have no axis2.
@@ -748,12 +749,12 @@ TEST_F(SdfParserTest, JointWithNoAxisError) {
   // not set to throw. The first error comes from ExtractJointAxis
   // that has no breaking behavior while the second one comes from
   // ParseJointLimits which mimics the throw behavior.
-  EXPECT_THAT(TakeError(),
-              ::testing::MatchesRegex(
-                  ".*An axis must be specified for joint 'no_axis'.*"));
-  EXPECT_THAT(TakeError(),
-              ::testing::MatchesRegex(
-                  ".*An axis must be specified for joint 'no_axis'.*"));
+  EXPECT_THAT(
+      TakeError(),
+      MatchesRegex(".*An axis must be specified for joint 'no_axis'.*"));
+  EXPECT_THAT(
+      TakeError(),
+      MatchesRegex(".*An axis must be specified for joint 'no_axis'.*"));
 }
 
 // Ball joints should not have an axis2.
@@ -773,20 +774,19 @@ TEST_F(SdfParserTest, BallJointWithAxis2Error) {
     </axis2>
   </joint>
 </model>)""");
-  EXPECT_THAT(TakeWarning(),
-              ::testing::MatchesRegex(
-                  ".*A ball joint axis will be ignored. Only the dynamic"
-                  " parameters and limits will be considered.*"));
   EXPECT_THAT(
       TakeWarning(),
-      ::testing::MatchesRegex(
+      MatchesRegex(".*A ball joint axis will be ignored. Only the dynamic"
+                   " parameters and limits will be considered.*"));
+  EXPECT_THAT(
+      TakeWarning(),
+      MatchesRegex(
           R"(.*Actuation \(via non-zero effort limits\) for ball joint )"
           R"('should_not_have_axis' is not implemented yet and will be )"
           R"(ignored.*)"));
-  EXPECT_THAT(TakeWarning(),
-              ::testing::MatchesRegex(".*An axis2 may not be specified for "
-                                      "ball joint 'should_not_have_axis' "
-                                      "and will be ignored.*"));
+  EXPECT_THAT(TakeWarning(), MatchesRegex(".*An axis2 may not be specified for "
+                                          "ball joint 'should_not_have_axis' "
+                                          "and will be ignored.*"));
 }
 
 // Joint axis upper limit should be lower than upper limit.
@@ -807,10 +807,10 @@ TEST_F(SdfParserTest, JointAxisLimitsError) {
     </axis>
   </joint>
 </model>)""");
-  EXPECT_THAT(TakeError(),
-              ::testing::MatchesRegex(
-                  R"(.*The lower limit must be lower \(or equal\) than the)"
-                  R"( upper limit for joint 'no_axis'.*)"));
+  EXPECT_THAT(
+      TakeError(),
+      MatchesRegex(R"(.*The lower limit must be lower \(or equal\) than the)"
+                   R"( upper limit for joint 'no_axis'.*)"));
 }
 
 // Joint axis drake:acceleration should be non negative.
@@ -830,10 +830,10 @@ TEST_F(SdfParserTest, JointAxisDrakeAccelerationError) {
     </axis>
   </joint>
 </model>)""");
-  EXPECT_THAT(TakeError(),
-              ::testing::MatchesRegex(
-                  ".*Acceleration limit is negative for joint 'no_axis'."
-                  " Aceleration limit must be a non-negative number.*"));
+  EXPECT_THAT(
+      TakeError(),
+      MatchesRegex(".*Acceleration limit is negative for joint 'no_axis'."
+                   " Aceleration limit must be a non-negative number.*"));
 }
 
 // Check that prismatic joints must have an axis.
@@ -851,12 +851,12 @@ TEST_F(SdfParserTest, PrismaticJointWithNoAxisError) {
   // not set to throw. The first error comes from ExtractJointAxis
   // that has no breaking behavior while the second one comes from
   // ParseJointLimits which mimics the throw behavior.
-  EXPECT_THAT(TakeError(),
-              ::testing::MatchesRegex(
-                  ".*An axis must be specified for joint 'no_axis'.*"));
-  EXPECT_THAT(TakeError(),
-              ::testing::MatchesRegex(
-                  ".*An axis must be specified for joint 'no_axis'.*"));
+  EXPECT_THAT(
+      TakeError(),
+      MatchesRegex(".*An axis must be specified for joint 'no_axis'.*"));
+  EXPECT_THAT(
+      TakeError(),
+      MatchesRegex(".*An axis must be specified for joint 'no_axis'.*"));
 }
 
 // Make sure world joints are fixed.
@@ -878,9 +878,9 @@ TEST_F(SdfParserTest, WorldJointNotFixedError) {
   </model>
 </world>
 )""");
-  EXPECT_THAT(TakeError(),
-              ::testing::MatchesRegex(
-                  ".*Only fixed joints are permitted in world joints.*"));
+  EXPECT_THAT(
+      TakeError(),
+      MatchesRegex(".*Only fixed joints are permitted in world joints.*"));
 }
 
 // drake:joint should have a type.
@@ -892,9 +892,9 @@ TEST_F(SdfParserTest, DrakeJointNoTypeError) {
   </drake:joint>
 </model>
 )""");
-  EXPECT_THAT(TakeError(),
-              ::testing::MatchesRegex(
-                  ".*<drake:joint>: Unable to find the 'type' attribute.*"));
+  EXPECT_THAT(
+      TakeError(),
+      MatchesRegex(".*<drake:joint>: Unable to find the 'type' attribute.*"));
 }
 
 // drake:joint should have a name.
@@ -906,9 +906,9 @@ TEST_F(SdfParserTest, DrakeJointNoNameError) {
   </drake:joint>
 </model>
 )""");
-  EXPECT_THAT(TakeError(),
-              ::testing::MatchesRegex(
-                  ".*<drake:joint>: Unable to find the 'name' attribute.*"));
+  EXPECT_THAT(
+      TakeError(),
+      MatchesRegex(".*<drake:joint>: Unable to find the 'name' attribute.*"));
 }
 
 // drake:joint does not support pose tags.
@@ -923,7 +923,7 @@ TEST_F(SdfParserTest, DrakeJointPoseError) {
 )""");
   EXPECT_THAT(
       TakeError(),
-      ::testing::MatchesRegex(
+      MatchesRegex(
           ".*<drake:joint> does not yet support the <pose> child tag.*"));
 }
 
@@ -939,10 +939,10 @@ TEST_F(SdfParserTest, DrakeJointUnrecognizedTypeError) {
   </drake:joint>
 </model>
 )""");
-  EXPECT_THAT(TakeError(),
-              ::testing::MatchesRegex(
-                  ".*<drake:joint> 'joint_name' has unrecognized value for"
-                  " 'type' attribute: nonetype.*"));
+  EXPECT_THAT(
+      TakeError(),
+      MatchesRegex(".*<drake:joint> 'joint_name' has unrecognized value for"
+                   " 'type' attribute: nonetype.*"));
 }
 
 // drake:joint/drake:{parent,child} can refer to nested models.
@@ -979,7 +979,7 @@ TEST_F(SdfParserTest, DrakeJointNestedParentBad) {
 )""");
   EXPECT_THAT(
       TakeError(),
-      ::testing::MatchesRegex(
+      MatchesRegex(
           ".*<drake:joint>: Model instance name 'good::nesQQQted' .*implied by"
           " frame name 'nesQQQted::a' in <drake:parent> within model instance"
           " 'good'.* does not exist.*"));
@@ -1002,7 +1002,7 @@ TEST_F(SdfParserTest, DrakeJointNestedChildBad) {
 )""");
   EXPECT_THAT(
       TakeError(),
-      ::testing::MatchesRegex(
+      MatchesRegex(
           ".*<drake:joint>: Model instance name 'good::nesQQQted' .*implied by"
           " frame name 'nesQQQted::b' in <drake:child> within model instance"
           " 'good'.* does not exist.*"));
@@ -1296,13 +1296,13 @@ TEST_F(SdfParserTest, AddModelFromSdfNoModelError) {
 
   const DataSource data_source{DataSource::kContents, &sdf_string};
   internal::CollisionFilterGroupResolver resolver{&plant_};
-  ParsingWorkspace w{options_, package_map_, diagnostic_policy_,
+  ParsingWorkspace w{options_, package_map_, diagnostic_policy_, nullptr,
                      &plant_,  &resolver,    TestingSelect};
   std::optional<ModelInstanceIndex> result =
       AddModelFromSdf(data_source, "", "", w);
   resolver.Resolve(diagnostic_policy_);
-  EXPECT_THAT(TakeError(), ::testing::MatchesRegex(
-                               ".*File must have a single <model> element.*"));
+  EXPECT_THAT(TakeError(),
+              MatchesRegex(".*File must have a single <model> element.*"));
   EXPECT_FALSE(result.has_value());
 }
 
@@ -1315,7 +1315,7 @@ TEST_F(SdfParserTest, MoreThanOneWorldOrModelError) {
 </world>
 )""");
   EXPECT_THAT(TakeError(),
-              ::testing::MatchesRegex(
+              MatchesRegex(
                   ".*File must have exactly one <model> or exactly one <world>,"
                   " but instead has 0 models and 2 worlds.*"));
 }
@@ -1327,7 +1327,7 @@ TEST_F(SdfParserTest, ThrowsWhenJointDampingIsNegative) {
       "drake/multibody/parsing/test/sdf_parser_test/"
       "negative_damping_joint.sdf");
   AddModelFromSdfFile(sdf_file_path, "");
-  EXPECT_THAT(TakeError(), ::testing::MatchesRegex(".*damping is negative.*"));
+  EXPECT_THAT(TakeError(), MatchesRegex(".*damping is negative.*"));
 }
 
 TEST_F(SdfParserTest, IncludeTags) {
@@ -1509,10 +1509,10 @@ TEST_F(SdfParserTest, JointParsingTest) {
   EXPECT_TRUE(CompareMatrices(ball_joint.velocity_upper_limits(), inf3));
   // Ball joints with axis produce a waring indicating it only some params
   // of it are used.
-  EXPECT_THAT(TakeWarning(),
-              ::testing::MatchesRegex(
-                  ".*A ball joint axis will be ignored. Only the dynamic"
-                  " parameters and limits will be considered.*"));
+  EXPECT_THAT(
+      TakeWarning(),
+      MatchesRegex(".*A ball joint axis will be ignored. Only the dynamic"
+                   " parameters and limits will be considered.*"));
   FlushDiagnostics();
 
   // Universal joint
@@ -1738,9 +1738,9 @@ TEST_F(SdfParserTest, ActuatedUniversalJointParsingTest) {
     </axis2>
   </joint>
 </model>)""");
-  EXPECT_THAT(TakeWarning(),
-              ::testing::MatchesRegex(
-                  ".*effort limits.*universal joint.*not implemented.*"));
+  EXPECT_THAT(
+      TakeWarning(),
+      MatchesRegex(".*effort limits.*universal joint.*not implemented.*"));
 }
 
 // Tests the error handling when axis2 isn't specified for universal joints.
@@ -1757,11 +1757,10 @@ TEST_F(SdfParserTest, UniversalJointAxisParsingTest) {
   </joint>
 </model>)""");
   EXPECT_THAT(TakeError(),
-              ::testing::MatchesRegex(
-                  ".*Both axis and axis2 must be specified.*jerry.*"));
-  EXPECT_THAT(TakeWarning(),
-              ::testing::MatchesRegex(
-                  ".*effort limits.*universal joint.*not implemented.*"));
+              MatchesRegex(".*Both axis and axis2 must be specified.*jerry.*"));
+  EXPECT_THAT(
+      TakeWarning(),
+      MatchesRegex(".*effort limits.*universal joint.*not implemented.*"));
 }
 
 // Tests the error handling for an non-orthogonal axis and axis2 in universal
@@ -1781,8 +1780,8 @@ TEST_F(SdfParserTest, UniversalJointNonOrthogonalAxisParsingTest) {
     </axis2>
   </joint>
 </model>)""");
-  EXPECT_THAT(TakeError(), ::testing::MatchesRegex(
-                               ".*axis and axis2 must be orthogonal.*jerry.*"));
+  EXPECT_THAT(TakeError(),
+              MatchesRegex(".*axis and axis2 must be orthogonal.*jerry.*"));
 }
 
 // Tests the error handling for axis and axis2 with incompatible damping
@@ -1816,7 +1815,7 @@ TEST_F(SdfParserTest, UniversalJointDampingCoeffParsingTest) {
 </model>)""");
   EXPECT_THAT(
       TakeWarning(),
-      ::testing::MatchesRegex(
+      MatchesRegex(
           ".*damping must be equal.*jerry.*damping coefficient.*0.1.*is "
           "used.*0.2.*is ignored.*should be explicitly defined as 0.1 to "
           "match.*"));
@@ -1838,13 +1837,12 @@ TEST_F(SdfParserTest, ActuatedBallJointParsingTest) {
     </axis>
   </joint>
 </model>)""");
+  EXPECT_THAT(
+      TakeWarning(),
+      MatchesRegex(".*A ball joint axis will be ignored. Only the dynamic"
+                   " parameters and limits will be considered.*"));
   EXPECT_THAT(TakeWarning(),
-              ::testing::MatchesRegex(
-                  ".*A ball joint axis will be ignored. Only the dynamic"
-                  " parameters and limits will be considered.*"));
-  EXPECT_THAT(TakeWarning(),
-              ::testing::MatchesRegex(
-                  ".*effort limits.*ball joint.*not implemented.*"));
+              MatchesRegex(".*effort limits.*ball joint.*not implemented.*"));
 }
 
 // Tests the error handling for an unsupported joint type.
@@ -1857,8 +1855,7 @@ TEST_F(SdfParserTest, GearboxJointParsingTest) {
     <child>larry</child>
   </joint>
 </model>)""");
-  EXPECT_THAT(TakeError(),
-              ::testing::MatchesRegex(".*gearbox.*not supported.*jerry.*"));
+  EXPECT_THAT(TakeError(), MatchesRegex(".*gearbox.*not supported.*jerry.*"));
 }
 
 // Tests the error handling for an unsupported joint type.
@@ -1871,8 +1868,7 @@ TEST_F(SdfParserTest, Revolute2JointParsingTest) {
     <child>larry</child>
   </joint>
 </model>)""");
-  EXPECT_THAT(TakeError(),
-              ::testing::MatchesRegex(".*revolute2.*not supported.*jerry.*"));
+  EXPECT_THAT(TakeError(), MatchesRegex(".*revolute2.*not supported.*jerry.*"));
 }
 
 // Tests the error handling for a misspelled joint type.
@@ -1885,8 +1881,7 @@ TEST_F(SdfParserTest, MisspelledJointParsingTest) {
     <child>larry</child>
   </joint>
 </model>)""");
-  EXPECT_THAT(TakeError(),
-              ::testing::MatchesRegex(".*revoluteqqq is invalid.*"));
+  EXPECT_THAT(TakeError(), MatchesRegex(".*revoluteqqq is invalid.*"));
 }
 
 // Verifies that the SDF parser parses the joint actuator limit correctly.
@@ -1970,7 +1965,7 @@ TEST_F(SdfParserTest, NegativeStiffnessPrismaticSpringParsingTest) {
   </model>)""");
   EXPECT_THAT(
       TakeError(),
-      ::testing::MatchesRegex(
+      MatchesRegex(
           ".*The stiffness specified for joint '.*' must be non-negative."));
 }
 
@@ -2017,6 +2012,137 @@ TEST_F(SdfParserTest, RevoluteSpringParsingTest) {
                                 expected_generalized_forces.row(i).transpose(),
                                 kEps, MatrixCompareType::relative));
   }
+}
+
+TEST_F(SdfParserTest, CurvilinearJointErrors0) {
+  ParseTestString(R"""(
+<model name='test'>
+  <link name='a'/>
+  <link name='b'/>
+  <drake:joint name="curvilinear_joint" type="curvilinear">
+    <drake:parent>a</drake:parent>
+    <drake:child>b</drake:child>
+    <drake:is_periodic>TRUE</drake:is_periodic>
+    <drake:curves>
+      <drake:line_segment>
+        <drake:length>1.0</drake:length>
+      </drake:line_segment>
+    </drake:curves>
+  </drake:joint>
+</model>
+)""");
+  EXPECT_THAT(TakeError(), MatchesRegex(".*drake:is_periodic.*non-boolean.*"));
+}
+
+TEST_F(SdfParserTest, CurvilinearJointErrors1) {
+  ParseTestString(R"""(
+<model name='test'>
+  <link name='a'/>
+  <link name='b'/>
+  <drake:joint name="curvilinear_joint" type="curvilinear">
+    <drake:parent>a</drake:parent>
+    <drake:child>b</drake:child>
+</drake:joint>
+</model>
+)""");
+  EXPECT_THAT(TakeError(), MatchesRegex(".*drake:curves.*child.*"));
+}
+
+TEST_F(SdfParserTest, CurvilinearJointErrors2) {
+  ParseTestString(R"""(
+<model name='test'>
+  <link name='a'/>
+  <link name='b'/>
+  <drake:joint name="curvilinear_joint" type="curvilinear">
+    <drake:parent>a</drake:parent>
+    <drake:child>b</drake:child>
+    <drake:curves>
+      <drake:line_segment>
+      </drake:line_segment>
+    </drake:curves>
+</drake:joint>
+</model>
+)""");
+  EXPECT_THAT(TakeError(), MatchesRegex(".*drake:length.*child.*"));
+}
+
+TEST_F(SdfParserTest, CurvilinearJointErrors3) {
+  ParseTestString(R"""(
+<model name='test'>
+  <link name='a'/>
+  <link name='b'/>
+  <drake:joint name="curvilinear_joint_aperiodic" type="curvilinear">
+    <drake:parent>a</drake:parent>
+    <drake:child>b</drake:child>
+    <drake:curves>
+      <drake:line_segment>
+      </drake:line_segment>
+    </drake:curves>
+</drake:joint>
+</model>
+)""");
+  EXPECT_THAT(TakeError(), MatchesRegex(".*drake:length.*child.*"));
+}
+
+TEST_F(SdfParserTest, CurvilinearJointErrors4) {
+  ParseTestString(R"""(
+<model name='test'>
+  <link name='a'/>
+  <link name='b'/>
+  <drake:joint name="curvilinear_joint" type="curvilinear">
+    <drake:parent>a</drake:parent>
+    <drake:child>b</drake:child>
+    <drake:damping>-1</drake:damping>
+    <drake:curves>
+      <drake:line_segment>
+        <drake:length>1.0</drake:length>
+      </drake:line_segment>
+    </drake:curves>
+  </drake:joint>
+</model>
+)""");
+  EXPECT_THAT(TakeError(), MatchesRegex(".*negative.*damping.*"));
+}
+
+TEST_F(SdfParserTest, CurvilinearJointErrors5) {
+  ParseTestString(R"""(
+<model name='test'>
+  <link name='a'/>
+  <link name='b'/>
+  <drake:joint name="curvilinear_joint" type="curvilinear">
+    <drake:parent>a</drake:parent>
+    <drake:child>b</drake:child>
+    <drake:curves>
+      <drake:circular_arc>
+        <drake:radius>-2.0</drake:radius>
+        <drake:angle>1.57</drake:angle>
+      </drake:circular_arc>
+    </drake:curves>
+  </drake:joint>
+</model>
+)""");
+  EXPECT_THAT(TakeError(), MatchesRegex(".*negative.*radius.*"));
+}
+
+TEST_F(SdfParserTest, CurvilinearJointErrors6) {
+  ParseTestString(R"""(
+<model name='test'>
+  <link name='a'/>
+  <link name='b'/>
+  <drake:joint name="curvilinear_joint" type="curvilinear">
+    <drake:parent>a</drake:parent>
+    <drake:child>b</drake:child>
+    <drake:curves>
+      <drake:circular_arc>
+        <drake:radius>2.0</drake:radius>
+        <drake:angle>1.57</drake:angle>
+      </drake:circular_arc>
+      <drake:cirQQQcular_arc/>
+    </drake:curves>
+  </drake:joint>
+</model>
+)""");
+  EXPECT_THAT(TakeError(), MatchesRegex(".*invalid.*cirQQQcular_arc.*"));
 }
 
 TEST_F(SdfParserTest, TestSupportedFrames1) {
@@ -2089,7 +2215,7 @@ TEST_F(SdfParserTest, TestUnsupportedFrames) {
 )""");
   EXPECT_THAT(
       TakeError(),
-      ::testing::MatchesRegex(
+      MatchesRegex(
           R"(.*(attached_to|relative_to) name\[world\] specified by frame )"
           R"(with name\[.*\] does not match a nested model, link, joint, or )"
           R"(frame name in model with name\[bad\].*)"));
@@ -2107,7 +2233,7 @@ TEST_F(SdfParserTest, TestUnsupportedFrames) {
 )""");
   EXPECT_THAT(
       TakeError(),
-      ::testing::MatchesRegex(
+      MatchesRegex(
           R"(.*(attached_to|relative_to) name\[world\] specified by frame )"
           R"(with name\[.*\] does not match a nested model, link, joint, or )"
           R"(frame name in model with name\[bad\].*)"));
@@ -2124,9 +2250,9 @@ TEST_F(SdfParserTest, TestUnsupportedFrames) {
 </model>
 )""",
                                 bad_name));
-    EXPECT_THAT(TakeError(),
-                ::testing::MatchesRegex(
-                    R"(.*The supplied frame name \[.*\] is reserved..*)"));
+    EXPECT_THAT(
+        TakeError(),
+        MatchesRegex(R"(.*The supplied frame name \[.*\] is reserved..*)"));
     // Ignore additional errors for this test. The number ignored varies.
     ClearDiagnostics();
   }
@@ -2136,10 +2262,10 @@ TEST_F(SdfParserTest, TestUnsupportedFrames) {
   <pose relative_to='invalid_usage'/>
   <link name='dont_crash_plz'/>  <!-- Need at least one frame -->
 </model>)""");
-  EXPECT_THAT(TakeError(),
-              ::testing::MatchesRegex(
-                  R"(.*Attribute //pose\[@relative_to\] of top level model )"
-                  R"(must be left empty.*)"));
+  EXPECT_THAT(
+      TakeError(),
+      MatchesRegex(R"(.*Attribute //pose\[@relative_to\] of top level model )"
+                   R"(must be left empty.*)"));
   // Ignore additional errors for this test.
   EXPECT_EQ(NumErrors(), 2);
   ClearDiagnostics();
@@ -2151,10 +2277,10 @@ TEST_F(SdfParserTest, TestUnsupportedFrames) {
     <inertial><pose relative_to='my_frame'/></inertial>
   </link>
 </model>)""");
-  EXPECT_THAT(TakeError(),
-              ::testing::MatchesRegex(
-                  R"(.*XML Attribute\[relative_to\] in element\[pose\] not )"
-                  R"(defined in SDF.*)"));
+  EXPECT_THAT(
+      TakeError(),
+      MatchesRegex(R"(.*XML Attribute\[relative_to\] in element\[pose\] not )"
+                   R"(defined in SDF.*)"));
 }
 
 // Tests Drake's usage of sdf::EnforcementPolicy.
@@ -2166,7 +2292,7 @@ TEST_F(SdfParserTest, TestSdformatParserPolicies) {
 </model>
 )""");
   EXPECT_THAT(TakeError(),
-              ::testing::MatchesRegex(
+              MatchesRegex(
                   R"(.*XML Attribute\[bad_attribute\] in element\[model\] not )"
                   R"(defined in SDF.*)"));
   FlushDiagnostics();
@@ -2179,8 +2305,8 @@ TEST_F(SdfParserTest, TestSdformatParserPolicies) {
   <link name='b'/>
 </model>
 )""");
-  EXPECT_THAT(TakeError(), ::testing::MatchesRegex(
-                               ".*Root object can only contain one model.*"));
+  EXPECT_THAT(TakeError(),
+              MatchesRegex(".*Root object can only contain one model.*"));
   FlushDiagnostics();
 
   // TODO(#15018): This throws a warning, make this an error.
@@ -2190,9 +2316,9 @@ TEST_F(SdfParserTest, TestSdformatParserPolicies) {
   <bad_element/>
 </model>
 )""");
-  EXPECT_THAT(TakeError(), ::testing::MatchesRegex(
-                               R"(.*XML Element\[bad_element\], child of)"
-                               R"( element\[model\], not defined in SDF.*)"));
+  EXPECT_THAT(TakeError(),
+              MatchesRegex(R"(.*XML Element\[bad_element\], child of)"
+                           R"( element\[model\], not defined in SDF.*)"));
   FlushDiagnostics();
 
   ParseTestString(R"""(
@@ -2208,10 +2334,10 @@ TEST_F(SdfParserTest, TestSdformatParserPolicies) {
   </joint>
 </model>)""",
                   "1.9");
-  EXPECT_THAT(TakeError(),
-              ::testing::MatchesRegex(
-                  R"(.*XML Element\[initial_position\], child of element)"
-                  R"(\[axis\], not defined in SDF.*)"));
+  EXPECT_THAT(
+      TakeError(),
+      MatchesRegex(R"(.*XML Element\[initial_position\], child of element)"
+                   R"(\[axis\], not defined in SDF.*)"));
   FlushDiagnostics();
 
   ParseTestString(R"""(
@@ -2373,9 +2499,9 @@ TEST_F(SdfParserTest, BallConstraintMissingBody) {
         </drake:ball_constraint>
       </model>
     </world>)""");
-  EXPECT_THAT(TakeError(), ::testing::MatchesRegex(
-                               ".*<drake:ball_constraint>: Unable to find the "
-                               "<drake:ball_constraint_body_B> child tag."));
+  EXPECT_THAT(TakeError(),
+              MatchesRegex(".*<drake:ball_constraint>: Unable to find the "
+                           "<drake:ball_constraint_body_B> child tag."));
 }
 
 // Test missing point
@@ -2399,9 +2525,9 @@ TEST_F(SdfParserTest, BallConstraintMissingPoint) {
         </drake:ball_constraint>
       </model>
     </world>)""");
-  EXPECT_THAT(TakeError(), ::testing::MatchesRegex(
-                               ".*<drake:ball_constraint>: Unable to find the "
-                               "<drake:ball_constraint_p_AP> child tag."));
+  EXPECT_THAT(TakeError(),
+              MatchesRegex(".*<drake:ball_constraint>: Unable to find the "
+                           "<drake:ball_constraint_p_AP> child tag."));
 }
 
 // Test non-existent body
@@ -2428,7 +2554,7 @@ TEST_F(SdfParserTest, BallConstraintNonExistentBody) {
     </world>)""");
   EXPECT_THAT(
       TakeError(),
-      ::testing::MatchesRegex(
+      MatchesRegex(
           ".*<drake:ball_constraint>: Body 'C' specified for "
           "<drake:ball_constraint_body_B> does not exist in the model."));
 }
@@ -2516,9 +2642,8 @@ TEST_F(SdfParserTest, BushingParsingBad1) {
       </drake:linear_bushing_rpy>
     </model>)""");
   EXPECT_THAT(TakeError(),
-              ::testing::MatchesRegex(
-                  ".*<drake:linear_bushing_rpy>: Unable to find the "
-                  "<drake:bushing_frameC> child tag."));
+              MatchesRegex(".*<drake:linear_bushing_rpy>: Unable to find the "
+                           "<drake:bushing_frameC> child tag."));
 }
 
 TEST_F(SdfParserTest, BushingParsingBad2) {
@@ -2540,11 +2665,11 @@ TEST_F(SdfParserTest, BushingParsingBad2) {
         <drake:bushing_force_damping>10 11 12</drake:bushing_force_damping>
       </drake:linear_bushing_rpy>
     </model>)""");
-  EXPECT_THAT(TakeError(),
-              ::testing::MatchesRegex(
-                  ".*<drake:linear_bushing_rpy>: Frame 'frameZ' specified for "
-                  "<drake:bushing_frameC> does not exist in "
-                  "the model."));
+  EXPECT_THAT(
+      TakeError(),
+      MatchesRegex(".*<drake:linear_bushing_rpy>: Frame 'frameZ' specified for "
+                   "<drake:bushing_frameC> does not exist in "
+                   "the model."));
 }
 
 TEST_F(SdfParserTest, BushingParsingBad3) {
@@ -2679,14 +2804,14 @@ TEST_F(SdfParserTest, ControllerGainsParsing) {
     const std::string expected_message = ".*Unable to find the 'p' attribute.*";
     ParseTestString(fmt::format(
         test_string, "<drake:controller_gains d='100.0' />", "missing_p"));
-    EXPECT_THAT(TakeError(), ::testing::MatchesRegex(expected_message));
+    EXPECT_THAT(TakeError(), MatchesRegex(expected_message));
   }
   // Test missing 'd' attribute.
   {
     const std::string expected_message = ".*Unable to find the 'd' attribute.*";
     ParseTestString(fmt::format(
         test_string, "<drake:controller_gains p='10000.0'/>", "missing_d"));
-    EXPECT_THAT(TakeError(), ::testing::MatchesRegex(expected_message));
+    EXPECT_THAT(TakeError(), MatchesRegex(expected_message));
   }
 }
 
@@ -3322,7 +3447,7 @@ TEST_F(SdfParserTest, ErrorsFromIncludedUrdf) {
  </include>
 </model>)""",
                   "1.8");
-  EXPECT_THAT(TakeError(), ::testing::MatchesRegex(".*bad.urdf.*XML_ERROR.*"));
+  EXPECT_THAT(TakeError(), MatchesRegex(".*bad.urdf.*XML_ERROR.*"));
 }
 
 // TODO(SeanCurtis-TRI) The logic testing for collision filter group parsing
@@ -3458,9 +3583,9 @@ TEST_F(SdfParserTest, CollisionFilterGroupParsingErrorsTest) {
   <link name='a'/>
   <drake:collision_filter_group/>
 </model>)"""));
-  EXPECT_THAT(TakeError(), ::testing::MatchesRegex(
-                               ".*The tag <drake:collision_filter_group> is "
-                               "missing the required attribute \"name\".*"));
+  EXPECT_THAT(TakeError(),
+              MatchesRegex(".*The tag <drake:collision_filter_group> is "
+                           "missing the required attribute \"name\".*"));
   FlushDiagnostics();
 
   // Testing several errors set to keep record instead of throwing
@@ -3670,7 +3795,7 @@ TEST_F(SdfParserTest, TestUnsupportedVisualGeometry) {
   </model>)""");
   EXPECT_THAT(
       TakeWarning(),
-      ::testing::MatchesRegex(
+      MatchesRegex(
           ".*Ignoring unsupported SDFormat element in geometry: heightmap.*"));
   FlushDiagnostics();
 
@@ -3686,7 +3811,7 @@ TEST_F(SdfParserTest, TestUnsupportedVisualGeometry) {
   </model>)""");
   EXPECT_THAT(
       TakeWarning(),
-      ::testing::MatchesRegex(
+      MatchesRegex(
           ".*Ignoring unsupported SDFormat element in geometry: polyline.*"));
 }
 
@@ -3705,7 +3830,7 @@ TEST_F(SdfParserTest, TestUnsupportedCollisionGeometry) {
   </model>)""");
   EXPECT_THAT(
       TakeWarning(),
-      ::testing::MatchesRegex(
+      MatchesRegex(
           ".*Ignoring unsupported SDFormat element in geometry: heightmap.*"));
   FlushDiagnostics();
 
@@ -3721,7 +3846,7 @@ TEST_F(SdfParserTest, TestUnsupportedCollisionGeometry) {
   </model>)""");
   EXPECT_THAT(
       TakeWarning(),
-      ::testing::MatchesRegex(
+      MatchesRegex(
           ".*Ignoring unsupported SDFormat element in geometry: polyline.*"));
 }
 
@@ -3750,15 +3875,15 @@ TEST_F(SdfParserTest, TestSingleModelEnforcement) {
 
   const DataSource data_source{DataSource::kContents, &multi_models};
   internal::CollisionFilterGroupResolver resolver{&plant_};
-  ParsingWorkspace w{options_, package_map_, diagnostic_policy_,
+  ParsingWorkspace w{options_, package_map_, diagnostic_policy_, nullptr,
                      &plant_,  &resolver,    TestingSelect};
   std::optional<ModelInstanceIndex> result =
       AddModelFromSdf(data_source, "", {}, w);
   resolver.Resolve(diagnostic_policy_);
   EXPECT_FALSE(result.has_value());
 
-  EXPECT_THAT(TakeError(), ::testing::MatchesRegex(
-                               ".*Root object can only contain one model.*"));
+  EXPECT_THAT(TakeError(),
+              MatchesRegex(".*Root object can only contain one model.*"));
 }
 
 // Verify merge-include works with Interface API.
@@ -4082,6 +4207,416 @@ TEST_F(SdfParserTest, VisualRoleConfiguration) {
   //    "SemanticPose has invalid pointer to PoseRelativeToGraph."
   // If those errors were emitted, this test would fail on completion.
   EXPECT_THAT(NumErrors(), 0);
+}
+
+// Happy‑path: a minimal deformable model containing a single link with a mesh
+// collision element should parse and create exactly one deformable body.
+TEST_F(SdfParserTest, ParseMinimalDeformableModel) {
+  AddSceneGraph();
+  const std::string sdf = R"(
+  <model name='deformable'>
+    <link name='body'>
+      <collision name='collision'>
+        <geometry>
+          <mesh><uri>package://drake/multibody/parsing/test/single_tet.vtk</uri></mesh>
+        </geometry>
+      </collision>
+      <drake:deformable_properties/>
+    </link>
+  </model>)";
+
+  ParseTestString(sdf);
+  EXPECT_THAT(NumErrors(), 0);
+  plant_.Finalize();
+  EXPECT_EQ(plant_.deformable_model().num_bodies(), 1);
+  // Without specifying any proximity properties, the default values are used.
+  GeometryId g_id = plant_.deformable_model().GetGeometryId(
+      plant_.deformable_model().GetBodyIdByName("body"));
+  const auto* proximity_props_ptr =
+      scene_graph_.model_inspector().GetProximityProperties(g_id);
+  ASSERT_NE(proximity_props_ptr, nullptr);
+  EXPECT_EQ(
+      proximity_props_ptr
+          ->GetProperty<CoulombFriction<double>>(
+              geometry::internal::kMaterialGroup, geometry::internal::kFriction)
+          .dynamic_friction(),
+      1.0);
+}
+
+// Happy‑path: a full-fledged deformable model containing a single link with a
+// mesh collision element should parse and create exactly one deformable body.
+TEST_F(SdfParserTest, ParseFullFeatureDeformableModel) {
+  AddSceneGraph();
+  const std::string sdf = R"(
+  <model name='deformable'>
+    <link name='body'>
+      <collision name='collision'>
+        <geometry>
+          <mesh><uri>package://drake/multibody/parsing/test/single_tet.vtk</uri></mesh>
+        </geometry>
+        <drake:proximity_properties>
+          <drake:mu_dynamic>0.5</drake:mu_dynamic>
+          <drake:hunt_crossley_dissipation>0.6</drake:hunt_crossley_dissipation>
+          <drake:relaxation_time>0.7</drake:relaxation_time>
+        </drake:proximity_properties>
+      </collision>
+      <visual name='visual'>
+        <geometry>
+          <mesh><uri>package://drake/multibody/parsing/test/tri_cube.obj</uri></mesh>
+        </geometry>
+      </visual>
+      <drake:deformable_properties>
+        <drake:youngs_modulus>100.0</drake:youngs_modulus>
+        <drake:poissons_ratio>0.3</drake:poissons_ratio>
+        <drake:mass_damping>0.01</drake:mass_damping>
+        <drake:stiffness_damping>0.01</drake:stiffness_damping>
+        <drake:mass_density>800.0</drake:mass_density>
+        <drake:material_model>corotated</drake:material_model>
+      </drake:deformable_properties>
+    </link>
+  </model>)";
+
+  ParseTestString(sdf);
+  EXPECT_THAT(NumErrors(), 0);
+  EXPECT_THAT(NumWarnings(), 0);
+  plant_.Finalize();
+  EXPECT_EQ(plant_.deformable_model().num_bodies(), 1);
+  const DeformableBodyId body_id =
+      plant_.deformable_model().GetBodyIdByName("body");
+  auto geometry_id = plant_.deformable_model().GetGeometryId(body_id);
+  const geometry::ProximityProperties* props =
+      scene_graph_.model_inspector().GetProximityProperties(geometry_id);
+  ASSERT_NE(props, nullptr);
+  EXPECT_EQ(
+      props
+          ->GetProperty<CoulombFriction<double>>(
+              geometry::internal::kMaterialGroup, geometry::internal::kFriction)
+          .dynamic_friction(),
+      0.5);
+  EXPECT_EQ(props->GetProperty<double>(geometry::internal::kMaterialGroup,
+                                       geometry::internal::kHcDissipation),
+            0.6);
+  EXPECT_EQ(props->GetProperty<double>(geometry::internal::kMaterialGroup,
+                                       geometry::internal::kRelaxationTime),
+            0.7);
+}
+
+TEST_F(SdfParserTest, MultipleDeformableBodies) {
+  AddSceneGraph();
+  const std::string sdf = R"(
+  <model name='deformable'>
+    <link name='body'>
+      <collision name='collision'>
+        <geometry>
+          <mesh><uri>package://drake/multibody/parsing/test/single_tet.vtk</uri></mesh>
+        </geometry>
+      </collision>
+      <drake:deformable_properties/>
+    </link>
+    <link name='body2'>
+      <collision name='collision'>
+        <geometry>
+          <mesh><uri>package://drake/multibody/parsing/test/single_tet.vtk</uri></mesh>
+        </geometry>
+      </collision>
+      <drake:deformable_properties/>
+    </link>
+  </model>)";
+
+  ParseTestString(sdf);
+  EXPECT_THAT(NumErrors(), 0);
+  plant_.Finalize();
+  EXPECT_EQ(plant_.deformable_model().num_bodies(), 2);
+}
+
+// Specifying both deformable and rigid bodies in the same model is fine.
+TEST_F(SdfParserTest, MixingModelAndDeformableModel) {
+  AddSceneGraph();
+  const std::string sdf = R"(
+  <model name='mixed'>
+    <link name='deformable'>
+      <collision name='collision'>
+        <geometry>
+          <mesh><uri>package://drake/multibody/parsing/test/single_tet.vtk</uri></mesh>
+        </geometry>
+      </collision>
+      <drake:deformable_properties/>
+    </link>
+    <link name='rigid'>
+    </link>
+  </model>)";
+  ParseTestString(sdf);
+  EXPECT_THAT(NumErrors(), 0);
+  EXPECT_EQ(plant_.deformable_model().num_bodies(), 1);
+  // World body + the parsed rigid body.
+  EXPECT_EQ(plant_.num_bodies(), 2);
+}
+
+// Parsing deformable model requires a SceneGraph. Emits a warning if
+// SceneGraph is not added.
+TEST_F(SdfParserTest, DeformableModelNoSceneGraph) {
+  const std::string sdf = R"(
+  <model name='deformable'>
+    <link name='body'>
+      <collision name='collision'>
+        <geometry>
+          <mesh><uri>package://drake/multibody/parsing/test/single_tet.vtk</uri></mesh>
+        </geometry>
+      </collision>
+      <drake:deformable_properties/>
+    </link>
+  </model>)";
+  ParseTestString(sdf);
+  EXPECT_THAT(NumErrors(), 0);
+  EXPECT_THAT(NumWarnings(), 1);
+  EXPECT_THAT(TakeWarning(),
+              MatchesRegex(".*deformable.*without.*geometry source.*"));
+}
+
+TEST_F(SdfParserTest, IllegalDeformablePropertiesParsing) {
+  AddSceneGraph();
+
+  constexpr const char* sdf_template = R"""(
+<model name='deformable_with_illegal_{suffix}'>
+  <link name='body_{suffix}'>
+    <collision name='collision'>
+      <geometry>
+        <mesh>
+          <uri>package://drake/multibody/parsing/test/single_tet.vtk</uri>
+        </mesh>
+      </geometry>
+    </collision>
+    <drake:deformable_properties>
+      {snippet}
+    </drake:deformable_properties>
+  </link>
+</model>)""";
+
+  struct TestCase {
+    std::string snippet;  // the single bad-property XML
+    std::string suffix;   // used in the model name
+    std::string regex;    // expected error regex
+  };
+
+  const std::vector<TestCase> cases = {
+      {"<drake:youngs_modulus>0.0</drake:youngs_modulus>", "youngs_modulus",
+       ".*Young's modulus.*"},
+      {"<drake:poissons_ratio>1.5</drake:poissons_ratio>", "poissons_ratio",
+       ".*Poisson's ratio.*"},
+      {"<drake:mass_damping>-1.0</drake:mass_damping>", "mass_damping",
+       ".*Mass damping.*"},
+      {"<drake:stiffness_damping>-1.0</drake:stiffness_damping>",
+       "stiffness_damping", ".*Stiffness damping.*"},
+      {"<drake:mass_density>-1.0</drake:mass_density>", "mass_density",
+       ".*Mass density.*"},
+      {"<drake:material_model>not_a_material_model</drake:material_model>",
+       "material_model", ".*material_model.*not_a_material_model.*"},
+  };
+
+  for (auto const& c : cases) {
+    SCOPED_TRACE(c.suffix);
+    const std::string sdf =
+        fmt::format(sdf_template, fmt::arg("snippet", c.snippet),
+                    fmt::arg("suffix", c.suffix));
+
+    ParseTestString(sdf);
+    EXPECT_EQ(NumErrors(), 1);
+    EXPECT_THAT(TakeError(), MatchesRegex(c.regex));
+  }
+}
+
+TEST_F(SdfParserTest, IllegalProximityPropertyParsingForDeformable) {
+  AddSceneGraph();
+
+  constexpr const char* sdf_template = R"""(
+<model name='deformable_with_illegal_{suffix}'>
+  <link name='body_{suffix}'>
+    <collision name='collision'>
+      <geometry>
+        <mesh>
+          <uri>package://drake/multibody/parsing/test/single_tet.vtk</uri>
+        </mesh>
+      </geometry>
+      <drake:proximity_properties>
+        {snippet}
+      </drake:proximity_properties>
+    </collision>
+    <drake:deformable_properties/>
+  </link>
+</model>)""";
+
+  struct TestCase {
+    std::string snippet;  // the single bad-property XML
+    std::string suffix;   // used in the model name
+    std::string regex;    // expected error regex
+  };
+
+  const std::vector<TestCase> cases = {
+      {"<drake:mu_dynamic>-1.0</drake:mu_dynamic>", "mu_dynamic",
+       ".*mu_dynamic.*"},
+      {"<drake:hunt_crossley_dissipation>-0.5</"
+       "drake:hunt_crossley_dissipation>",
+       "hunt_crossley_dissipation", ".*hunt_crossley_dissipation.*"},
+      {"<drake:relaxation_time>-1.0</drake:relaxation_time>", "relaxation_time",
+       ".*relaxation_time.*"},
+  };
+
+  for (auto const& c : cases) {
+    SCOPED_TRACE(c.suffix);
+    const std::string sdf =
+        fmt::format(sdf_template, fmt::arg("snippet", c.snippet),
+                    fmt::arg("suffix", c.suffix));
+
+    ParseTestString(sdf);
+    EXPECT_EQ(NumErrors(), 1);
+    EXPECT_THAT(TakeError(), MatchesRegex(c.regex));
+  }
+}
+
+TEST_F(SdfParserTest, DeformableMaterialModels) {
+  AddSceneGraph();
+
+  constexpr const char* sdf_template = R"""(
+<model name='deformable_with_{model}'>
+  <link name='body_{model}'>
+    <collision name='collision'>
+      <geometry>
+        <mesh>
+          <uri>package://drake/multibody/parsing/test/single_tet.vtk</uri>
+        </mesh>
+      </geometry>
+    </collision>
+    <drake:deformable_properties>
+      <drake:material_model>
+        {model}
+      </drake:material_model>
+    </drake:deformable_properties>
+  </link>
+</model>)""";
+
+  const std::vector<std::string> cases = {
+      "corotated",
+      "neohookean",
+      "linear_corotated",
+      "linear",
+  };
+
+  for (auto const& c : cases) {
+    SCOPED_TRACE(c);
+    const std::string sdf = fmt::format(sdf_template, fmt::arg("model", c));
+    ParseTestString(sdf);
+    EXPECT_EQ(NumErrors(), 0);
+  }
+  plant_.Finalize();
+  EXPECT_EQ(plant_.deformable_model().num_bodies(), cases.size());
+}
+
+TEST_F(SdfParserTest, DeformableWithMoreThanOneCollision) {
+  AddSceneGraph();
+  const std::string sdf = R"(
+  <model name='deformable'>
+    <link name='body'>
+      <collision name='collision1'>
+        <geometry>
+          <mesh><uri>package://drake/multibody/parsing/test/single_tet.vtk</uri></mesh>
+        </geometry>
+      </collision>
+      <collision name='collision2'>
+        <geometry>
+          <mesh><uri>package://drake/multibody/parsing/test/single_tet.vtk</uri></mesh>
+        </geometry>
+      </collision>
+      <drake:deformable_properties/>
+    </link>
+  </model>)";
+
+  ParseTestString(sdf);
+  EXPECT_THAT(NumErrors(), 1);
+  EXPECT_THAT(TakeError(), MatchesRegex(".*exactly one <collision>.*"));
+}
+
+TEST_F(SdfParserTest, DeformableWithMoreThanOneVisual) {
+  AddSceneGraph();
+  const std::string sdf = R"(
+  <model name='deformable'>
+    <link name='body'>
+      <collision name='collision'>
+        <geometry>
+          <mesh><uri>package://drake/multibody/parsing/test/single_tet.vtk</uri></mesh>
+        </geometry>
+      </collision>
+      <visual name='visual1'>
+      </visual>
+      <visual name='visual2'>
+      </visual>
+      <drake:deformable_properties/>
+    </link>
+  </model>)";
+
+  ParseTestString(sdf);
+  EXPECT_THAT(NumErrors(), 1);
+  EXPECT_THAT(TakeError(), MatchesRegex(".*at most one <visual>.*"));
+}
+
+TEST_F(SdfParserTest, ComposedPoseForDeformable) {
+  AddSceneGraph();
+  const std::string sdf = R"(
+  <model name='deformable'>
+    <pose>3 0 0 0 0 0</pose>
+    <link name='body'>
+      <pose>4 0 0 0 0 0</pose>
+      <collision name='collision'>
+        <geometry>
+          <mesh><uri>package://drake/multibody/parsing/test/single_tet.vtk</uri></mesh>
+        </geometry>
+      </collision>
+      <drake:deformable_properties/>
+    </link>
+  </model>)";
+  ParseTestString(sdf);
+  EXPECT_THAT(NumErrors(), 0);
+  plant_.Finalize();
+  EXPECT_EQ(plant_.deformable_model().num_bodies(), 1);
+  const DeformableBodyId body_id =
+      plant_.deformable_model().GetBodyIdByName("body");
+  const VectorXd q_WB =
+      plant_.deformable_model().GetReferencePositions(body_id);
+  VectorXd q_WB_expected(12);
+  // clang-format off
+  q_WB_expected << -3, -10, -10,
+                    17, 0,  0,
+                    7,  10, 0,
+                    7,  0,  10;
+  // clang-format on
+  EXPECT_TRUE(CompareMatrices(q_WB, q_WB_expected,
+                              4.0 * std::numeric_limits<double>::epsilon()));
+}
+
+/* Specifying a non-empty visual geometry when perception properties are turned
+ off is a warning. */
+TEST_F(SdfParserTest, DisabledPerceptionWithVisualMesh) {
+  AddSceneGraph();
+  const std::string sdf = R"(
+  <model name='deformable'>
+    <link name='body'>
+      <collision name='collision'>
+        <geometry>
+          <mesh><uri>package://drake/multibody/parsing/test/single_tet.vtk</uri></mesh>
+        </geometry>
+      </collision>
+      <visual name='visual'>
+        <geometry>
+          <mesh><uri>package://drake/multibody/parsing/test/tri_cube.obj</uri></mesh>
+        </geometry>
+        <drake:perception_properties enabled="false"/>
+      </visual>
+      <drake:deformable_properties/>
+    </link>
+  </model>)";
+
+  ParseTestString(sdf);
+  EXPECT_THAT(NumWarnings(), 1);
+  EXPECT_THAT(TakeWarning(), MatchesRegex(".*non-empty.*geometry.*ignored.*"));
 }
 
 }  // namespace

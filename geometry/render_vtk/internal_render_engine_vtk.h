@@ -174,9 +174,20 @@ class DRAKE_NO_EXPORT RenderEngineVtk : public render::RenderEngine,
                         const PerceptionProperties& properties,
                         const math::RigidTransformd& X_WG) override;
 
+  // @see RenderEngine::DoRegisterDeformableVisual().
+  bool DoRegisterDeformableVisual(
+      GeometryId id,
+      const std::vector<geometry::internal::RenderMesh>& render_meshes,
+      const PerceptionProperties& properties) override;
+
   // @see RenderEngine::DoUpdateVisualPose().
   void DoUpdateVisualPose(GeometryId id,
                           const math::RigidTransformd& X_WG) override;
+
+  // @see RenderEngine::DoUpdateDeformableConfigurations().
+  void DoUpdateDeformableConfigurations(
+      GeometryId id, const std::vector<VectorX<double>>& q_WGs,
+      const std::vector<VectorX<double>>& nhats_W) override;
 
   // @see RenderEngine::DoRemoveGeometry().
   bool DoRemoveGeometry(GeometryId id) override;
@@ -199,9 +210,13 @@ class DRAKE_NO_EXPORT RenderEngineVtk : public render::RenderEngine,
       const render::ColorRenderCamera& camera,
       systems::sensors::ImageLabel16I* label_image_out) const override;
 
+  // @see RenderEngine::DoGetParameterYaml().
+  std::string DoGetParameterYaml() const override;
+
   // Helper function for mapping a RenderMesh instance into the appropriate VTK
   // polydata.
-  void ImplementRenderMesh(geometry::internal::RenderMesh&& mesh, double scale,
+  void ImplementRenderMesh(geometry::internal::RenderMesh&& mesh,
+                           const Vector3<double>& scale,
                            const RegistrationData& data);
 
   // Adds an .obj to the scene for the id currently being reified (data->id).

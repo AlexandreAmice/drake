@@ -8,7 +8,10 @@
 
 #include "drake/common/eigen_types.h"
 #include "drake/common/identifier.h"
+#include "drake/common/parallelism.h"
+#include "drake/common/string_unordered_map.h"
 #include "drake/multibody/fem/deformable_body_config.h"
+#include "drake/multibody/fem/discrete_time_integrator.h"
 #include "drake/multibody/fem/fem_model.h"
 #include "drake/multibody/plant/constraint_specs.h"
 #include "drake/multibody/plant/deformable_ids.h"
@@ -21,6 +24,9 @@ namespace multibody {
 
 template <typename T>
 class MultibodyPlant;
+
+// TODO(xuchenhan-tri): DeformableModel needs to be able to query the
+// DeformableBodyConfig for registered bodies.
 
 /** DeformableModel implements the interface in PhysicalModel and provides the
  functionalities to specify deformable bodies. Unlike rigid bodies, the shape of
@@ -65,6 +71,8 @@ class DeformableModel final : public multibody::PhysicalModel<T> {
    unique identifier for the added geometry.
    @param[in] geometry_instance  The geometry to be registered with the model.
    @param[in] config             The physical properties of deformable body.
+   @param[in] model_instance     The model instance index which this body is
+                                 part of.
    @param[in] resolution_hint    The parameter that guides the level of mesh
                                  refinement of the deformable geometry. It has
                                  length units (in meters) and roughly
@@ -73,8 +81,16 @@ class DeformableModel final : public multibody::PhysicalModel<T> {
    @pre resolution_hint > 0.
    @throws std::exception if `this` %DeformableModel is not of scalar type
    double.
+   @throws std::exception if the model instance does not exist.
    @throws std::exception if Finalize() has been called on the multibody plant
    owning this deformable model. */
+  DeformableBodyId RegisterDeformableBody(
+      std::unique_ptr<geometry::GeometryInstance> geometry_instance,
+      ModelInstanceIndex model_instance,
+      const fem::DeformableBodyConfig<T>& config, double resolution_hint);
+
+  /** Registers a deformable body in `this` DeformableModel with the default
+   model instance. */
   DeformableBodyId RegisterDeformableBody(
       std::unique_ptr<geometry::GeometryInstance> geometry_instance,
       const fem::DeformableBodyConfig<T>& config, double resolution_hint);
@@ -131,10 +147,6 @@ class DeformableModel final : public multibody::PhysicalModel<T> {
            has been registered.
    @throws std::exception unless `body_B` is registered with the same multibody
            plant owning this deformable model.
-   @throws std::exception if shape is not supported by
-           QueryObject::ComputeSignedDistanceToPoint(). Currently, supported
-           shapes include Box, Capsule, Cylinder, Ellipsoid, HalfSpace, and
-           Sphere.
    @throws std::exception if Finalize() has been called on the multibody plant
            owning this deformable model.
    @throws std::exception if `this` %DeformableModel is not of scalar type
@@ -152,6 +164,46 @@ class DeformableModel final : public multibody::PhysicalModel<T> {
    or if no deformable body with the given `id` has been registered in this
    model. */
   systems::DiscreteStateIndex GetDiscreteStateIndex(DeformableBodyId id) const;
+
+  /** Sets the vertex positions of the deformable body with the given `id` in
+   the provided `context`.
+
+   @param[in, out] context The context associated with the MultibodyPlant that
+                           owns this %DeformableModel.
+   @param[in] id The identifier of the deformable body whose positions are being
+                 set.
+   @param[in] q A 3×N matrix of vertex positions.
+
+   @throws std::exception if any of the following conditions are met:
+     1. `context` is nullptr.
+     2. `context` does not belong to the MultibodyPlant associated with this
+        %DeformableModel.
+     3. No body with the given `id` is registered.
+     4. The number of columns of `q` does not match the number of vertices of
+        the body.
+     5. `q` contains non-finite values.
+     6. `Finalize()` has been called on the MultibodyPlant that owns this
+        deformable model. */
+  void SetPositions(systems::Context<T>* context, DeformableBodyId id,
+                    const Eigen::Ref<const Matrix3X<T>>& q) const;
+
+  /** Returns the matrix of vertex positions for the deformable body with the
+   given `id` in the provided `context`.
+
+   @param[in] context The context associated with the MultibodyPlant that owns
+                      this %DeformableModel.
+   @param[in] id The identifier of the deformable body whose positions are being
+                 queried.
+   @retval q A 3×N matrix containing the positions of all vertices of the body.
+
+   @throws std::exception if any of the following conditions are met:
+     1. `context` does not belong to the MultibodyPlant associated with this
+        %DeformableModel.
+     2. No body with the given `id` is registered.
+     3. `Finalize()` has been called on the MultibodyPlant that owns this
+        deformable model. */
+  Matrix3X<T> GetPositions(const systems::Context<T>& context,
+                           DeformableBodyId id) const;
 
   /** Registers an external force density field that applies external force to
    all deformable bodies.
@@ -244,6 +296,22 @@ class DeformableModel final : public multibody::PhysicalModel<T> {
    deformable bodies. */
   DeformableBodyId GetBodyId(DeformableBodyIndex index) const;
 
+  /** Returns true if and only if a deformable body with the given `name` has
+   been registered with this model. */
+  bool HasBodyNamed(const std::string& name) const;
+
+  // TODO(xuchenhan-tri): Consider whether we should allow duplicated names
+  // across different model instances.
+  /** Returns the DeformableBodyId of the body with the given name.
+   @throws std::exception if there's no body with the given name. */
+  DeformableBodyId GetBodyIdByName(const std::string& name) const;
+
+  /** Returns the DeformableIds of the bodies that belong to the given model
+   instance. Returns the empty vector if no deformable bodies are registered
+   with the given model instance. */
+  std::vector<DeformableBodyId> GetBodyIds(
+      ModelInstanceIndex model_instance) const;
+
   /** (Internal) Returns the DeformableBodyIndex of the body with the given id.
    This function is for internal bookkeeping use only. Most users should use
    DeformableBodyId instead.
@@ -283,6 +351,15 @@ class DeformableModel final : public multibody::PhysicalModel<T> {
     return body_id_to_constraint_ids_.at(id);
   }
 
+  /** (Internal use only) Returns the time integrator used to for all FemModels
+   in this model.
+   @throws std::exception if the integrator hasn't been set. */
+  const multibody::fem::internal::DiscreteTimeIntegrator<T>& integrator()
+      const {
+    DRAKE_THROW_UNLESS(integrator_ != nullptr);
+    return *integrator_;
+  }
+
   /** Returns the output port index of the vertex positions port for all
    registered deformable bodies.
    @throws std::exception if called before `DeclareSceneGraphPorts()` is called.
@@ -305,6 +382,18 @@ class DeformableModel final : public multibody::PhysicalModel<T> {
 
   /** Returns true if and only if this %DeformableModel is empty. */
   bool is_cloneable_to_symbolic() const final { return is_empty(); }
+
+  // TODO(xuchenhan-tri): Restrict the entry point to parallelism configuration
+  // so that's more difficult to misuse. We want to avoid, for example, a user
+  // calling SetParallelism(Parallelism::Max()) on a model that has already been
+  // parallelized at a higher level.
+  /** (Internal use only) Configures the parallelism that `this`
+   %DeformableModel uses when opportunities for parallel computation arises. */
+  void SetParallelism(Parallelism parallelism);
+
+  /** (Internal use only) Returns the parallelism that `this` %DeformableModel
+   uses when opportunities for parallel computation arises. */
+  Parallelism parallelism() const { return parallelism_; }
 
  private:
   /* Allow different specializations to access each other's private data for
@@ -381,6 +470,9 @@ class DeformableModel final : public multibody::PhysicalModel<T> {
       geometry_id_to_body_id_;
   std::unordered_map<DeformableBodyId, std::unique_ptr<fem::FemModel<T>>>
       fem_models_;
+  string_unordered_map<DeformableBodyId> name_to_body_id_;
+  std::unordered_map<ModelInstanceIndex, std::vector<DeformableBodyId>>
+      model_instance_to_body_ids_;
   /* The collection all external forces. */
   std::vector<std::unique_ptr<ForceDensityField<T>>> force_densities_;
   /* body_index_to_force_densities_[i] is the collection of pointers to external
@@ -396,6 +488,10 @@ class DeformableModel final : public multibody::PhysicalModel<T> {
   std::map<MultibodyConstraintId, internal::DeformableRigidFixedConstraintSpec>
       fixed_constraint_specs_;
   systems::OutputPortIndex configuration_output_port_index_;
+  Parallelism parallelism_{false};
+  /* The integrator used to advance deformable body free motion states in
+   time. */
+  std::unique_ptr<fem::internal::DiscreteTimeIntegrator<T>> integrator_;
 };
 
 }  // namespace multibody

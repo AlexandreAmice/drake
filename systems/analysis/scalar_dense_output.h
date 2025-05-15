@@ -19,7 +19,7 @@ class ScalarDenseOutput : public DenseOutput<T> {
  public:
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(ScalarDenseOutput);
 
-  virtual ~ScalarDenseOutput() = default;
+  virtual ~ScalarDenseOutput();
 
   /// Evaluates output at the given time @p t.
   /// @param t Time at which to evaluate output.
@@ -41,9 +41,7 @@ class ScalarDenseOutput : public DenseOutput<T> {
     return VectorX<T>::Constant(1, this->DoEvaluateScalar(t));
   }
 
-  int do_size() const override {
-    return 1;
-  }
+  int do_size() const override { return 1; }
 
   // @see EvaluateScalar(const T&)
   virtual T DoEvaluateScalar(const T& t) const = 0;

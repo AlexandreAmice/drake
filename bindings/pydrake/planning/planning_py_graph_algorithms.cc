@@ -16,7 +16,7 @@ void DefinePlanningGraphAlgorithms(py::module m) {
   using namespace drake::planning::graph_algorithms;
   constexpr auto& doc = pydrake_doc.drake.planning.graph_algorithms;
   {
-    class PyMaxCliqueSolverBase : public py::wrapper<MaxCliqueSolverBase> {
+    class PyMaxCliqueSolverBase : public MaxCliqueSolverBase {
      public:
       // Trampoline virtual methods.
       // The private virtual method of DoSolveMaxClique is made public to enable
@@ -26,12 +26,6 @@ void DefinePlanningGraphAlgorithms(py::module m) {
         PYBIND11_OVERRIDE_PURE(VectorX<bool>, MaxCliqueSolverBase,
             DoSolveMaxClique, adjacency_matrix);
       }
-
-      // Deprecated 2025-05-01.
-      std::unique_ptr<MaxCliqueSolverBase> DoClone() const override {
-        throw std::logic_error(
-            "Python subclasses of MaxCliqueSolverBase do not support Clone()");
-      };
     };
     const auto& cls_doc = doc.MaxCliqueSolverBase;
     py::class_<MaxCliqueSolverBase, PyMaxCliqueSolverBase>(
@@ -65,8 +59,7 @@ void DefinePlanningGraphAlgorithms(py::module m) {
         .def(py::init<>(), cls_doc.ctor.doc);
   }
   {
-    class PyMinCliqueCoverSolverBase
-        : public py::wrapper<MinCliqueCoverSolverBase> {
+    class PyMinCliqueCoverSolverBase : public MinCliqueCoverSolverBase {
      public:
       // Trampoline virtual methods.
       // The private virtual method of DoSolveMinCliqueCover is made public to

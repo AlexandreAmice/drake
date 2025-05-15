@@ -150,8 +150,14 @@ double DiscreteUpdateManager<T>::default_contact_stiffness() const {
 
 template <typename T>
 double DiscreteUpdateManager<T>::default_contact_dissipation() const {
-  return MultibodyPlantDiscreteUpdateManagerAttorney<
+  // TODO(xuchenhan-tri): The plant's default contact dissipation may be NaN,
+  // We guard against that here as a band-aid fix. See #19981.
+  const double plant_dissipation = MultibodyPlantDiscreteUpdateManagerAttorney<
       T>::default_contact_dissipation(plant());
+  if (!(plant_dissipation >= 0.0)) {
+    return 0.0;
+  }
+  return plant_dissipation;
 }
 
 template <typename T>
@@ -280,7 +286,7 @@ VectorX<T> DiscreteUpdateManager<T>::AssembleActuationInput(
 }
 
 template <typename T>
-VectorX<T> DiscreteUpdateManager<T>::AssembleDesiredStateInput(
+DesiredStateInput<T> DiscreteUpdateManager<T>::AssembleDesiredStateInput(
     const systems::Context<T>& context) const {
   return MultibodyPlantDiscreteUpdateManagerAttorney<
       T>::AssembleDesiredStateInput(plant(), context);
@@ -294,10 +300,11 @@ DiscreteUpdateManager<T>::coupler_constraints_specs() const {
 }
 
 template <typename T>
-const std::map<MultibodyConstraintId, internal::DistanceConstraintSpec>&
-DiscreteUpdateManager<T>::distance_constraints_specs() const {
+const std::map<MultibodyConstraintId, DistanceConstraintParams>&
+DiscreteUpdateManager<T>::GetDistanceConstraintParams(
+    const systems::Context<T>& context) const {
   return MultibodyPlantDiscreteUpdateManagerAttorney<
-      T>::distance_constraints_specs(*plant_);
+      T>::GetDistanceConstraintParams(*plant_, context);
 }
 
 template <typename T>
@@ -312,6 +319,13 @@ const std::map<MultibodyConstraintId, internal::WeldConstraintSpec>&
 DiscreteUpdateManager<T>::weld_constraints_specs() const {
   return MultibodyPlantDiscreteUpdateManagerAttorney<T>::weld_constraints_specs(
       *plant_);
+}
+
+template <typename T>
+const std::map<MultibodyConstraintId, internal::TendonConstraintSpec>&
+DiscreteUpdateManager<T>::tendon_constraints_specs() const {
+  return MultibodyPlantDiscreteUpdateManagerAttorney<
+      T>::tendon_constraints_specs(*plant_);
 }
 
 template <typename T>

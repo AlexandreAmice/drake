@@ -1,4 +1,3 @@
-#include "drake/bindings/pydrake/common/deprecation_pybind.h"
 #include "drake/bindings/pydrake/common/ref_cycle_pybind.h"
 #include "drake/bindings/pydrake/common/wrap_pybind.h"
 #include "drake/bindings/pydrake/documentation_pybind.h"
@@ -169,15 +168,6 @@ PYBIND11_MODULE(controllers, m) {
             py_rvp::reference_internal, cls_doc.get_output_port_actuation.doc)
         .def("get_multibody_plant", &Class::get_multibody_plant,
             py_rvp::reference_internal, cls_doc.get_multibody_plant.doc);
-
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-    cls.def("get_output_port_generalized_force",
-        WrapDeprecated(cls_doc.get_output_port_generalized_force.doc_deprecated,
-            &Class::get_output_port_generalized_force),
-        py_rvp::reference_internal,
-        cls_doc.get_output_port_generalized_force.doc_deprecated);
-#pragma GCC diagnostic pop
   }
 
   {
@@ -315,11 +305,13 @@ PYBIND11_MODULE(controllers, m) {
       [](const Eigen::Ref<const Eigen::MatrixXd>& A,
           const Eigen::Ref<const Eigen::MatrixXd>& B,
           const Eigen::Ref<const Eigen::MatrixXd>& Q,
-          const Eigen::Ref<const Eigen::MatrixXd>& R) {
-        auto result = DiscreteTimeLinearQuadraticRegulator(A, B, Q, R);
+          const Eigen::Ref<const Eigen::MatrixXd>& R,
+          const Eigen::Ref<const Eigen::MatrixXd>& N) {
+        auto result = DiscreteTimeLinearQuadraticRegulator(A, B, Q, R, N);
         return std::make_pair(result.K, result.S);
       },
       py::arg("A"), py::arg("B"), py::arg("Q"), py::arg("R"),
+      py::arg("N") = Eigen::Matrix<double, 0, 0>::Zero(),
       doc.DiscreteTimeLinearQuadraticRegulator.doc);
 
   m.def("LinearQuadraticRegulator",

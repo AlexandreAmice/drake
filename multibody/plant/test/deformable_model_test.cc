@@ -48,15 +48,17 @@ class DeformableModelTest : public ::testing::Test {
   }
 
   template <typename T>
-  DeformableBodyId RegisterSphere(DeformableModel<T>* model,
-                                  double resolution_hint,
-                                  RigidTransformd X_WS = RigidTransformd()) {
+  DeformableBodyId RegisterSphere(
+      DeformableModel<T>* model, double resolution_hint,
+      RigidTransformd X_WS = RigidTransformd(),
+      ModelInstanceIndex model_instance = default_model_instance()) {
     auto geometry =
         make_unique<GeometryInstance>(X_WS, make_unique<Sphere>(1), "sphere");
     geometry::ProximityProperties deformable_proximity_props;
     geometry->set_proximity_properties(deformable_proximity_props);
     DeformableBodyId body_id = model->RegisterDeformableBody(
-        std::move(geometry), fem::DeformableBodyConfig<T>{}, resolution_hint);
+        std::move(geometry), model_instance, fem::DeformableBodyConfig<T>{},
+        resolution_hint);
     return body_id;
   }
 };
@@ -628,6 +630,124 @@ TEST_F(DeformableModelTest, EnableDisable) {
     EXPECT_FALSE(CompareMatrices(enabled_next_state.tail(2 * num_dofs),
                                  VectorXd::Zero(2 * num_dofs), 1e-2));
   }
+}
+
+TEST_F(DeformableModelTest, GetAndSetPositions) {
+  auto model_id = RegisterSphere(0.5);
+
+  plant_->Finalize();
+  const int num_dofs = deformable_model_ptr_->GetFemModel(model_id).num_dofs();
+  auto diagram = builder_.Build();
+
+  auto context = diagram->CreateDefaultContext();
+  systems::Context<double>& plant_context =
+      plant_->GetMyMutableContextFromRoot(context.get());
+
+  /* Get the intial positions q0. */
+  systems::DiscreteStateIndex state_index =
+      deformable_model_ptr_->GetDiscreteStateIndex(model_id);
+  VectorX<double> initial_discrete_state =
+      plant_context.get_discrete_state(state_index).get_value();
+  const VectorX<double> q0 = initial_discrete_state.head(num_dofs);
+  const Matrix3X<double> q0_matrix =
+      Eigen::Map<const Matrix3X<double>>(q0.data(), 3, num_dofs / 3);
+
+  EXPECT_EQ(plant_->deformable_model().GetPositions(plant_context, model_id),
+            q0_matrix);
+  const Matrix3X<double> q1_matrix = 2.0 * q0_matrix;
+  plant_->deformable_model().SetPositions(&plant_context, model_id, q1_matrix);
+  EXPECT_EQ(plant_->deformable_model().GetPositions(plant_context, model_id),
+            q1_matrix);
+}
+
+/* Test the many throw conditions of GetPositions and SetPositions. */
+TEST_F(DeformableModelTest, GetAndSetPositionsThrowConditions) {
+  auto model_id = RegisterSphere(0.5);
+  plant_->Finalize();
+  auto diagram = builder_.Build();
+  auto context = diagram->CreateDefaultContext();
+  systems::Context<double>& plant_context =
+      plant_->GetMyMutableContextFromRoot(context.get());
+  const int num_dofs = deformable_model_ptr_->GetFemModel(model_id).num_dofs();
+
+  /* Wrong context. */
+  EXPECT_THROW(deformable_model_ptr_->GetPositions(*context, model_id),
+               std::exception);
+  EXPECT_THROW(
+      deformable_model_ptr_->SetPositions(
+          context.get(), model_id, Matrix3X<double>::Zero(3, num_dofs / 3)),
+      std::exception);
+
+  /* Wrong id. */
+  DeformableBodyId fake_id = DeformableBodyId::get_new_id();
+  DRAKE_EXPECT_THROWS_MESSAGE(
+      deformable_model_ptr_->GetPositions(plant_context, fake_id),
+      fmt::format(".*No.*id.*{}.*registered.*", fake_id));
+  DRAKE_EXPECT_THROWS_MESSAGE(
+      deformable_model_ptr_->SetPositions(
+          &plant_context, fake_id, Matrix3X<double>::Zero(3, num_dofs / 3)),
+      fmt::format(".*No.*id.*{}.*registered.*", fake_id));
+
+  /* Wrong size. */
+  EXPECT_THROW(
+      deformable_model_ptr_->SetPositions(
+          &plant_context, model_id, Matrix3X<double>::Zero(3, num_dofs / 2)),
+      std::exception);
+
+  /* Non-finite values. */
+  EXPECT_THROW(
+      deformable_model_ptr_->SetPositions(
+          &plant_context, model_id,
+          Matrix3X<double>::Constant(3, num_dofs / 3,
+                                     std::numeric_limits<double>::infinity())),
+      std::exception);
+}
+
+TEST_F(DeformableModelTest, Parallelism) {
+  EXPECT_EQ(deformable_model_ptr_->parallelism().num_threads(), 1);
+  DeformableBodyId body_id = RegisterSphere(1.0);
+  EXPECT_EQ(
+      deformable_model_ptr_->GetFemModel(body_id).parallelism().num_threads(),
+      1);
+
+  Parallelism parallelism(2);
+  EXPECT_EQ(parallelism.num_threads(), 2);
+  deformable_model_ptr_->SetParallelism(parallelism);
+  EXPECT_EQ(deformable_model_ptr_->parallelism().num_threads(), 2);
+  EXPECT_EQ(
+      deformable_model_ptr_->GetFemModel(body_id).parallelism().num_threads(),
+      2);
+}
+
+/* Tests getting a deformable body by name. */
+TEST_F(DeformableModelTest, BodyName) {
+  const DeformableBodyId body_id = RegisterSphere(0.5);
+  EXPECT_TRUE(deformable_model_ptr_->HasBodyNamed("sphere"));
+  EXPECT_EQ(deformable_model_ptr_->GetBodyIdByName("sphere"), body_id);
+  EXPECT_FALSE(deformable_model_ptr_->HasBodyNamed("nonexistent_body_name"));
+  DRAKE_EXPECT_THROWS_MESSAGE(
+      deformable_model_ptr_->GetBodyIdByName("nonexistent_body_name"),
+      ".*No deformable body.*nonexistent_body_name.*registered.*");
+}
+
+/* Tests registering deformable bodies into a prescribed model instance as well
+ as getting deformable bodies by model instance index. */
+TEST_F(DeformableModelTest, ModelInstance) {
+  const double kRezHint = 0.5;
+  ModelInstanceIndex invalid_model_instance(42);
+  DRAKE_EXPECT_THROWS_MESSAGE(
+      RegisterSphere(deformable_model_ptr_, kRezHint, RigidTransformd{},
+                     invalid_model_instance),
+      ".*Invalid model instance.*");
+  const ModelInstanceIndex model_instance =
+      plant_->AddModelInstance("test_instance");
+  const DeformableBodyId body_id = RegisterSphere(
+      deformable_model_ptr_, kRezHint, RigidTransformd{}, model_instance);
+  EXPECT_EQ(deformable_model_ptr_->num_bodies(), 1);
+  const std::vector<DeformableBodyId> bodies_in_model_instance =
+      deformable_model_ptr_->GetBodyIds(model_instance);
+  ASSERT_EQ(bodies_in_model_instance.size(), 1);
+  EXPECT_EQ(bodies_in_model_instance[0], body_id);
 }
 
 }  // namespace

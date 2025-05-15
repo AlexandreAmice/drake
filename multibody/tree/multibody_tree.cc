@@ -6,7 +6,6 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
-#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 
@@ -20,8 +19,10 @@
 #include "drake/math/rotation_matrix.h"
 #include "drake/multibody/tree/body_node_world.h"
 #include "drake/multibody/tree/multibody_tree-inl.h"
+#include "drake/multibody/tree/prismatic_joint.h"
 #include "drake/multibody/tree/quaternion_floating_joint.h"
 #include "drake/multibody/tree/quaternion_floating_mobilizer.h"
+#include "drake/multibody/tree/revolute_joint.h"
 #include "drake/multibody/tree/rigid_body.h"
 #include "drake/multibody/tree/rpy_floating_joint.h"
 #include "drake/multibody/tree/rpy_floating_mobilizer.h"
@@ -751,6 +752,12 @@ template <typename T>
 void MultibodyTree<T>::CreateJointImplementations() {
   DRAKE_DEMAND(!topology_is_valid());
 
+  // These are the Joint type names for the joints that are currently
+  // reversible.
+  const std::set<std::string> reversible{PrismaticJoint<double>::kTypeName,
+                                         RevoluteJoint<double>::kTypeName,
+                                         WeldJoint<double>::kTypeName};
+
   // Mobods are in depth-first order, starting with World.
   for (const auto& mobod : forest().mobods()) {
     if (mobod.is_world()) {
@@ -758,7 +765,7 @@ void MultibodyTree<T>::CreateJointImplementations() {
       // Mobods, BodyNodes, and Mobilizers have identical numbering.
       topology_.add_world_mobilizer(mobod, world_body().body_frame().index());
       auto dummy_weld = std::make_unique<internal::WeldMobilizer<T>>(
-          mobod, world_frame(), world_frame(), RigidTransform<double>());
+          mobod, world_frame(), world_frame());
       dummy_weld->set_model_instance(world_model_instance());
       dummy_weld->set_parent_tree(this, MobodIndex(0));
       mobilizers_.push_back(std::move(dummy_weld));
@@ -769,21 +776,21 @@ void MultibodyTree<T>::CreateJointImplementations() {
         forest().joints(mobod.joint_ordinal()).index();
     Joint<T>& joint = joints_.get_mutable_element(joint_index);
 
-    // Currently we allow a reversed mobilizer only for Weld joints.
-    // TODO(sherm1) Remove this restriction.
-    if (mobod.is_reversed() && !mobod.is_weld()) {
+    // We allow reversed mobilizers only for a subset of joint types.
+    if (mobod.is_reversed() && !reversible.contains(joint.type_name())) {
       throw std::runtime_error(fmt::format(
           "MultibodyPlant::Finalize(): parent/child ordering for "
           "{} joint {} in model instance {} would have to be reversed "
           "to make a tree-structured model for this system. "
-          "Currently Drake does not support that except for Weld "
-          "joints. Reverse the ordering in your joint definition so "
-          "that all parent/child directions form a tree structure.",
+          "Currently Drake does not support reversed {} joints. The joints "
+          "that can be reversed are: {}. Reverse the ordering in your joint "
+          "definition so that its parent body is closer to World in the tree.",
           joint.type_name(), joint.name(),
-          GetModelInstanceName(joint.model_instance())));
+          GetModelInstanceName(joint.model_instance()), joint.type_name(),
+          fmt::join(reversible, ", ")));
     }
 
-    std::unique_ptr<Mobilizer<T>> owned_mobilizer = joint.Build(mobod);
+    std::unique_ptr<Mobilizer<T>> owned_mobilizer = joint.Build(mobod, this);
     Mobilizer<T>* mobilizer = owned_mobilizer.get();
     AddMobilizer(std::move(owned_mobilizer));  // ownership->tree
     mobilizer->set_model_instance(joint.model_instance());
@@ -927,7 +934,10 @@ void MultibodyTree<T>::Finalize() {
   elements" to provide a uniform interface to the additional elements that were
   required to build the model. Below, we will augment the MultibodyPlant
   elements to match, so that advanced users can use the familiar Plant API to
-  access and control these ephemeral elements. */
+  access and control these ephemeral elements. The process of modeling Joints
+  with available Mobilizers may introduce ephemeral Frames as well. All
+  ephemeral elements must be marked as such in the base MultibodyElement class;
+  public API element.is_ephemeral() is available to check. */
   link_joint_graph_.BuildForest();
   const LinkJointGraph& graph = link_joint_graph_;
 
@@ -967,6 +977,15 @@ void MultibodyTree<T>::Finalize() {
   }
 
   // TODO(sherm1) Add shadow links and loop constraints.
+  if (!graph.loop_constraints().empty()) {
+    throw std::runtime_error(fmt::format(
+        "The bodies and joints of this system form one or "
+        "more loops in the system graph. Drake currently does not "
+        "support automatic modeling of such systems; however, they "
+        "can be modeled with some input changes. See "
+        "https://drake.mit.edu/troubleshooting.html"
+        "#mbp-loops-in-graph for advice on how to model systems with loops."));
+  }
 
   CreateJointImplementations();
   FinalizeTopology();
@@ -1339,18 +1358,15 @@ void MultibodyTree<T>::CalcVelocityKinematicsCache(
   const T* velocities = get_velocities(context).data();
 
   // Performs a base-to-tip recursion computing body velocities.
-  // This skips the world, level = 0.
-  for (int level = 1; level < forest_height(); ++level) {
-    for (MobodIndex mobod_index : body_node_levels_[level]) {
-      const BodyNode<T>& node = *body_nodes_[mobod_index];
+  // Skip the World which is mobod_index(0).
+  for (MobodIndex mobod_index(1); mobod_index < ssize(body_nodes_);
+       ++mobod_index) {
+    const BodyNode<T>& node = *body_nodes_[mobod_index];
+    DRAKE_ASSERT(node.mobod_index() == mobod_index);
 
-      DRAKE_ASSERT(node.get_topology().level == level);
-      DRAKE_ASSERT(node.mobod_index() == mobod_index);
-
-      // Update per-mobod kinematics.
-      node.CalcVelocityKinematicsCache_BaseToTip(positions, pc, H_PB_W_cache,
-                                                 velocities, vc);
-    }
+    // Update per-mobod kinematics.
+    node.CalcVelocityKinematicsCache_BaseToTip(positions, pc, H_PB_W_cache,
+                                               velocities, vc);
   }
 }
 
@@ -1362,6 +1378,8 @@ void MultibodyTree<T>::CalcSpatialInertiasInWorld(
   DRAKE_THROW_UNLESS(M_B_W_all != nullptr);
   DRAKE_THROW_UNLESS(ssize(*M_B_W_all) == topology_.num_mobods());
 
+  const FrameBodyPoseCache<T>& frame_body_pose_cache =
+      EvalFrameBodyPoses(context);
   const PositionKinematicsCache<T>& pc = this->EvalPositionKinematics(context);
 
   // Skip the world.
@@ -1375,11 +1393,11 @@ void MultibodyTree<T>::CalcSpatialInertiasInWorld(
     const RotationMatrix<T>& R_WB = X_WB.rotation();
 
     // Spatial inertia of body B about Bo and expressed in the body frame B.
-    // This call has zero cost for rigid bodies.
-    const SpatialInertia<T> M_B = body.CalcSpatialInertiaInBodyFrame(context);
+    const SpatialInertia<T>& M_BBo_B =
+        frame_body_pose_cache.get_M_BBo_B(body.mobod_index());
     // Re-express body B's spatial inertia in the world frame W.
-    SpatialInertia<T>& M_B_W = (*M_B_W_all)[body.mobod_index()];
-    M_B_W = M_B.ReExpress(R_WB);
+    SpatialInertia<T>& M_BBo_W = (*M_B_W_all)[body.mobod_index()];
+    M_BBo_W = M_BBo_B.ReExpress(R_WB);
   }
 }
 
@@ -1422,6 +1440,8 @@ void MultibodyTree<T>::CalcFrameBodyPoses(
   DRAKE_ASSERT(frame_body_poses->get_X_BF(0).IsExactlyIdentity());
   DRAKE_ASSERT(frame_body_poses->get_X_FB(0).IsExactlyIdentity());
 
+  // The first pass locates each frame with respect to the body frame B
+  // of the body to which it is fixed.
   for (const Frame<T>* frame : frames_.elements()) {
     const int body_pose_index_in_cache = frame->get_body_pose_index_in_cache();
     if (frame->is_body_frame()) {
@@ -1433,8 +1453,23 @@ void MultibodyTree<T>::CalcFrameBodyPoses(
     //  the whole computation is done only when parameters change. But if
     //  there is a performance issue, consider doing this in topological
     //  order (or memoizing) so we don't have to recalculate.
-    frame_body_poses->set_X_BF(body_pose_index_in_cache,
-                               frame->CalcPoseInBodyFrame(context));
+    frame_body_poses->SetX_BF(body_pose_index_in_cache,
+                              frame->CalcPoseInBodyFrame(context));
+  }
+
+  // For every mobilized body, precalculate its body-frame spatial inertia
+  // M_BBo_B from the parameterization of that inertia.
+  for (const SpanningForest::Mobod& mobod : forest().mobods()) {
+    if (mobod.is_world()) continue;
+    // TODO(sherm1) Can't handle composites yet.
+    DRAKE_DEMAND(ssize(mobod.follower_link_ordinals()) == 1);
+    const Mobilizer<T>& mobilizer = get_mobilizer(mobod.index());
+
+    // Get the parameterized spatial inertia.
+    const RigidBody<T>& body = mobilizer.outboard_body();
+    const SpatialInertia<T> M_BBo_B =
+        body.CalcSpatialInertiaInBodyFrame(context);
+    frame_body_poses->SetM_BBo_B(mobod.index(), M_BBo_B);
   }
 }
 

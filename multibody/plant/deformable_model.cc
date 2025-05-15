@@ -9,7 +9,9 @@
 #include "drake/multibody/fem/linear_constitutive_model.h"
 #include "drake/multibody/fem/linear_corotated_model.h"
 #include "drake/multibody/fem/linear_simplex_element.h"
+#include "drake/multibody/fem/neohookean_model.h"
 #include "drake/multibody/fem/simplex_gaussian_quadrature.h"
+#include "drake/multibody/fem/velocity_newmark_scheme.h"
 #include "drake/multibody/fem/volumetric_model.h"
 #include "drake/multibody/plant/multibody_plant.h"
 
@@ -28,7 +30,17 @@ using fem::MaterialModel;
 
 template <typename T>
 DeformableModel<T>::DeformableModel(MultibodyPlant<T>* plant)
-    : PhysicalModel<T>(plant) {}
+    : PhysicalModel<T>(plant) {
+  /* Set the time integrator for advancing deformable states in time to be the
+   midpoint rule, i.e., q = q₀ + δt/2 *(v₀ + v).
+   We only set the integrator when the plant is discrete. For continuous plants,
+   we may create a deformable model for various reasons, but the deformable
+   model will always be empty. */
+  if (plant->time_step() > 0) {
+    integrator_ = std::make_unique<fem::internal::VelocityNewmarkScheme<T>>(
+        plant->time_step(), 1.0, 0.5);
+  }
+}
 
 template <typename T>
 DeformableModel<T>::~DeformableModel() = default;
@@ -36,10 +48,22 @@ DeformableModel<T>::~DeformableModel() = default;
 template <typename T>
 DeformableBodyId DeformableModel<T>::RegisterDeformableBody(
     std::unique_ptr<geometry::GeometryInstance> geometry_instance,
+    ModelInstanceIndex model_instance,
     const fem::DeformableBodyConfig<T>& config, double resolution_hint) {
   this->ThrowIfSystemResourcesDeclared(__func__);
   ThrowIfNotDouble(__func__);
+  if (!(model_instance < this->plant().num_model_instances())) {
+    throw std::logic_error(
+        "Invalid model instance specified. A valid model instance can be "
+        "obtained by calling MultibodyPlant::AddModelInstance().");
+  }
   if constexpr (std::is_same_v<T, double>) {
+    const std::string name = geometry_instance->name();
+    if (name_to_body_id_.contains(name)) {
+      throw std::logic_error(fmt::format(
+          "A deformable body with the name {} has already been registered.",
+          name));
+    }
     /* Register the geometry with SceneGraph. */
     SceneGraph<T>& scene_graph = this->mutable_scene_graph();
     SourceId source_id = this->plant().get_source_id().value();
@@ -83,9 +107,20 @@ DeformableBodyId DeformableModel<T>::RegisterDeformableBody(
     geometry_id_to_body_id_.emplace(geometry_id, body_id);
     body_ids_.emplace_back(body_id);
     body_id_to_density_prefinalize_.emplace(body_id, config.mass_density());
+    name_to_body_id_.emplace(name, body_id);
+    model_instance_to_body_ids_[model_instance].push_back(body_id);
     return body_id;
   }
   DRAKE_UNREACHABLE();
+}
+
+template <typename T>
+DeformableBodyId DeformableModel<T>::RegisterDeformableBody(
+    std::unique_ptr<geometry::GeometryInstance> geometry_instance,
+    const fem::DeformableBodyConfig<T>& config, double resolution_hint) {
+  return RegisterDeformableBody(std::move(geometry_instance),
+                                default_model_instance(), config,
+                                resolution_hint);
 }
 
 template <typename T>
@@ -116,7 +151,7 @@ void DeformableModel<T>::SetWallBoundaryCondition(DeformableBodyId id,
                               {p_WV, Vector3<T>::Zero(), Vector3<T>::Zero()});
     }
   }
-  fem_model.SetDirichletBoundaryCondition(std::move(bc));
+  fem_model.SetDirichletBoundaryCondition(bc);
 }
 
 template <typename T>
@@ -193,6 +228,40 @@ systems::DiscreteStateIndex DeformableModel<T>::GetDiscreteStateIndex(
 }
 
 template <typename T>
+void DeformableModel<T>::SetPositions(
+    systems::Context<T>* context, DeformableBodyId id,
+    const Eigen::Ref<const Matrix3X<T>>& q) const {
+  DRAKE_THROW_UNLESS(context != nullptr);
+  this->plant().ValidateContext(*context);
+  this->ThrowIfSystemResourcesNotDeclared(__func__);
+  ThrowUnlessRegistered(__func__, id);
+  const int num_nodes = fem_models_.at(id)->num_nodes();
+  DRAKE_THROW_UNLESS(q.cols() == num_nodes);
+  auto all_finite = [](const Matrix3X<T>& positions) {
+    return (positions.array().isFinite().all());
+  };
+  DRAKE_THROW_UNLESS(all_finite(q));
+
+  context->get_mutable_discrete_state(GetDiscreteStateIndex(id))
+      .get_mutable_value()
+      .head(num_nodes * 3) = Eigen::Map<const VectorX<T>>(q.data(), q.size());
+}
+
+template <typename T>
+Matrix3X<T> DeformableModel<T>::GetPositions(const systems::Context<T>& context,
+                                             DeformableBodyId id) const {
+  this->plant().ValidateContext(context);
+  this->ThrowIfSystemResourcesNotDeclared(__func__);
+  ThrowUnlessRegistered(__func__, id);
+
+  const int num_nodes = fem_models_.at(id)->num_nodes();
+  const VectorX<T>& q = context.get_discrete_state(GetDiscreteStateIndex(id))
+                            .get_value()
+                            .head(num_nodes * 3);
+  return Eigen::Map<const Matrix3X<T>>(q.data(), 3, num_nodes);
+}
+
+template <typename T>
 void DeformableModel<T>::AddExternalForce(
     std::unique_ptr<ForceDensityField<T>> force_density) {
   this->ThrowIfSystemResourcesDeclared(__func__);
@@ -257,6 +326,31 @@ DeformableBodyId DeformableModel<T>::GetBodyId(
 }
 
 template <typename T>
+bool DeformableModel<T>::HasBodyNamed(const std::string& name) const {
+  return name_to_body_id_.contains(name);
+}
+
+template <typename T>
+DeformableBodyId DeformableModel<T>::GetBodyIdByName(
+    const std::string& name) const {
+  if (!HasBodyNamed(name)) {
+    throw std::runtime_error(fmt::format(
+        "No deformable body with the given name {} has been registered.",
+        name));
+  }
+  return name_to_body_id_.at(name);
+}
+
+template <typename T>
+std::vector<DeformableBodyId> DeformableModel<T>::GetBodyIds(
+    ModelInstanceIndex model_instance) const {
+  if (model_instance_to_body_ids_.contains(model_instance)) {
+    return model_instance_to_body_ids_.at(model_instance);
+  }
+  return {};
+}
+
+template <typename T>
 DeformableBodyIndex DeformableModel<T>::GetBodyIndex(
     DeformableBodyId id) const {
   this->ThrowIfSystemResourcesNotDeclared(__func__);
@@ -280,6 +374,14 @@ DeformableBodyId DeformableModel<T>::GetBodyId(
                     geometry_id));
   }
   return geometry_id_to_body_id_.at(geometry_id);
+}
+
+template <typename T>
+void DeformableModel<T>::SetParallelism(Parallelism parallelism) {
+  parallelism_ = parallelism;
+  for (auto& [_, fem_model] : fem_models_) {
+    fem_model->set_parallelism(parallelism);
+  }
 }
 
 template <typename T>
@@ -307,6 +409,8 @@ std::unique_ptr<PhysicalModel<double>> DeformableModel<T>::CloneToDouble(
     for (const auto& [deformable_id, fem_model] : fem_models_) {
       result->fem_models_.emplace(deformable_id, fem_model->Clone());
     }
+    result->name_to_body_id_ = name_to_body_id_;
+    result->model_instance_to_body_ids_ = model_instance_to_body_ids_;
     for (const auto& force_density : force_densities_) {
       result->force_densities_.emplace_back(force_density->Clone());
     }
@@ -322,6 +426,8 @@ std::unique_ptr<PhysicalModel<double>> DeformableModel<T>::CloneToDouble(
     /* `configuration_output_port_index_` is set in `DeclareSceneGraphPorts()`;
      because callers to `PhysicalModel::CloneToScalar` are required to
      subsequently call `DeclareSceneGraphPorts`. */
+    result->parallelism_ = parallelism_;
+    result->integrator_ = integrator_->Clone();
   }
 
   return result;
@@ -358,6 +464,10 @@ DeformableModel<T>::BuildLinearVolumetricModel(
     case MaterialModel::kCorotated:
       BuildLinearVolumetricModelHelper<fem::internal::CorotatedModel>(id, mesh,
                                                                       config);
+      break;
+    case MaterialModel::kNeoHookean:
+      BuildLinearVolumetricModelHelper<fem::internal::NeoHookeanModel>(id, mesh,
+                                                                       config);
       break;
     case MaterialModel::kLinearCorotated:
       BuildLinearVolumetricModelHelper<fem::internal::LinearCorotatedModel>(
@@ -399,13 +509,14 @@ DeformableModel<T>::BuildLinearVolumetricModelHelper(
       config.mass_damping_coefficient(),
       config.stiffness_damping_coefficient());
 
-  auto fem_model = std::make_unique<FemModelType>();
+  auto fem_model = std::make_unique<FemModelType>(integrator_->GetWeights());
   ConstitutiveModelType constitutive_model(config.youngs_modulus(),
                                            config.poissons_ratio());
   typename FemModelType::VolumetricBuilder builder(fem_model.get());
   builder.AddLinearTetrahedralElements(mesh, constitutive_model,
                                        config.mass_density(), damping_model);
   builder.Build();
+  fem_model->set_parallelism(parallelism_);
 
   fem_models_.emplace(id, std::move(fem_model));
 }

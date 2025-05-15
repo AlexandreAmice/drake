@@ -766,6 +766,9 @@ class Meshcat {
    @throws std::exception if `name` is not a registered button. */
   int GetButtonClicks(std::string_view name) const;
 
+  /** Returns the names of all buttons. */
+  std::vector<std::string> GetButtonNames() const;
+
   /** Removes the button `name` from the GUI.
    @returns true iff the button was removed.
    @throws std::exception if `strict` is true and `name` is not a registered
@@ -787,8 +790,8 @@ class Meshcat {
    @throws std::exception if `name` has already been added as any type of
    control (e.g., either button or slider). */
   double AddSlider(std::string name, double min, double max, double step,
-                 double value, std::string decrement_keycode = "",
-                 std::string increment_keycode = "");
+                   double value, std::string decrement_keycode = "",
+                   std::string increment_keycode = "");
 
   /** Sets the current `value` of the slider `name`. `value` will be truncated
    to the slider range and rounded to the nearest increment specified by the

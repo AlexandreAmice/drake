@@ -35,45 +35,6 @@ struct CouplerConstraintSpec {
   MultibodyConstraintId id;
 };
 
-// Struct to store the specification for a distance constraint. A distance
-// constraint is modeled as a holonomic constraint. Distance constraints can
-// be "soft", and are implemented as a spring force, f:
-//   f = -k⋅(d(q) - d₀) - c⋅ḋ(q),
-// where d₀ is a fixed length, k a stiffness parameter in N/m and c a damping
-// parameter in N⋅s/m. We use d(q) to denote the Euclidean distance between two
-// points P and Q, rigidly affixed to bodies A and B respectively, as a function
-// of the configuration of the model q. This constraint reduces to d(q) = d₀ in
-// the limit to infinite stiffness and it behaves as a linear spring damper for
-// finite values of stiffness and damping.
-//
-// @warning A distance constraint is the wrong modeling choice if the
-// distance needs to go through zero. To constrain two points to be
-// coincident we need a 3-dof ball constraint, the 1-dof distance constraint
-// is singular in this case. Therefore we require the distance parameter to
-// be strictly positive.
-//
-// @pre body_A != body_B, d₀ > 0, k >= 0, c >= 0. @see IsValid().
-struct DistanceConstraintSpec {
-  // Returns `true` iff `this` specification is valid to define a distance
-  // constraint. A distance constraint specification is considered to be valid
-  // iff body_A != body_B, distance > 0, stiffness >= 0 and damping >= 0.
-  bool IsValid() const {
-    return body_A != body_B && distance > 0.0 && stiffness >= 0.0 &&
-           damping >= 0.0;
-  }
-
-  BodyIndex body_A;      // Index of body A.
-  Vector3<double> p_AP;  // Position of point P in body frame A.
-  BodyIndex body_B;      // Index of body B.
-  Vector3<double> p_BQ;  // Position of point Q in body frame B.
-  double distance{0.0};  // Free length d₀.
-  double stiffness{
-      std::numeric_limits<double>::infinity()};  // Constraint stiffness
-                                                 // k in N/m.
-  double damping{0.0};       // Constraint damping c in N⋅s/m.
-  MultibodyConstraintId id;  // Id of this constraint in the plant.
-};
-
 // Struct to store the specification for a ball constraint. A ball
 // constraint is modeled as a holonomic constraint:
 //   p_PQ_W(q) = 0
@@ -145,6 +106,34 @@ struct DeformableRigidFixedConstraintSpec {
   std::vector<int> vertices;  // Indices of the Pᵢ in the deformable body A.
   std::vector<Vector3<double>>
       p_BQs;                 // Positions of points Qᵢ in body frame B.
+  MultibodyConstraintId id;  // Id of this constraint in the plant.
+};
+
+// Struct to store tendon constraint parameters.
+// Tendon constraints are modeled as a unilateral constraints on an
+// abstract length of the form:
+//   l(q) = aᵀ⋅q + offset ∈ ℝ
+// Where q is the configuration of the model, a is a vector of coefficients, and
+// offset a scalar offset. Note: the coefficients in a are expected to have
+// units such that the length l(q) has consistent units (either meters or
+// radians). This constraint imposes:
+//   lₗ ≤ l(q) ≤ lᵤ
+// where lₗ and lᵤ are (possibly infinite) lower and upper bounds,
+// respectively.
+// @see SapTendonConstraint for more details.
+struct TendonConstraintSpec {
+  bool operator==(const TendonConstraintSpec&) const = default;
+  // Vector of single-dof joints corresponding to the non-zero elements of a.
+  std::vector<JointIndex> joints;
+  // Vector of non-zero coefficients, where each a[i] corresponds to qᵢ, the
+  // configuration of joints[i].
+  std::vector<double> a;
+
+  double offset{};           // Constraint offset in [m] or [rad].
+  double lower_limit{};      // Lower limit lₗ in [m] or [rad].
+  double upper_limit{};      // Upper limit lᵤ in [m] or [rad].
+  double stiffness{};        // Constraint stiffness in [N/m] or [N⋅m/rad].
+  double damping{};          // Constraint damping in [N⋅s/m] or [N⋅m⋅rad/s].
   MultibodyConstraintId id;  // Id of this constraint in the plant.
 };
 

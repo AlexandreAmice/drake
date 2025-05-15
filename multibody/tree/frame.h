@@ -218,8 +218,9 @@ class Frame : public MultibodyElement<T> {
   /// the pose for a body frame.
   math::RigidTransform<T> CalcPoseInWorld(
       const systems::Context<T>& context) const {
-    return this->get_parent_tree().CalcRelativeTransform(
-        context, this->get_parent_tree().world_frame(), *this);
+    DRAKE_THROW_UNLESS(this->has_parent_tree());
+    const internal::MultibodyTree<T>& tree = this->get_parent_tree();
+    return tree.CalcRelativeTransform(context, tree.world_frame(), *this);
   }
 
   /// Computes and returns the pose `X_MF` of `this` frame F in measured in
@@ -227,6 +228,7 @@ class Frame : public MultibodyElement<T> {
   /// @see CalcPoseInWorld().
   math::RigidTransform<T> CalcPose(const systems::Context<T>& context,
                                    const Frame<T>& frame_M) const {
+    DRAKE_THROW_UNLESS(this->has_parent_tree());
     return this->get_parent_tree().CalcRelativeTransform(context, frame_M,
                                                          *this);
   }
@@ -235,6 +237,7 @@ class Frame : public MultibodyElement<T> {
   /// and `this` frame F as a function of the state stored in `context`.
   math::RotationMatrix<T> CalcRotationMatrix(const systems::Context<T>& context,
                                              const Frame<T>& frame_M) const {
+    DRAKE_THROW_UNLESS(this->has_parent_tree());
     return this->get_parent_tree().CalcRelativeRotationMatrix(context, frame_M,
                                                               *this);
   }
@@ -243,8 +246,9 @@ class Frame : public MultibodyElement<T> {
   /// frame W and `this` frame F as a function of the state stored in `context`.
   math::RotationMatrix<T> CalcRotationMatrixInWorld(
       const systems::Context<T>& context) const {
-    return this->get_parent_tree().CalcRelativeRotationMatrix(
-        context, this->get_parent_tree().world_frame(), *this);
+    DRAKE_THROW_UNLESS(this->has_parent_tree());
+    const internal::MultibodyTree<T>& tree = this->get_parent_tree();
+    return tree.CalcRelativeRotationMatrix(context, tree.world_frame(), *this);
   }
 
   /// Evaluates `this` frame F's angular velocity measured and expressed in the
@@ -546,6 +550,17 @@ class Frame : public MultibodyElement<T> {
   const math::RigidTransform<T>& get_X_FB(
       const internal::FrameBodyPoseCache<T>& frame_body_poses) const {
     return frame_body_poses.get_X_FB(body_pose_index_in_cache_);
+  }
+
+  /// (Internal use only) Given an already up-to-date frame body pose cache,
+  /// returns whether X_BF (and thus X_FB) is exactly identity. This is
+  /// precomputed in the cache so is very fast to check.
+  /// @note Be sure you have called MultibodyTreeSystem::EvalFrameBodyPoses()
+  ///       since the last parameter change; we can't check here.
+  /// @see get_X_BF()
+  bool is_X_BF_identity(
+      const internal::FrameBodyPoseCache<T>& frame_body_poses) const {
+    return frame_body_poses.is_X_BF_identity(body_pose_index_in_cache_);
   }
   //@}
 

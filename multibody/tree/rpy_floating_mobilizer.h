@@ -9,7 +9,6 @@
 #include "drake/common/eigen_types.h"
 #include "drake/multibody/tree/frame.h"
 #include "drake/multibody/tree/mobilizer_impl.h"
-#include "drake/multibody/tree/multibody_tree_topology.h"
 #include "drake/systems/framework/context.h"
 
 namespace drake {
@@ -84,8 +83,8 @@ class RpyFloatingMobilizer final : public MobilizerImpl<T, 6, 6> {
 
   ~RpyFloatingMobilizer() final;
 
-  std::unique_ptr<internal::BodyNode<T>> CreateBodyNode(
-      const internal::BodyNode<T>* parent_node, const RigidBody<T>* body,
+  std::unique_ptr<BodyNode<T>> CreateBodyNode(
+      const BodyNode<T>* parent_node, const RigidBody<T>* body,
       const Mobilizer<T>* mobilizer) const final;
 
   bool has_quaternion_dofs() const final { return false; }
@@ -234,6 +233,12 @@ class RpyFloatingMobilizer final : public MobilizerImpl<T, 6, 6> {
                                    Vector3<T>(q[3], q[4], q[5]));
   }
 
+  /* There's nothing to optimize for the X_FM update. */
+  void update_X_FM(const T* q, math::RigidTransform<T>* X_FM) const {
+    DRAKE_ASSERT(q != nullptr && X_FM != nullptr);
+    *X_FM = calc_X_FM(q);
+  }
+
   // Computes the across-mobilizer velocity V_FM(q, v) of the outboard frame M
   // measured and expressed in frame F as a function of the input generalized
   // velocity v, packed as documented in get_generalized_velocities(). (That's
@@ -286,42 +291,6 @@ class RpyFloatingMobilizer final : public MobilizerImpl<T, 6, 6> {
 
   bool is_velocity_equal_to_qdot() const final { return false; }
 
-  // Maps the generalized velocity v to time derivatives of configuration
-  // qdot.
-  //
-  // @param[in] context
-  //   The context of the model this mobilizer belongs to.
-  // @param[in] v
-  //   A vector of generalized velocities for this mobilizer, packed as
-  //   documented in get_generalized_velocities().
-  // @param[out] qdot
-  //   Rates of the generalized positions, packed as documented in
-  //   get_generalized_positions().
-  //
-  // @warning The mapping from angular velocity to Euler angle's rates is
-  // singular for angle θ₁ such that θ₁ = π/2 + kπ, ∀ k ∈ ℤ. To avoid
-  // working close to this singularity (which could potentially result in large
-  // errors for qdot), this method aborts when the absolute value of the
-  // cosine of θ₁ is smaller than 10⁻³, a number arbitrarily chosen to this end.
-  void MapVelocityToQDot(const systems::Context<T>& context,
-                         const Eigen::Ref<const VectorX<T>>& v,
-                         EigenPtr<VectorX<T>> qdot) const final;
-
-  // Maps time derivatives of the configuration in qdot to
-  // the generalized velocities v.
-  //
-  // @param[in] context
-  //   The context of the model this mobilizer belongs to.
-  // @param[in] qdot
-  //   Rates of the generalized positions, packed as documented in
-  //   get_generalized_positions().
-  // @param[out] v
-  //   A vector of generalized velocities for this mobilizer, packed as
-  //   documented in get_generalized_velocities().
-  void MapQDotToVelocity(const systems::Context<T>& context,
-                         const Eigen::Ref<const VectorX<T>>& qdot,
-                         EigenPtr<VectorX<T>> v) const final;
-
  protected:
   std::optional<QVector<T>> DoPoseToPositions(
       const Eigen::Quaternion<T> orientation,
@@ -344,6 +313,42 @@ class RpyFloatingMobilizer final : public MobilizerImpl<T, 6, 6> {
   // Implements Mobilizer's NVI, see Mobilizer::DoCalcNplusMatrix() for details.
   void DoCalcNplusMatrix(const systems::Context<T>& context,
                          EigenPtr<MatrixX<T>> Nplus) const final;
+
+  // Maps the generalized velocity v to time derivatives of configuration
+  // qdot.
+  //
+  // @param[in] context
+  //   The context of the model this mobilizer belongs to.
+  // @param[in] v
+  //   A vector of generalized velocities for this mobilizer, packed as
+  //   documented in get_generalized_velocities().
+  // @param[out] qdot
+  //   Rates of the generalized positions, packed as documented in
+  //   get_generalized_positions().
+  //
+  // @warning The mapping from angular velocity to Euler angle's rates is
+  // singular for angle θ₁ such that θ₁ = π/2 + kπ, ∀ k ∈ ℤ. To avoid
+  // working close to this singularity (which could potentially result in large
+  // errors for qdot), this method aborts when the absolute value of the
+  // cosine of θ₁ is smaller than 10⁻³, a number arbitrarily chosen to this end.
+  void DoMapVelocityToQDot(const systems::Context<T>& context,
+                           const Eigen::Ref<const VectorX<T>>& v,
+                           EigenPtr<VectorX<T>> qdot) const final;
+
+  // Maps time derivatives of the configuration in qdot to
+  // the generalized velocities v.
+  //
+  // @param[in] context
+  //   The context of the model this mobilizer belongs to.
+  // @param[in] qdot
+  //   Rates of the generalized positions, packed as documented in
+  //   get_generalized_positions().
+  // @param[out] v
+  //   A vector of generalized velocities for this mobilizer, packed as
+  //   documented in get_generalized_velocities().
+  void DoMapQDotToVelocity(const systems::Context<T>& context,
+                           const Eigen::Ref<const VectorX<T>>& qdot,
+                           EigenPtr<VectorX<T>> v) const final;
 
   std::unique_ptr<Mobilizer<double>> DoCloneToScalar(
       const MultibodyTree<double>& tree_clone) const final;

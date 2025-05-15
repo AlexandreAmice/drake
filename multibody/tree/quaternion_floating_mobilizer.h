@@ -220,6 +220,12 @@ class QuaternionFloatingMobilizer final : public MobilizerImpl<T, 7, 6> {
                                    Vector3<T>(q[4], q[5], q[6]));
   }
 
+  /* There's nothing to optimize for the X_FM update. */
+  void update_X_FM(const T* q, math::RigidTransform<T>* X_FM) const {
+    DRAKE_ASSERT(q != nullptr && X_FM != nullptr);
+    *X_FM = calc_X_FM(q);
+  }
+
   SpatialVelocity<T> calc_V_FM(const T*, const T* v) const {
     DRAKE_ASSERT(v != nullptr);
     const Eigen::Map<const VVector<T>> V_FM(v);
@@ -258,14 +264,6 @@ class QuaternionFloatingMobilizer final : public MobilizerImpl<T, 7, 6> {
 
   bool is_velocity_equal_to_qdot() const final { return false; }
 
-  void MapVelocityToQDot(const systems::Context<T>& context,
-                         const Eigen::Ref<const VectorX<T>>& v,
-                         EigenPtr<VectorX<T>> qdot) const final;
-
-  void MapQDotToVelocity(const systems::Context<T>& context,
-                         const Eigen::Ref<const VectorX<T>>& qdot,
-                         EigenPtr<VectorX<T>> v) const final;
-
   // This mobilizer can't use the default implementaion because it is
   // required to preserve bit-identical state.
   std::pair<Eigen::Quaternion<T>, Vector3<T>> GetPosePair(
@@ -291,6 +289,14 @@ class QuaternionFloatingMobilizer final : public MobilizerImpl<T, 7, 6> {
 
   void DoCalcNplusMatrix(const systems::Context<T>& context,
                          EigenPtr<MatrixX<T>> Nplus) const final;
+
+  void DoMapVelocityToQDot(const systems::Context<T>& context,
+                           const Eigen::Ref<const VectorX<T>>& v,
+                           EigenPtr<VectorX<T>> qdot) const final;
+
+  void DoMapQDotToVelocity(const systems::Context<T>& context,
+                           const Eigen::Ref<const VectorX<T>>& qdot,
+                           EigenPtr<VectorX<T>> v) const final;
 
   std::unique_ptr<Mobilizer<double>> DoCloneToScalar(
       const MultibodyTree<double>& tree_clone) const final;

@@ -54,8 +54,7 @@ of artifacts distributed with this website.
 
 # Testing
 
-* [Detailed Notes on Drake's Unit Tests](/unit_testing_instructions.html)
-* [Downstream Testing (Drake as a Dependency)](/downstream_testing.html)
+Refer to [Detailed Notes on Drake's Unit Tests](/unit_testing_instructions.html).
 
 # Supported Configurations
 
@@ -234,10 +233,15 @@ once per day. If there are unanswered questions that you are unsure of the
 answer, consider posting on the Slack ``#onramp`` channel to see if someone
 can look into the question.
 
+# Local Development Notes
+
+* [Developing Drake Using Bazel](/bazel.html)
+* [Developing Drake on macOS](/development_on_mac.html)
+
 # Continuous Integration Notes
 
 * [CDash](https://drake-cdash.csail.mit.edu/index.php?project=Drake)
-* [GitHub PR Interaction with Jenkins](/jenkins.html)
+* [Continuous Integration with GitHub Pull Requests](/jenkins.html)
 * [Build Cop](/buildcop.html)
 
 # Programming Tools
@@ -260,10 +264,6 @@ can look into the question.
 * [Sublime Text Notes](/sublime_text.html)
 * [Unicode Tips & Tricks](/unicode_tips_tricks.html)
 * [Vim/Neovim Notes](/vim.html)
-
-# Operating System Notes
-
-* [Drake Development on macOS](/development_on_mac.html)
 
 # Programming Style Notes
 

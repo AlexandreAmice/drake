@@ -23,17 +23,22 @@ from pydrake.multibody.parsing import (
 
 import copy
 import os
+from pathlib import Path
 import re
 import unittest
 
 from pydrake.common import FindResourceOrThrow
+from pydrake.common.test_utilities import numpy_compare
 from pydrake.geometry import SceneGraph
 from pydrake.multibody.tree import (
     ModelInstanceIndex,
 )
 from pydrake.multibody.plant import (
+    AddMultibodyPlantSceneGraph,
     MultibodyPlant,
+    MultibodyPlant_,
 )
+from pydrake.systems.framework import DiagramBuilder
 
 
 class TestParsing(unittest.TestCase):
@@ -120,8 +125,8 @@ class TestParsing(unittest.TestCase):
         urdf_file = FindResourceOrThrow(
             "drake/multibody/benchmarks/acrobot/acrobot.urdf")
         for dut, file_name in (
-                (Parser.AddModels, sdf_file),
-                (Parser.AddModels, urdf_file),
+                (Parser.AddModels, Path(sdf_file)),
+                (Parser.AddModels, str(urdf_file)),
                 ):
             plant = MultibodyPlant(time_step=0.01)
             parser = Parser(plant=plant)
@@ -226,6 +231,16 @@ class TestParsing(unittest.TestCase):
         groups = parser.GetCollisionFilterGroups()
         self.assertTrue(groups.empty())
 
+    def test_parser_diagram_builder(self):
+        builder = DiagramBuilder()
+        plant, scene_graph = AddMultibodyPlantSceneGraph(
+            builder, time_step=0.0)
+        parser = Parser(builder=builder, plant=plant, scene_graph=scene_graph,
+                        model_name_prefix="prefix")
+        self.assertEqual(parser.builder(), builder)
+        self.assertEqual(parser.plant(), plant)
+        self.assertEqual(parser.scene_graph(), scene_graph)
+
     def test_model_instance_info(self):
         """Checks that ModelInstanceInfo bindings exist."""
         ModelInstanceInfo.model_name
@@ -235,21 +250,22 @@ class TestParsing(unittest.TestCase):
         ModelInstanceInfo.X_PC
         ModelInstanceInfo.model_instance
 
-    def test_scoped_frame_names(self):
-        plant = MultibodyPlant(time_step=0.01)
+    @numpy_compare.check_all_types
+    def test_scoped_frame_names(self, T):
+        plant = MultibodyPlant_[T](time_step=0.01)
         GetScopedFrameByName(plant, "world")
         GetScopedFrameByNameMaybe(plant, "world")
 
-    def _make_plant_parser_directives(self):
+    def _make_plant_parser_directives(self, *, path_type=Path):
         """Returns a tuple (plant, parser, directives) for later testing."""
-        model_dir = os.path.dirname(FindResourceOrThrow(
+        model_dir = Path(FindResourceOrThrow(
             "drake/multibody/parsing/test/"
-            "process_model_directives_test/package.xml"))
+            "process_model_directives_test/package.xml")).parent
         plant = MultibodyPlant(time_step=0.01)
         parser = Parser(plant=plant)
         parser.package_map().PopulateFromFolder(model_dir)
-        directives_file = model_dir + "/add_scoped_top.dmd.yaml"
-        directives = LoadModelDirectives(directives_file)
+        directives_file = model_dir / "add_scoped_top.dmd.yaml"
+        directives = LoadModelDirectives(path_type(directives_file))
         return (plant, parser, directives)
 
     def test_load_model_directives_from_string(self):
@@ -281,7 +297,11 @@ directives:
 
     def test_process_model_directives_dispreferred(self):
         """Check the Process... overload that also passes a MbP."""
-        (plant, parser, directives) = self._make_plant_parser_directives()
+        (plant, parser, directives) = self._make_plant_parser_directives(
+            # Use this opportunity to also test a non-standard argument type
+            # for LoadModelDirectives().
+            path_type=str,
+        )
         added_models = ProcessModelDirectives(
             directives=directives, plant=plant, parser=parser)
         model_names = [model.model_name for model in added_models]

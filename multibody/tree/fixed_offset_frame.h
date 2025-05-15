@@ -7,7 +7,6 @@
 #include "drake/common/default_scalars.h"
 #include "drake/common/eigen_types.h"
 #include "drake/multibody/tree/frame.h"
-#include "drake/multibody/tree/multibody_tree_topology.h"
 
 namespace drake {
 namespace multibody {
@@ -50,7 +49,7 @@ class FixedOffsetFrame final : public Frame<T> {
   ///   value (as a RigidTransform<double>) is provided.
   /// @param[in] model_instance
   ///   The model instance to which this frame belongs to. If unspecified, will
-  ///   use P.body().model_instance().
+  ///   use P.model_instance().
   FixedOffsetFrame(const std::string& name, const Frame<T>& P,
                    const math::RigidTransform<double>& X_PF,
                    std::optional<ModelInstanceIndex> model_instance = {});

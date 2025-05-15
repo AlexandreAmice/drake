@@ -70,6 +70,7 @@ drake_cc_library(
         ":geometry_ids",
         ":geometry_roles",
         ":internal_geometry",
+        ":mesh_deformation_interpolator",
         ":shape_specification",
         "//common:default_scalars",
         "//common:sorted_pair",
@@ -643,6 +644,8 @@ drake_cc_googletest(
         ":meshcat_websocket_client",
         "//geometry/render:test_models",
     ],
+    # Network settings cause this test to occasionally fail in macOS CI.
+    flaky = True,
     tags = [
         "cpu:2",
     ],
@@ -834,6 +837,9 @@ filegroup(
         "test/octahedron.obj",
         "test/quad_cube.mtl",
         "test/quad_cube.obj",
+        "test/rotated_cube.mtl",
+        "test/rotated_cube_squished.obj",
+        "test/rotated_cube_unit_scale.obj",
         "test/two_cube_objects.obj",
     ],
 )
@@ -931,6 +937,7 @@ drake_cc_googletest(
         ":test_vtk_files",
     ],
     deps = [
+        ":geometry_state",
         ":proximity_engine",
         ":shape_specification",
         "//common/test_utilities:eigen_matrix_compare",
@@ -1194,4 +1201,4 @@ install(
     ],
 )
 
-add_lint_tests(enable_clang_format_lint = False)
+add_lint_tests()

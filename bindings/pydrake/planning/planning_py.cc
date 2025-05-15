@@ -14,6 +14,7 @@ and/or trajectories of dynamical systems.
   py::module::import("pydrake.geometry");
   py::module::import("pydrake.multibody.parsing");
   py::module::import("pydrake.multibody.plant");
+  py::module::import("pydrake.multibody.rational");
   py::module::import("pydrake.solvers");
   py::module::import("pydrake.symbolic");
   py::module::import("pydrake.systems.framework");
@@ -21,6 +22,7 @@ and/or trajectories of dynamical systems.
   py::module::import("pydrake.trajectories");
 
   // The order of these calls matters. Some modules rely on prior definitions.
+  internal::DefinePlanningJointLimits(m);
   internal::DefinePlanningRobotDiagram(m);
   internal::DefinePlanningCollisionCheckerInterfaceTypes(m);
   internal::DefinePlanningCollisionChecker(m);
@@ -28,6 +30,7 @@ and/or trajectories of dynamical systems.
   internal::DefinePlanningTrajectoryOptimization(m);
   internal::DefinePlanningVisibilityGraph(m);
   internal::DefinePlanningIrisFromCliqueCover(m);
+  internal::DefinePlanningIrisCommon(m);
   internal::DefinePlanningIrisZo(m);
   internal::DefinePlanningZmpPlanner(m);
 }

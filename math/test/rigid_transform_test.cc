@@ -824,6 +824,101 @@ GTEST_TEST(RigidTransform, OperatorMultiplyByMatrix3X) {
   }
 }
 
+// Test special case routines for working with transforms that have specialized
+// structures such as axial rotations or translations. These should produce the
+// same answers as the general functions. These functions all have the
+// precondition that the given operands have the expected structure, but they
+// don't necessarily check that precondition so there aren't any error tests
+// here.
+GTEST_TEST(RigidTransform, SpecializedTransformOperators) {
+  using Xform = RigidTransformd;         // For less clutter below.
+  constexpr double kTol = 4 * kEpsilon;  // Allow for differing implementations.
+
+  // Make transforms that are axial rotations only (zero translations).
+  const double theta = 0.234;
+  const Xform xrX_BC(Xform::MakeAxialRotation<0>(theta));  // about x
+  const Xform yrX_BC(Xform::MakeAxialRotation<1>(theta));  // about y
+  const Xform zrX_BC(Xform::MakeAxialRotation<2>(theta));  // about z
+
+  // Test MakeAxialRotation().
+  EXPECT_TRUE(xrX_BC.IsNearlyEqualTo(
+      Xform(RotationMatrixd::MakeXRotation(theta)), kTol));
+  EXPECT_TRUE(yrX_BC.IsNearlyEqualTo(
+      Xform(RotationMatrixd::MakeYRotation(theta)), kTol));
+  EXPECT_TRUE(zrX_BC.IsNearlyEqualTo(
+      Xform(RotationMatrixd::MakeZRotation(theta)), kTol));
+
+  // Test ApplyAxialRotation().
+  const Vector3d p_C(1.0, 2.0, 3.0);
+  Vector3d p_B;  // reusable result
+  EXPECT_TRUE(CompareMatrices(Xform::ApplyAxialRotation<0>(xrX_BC, p_C),
+                              xrX_BC * p_C, kTol));
+  EXPECT_TRUE(CompareMatrices(Xform::ApplyAxialRotation<1>(yrX_BC, p_C),
+                              yrX_BC * p_C, kTol));
+  EXPECT_TRUE(CompareMatrices(Xform::ApplyAxialRotation<2>(zrX_BC, p_C),
+                              zrX_BC * p_C, kTol));
+
+  // Test UpdateAxialRotation().
+  Xform X_BC_update = xrX_BC;
+  Xform::UpdateAxialRotation<0>(2 * theta, &X_BC_update);
+  EXPECT_TRUE(X_BC_update.IsNearlyEqualTo(
+      Xform::MakeAxialRotation<0>(2 * theta), kTol));
+  X_BC_update = yrX_BC;
+  Xform::UpdateAxialRotation<1>(3 * theta, &X_BC_update);
+  EXPECT_TRUE(X_BC_update.IsNearlyEqualTo(
+      Xform::MakeAxialRotation<1>(3 * theta), kTol));
+  X_BC_update = zrX_BC;
+  // Use the alternate signature.
+  Xform::UpdateAxialRotation<2>(std::sin(4 * theta), std::cos(4 * theta),
+                                &X_BC_update);
+  EXPECT_TRUE(X_BC_update.IsNearlyEqualTo(
+      Xform::MakeAxialRotation<2>(4 * theta), kTol));
+
+  // Make an axial translation transform (this one is y-axial).
+  const Xform ytX_BC(Vector3d(0, -2, 0));  // d = -2
+
+  // Test UpdateAxialTranslation().
+  Xform ytX_BC_update = ytX_BC;
+  Xform::UpdateAxialTranslation<1>(5, &ytX_BC_update);  // d = 5
+  EXPECT_TRUE(ytX_BC_update.IsExactlyEqualTo(Xform(Vector3d(0, 5, 0))));
+
+  // Make general, rotation-only, and translation-only transforms.
+  const Xform X_AB(RollPitchYaw(1.0, 2.0, 3.0), Vector3d(1.5, 2.5, 3.5));
+  const Xform rX_BC(RollPitchYaw(0.5, 1.5, -2.5), Vector3d::Zero());
+  const Xform tX_BC(Vector3d(-1.0, 2.0, -3.0));
+  Xform X_AC;  // reusable result
+
+  // Test PostMultiplyByRotation() and PostMultiplyBy[Axial]Translation().
+  X_AB.PostMultiplyByRotation(rX_BC, &X_AC);
+  EXPECT_TRUE(X_AC.IsNearlyEqualTo(X_AB * rX_BC, kTol));
+
+  X_AB.PostMultiplyByTranslation(tX_BC, &X_AC);
+  EXPECT_TRUE(X_AC.IsNearlyEqualTo(X_AB * tX_BC, kTol));
+
+  X_AB.PostMultiplyByAxialTranslation<1>(ytX_BC, &X_AC);
+  EXPECT_TRUE(X_AC.IsNearlyEqualTo(X_AB * ytX_BC, kTol));
+
+  // Test PostMultiplyByAxialRotation().
+  X_AB.PostMultiplyByAxialRotation<0>(xrX_BC, &X_AC);
+  EXPECT_TRUE(X_AC.IsNearlyEqualTo(X_AB * xrX_BC, kTol));
+  X_AB.PostMultiplyByAxialRotation<1>(yrX_BC, &X_AC);
+  EXPECT_TRUE(X_AC.IsNearlyEqualTo(X_AB * yrX_BC, kTol));
+  X_AB.PostMultiplyByAxialRotation<2>(zrX_BC, &X_AC);
+  EXPECT_TRUE(X_AC.IsNearlyEqualTo(X_AB * zrX_BC, kTol));
+
+  // Test PreMultiplyByAxialRotation(), PreMultiplyByAxialTranslation().
+  const Xform X_CD(RollPitchYaw(1.0, 2.0, 3.0), Vector3d(1.5, 2.5, 3.5));
+  Xform X_BD;  // reusable result
+  X_CD.PreMultiplyByAxialRotation<0>(xrX_BC, &X_BD);
+  EXPECT_TRUE(X_BD.IsNearlyEqualTo(xrX_BC * X_CD, kTol));
+  X_CD.PreMultiplyByAxialRotation<1>(yrX_BC, &X_BD);
+  EXPECT_TRUE(X_BD.IsNearlyEqualTo(yrX_BC * X_CD, kTol));
+  X_CD.PreMultiplyByAxialRotation<2>(zrX_BC, &X_BD);
+  EXPECT_TRUE(X_BD.IsNearlyEqualTo(zrX_BC * X_CD, kTol));
+  X_CD.PreMultiplyByAxialTranslation<1>(ytX_BC, &X_BD);
+  EXPECT_TRUE(X_BD.IsNearlyEqualTo(ytX_BC * X_CD, kTol));
+}
+
 GTEST_TEST(RigidTransform, TestMemoryLayoutOfRigidTransformDouble) {
   // For optimization (e.g., AVX instructions), verify RigidTransform<double>
   // is packed into 12 consecutive doubles, first with a 3x3 rotation matrix

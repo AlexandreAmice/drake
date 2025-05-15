@@ -7,6 +7,7 @@
 #include "drake/bindings/pydrake/pydrake_pybind.h"
 #include "drake/common/scope_exit.h"
 #include "drake/systems/analysis/batch_eval.h"
+#include "drake/systems/analysis/discrete_time_approximation.h"
 #include "drake/systems/analysis/integrator_base.h"
 #include "drake/systems/analysis/monte_carlo.h"
 #include "drake/systems/analysis/region_of_attraction.h"
@@ -43,6 +44,7 @@ PYBIND11_MODULE(analysis, m) {
   m.doc() = "Bindings for the analysis portion of the Systems framework.";
 
   py::module::import("pydrake.systems.framework");
+  py::module::import("pydrake.systems.primitives");
   py::module::import("pydrake.solvers");
   py::module::import("pydrake.trajectories");
 
@@ -162,10 +164,23 @@ PYBIND11_MODULE(analysis, m) {
           .def("StartDenseIntegration", &Class::StartDenseIntegration,
               cls_doc.StartDenseIntegration.doc)
           .def("get_dense_output", &Class::get_dense_output,
-              py_rvp::reference_internal, py_rvp::reference_internal,
-              cls_doc.get_dense_output.doc)
-          .def("StopDenseIntegration", &Class::StopDenseIntegration,
-              cls_doc.StopDenseIntegration.doc)
+              py_rvp::reference_internal, cls_doc.get_dense_output.doc)
+          .def(
+              "StopDenseIntegration",
+              [](Class* self) -> trajectories::PiecewisePolynomial<T>* {
+                // Having abandoned the old RobotLocomotion pybind11 branch
+                // with special handling of std::unique_ptr<>, this binding's
+                // return value path started deleting the C++ object and
+                // returning a dead non-null pointer. To avoid that, we
+                // instead explicitly unwrap the pointer here and rely on the
+                // take_ownership return value policy. The take_ownership
+                // policy would be the default policy in this case, but it
+                // seems safer and more clear to apply it explicitly.
+                std::unique_ptr<trajectories::PiecewisePolynomial<T>> result =
+                    self->StopDenseIntegration();
+                return result.release();
+              },
+              py_rvp::take_ownership, cls_doc.StopDenseIntegration.doc)
           .def("ResetStatistics", &Class::ResetStatistics,
               cls_doc.ResetStatistics.doc)
           .def("get_num_substep_failures", &Class::get_num_substep_failures,
@@ -199,7 +214,9 @@ PYBIND11_MODULE(analysis, m) {
           .def("get_mutable_context", &Class::get_mutable_context,
               // Keep alive, transitive: `return` keeps `self` alive.
               py::keep_alive<0, 1>(), cls_doc.get_mutable_context.doc)
-          .def("reset_context", &Class::reset_context, py::arg("context"),
+          .def("reset_context",
+              py::overload_cast<Context<T>*>(&Class::reset_context),
+              py::arg("context"),
               // Keep alive, reference: `context` keeps `self` alive.
               py::keep_alive<2, 1>(), cls_doc.reset_context.doc);
     }
@@ -214,6 +231,37 @@ PYBIND11_MODULE(analysis, m) {
             py::keep_alive<1, 2>(),
             // Keep alive, reference: `self` keeps `context` alive.
             py::keep_alive<1, 4>(), doc.RungeKutta2Integrator.ctor.doc);
+
+    {
+      m.def("DiscreteTimeApproximation",
+          overload_cast_explicit<std::unique_ptr<LinearSystem<T>>,
+              const LinearSystem<T>&, double>(&DiscreteTimeApproximation),
+          py::arg("linear_system"), py::arg("time_period"),
+          doc.DiscreteTimeApproximation.doc_2args_constLinearSystem_double);
+
+      m.def("DiscreteTimeApproximation",
+          overload_cast_explicit<std::unique_ptr<AffineSystem<T>>,
+              const AffineSystem<T>&, double>(&DiscreteTimeApproximation),
+          py::arg("affine_system"), py::arg("time_period"),
+          doc.DiscreteTimeApproximation.doc_2args_constAffineSystem_double);
+
+      m.def(
+          "DiscreteTimeApproximation",
+          [](const System<T>& system, double time_period,
+              const SimulatorConfig& integrator_config) {
+            return DiscreteTimeApproximation(
+                // The lifetime of `system` is managed by the keep_alive
+                // below, not the C++ shared_ptr.
+                make_unowned_shared_ptr_from_raw(&system), time_period,
+                integrator_config);
+          },
+          py::arg("system"), py::arg("time_period"),
+          py::arg("integrator_config") = SimulatorConfig(),
+          // Keep alive, reference: `result` keeps `system` alive.
+          py::keep_alive<0, 1>(),
+          doc.DiscreteTimeApproximation
+              .doc_3args_constSystem_double_SimulatorConfig);
+    }
   };
   type_visit(bind_scalar_types, CommonScalarPack{});
 
@@ -239,13 +287,35 @@ PYBIND11_MODULE(analysis, m) {
         m, "Simulator", GetPyParam<T>(), doc.Simulator.doc);
     cls  // BR
         .def(py::init([](const System<T>& system, Context<T>* context) {
+          // Expand the default-context request here, so that it gets a
+          // python-compatible lifetime.
+          if (context == nullptr) {
+            std::unique_ptr<Context<T>> context_ptr =
+                system.CreateDefaultContext();
+            // Python ownership will be created below by
+            // make_shared_ptr_from_py_object.
+            context = context_ptr.release();
+          }
           auto py_context = py::cast(context);
           return Simulator<T>::MakeWithSharedContext(
               system, make_shared_ptr_from_py_object<Context<T>>(py_context));
         }),
             py::arg("system"), py::arg("context") = nullptr,
             // Keep alive, reference: `self` keeps `system` alive.
-            py::keep_alive<1, 2>())
+            py::keep_alive<1, 2>(),
+            []() {
+              std::string new_doc = doc.Simulator.ctor.doc;
+              new_doc += R"""(
+
+(Python only) The Simulator's Context, whether provided as a constructor
+argument or allocated internally, will have a lifetime managed by Python
+reference counting. Note, however, that the simulator logically "owns" the
+context; it will modify the context in most of its methods. Therefore, sharing
+a Context object among Simulators will likely lead to incorrect results.
+)""";
+              return new_doc;
+            }()
+                .c_str())
         .def("Initialize", &Simulator<T>::Initialize,
             doc.Simulator.Initialize.doc,
             py::arg("params") = InitializeParams{})

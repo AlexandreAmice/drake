@@ -39,11 +39,13 @@ drake_pybind_library(
         "planning_py_collision_checker.cc",
         "planning_py_collision_checker_interface_types.cc",
         "planning_py_graph_algorithms.cc",
+        "planning_py_iris_common.cc",
+        "planning_py_iris_from_clique_cover.cc",
+        "planning_py_iris_zo.cc",
+        "planning_py_joint_limits.cc",
         "planning_py_robot_diagram.cc",
         "planning_py_trajectory_optimization.cc",
         "planning_py_visibility_graph.cc",
-        "planning_py_iris_from_clique_cover.cc",
-        "planning_py_iris_zo.cc",
         "planning_py_zmp_planner.cc",
     ],
     package_info = PACKAGE_INFO,
@@ -51,6 +53,7 @@ drake_pybind_library(
         "//bindings/pydrake/geometry",
         "//bindings/pydrake/multibody:parsing_py",
         "//bindings/pydrake/multibody:plant_py",
+        "//bindings/pydrake/multibody:rational_py",
         "//bindings/pydrake/systems:framework_py",
         "//bindings/pydrake/systems:primitives_py",
         "//bindings/pydrake/solvers",
@@ -74,6 +77,7 @@ drake_py_unittest(
     num_threads = 2,
     deps = [
         ":planning",
+        "//bindings/pydrake/common/test_utilities:memory_test_util_py",
         "//bindings/pydrake/common/test_utilities:numpy_compare_py",
         "//bindings/pydrake/common/test_utilities:scipy_stub_py",
     ],
@@ -138,8 +142,16 @@ drake_py_unittest(
 )
 
 drake_py_unittest(
-    name = "iris_zo_test",
+    name = "iris_test",
     num_threads = 2,
+    deps = [
+        ":planning",
+        "//bindings/pydrake/multibody:inverse_kinematics_py",
+    ],
+)
+
+drake_py_unittest(
+    name = "joint_limits_test",
     deps = [
         ":planning",
     ],

@@ -26,6 +26,14 @@ class MultibodyPlant;
 /// BodyIndex index() const { return this->template index_impl<BodyIndex>(); }
 /// @endcode
 ///
+/// Some multibody elements are added during Finalize() and are not part of
+/// the user-specified model. These are called "ephemeral" elements and can
+/// be identified using the `is_ephemeral()` function here. Examples include
+///   - free joints added to connect lone bodies or free-floating trees
+///     to World
+///   - fixed offset frames added when joints are modeled by mobilizers
+///   - all mobilizers.
+///
 /// @tparam_default_scalar
 template <typename T>
 class MultibodyElement {
@@ -64,6 +72,15 @@ class MultibodyElement {
   /// @pre parameters != nullptr
   void SetDefaultParameters(systems::Parameters<T>* parameters) const;
 
+  /// Returns `true` if this %MultibodyElement was added during Finalize()
+  /// rather than something a user added. (See class comments.)
+  bool is_ephemeral() const { return is_ephemeral_; }
+
+  /// (Internal use only) Sets the `is_ephemeral` flag to the indicated value.
+  /// The default if this is never called is `false`. Any element that is added
+  /// during Finalize() should set this flag to `true`.
+  void set_is_ephemeral(bool is_ephemeral) { is_ephemeral_ = is_ephemeral; }
+
  protected:
   /// Default constructor made protected so that sub-classes can still declare
   /// their default constructors if they need to.
@@ -90,6 +107,7 @@ class MultibodyElement {
 
   /// Returns a constant reference to the parent MultibodyTree that
   /// owns this element.
+  /// @throws std::exception in debug builds if has_parent_tree() is false.
   const internal::MultibodyTree<T>& get_parent_tree() const {
     DRAKE_ASSERT_VOID(HasParentTreeOrThrow());
     return *parent_tree_;
@@ -97,6 +115,7 @@ class MultibodyElement {
 
   /// Returns a constant reference to the parent MultibodyTreeSystem that
   /// owns the parent MultibodyTree that owns this element.
+  /// @throws std::exception in debug builds if has_parent_tree() is false.
   const internal::MultibodyTreeSystem<T>& GetParentTreeSystem() const {
     DRAKE_ASSERT_VOID(HasParentTreeOrThrow());
     return get_parent_tree().tree_system();
@@ -135,6 +154,9 @@ class MultibodyElement {
       internal::MultibodyTreeSystem<T>* tree_system,
       const AbstractValue& model_value);
 
+  /// Returns true if this multibody element has a parent tree, otherwise false.
+  bool has_parent_tree() const { return parent_tree_ != nullptr; }
+
  private:
   // MultibodyTree<T> is a natural friend of MultibodyElement objects and
   // therefore it can set the owning parent tree and unique index in that tree.
@@ -153,8 +175,6 @@ class MultibodyElement {
   void set_model_instance(ModelInstanceIndex model_instance) {
     model_instance_ = model_instance;
   }
-
-  bool has_parent_tree() const { return parent_tree_ != nullptr; }
 
   // Checks whether this MultibodyElement has been registered into
   // a MultibodyTree and throws an exception if not.
@@ -186,6 +206,8 @@ class MultibodyElement {
   // The default model instance id is *invalid*. This must be set to a
   // valid index value before the element is released to the wild.
   ModelInstanceIndex model_instance_;
+
+  bool is_ephemeral_{false};
 };
 
 }  // namespace multibody

@@ -16,6 +16,7 @@ drake_cc_package_library(
     deps = [
         ":bspline_weights",
         ":grid_data",
+        ":mass_and_momentum",
         ":particle_data",
         ":particle_sorter",
         ":spgrid_flags",
@@ -42,8 +43,37 @@ drake_cc_library(
         "grid_data.h",
     ],
     deps = [
+        "//common:autodiff",
         "//common:bit_cast",
         "//common:essential",
+    ],
+)
+
+drake_cc_library(
+    name = "mass_and_momentum",
+    hdrs = [
+        "mass_and_momentum.h",
+    ],
+    deps = [
+        "//common:essential",
+    ],
+)
+
+drake_cc_library_linux_only(
+    name = "mock_sparse_grid",
+    srcs = [
+        "mock_sparse_grid.cc",
+    ],
+    hdrs = [
+        "mock_sparse_grid.h",
+    ],
+    deps = [
+        ":grid_data",
+        ":mass_and_momentum",
+        ":particle_data",
+        ":particle_sorter",
+        ":spgrid",
+        "//multibody/contact_solvers/sap:partial_permutation",
     ],
 )
 
@@ -56,6 +86,7 @@ drake_cc_library(
         "particle_data.h",
     ],
     deps = [
+        ":mass_and_momentum",
         "//common:essential",
         "//common:parallelism",
         "//multibody/fem",
@@ -82,6 +113,44 @@ drake_cc_library(
 # install its license file in drake/tools/workspace/BUILD.bazel.
 
 drake_cc_library_linux_only(
+    name = "sparse_grid",
+    srcs = [
+        "sparse_grid.cc",
+    ],
+    hdrs = [
+        "sparse_grid.h",
+    ],
+    deps = [
+        ":grid_data",
+        ":mass_and_momentum",
+        ":particle_data",
+        ":particle_sorter",
+        ":spgrid",
+        "//multibody/contact_solvers/sap:partial_permutation",
+    ],
+)
+
+drake_cc_library_linux_only(
+    name = "mpm_model",
+    srcs = [
+        "mpm_model.cc",
+        "solver_state.cc",
+    ],
+    hdrs = [
+        "mpm_model.h",
+        "solver_state.h",
+    ],
+    deps = [
+        ":mock_sparse_grid",
+        ":particle_data",
+        ":sparse_grid",
+        ":transfer",
+        "//math:fourth_order_tensor",
+        "//multibody/contact_solvers/sap:partial_permutation",
+    ],
+)
+
+drake_cc_library_linux_only(
     name = "spgrid",
     srcs = [
         "spgrid.cc",
@@ -89,6 +158,10 @@ drake_cc_library_linux_only(
     hdrs = [
         "spgrid.h",
     ],
+    defines = select({
+        "//tools:using_memcheck": ["DRAKE_MPM_TESTING_LOG2_MAX_GRID_SIZE=5"],
+        "//conditions:default": [],
+    }),
     deps = [
         ":spgrid_flags",
         "//common:essential",
@@ -108,6 +181,21 @@ drake_cc_library(
     ],
 )
 
+drake_cc_library_linux_only(
+    name = "transfer",
+    srcs = [
+        "transfer.cc",
+    ],
+    hdrs = [
+        "transfer.h",
+    ],
+    deps = [
+        ":mock_sparse_grid",
+        ":particle_data",
+        ":sparse_grid",
+    ],
+)
+
 drake_cc_googletest(
     name = "bspline_weights_test",
     deps = [
@@ -119,6 +207,14 @@ drake_cc_googletest(
     name = "grid_data_test",
     deps = [
         ":grid_data",
+    ],
+)
+
+drake_cc_googletest_linux_only(
+    name = "mpm_model_test",
+    deps = [
+        ":mpm_model",
+        "//common/test_utilities:eigen_matrix_compare",
     ],
 )
 
@@ -135,8 +231,20 @@ drake_cc_googletest_linux_only(
     deps = [
         ":bspline_weights",
         ":grid_data",
+        ":particle_data",
         ":particle_sorter",
+        ":sparse_grid",
         ":spgrid",
+        "//common/test_utilities:eigen_matrix_compare",
+    ],
+)
+
+drake_cc_googletest_linux_only(
+    name = "sparse_grid_test",
+    deps = [
+        ":mock_sparse_grid",
+        ":sparse_grid",
+        "//common/test_utilities:eigen_matrix_compare",
     ],
 )
 
@@ -145,6 +253,16 @@ drake_cc_googletest_linux_only(
     deps = [
         ":spgrid",
         "//common/test_utilities:limit_malloc",
+    ],
+)
+
+drake_cc_googletest_linux_only(
+    name = "transfer_test",
+    deps = [
+        ":particle_data",
+        ":sparse_grid",
+        ":transfer",
+        "//common/test_utilities:eigen_matrix_compare",
     ],
 )
 

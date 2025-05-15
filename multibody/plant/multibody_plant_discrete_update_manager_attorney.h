@@ -83,7 +83,7 @@ class MultibodyPlantDiscreteUpdateManagerAttorney {
     return plant.AssembleActuationInput(context);
   }
 
-  static VectorX<T> AssembleDesiredStateInput(
+  static DesiredStateInput<T> AssembleDesiredStateInput(
       const MultibodyPlant<T>& plant, const systems::Context<T>& context) {
     return plant.AssembleDesiredStateInput(context);
   }
@@ -115,10 +115,10 @@ class MultibodyPlantDiscreteUpdateManagerAttorney {
     return plant.coupler_constraints_specs_;
   }
 
-  static const std::map<MultibodyConstraintId,
-                        internal::DistanceConstraintSpec>&
-  distance_constraints_specs(const MultibodyPlant<T>& plant) {
-    return plant.distance_constraints_specs_;
+  static const std::map<MultibodyConstraintId, DistanceConstraintParams>&
+  GetDistanceConstraintParams(const MultibodyPlant<T>& plant,
+                              const systems::Context<T>& context) {
+    return plant.GetDistanceConstraintParams(context);
   }
 
   static const std::map<MultibodyConstraintId, internal::BallConstraintSpec>&
@@ -129,6 +129,11 @@ class MultibodyPlantDiscreteUpdateManagerAttorney {
   static const std::map<MultibodyConstraintId, internal::WeldConstraintSpec>&
   weld_constraints_specs(const MultibodyPlant<T>& plant) {
     return plant.weld_constraints_specs_;
+  }
+
+  static const std::map<MultibodyConstraintId, internal::TendonConstraintSpec>&
+  tendon_constraints_specs(const MultibodyPlant<T>& plant) {
+    return plant.tendon_constraints_specs_;
   }
 
   static const std::map<MultibodyConstraintId, bool>& GetConstraintActiveStatus(

@@ -673,7 +673,7 @@ void DoDefineFrameworkDiagramBuilder(py::module m) {
             // unowned shared_ptr.
             return self->AddSystem(make_unowned_shared_ptr_from_raw(&system));
           },
-          py::arg("system"), internal::ref_cycle<1, 2>(),
+          py::arg("system"), internal::ref_cycle<1, 2>(), py_rvp::reference,
           doc.DiagramBuilder.AddSystem.doc)
       .def(
           "AddNamedSystem",
@@ -688,7 +688,7 @@ void DoDefineFrameworkDiagramBuilder(py::module m) {
                 name, make_unowned_shared_ptr_from_raw(&system));
           },
           py::arg("name"), py::arg("system"), internal::ref_cycle<1, 3>(),
-          doc.DiagramBuilder.AddNamedSystem.doc)
+          py_rvp::reference, doc.DiagramBuilder.AddNamedSystem.doc)
       .def("RemoveSystem", &DiagramBuilder<T>::RemoveSystem, py::arg("system"),
           doc.DiagramBuilder.RemoveSystem.doc)
       .def("empty", &DiagramBuilder<T>::empty, doc.DiagramBuilder.empty.doc)
@@ -802,8 +802,8 @@ void DoDefineFrameworkDiagramBuilder(py::module m) {
 // should split it up into smaller pieces.
 template <typename T>
 void DefineRemainingScalarDependentDefinitions(py::module m) {
-  DefineTemplateClassWithDefault<OutputPort<T>>(
-      m, "OutputPort", GetPyParam<T>(), doc.OutputPort.doc)
+  DefineTemplateClassWithDefault<OutputPort<T>>(m, "OutputPort",
+      GetPyParam<T>(), doc.OutputPort.doc, std::nullopt, py::dynamic_attr())
       .def("size", &OutputPort<T>::size, doc.PortBase.size.doc)
       .def("get_data_type", &OutputPort<T>::get_data_type,
           doc.PortBase.get_data_type.doc)
@@ -873,8 +873,8 @@ void DefineRemainingScalarDependentDefinitions(py::module m) {
       .def("get_vector_data", &SystemOutput<T>::get_vector_data,
           py_rvp::reference_internal, doc.SystemOutput.get_vector_data.doc);
 
-  DefineTemplateClassWithDefault<InputPort<T>>(
-      m, "InputPort", GetPyParam<T>(), doc.InputPort.doc)
+  DefineTemplateClassWithDefault<InputPort<T>>(m, "InputPort", GetPyParam<T>(),
+      doc.InputPort.doc, std::nullopt, py::dynamic_attr())
       .def("get_name", &InputPort<T>::get_name, doc.PortBase.get_name.doc)
       .def("GetFullDescription", &InputPort<T>::GetFullDescription,
           doc.PortBase.GetFullDescription.doc)

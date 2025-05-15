@@ -32,7 +32,7 @@ from pydrake.systems.framework import (
     InputPort,
     OutputPort,
     )
-from pydrake.systems.lcm import LcmBuses, _Serializer_
+from pydrake.systems.lcm import LcmBuses, LcmInterfaceSystem, _Serializer_
 from drake import (
     lcmt_image,
     lcmt_image_array,
@@ -235,10 +235,14 @@ class TestSensors(unittest.TestCase):
         self.assertIsInstance(depth, DepthRenderCamera)
 
         fov = mut.CameraConfig.FovDegrees(x=10, y=20)
+        fov.focal_x(width=64, height=48)
+        fov.focal_y(width=64, height=48)
         self.assertIn("x=10", repr(fov))
         copy.copy(fov)
 
         focal = mut.CameraConfig.FocalLength(x=10, y=20)
+        focal.focal_x()
+        focal.focal_y()
         self.assertIn("x=10", repr(focal))
         copy.copy(focal)
 
@@ -252,6 +256,7 @@ class TestSensors(unittest.TestCase):
         self.assertGreater(len(builder.GetSystems()), system_count)
 
     def test_camera_config_lcm_buses(self):
+        """Calls ApplyCameraConfig using LcmBuses."""
         builder = DiagramBuilder()
         plant, scene_graph = AddMultibodyPlantSceneGraph(builder, 0.0)
         system_count = len(builder.GetSystems())
@@ -264,6 +269,16 @@ class TestSensors(unittest.TestCase):
                               lcm_buses=lcm_buses)
 
         # Check that systems were added.
+        self.assertGreater(len(builder.GetSystems()), system_count)
+
+    def test_camera_config_lcm_interface_system(self):
+        """Calls ApplyCameraConfig using LcmInterfaceSystem."""
+        builder = DiagramBuilder()
+        plant, scene_graph = AddMultibodyPlantSceneGraph(builder, 0.0)
+        lcm = builder.AddSystem(LcmInterfaceSystem(lcm=DrakeLcm()))
+        config = mut.CameraConfig()
+        system_count = len(builder.GetSystems())
+        mut.ApplyCameraConfig(config=config, builder=builder, lcm=lcm)
         self.assertGreater(len(builder.GetSystems()), system_count)
 
     def test_camera_info(self):
@@ -537,16 +552,6 @@ class TestSensors(unittest.TestCase):
                                   color_camera=color_camera,
                                   depth_camera=depth_camera,
                                   render_label_image=True)
-
-        # Test deprecated methods.
-        with catch_drake_warnings(expected_count=1):
-            dut.parent_id()
-        with catch_drake_warnings(expected_count=1):
-            dut.X_PB()
-        with catch_drake_warnings(expected_count=1):
-            dut.color_camera()
-        with catch_drake_warnings(expected_count=1):
-            dut.depth_camera()
 
         # Check const configuration accessors.
         self.assertIsInstance(dut.fps(), float)

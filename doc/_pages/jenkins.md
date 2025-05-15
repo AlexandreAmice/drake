@@ -1,5 +1,5 @@
 ---
-title: GitHub PR Interaction with Jenkins
+title: Continuous Integration with GitHub Pull Requests
 ---
 
 When a new pull request is opened in the project and the author of the pull
@@ -107,11 +107,14 @@ and ``new_release.py``). Again, it is expected that a given prerequisite will
 only appear in one of these lists.
 
 When updating prerequisites with these scripts, the normal experimental CI will
-most likely fail. To test new prerequisites, you should first request
-unprovisioned experimental builds, e.g.:
+most likely fail. To test new prerequisites on Linux, you should first request an
+unprovisioned experimental build, e.g.:
 
 * ``@drake-jenkins-bot linux-jammy-unprovisioned-gcc-bazel-experimental-release please``
-* ``@drake-jenkins-bot mac-arm-sonoma-unprovisioned-clang-bazel-experimental-release please``
+
+Testing changes to the source distribution prerequisites for macOS is a work
+in progress as there are no longer unprovisioned builds.
+Contact `@BetsyMcPhail` for guidance on testing these changes.
 
 After this has passed, go through normal review. Once normal review is done,
 add `@BetsyMcPhail` for review and request that the provisioned instances be
@@ -126,7 +129,7 @@ or [debian package](/apt.html), comment on an open pull request using one or
 more of these commands:
 
 * ``@drake-jenkins-bot linux-jammy-unprovisioned-gcc-bazel-experimental-packaging please``
-* ``@drake-jenkins-bot mac-arm-sonoma-unprovisioned-clang-bazel-experimental-packaging please``
+* ``@drake-jenkins-bot mac-arm-sonoma-clang-bazel-experimental-packaging please``
 
 or follow the [instructions above](#scheduling-builds-via-the-jenkins-user-interface)
 to schedule a build of one of the [Packaging](https://drake-jenkins.csail.mit.edu/view/Packaging/)
@@ -150,7 +153,7 @@ To schedule an "experimental" build of a [wheel package](/pip.html),
 comment on an open pull request using one or more of these commands:
 
 * ``@drake-jenkins-bot linux-jammy-unprovisioned-gcc-wheel-experimental-release please``
-* ``@drake-jenkins-bot mac-arm-sonoma-unprovisioned-clang-wheel-experimental-release please``
+* ``@drake-jenkins-bot mac-arm-sonoma-clang-wheel-experimental-release please``
 
 or follow the [instructions above](#scheduling-builds-via-the-jenkins-user-interface)
 to schedule a build of one of the [Wheel](https://drake-jenkins.csail.mit.edu/view/Wheel/)
@@ -189,3 +192,69 @@ env/bin/pip install --upgrade pip
 env/bin/pip install <url-of-experimental-wheel>
 source env/bin/activate
 ```
+
+# Testing via External Examples
+
+The examples within Drake's
+[gallery of external examples](https://github.com/RobotLocomotion/drake-external-examples)
+provide continuous integration via both Jenkins and GitHub Actions. This provides
+downstream test coverage for Drake developers to ensure reliability in the
+build infrastructure. Additionally, the GitHub Actions provide a benefit
+for end users, in that examples of CI pipelines on public servers for
+external projects using Drake installations are made easily accessible.
+
+See the external examples
+[continuous integration](https://github.com/RobotLocomotion/drake-external-examples#continuous-integration)
+for details on which examples use Jenkins or GitHub Actions. In general,
+GitHub Actions is used for the lightweight examples which use some
+installed version of Drake, while Jenkins is used for complete coverage
+on examples which pull in Drake externally and build it.
+
+When a new pull request is opened in Drake, members of the RobotLocomotion
+organization can utilize Jenkins and GitHub Actions to run custom builds.
+This is especially pertinent for pull requests which affect the build infrastructure.
+
+## Jenkins
+
+To test the examples which use Jenkins for CI with a PR branch of Drake,
+comment on an open pull request using the following command:
+
+* ``@drake-jenkins-bot linux-jammy-unprovisioned-external-examples please``
+
+or follow the [instructions above](#scheduling-builds-via-the-jenkins-user-interface)
+to schedule a build of the
+[external examples job](https://drake-jenkins.csail.mit.edu/view/Linux%20Jammy%20Unprovisioned/job/linux-jammy-unprovisioned-external-examples/).
+Note that this job provides parameters for branches of
+drake and drake-external-examples.
+
+## GitHub Actions
+
+You can schedule "experimental" builds of a [binary package](/from_binary.html),
+[debian package](/apt.html), and/or a [wheel package](/pip.html) by following the
+instructions [above](#building-packages-on-demand).
+Copy the download URL(s) obtained from the build as described.
+
+From the [GitHub Actions workflow](https://github.com/RobotLocomotion/drake-external-examples/actions/workflows/ci.yml)
+in drake-external-examples, notice the message "This workflow has a
+`workflow_dispatch` event trigger." Click "Run workflow" and input the
+download URL(s) copied from Jenkins in the drop-down menu.
+All parameters are optional, so you can ignore the package(s) and/or platform(s)
+that you don't need. (For those left blank, the default workflow will run using
+a more "stable" version of Drake, which is usually either source code from
+`master` or a nightly release depending on the example).
+
+## Local Testing
+
+For CMake, see the
+[drake_cmake_installed](https://github.com/RobotLocomotion/drake-external-examples/tree/main/drake_cmake_installed#developer-testing)
+example.
+
+For Bazel, see the
+[drake_bazel_external](https://github.com/RobotLocomotion/drake-external-examples/tree/main/drake_bazel_external)
+example, and note the comments in:
+
+* the [README](https://github.com/RobotLocomotion/drake-external-examples/blob/main/drake_bazel_external#using-a-local-checkout-of-Drake),
+which mentions using
+[`--override-module`](https://bazel.build/reference/command-line-reference#flag--override_module) to consume a local checkout of Drake
+* [`MODULE.bazel`](https://github.com/RobotLocomotion/drake-external-examples/blob/main/drake_bazel_external/MODULE.bazel),
+which can be modified to use a particular revision (commit or release) of Drake

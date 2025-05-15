@@ -1,6 +1,8 @@
 import copy
+import gc
 import numpy as np
 import unittest
+import weakref
 
 from pydrake.common import Parallelism
 from pydrake.common.test_utilities import numpy_compare
@@ -8,18 +10,21 @@ from pydrake.math import isnan
 from pydrake.symbolic import Variable, Expression
 from pydrake.autodiffutils import AutoDiffXd
 from pydrake.systems.primitives import (
+    AffineSystem_,
     ConstantVectorSource,
     ConstantVectorSource_,
     FirstOrderLowPassFilter_,
+    Integrator_,
     LinearSystem_,
     SymbolicVectorSystem,
     SymbolicVectorSystem_,
 )
-from pydrake.systems.framework import Context_, EventStatus
+from pydrake.systems.framework import Context_, DiagramBuilder_, EventStatus
 from pydrake.systems.analysis import (
     ApplySimulatorConfig,
     BatchEvalUniquePeriodicDiscreteUpdate,
     BatchEvalTimeDerivatives,
+    DiscreteTimeApproximation,
     ExtractSimulatorConfig,
     InitializeParams,
     IntegratorBase_,
@@ -38,6 +43,79 @@ from pydrake.trajectories import PiecewisePolynomial, PiecewisePolynomial_
 
 
 class TestAnalysis(unittest.TestCase):
+    @numpy_compare.check_all_types
+    def test_discrete_time_approximation_affine_and_linear_system(self, T):
+        A = np.array([[0, 1], [0, 0]])
+        B = np.array([[0], [1]])
+        f0 = np.array([2, 1])
+        C = np.array([[1, 0]])
+        D = np.array([[0]])
+        y0 = np.array([0])
+
+        h = 0.031415926
+        Ad = np.array([[1, h], [0, 1]])
+        Bd = np.array([[0.5*h**2], [h]])
+        f0d = np.array([2*h+0.5*h**2, h])
+        Cd = C
+        Dd = D
+        y0d = y0
+
+        continuous_system = LinearSystem_[T](A, B, C, D)
+        discrete_system = DiscreteTimeApproximation(
+            linear_system=continuous_system, time_period=h)
+        numpy_compare.assert_allclose(discrete_system.A(), Ad)
+        numpy_compare.assert_allclose(discrete_system.B(), Bd)
+        numpy_compare.assert_equal(discrete_system.C(), Cd)
+        numpy_compare.assert_equal(discrete_system.D(), Dd)
+
+        continuous_system = AffineSystem_[T](A, B, f0, C, D, y0)
+        discrete_system = DiscreteTimeApproximation(
+            affine_system=continuous_system, time_period=h)
+        numpy_compare.assert_allclose(discrete_system.A(),  Ad)
+        numpy_compare.assert_allclose(discrete_system.B(),  Bd)
+        numpy_compare.assert_allclose(discrete_system.f0(), f0d)
+        numpy_compare.assert_equal(discrete_system.C(),  Cd)
+        numpy_compare.assert_equal(discrete_system.D(),  Dd)
+        numpy_compare.assert_equal(discrete_system.y0(), y0d)
+
+    @numpy_compare.check_all_types
+    def test_discrete_time_approximation_system(self, T):
+        size = 5
+        config = SimulatorConfig(integration_scheme="explicit_euler")
+        continuous_system = Integrator_[T](size)
+        discrete_system = DiscreteTimeApproximation(
+            system=continuous_system,
+            time_period=0.01, integrator_config=config)
+        context = discrete_system.CreateDefaultContext()
+
+        if T != AutoDiffXd:
+            discrete_system.ToAutoDiffXd()
+        discrete_system.Clone()
+        copy.copy(discrete_system)
+        copy.deepcopy(discrete_system)
+
+        self.assertEqual(discrete_system.get_input_port().size(), size)
+        self.assertEqual(discrete_system.get_output_port().size(), size)
+        self.assertEqual(context.num_discrete_state_groups(), 1)
+        self.assertEqual(
+            context.get_discrete_state_vector().size(), size)
+        self.assertEqual(context.get_continuous_state_vector().size(), 0)
+
+        builder = DiagramBuilder_[T]()
+        builder.AddSystem(discrete_system)
+        diagram = builder.Build()
+
+        spy = weakref.finalize(continuous_system, lambda: None)
+        del discrete_system, context, continuous_system, builder
+        gc.collect()
+        # The diagram containing the discrete_system keeps its contained
+        # continuous_system alive.
+        self.assertTrue(spy.alive)
+        # The continuous_system is garbage collectible.
+        del diagram
+        gc.collect()
+        self.assertFalse(spy.alive)
+
     def test_region_of_attraction(self):
         x = Variable("x")
         sys = SymbolicVectorSystem(state=[x], dynamics=[-x+x**3])

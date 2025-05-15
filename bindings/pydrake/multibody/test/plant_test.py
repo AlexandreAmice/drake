@@ -79,9 +79,11 @@ from pydrake.multibody.plant import (
     ContactResults_,
     ContactResultsToLcmSystem,
     CoulombFriction_,
+    DeformableContactInfo_,
     DeformableModel,
     DiscreteContactApproximation,
     DiscreteContactSolver,
+    DistanceConstraintParams,
     ExternallyAppliedSpatialForce_,
     ExternallyAppliedSpatialForceMultiplexer_,
     MultibodyPlant,
@@ -97,6 +99,7 @@ from pydrake.multibody.benchmarks.acrobot import (
     AcrobotParameters,
     MakeAcrobotPlant,
 )
+from pydrake.common import Parallelism
 from pydrake.common.cpp_param import List
 from pydrake.common import FindResourceOrThrow
 from pydrake.common.deprecation import install_numpy_warning_filters
@@ -114,6 +117,7 @@ from pydrake.geometry import (
     Meshcat,
     Role,
     PenetrationAsPointPair_,
+    PolygonSurfaceMesh_,
     ProximityProperties,
     SceneGraphConfig,
     SignedDistancePair_,
@@ -131,6 +135,7 @@ from pydrake.systems.analysis import Simulator_
 from pydrake.systems.framework import (
     DiagramBuilder,
     DiagramBuilder_,
+    DiscreteStateIndex,
     System_,
     LeafSystem_,
     InputPort_,
@@ -580,6 +585,7 @@ class TestPlant(unittest.TestCase):
         cls = type(element)
         self.assertIsInstance(element.index(), get_index_class(cls, T))
         self.assertIsInstance(element.model_instance(), ModelInstanceIndex)
+        self.assertFalse(element.is_ephemeral())
         element.GetParentPlant()
 
     def _test_frame_api(self, T, frame):
@@ -2577,6 +2583,24 @@ class TestPlant(unittest.TestCase):
         # Verify the constraint was added.
         self.assertEqual(plant.num_constraints(), 1)
 
+    def test_distance_constraint_params_api(self):
+        bodyA = BodyIndex(1)
+        bodyB = BodyIndex(2)
+        p_AP = [1.0, 2.0, 3.0]
+        p_BQ = [4.0, 5.0, 6.0]
+        distance = 0.1
+        stiffness = 1.0e4
+        damping = 100.0
+        dut = DistanceConstraintParams(
+            bodyA, p_AP, bodyB, p_BQ, distance, stiffness, damping)
+        self.assertEqual(dut.bodyA(), bodyA)
+        self.assertEqual(dut.bodyB(), bodyB)
+        np.testing.assert_array_equal(dut.p_AP(), p_AP)
+        np.testing.assert_array_equal(dut.p_BQ(), p_BQ)
+        self.assertEqual(dut.distance(), distance)
+        self.assertEqual(dut.stiffness(), stiffness)
+        self.assertEqual(dut.damping(), damping)
+
     @numpy_compare.check_all_types
     def test_distance_constraint_api(self, T):
         plant = MultibodyPlant_[T](0.01)
@@ -2588,14 +2612,53 @@ class TestPlant(unittest.TestCase):
         body_B = plant.AddRigidBody(name="B")
         p_AP = [0.0, 0.0, 0.0]
         p_BQ = [0.0, 0.0, 0.0]
-        plant.AddDistanceConstraint(
+        id = plant.AddDistanceConstraint(
             body_A=body_A, p_AP=p_AP, body_B=body_B, p_BQ=p_BQ, distance=0.01)
 
         # We are done creating the model.
         plant.Finalize()
+        context = plant.CreateDefaultContext()
 
         # Verify the constraint was added.
         self.assertEqual(plant.num_constraints(), 1)
+
+        all_default_params = plant.GetDefaultDistanceConstraintParams()
+        all_params = plant.GetDistanceConstraintParams(context)
+        distance_params = plant.GetDistanceConstraintParams(context, id)
+
+        # Testing equality function for DistanceConstraintParams.
+        def params_are_equal(p1, p2):
+            if p1.bodyA() != p2.bodyA():
+                return False
+            if p1.bodyB() != p2.bodyB():
+                return False
+            if (p1.p_AP() != p2.p_AP()).all():
+                return False
+            if (p1.p_BQ() != p2.p_BQ()).all():
+                return False
+            if p1.distance() != p2.distance():
+                return False
+            if p1.stiffness() != p2.stiffness():
+                return False
+            if p1.damping() != p2.damping():
+                return False
+            return True
+        DistanceConstraintParams.__eq__ = params_are_equal
+
+        self.assertEqual(len(all_default_params), 1)
+        self.assertEqual(len(all_params), 1)
+        self.assertIsInstance(distance_params, DistanceConstraintParams)
+        self.assertEqual(distance_params, all_default_params[id])
+        self.assertEqual(all_params, all_default_params)
+
+        new_params = DistanceConstraintParams(
+            body_A.index(), p_AP,
+            body_B.index(), p_BQ,
+            distance=0.05, stiffness=1e6, damping=0.1)
+        self.assertNotEqual(distance_params, new_params)
+        plant.SetDistanceConstraintParams(context, id, new_params)
+        updated_params = plant.GetDistanceConstraintParams(context, id)
+        self.assertEqual(updated_params, new_params)
 
     @numpy_compare.check_all_types
     def test_ball_constraint_api(self, T):
@@ -3281,15 +3344,38 @@ class TestPlant(unittest.TestCase):
         body = plant.GetUniqueFreeBaseBodyOrThrow(model_instance)
         self.assertEqual(body.index(), added_body.index())
 
+    @numpy_compare.check_all_types
+    def test_deformable_contact_info(self, T):
+        if T == Expression:
+            return
+
+        vertices = [np.array([0, 0, 0]), np.array([1, 0, 0]),
+                    np.array([1, 1, 0]), np.array([0, 1, 0])]
+        face_data = [3, 0, 1, 2, 3, 2, 3, 0]
+        contact_mesh = PolygonSurfaceMesh_[T](face_data, vertices)
+        id_A = GeometryId.get_new_id()
+        id_B = GeometryId.get_new_id()
+        F_Ac_W = SpatialForce_[T](np.array([1, 2, 3]), np.array([4, 5, 6]))
+        dut = DeformableContactInfo_[T](id_A, id_B, contact_mesh, F_Ac_W)
+
+        self.assertEqual(dut.id_A(), id_A)
+        self.assertEqual(dut.id_B(), id_B)
+        self.assertTrue(dut.contact_mesh().Equal(contact_mesh))
+        numpy_compare.assert_equal(dut.F_Ac_W().translational(),
+                                   F_Ac_W.translational())
+        numpy_compare.assert_equal(dut.F_Ac_W().rotational(),
+                                   F_Ac_W.rotational())
+
     def test_deformable_model(self):
         builder = DiagramBuilder_[float]()
         plant, scene_graph = AddMultibodyPlantSceneGraph(builder, 1.0e-3)
         dut = plant.mutable_deformable_model()
         self.assertEqual(dut.num_bodies(), 0)
-        # Add a deformable body to the model.
+        # Add two deformable bodies to the model with the two overloads of
+        # RegisterDeformableBody.
         deformable_body_config = DeformableBodyConfig_[float]()
         geometry = GeometryInstance(X_PG=RigidTransform(),
-                                    shape=Sphere(1.), name="sphere")
+                                    shape=Sphere(1.0), name="sphere")
         props = ProximityProperties()
         props.AddProperty("material", "coulomb_friction",
                           CoulombFriction_[float](1.0, 1.0))
@@ -3298,35 +3384,71 @@ class TestPlant(unittest.TestCase):
             geometry_instance=geometry,
             config=deformable_body_config,
             resolution_hint=1.0)
+        model_instance = plant.AddModelInstance("deformable_instance")
+        geometry2 = GeometryInstance(X_PG=RigidTransform(),
+                                     shape=Sphere(2.0), name="sphere2")
+        geometry2.set_proximity_properties(props)
+        body_id2 = dut.RegisterDeformableBody(
+            geometry_instance=geometry2,
+            config=deformable_body_config,
+            model_instance=model_instance,
+            resolution_hint=1.0)
+        self.assertEqual(dut.num_bodies(), 2)
 
         geometry_id = dut.GetGeometryId(body_id)
         self.assertEqual(dut.GetBodyId(geometry_id), body_id)
+        deformable_body_ids = dut.GetBodyIds(model_instance=model_instance)
+        self.assertEqual(len(deformable_body_ids), 1)
+        self.assertEqual(deformable_body_ids[0], body_id2)
         dut.SetWallBoundaryCondition(body_id, [1, 1, -1], [0, 0, 1])
 
         spatial_inertia = SpatialInertia_[float].SolidCubeWithDensity(1, 1)
-        rigid_body = plant.AddRigidBody("rigid_body", spatial_inertia)
+        rigid_body = plant.AddRigidBody("rigid_body", model_instance,
+                                        spatial_inertia)
         dut.AddFixedConstraint(body_A_id=body_id,
                                body_B=rigid_body,
                                X_BA=RigidTransform(), shape=Box(1, 1, 1),
                                X_BG=RigidTransform())
 
-        # Verify that a body has been added to the model.
-        self.assertEqual(dut.num_bodies(), 1)
+        # Verify that both bodies have been added to the model.
         self.assertIsInstance(dut.GetReferencePositions(body_id), np.ndarray)
 
         deformable_model = plant.deformable_model()
-        self.assertEqual(deformable_model.num_bodies(), 1)
-        # Turn on SAP and finalize.
-        plant.set_discrete_contact_approximation(
-            DiscreteContactApproximation.kSap)
+        self.assertEqual(deformable_model.num_bodies(), 2)
+
+        mutable_deformable_model = plant.mutable_deformable_model()
+        mutable_deformable_model._set_parallelism(parallelism=Parallelism(2))
+        self.assertEqual(deformable_model._parallelism().num_threads(), 2)
+        mutable_deformable_model._set_parallelism(
+            parallelism=Parallelism(False))
+        self.assertEqual(deformable_model._parallelism().num_threads(), 1)
+
         plant.Finalize()
 
         self.assertIsInstance(
             plant.get_deformable_body_configuration_output_port(),
             OutputPort_[float])
-        self.assertEqual(deformable_model.GetDiscreteStateIndex(body_id), 1)
+        self.assertIsInstance(deformable_model.GetDiscreteStateIndex(body_id),
+                              DiscreteStateIndex)
 
         diagram = builder.Build()
         # Ensure we can simulate this system.
         simulator = Simulator_[float](diagram)
         simulator.AdvanceTo(0.01)
+        plant_context = plant.GetMyContextFromRoot(simulator.get_context())
+        contact_results = (
+            plant.get_contact_results_output_port().Eval(plant_context))
+
+        q0 = dut.GetReferencePositions(body_id).reshape((3, -1))
+        q1 = dut.GetPositions(context=plant_context, id=body_id)
+        numpy_compare.assert_float_not_equal(q0, q1)
+        dut.SetPositions(context=plant_context, id=body_id, q=q0)
+        q2 = dut.GetPositions(context=plant_context, id=body_id)
+        numpy_compare.assert_float_equal(q0, q2)
+
+        # There is no deformable contact, but we can still try the API.
+        self.assertEqual(contact_results.num_deformable_contacts(), 0)
+        # Complains about index out of range.
+        with self.assertRaisesRegex(SystemExit,
+                                    '.*i < num_deformable_contacts().*'):
+            contact_results.deformable_contact_info(0)

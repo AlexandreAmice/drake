@@ -262,6 +262,7 @@ class TestGeometryVisualizers(unittest.TestCase):
         meshcat.SetCameraPose(camera_in_world=[3, 4, 5],
                               target_in_world=[1, 1, 1])
         meshcat.AddButton(name="alice", keycode="KeyB")
+        self.assertEqual(meshcat.GetButtonNames(), ["alice"])
         self.assertEqual(meshcat.GetButtonClicks(name="alice"), 0)
         meshcat._InjectWebsocketMessage(message=umsgpack.packb({
             "type": "button",
@@ -374,6 +375,8 @@ class TestGeometryVisualizers(unittest.TestCase):
         animation = mut.MeshcatAnimation(frames_per_second=64)
         self.assertEqual(animation.frames_per_second(), 64)
         self.assertEqual(animation.frame(1.0), 64)
+        animation.set_start_time(time=1.0)
+        self.assertEqual(animation.start_time(), 1.0)
         animation.set_autoplay(play=False)
         self.assertEqual(animation.autoplay(), False)
         animation.set_loop_mode(mode=mut.MeshcatAnimation.LoopMode.kLoopOnce)

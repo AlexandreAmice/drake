@@ -1,3 +1,4 @@
+import copy
 import gc
 import scipy.sparse
 import unittest
@@ -6,15 +7,18 @@ import numpy as np
 from pydrake.autodiffutils import AutoDiffXd
 from pydrake.common import RandomDistribution, RandomGenerator
 from pydrake.common.test_utilities import numpy_compare
+from pydrake.common.test_utilities.deprecation import catch_drake_warnings
 from pydrake.common.value import Value
 from pydrake.symbolic import Expression, Variable
 from pydrake.systems.framework import (
-    BasicVector,
+    BasicVector, BasicVector_,
+    BusValue,
     DiagramBuilder,
     DiagramBuilder_,
     InputPort,
     TriggerType,
     VectorBase,
+    kUseDefaultName,
 )
 from pydrake.systems.test.test_util import (
     MyVector2,
@@ -23,6 +27,8 @@ from pydrake.systems.primitives import (
     Adder, Adder_,
     AddRandomInputs,
     AffineSystem, AffineSystem_,
+    BusCreator, BusCreator_,
+    BusSelector, BusSelector_,
     ConstantValueSource, ConstantValueSource_,
     ConstantVectorSource, ConstantVectorSource_,
     ControllabilityMatrix,
@@ -52,6 +58,7 @@ from pydrake.systems.primitives import (
     PortSwitch, PortSwitch_,
     RandomSource,
     Saturation, Saturation_,
+    Selector, Selector_, SelectorParams,
     SharedPointerSystem, SharedPointerSystem_,
     Sine, Sine_,
     SparseMatrixGain_,
@@ -90,6 +97,8 @@ class TestGeneral(unittest.TestCase):
         # resolved for dtype=object, or dtype=custom is used.
         self._check_instantiations(Adder_)
         self._check_instantiations(AffineSystem_)
+        self._check_instantiations(BusCreator_)
+        self._check_instantiations(BusSelector_)
         self._check_instantiations(ConstantValueSource_)
         self._check_instantiations(ConstantVectorSource_)
         self._check_instantiations(Demultiplexer_)
@@ -106,6 +115,7 @@ class TestGeneral(unittest.TestCase):
         self._check_instantiations(PassThrough_)
         self._check_instantiations(PortSwitch_)
         self._check_instantiations(Saturation_)
+        self._check_instantiations(Selector_)
         self._check_instantiations(SharedPointerSystem_)
         self._check_instantiations(Sine_)
         self._check_instantiations(StateInterpolatorWithDiscreteDerivative_)
@@ -327,6 +337,53 @@ class TestGeneral(unittest.TestCase):
         self.assertEqual(dut.get_output_port_w_out().size(), 3)
         self.assertEqual(dut.get_output_port_w_out_density().size(), 1)
 
+    @numpy_compare.check_all_types
+    def test_bus_creator(self, T):
+        dut = BusCreator_[T](output_port_name="foo")
+        dut.DeclareVectorInputPort(name="vec", size=2)
+        dut.DeclareVectorInputPort(name=kUseDefaultName, size=2)
+        dut.DeclareAbstractInputPort(name="abst", model_value=Value[str]())
+        dut.DeclareAbstractInputPort(name=kUseDefaultName,
+                                     model_value=Value[object]())
+        # Check exactly what types show up on the output bus.
+        context = dut.CreateDefaultContext()
+        dut.GetInputPort("vec").FixValue(context, value=np.ones(2))
+        dut.GetInputPort("u1").FixValue(context, value=np.zeros(2))
+        dut.GetInputPort("abst").FixValue(context, value="hello")
+        dut.GetInputPort("u3").FixValue(context, value=tuple([1, 2, 3]))
+        output = dut.get_output_port().Eval(context)
+        self.assertIsInstance(output.Find("vec"), BasicVector_[T])
+        self.assertIsInstance(output.Find("u1"), BasicVector_[T])
+        self.assertIsInstance(output.Find("abst"), str)
+        self.assertIsInstance(output.Find("u3"), tuple)
+
+    @numpy_compare.check_all_types
+    def test_bus_selector(self, T):
+        dut = BusSelector_[T](input_port_name="bar")
+        dut.DeclareVectorOutputPort(name="vec", size=2)
+        dut.DeclareVectorOutputPort(name=kUseDefaultName, size=2)
+        dut.DeclareAbstractOutputPort(name="abst", model_value=Value[str]())
+        dut.DeclareAbstractOutputPort(name=kUseDefaultName,
+                                      model_value=Value[object]())
+        # Make sure we know exactly how to populate a bus-valued input port.
+        input_bus = BusValue()
+        vec = np.ones(2)
+        y1 = np.zeros(2)
+        abst = "hello"
+        y3 = tuple([1, 2, 3])
+        input_bus.Set("vec", Value(BasicVector_[T](vec)))
+        input_bus.Set("y1", Value(BasicVector_[T](y1)))
+        input_bus.Set("abst", Value("hello"))
+        input_bus.Set("y3", Value(y3))
+        context = dut.CreateDefaultContext()
+        dut.get_input_port().FixValue(context, input_bus)
+        numpy_compare.assert_float_equal(
+            dut.GetOutputPort("vec").Eval(context), vec)
+        numpy_compare.assert_float_equal(
+            dut.GetOutputPort("y1").Eval(context), y1)
+        self.assertEqual(dut.GetOutputPort("abst").Eval(context), abst)
+        self.assertEqual(dut.GetOutputPort("y3").Eval(context), y3)
+
     def test_vector_pass_through(self):
         model_value = BasicVector([1., 2, 3])
         system = PassThrough(vector_size=model_value.size())
@@ -397,6 +454,30 @@ class TestGeneral(unittest.TestCase):
             test_input = np.arange(input_size)
             mytest(np.arange(input_size), k*np.arange(input_size))
 
+    def test_integrator(self):
+        n = 3
+        initial_value = np.array((1.0, 2.0, 3.0))
+        size_integrator = Integrator(size=n)
+        value_integrator = Integrator(initial_value=initial_value)
+        size_context = size_integrator.CreateDefaultContext()
+        value_context = value_integrator.CreateDefaultContext()
+        self.assertTrue(np.array_equal(
+            size_integrator.get_output_port(0).Eval(size_context),
+            (0.0, 0.0, 0.0)))
+        self.assertTrue(np.array_equal(
+            value_integrator.get_output_port(0).Eval(value_context),
+            initial_value))
+        value_integrator.set_default_integral_value(2 * initial_value)
+        value_context2 = value_integrator.CreateDefaultContext()
+        self.assertTrue(np.array_equal(
+            value_integrator.get_output_port(0).Eval(value_context2),
+            2 * initial_value))
+        size_integrator.set_integral_value(context=size_context,
+                                           value=initial_value)
+        self.assertTrue(np.array_equal(
+            size_integrator.get_output_port(0).Eval(size_context),
+            initial_value))
+
     def test_saturation(self):
         system = Saturation((0., -1., 3.), (1., 2., 4.))
         context = system.CreateDefaultContext()
@@ -410,6 +491,65 @@ class TestGeneral(unittest.TestCase):
 
         mytest((-5., 5., 4.), (0., 2., 4.))
         mytest((.4, 0., 3.5), (.4, 0., 3.5))
+
+    def _make_selector_params(self):
+        def _select(i, j):
+            return SelectorParams.OutputSelection(
+                input_port_index=i,
+                input_offset=j,
+            )
+        return SelectorParams(
+            inputs=[
+                SelectorParams.InputPortParams(name="x", size=3),
+                SelectorParams.InputPortParams(name="y", size=2),
+                SelectorParams.InputPortParams(name="z", size=1),
+            ],
+            outputs=[
+                # a = <x[0], x[1]>
+                SelectorParams.OutputPortParams(
+                    name="a",
+                    selections=[_select(0, 0), _select(0, 1)],
+                ),
+                # b = <x[2], y[0]>
+                SelectorParams.OutputPortParams(
+                    name="b",
+                    selections=[_select(0, 2), _select(1, 0)],
+                ),
+                # c = <y[1], z[0]>
+                SelectorParams.OutputPortParams(
+                    name="c",
+                    selections=[_select(1, 1), _select(2, 0)]
+                ),
+            ],
+        )
+
+    def test_selector_params(self):
+        dut = self._make_selector_params()
+        self.assertEqual(len(dut.inputs), 3)
+        copy.deepcopy(dut)
+        self.maxDiff = None
+        self.assertEqual(
+            repr(dut),
+            "SelectorParams("
+            "inputs=["
+            "InputPortParams(name='x', size=3), "
+            "InputPortParams(name='y', size=2), "
+            "InputPortParams(name='z', size=1)], "
+            "outputs=["
+            "OutputPortParams(name='a', selections=["
+            "OutputSelection(input_port_index=0, input_offset=0), "
+            "OutputSelection(input_port_index=0, input_offset=1)]), "
+            "OutputPortParams(name='b', selections=["
+            "OutputSelection(input_port_index=0, input_offset=2), "
+            "OutputSelection(input_port_index=1, input_offset=0)]), "
+            "OutputPortParams(name='c', selections=["
+            "OutputSelection(input_port_index=1, input_offset=1), "
+            "OutputSelection(input_port_index=2, input_offset=0)])])")
+
+    @numpy_compare.check_all_types
+    def test_selector(self, T):
+        dut = Selector_[T](params=self._make_selector_params())
+        dut.CreateDefaultContext()
 
     def test_trajectory_source(self):
         ppt = PiecewisePolynomial.FirstOrderHold(
@@ -944,16 +1084,20 @@ class TestGeneral(unittest.TestCase):
             np.squeeze(x), np.squeeze(y), atol=1e-10)
 
         continuous_system = LinearSystem(A, B, C, D)
-        discrete_system = DiscreteTimeApproximation(
-            system=continuous_system, time_period=h)
+        with catch_drake_warnings(expected_count=1):
+            discrete_system = DiscreteTimeApproximation(
+                system=continuous_system, time_period=h)
+        self.assertEqual(type(discrete_system), LinearSystem)
         assert_array_close(discrete_system.A(), Ad)
         assert_array_close(discrete_system.B(), Bd)
         assert_array_close(discrete_system.C(), Cd)
         assert_array_close(discrete_system.D(), Dd)
 
         continuous_system = AffineSystem(A, B, f0, C, D, y0)
-        discrete_system = DiscreteTimeApproximation(
-            system=continuous_system, time_period=h)
+        with catch_drake_warnings(expected_count=1):
+            discrete_system = DiscreteTimeApproximation(
+                system=continuous_system, time_period=h)
+        self.assertEqual(type(discrete_system), AffineSystem)
         assert_array_close(discrete_system.A(),  Ad)
         assert_array_close(discrete_system.B(),  Bd)
         assert_array_close(discrete_system.f0(), f0d)

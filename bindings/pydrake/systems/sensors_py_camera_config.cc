@@ -1,6 +1,8 @@
 #include "drake/bindings/pydrake/common/serialize_pybind.h"
 #include "drake/bindings/pydrake/documentation_pybind.h"
 #include "drake/bindings/pydrake/systems/sensors_py.h"
+#include "drake/common/overloaded.h"
+#include "drake/systems/lcm/lcm_interface_system.h"
 #include "drake/systems/sensors/camera_config_functions.h"
 
 namespace drake {
@@ -25,7 +27,11 @@ void DefineSensorsCameraConfig(py::module m) {
     py::class_<CameraConfig::FovDegrees> fov_class(
         config_cls, "FovDegrees", fov_degrees_doc.doc);
     fov_class  // BR
-        .def(ParamInit<CameraConfig::FovDegrees>());
+        .def(ParamInit<CameraConfig::FovDegrees>())
+        .def("focal_x", &CameraConfig::FovDegrees::focal_x, py::arg("width"),
+            py::arg("height"), fov_degrees_doc.focal_x.doc)
+        .def("focal_y", &CameraConfig::FovDegrees::focal_y, py::arg("width"),
+            py::arg("height"), fov_degrees_doc.focal_y.doc);
     DefAttributesUsingSerialize(&fov_class, fov_degrees_doc);
     DefReprUsingSerialize(&fov_class);
     DefCopyAndDeepCopy(&fov_class);
@@ -35,7 +41,11 @@ void DefineSensorsCameraConfig(py::module m) {
     py::class_<CameraConfig::FocalLength> focal_class(
         config_cls, "FocalLength", focal_doc.doc);
     focal_class  // BR
-        .def(ParamInit<CameraConfig::FocalLength>());
+        .def(ParamInit<CameraConfig::FocalLength>())
+        .def("focal_x", &CameraConfig::FocalLength::focal_x,
+            focal_doc.focal_x.doc)
+        .def("focal_y", &CameraConfig::FocalLength::focal_y,
+            focal_doc.focal_y.doc);
     DefAttributesUsingSerialize(&focal_class, focal_doc);
     DefReprUsingSerialize(&focal_class);
     DefCopyAndDeepCopy(&focal_class);
@@ -54,12 +64,25 @@ void DefineSensorsCameraConfig(py::module m) {
     DefCopyAndDeepCopy(&config_cls);
   }
 
-  m.def("ApplyCameraConfig",
-      py::overload_cast<const CameraConfig&, DiagramBuilder<double>*,
-          const systems::lcm::LcmBuses*,
-          const multibody::MultibodyPlant<double>*,
-          geometry::SceneGraph<double>*, drake::lcm::DrakeLcmInterface*>(
-          &ApplyCameraConfig),
+  m.def(
+      "ApplyCameraConfig",
+      [](const CameraConfig& config, DiagramBuilder<double>* builder,
+          const systems::lcm::LcmBuses* lcm_buses,
+          const multibody::MultibodyPlant<double>* plant,
+          geometry::SceneGraph<double>* scene_graph,
+          std::variant<drake::lcm::DrakeLcmInterface*,
+              drake::systems::lcm::LcmInterfaceSystem*>
+              lcm) {
+        // See kLcmInterfaceSystemClassWarning in pydrake/systems/lcm_py.cc; we
+        // need to accept two distinct types in the python signature and upcast
+        // inside the C++ implementation here.
+        std::visit(
+            [&](auto* unboxed_lcm) {
+              ApplyCameraConfig(
+                  config, builder, lcm_buses, plant, scene_graph, unboxed_lcm);
+            },
+            lcm);
+      },
       py::arg("config"), py::arg("builder"), py::arg("lcm_buses") = nullptr,
       py::arg("plant") = nullptr, py::arg("scene_graph") = nullptr,
       py::arg("lcm") = nullptr,

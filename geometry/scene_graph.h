@@ -96,16 +96,13 @@ class QueryObject;
 
  @section geom_sys_outputs Outputs
 
- %SceneGraph has two output ports:
+ %SceneGraph has one output port:
 
  __query port__: An abstract-valued port containing an instance of QueryObject.
- It provides a "ticket" for downstream LeafSystem instances to perform geometric
- queries on the %SceneGraph. To perform geometric queries, downstream
- LeafSystem instances acquire the QueryObject from %SceneGraph's output port
- and provide it as a parameter to one of %SceneGraph's query methods (e.g.,
- SceneGraph::ComputeContact()). This assumes that the querying system has
- access to a const pointer to the connected %SceneGraph instance. Use
- get_query_output_port() to acquire the output port for the query handle.
+ To perform geometric queries, downstream LeafSystem instances acquire the
+ QueryObject from %SceneGraph's output port and invoke the appropriate methods
+ on it. Use get_query_output_port() to acquire the output port for the query
+ handle.
 
  @section geom_sys_workflow Working with SceneGraph
 
@@ -125,9 +122,9 @@ class QueryObject;
 
  With those two requirements satisfied, a LeafSystem can perform geometry
  queries by:
-   1. evaluating the QueryObject input port, and
-   2. passing the returned query object into the appropriate query method on
-   SceneGraph (e.g., SceneGraph::ComputeContact()).
+   1. evaluating the QueryObject input port, retrieving a `const QueryObject&`
+   in return, and
+   2. invoking the appropriate method on the QueryObject.
 
  __Producer__
 
@@ -346,7 +343,6 @@ class SceneGraph final : public systems::LeafSystem<T> {
   const SceneGraphConfig& get_config(const systems::Context<T>& context) const;
 
   //@}
-
 
   /** @name       Port management
    Access to SceneGraph's input/output ports. This topic includes
@@ -778,6 +774,23 @@ class SceneGraph final : public systems::LeafSystem<T> {
    provided context.  */
   std::string GetRendererTypeName(const systems::Context<T>& context,
                                   const std::string& name) const;
+
+  /** Creates a Yaml-formatted string representing the named engine's
+   parameters. The YAML will be prefixed with the paramater type's name, e.g:
+
+       RenderEngineVtkParams:
+         default_diffuse: [1, 1, 1]
+         ...
+
+   If no registered engine has the given `name`, the returned string is empty.
+   */
+  std::string GetRendererParameterYaml(const std::string& name) const;
+
+  /** systems::Context-query variant of GetRendererParameterYaml(). Rather than
+   querying %SceneGraph's model, it queries the copy of the model stored in the
+   provided context.  */
+  std::string GetRendererParameterYaml(const systems::Context<T>& context,
+                                       const std::string& name) const;
 
   /** Reports the number of renderers registered to this %SceneGraph.  */
   int RendererCount() const;

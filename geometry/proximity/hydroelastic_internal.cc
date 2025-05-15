@@ -337,13 +337,8 @@ std::optional<RigidGeometry> MakeRigidRepresentation(
 
 std::optional<RigidGeometry> MakeRigidRepresentation(
     const Box& box, const ProximityProperties&) {
-  PositiveDouble validator("Box", "rigid");
-  // Use the coarsest mesh for the box. The safety factor 1.1 guarantees the
-  // resolution-hint argument is larger than the box size, so the mesh
-  // will have only 8 vertices and 12 triangles.
   auto mesh = make_unique<TriangleSurfaceMesh<double>>(
-      MakeBoxSurfaceMesh<double>(box, 1.1 * box.size().maxCoeff()));
-
+      MakeBoxSurfaceMeshWithSymmetricTriangles<double>(box));
   return RigidGeometry(RigidMesh(std::move(mesh)));
 }
 
@@ -384,14 +379,8 @@ std::optional<RigidGeometry> MakeRigidRepresentation(
 
   const std::string extension = mesh_spec.extension();
   if (extension == ".obj") {
-    if (!mesh_spec.source().is_path()) {
-      throw std::runtime_error(
-          "In-memory meshes are still in development. Rigid hydroelastic "
-          "meshes from .obj must still be named with a file path.");
-    }
-    mesh =
-        make_unique<TriangleSurfaceMesh<double>>(ReadObjToTriangleSurfaceMesh(
-            mesh_spec.source().path(), mesh_spec.scale()));
+    mesh = make_unique<TriangleSurfaceMesh<double>>(
+        ReadObjToTriangleSurfaceMesh(mesh_spec.source(), mesh_spec.scale3()));
   } else if (extension == ".vtk") {
     mesh = make_unique<TriangleSurfaceMesh<double>>(
         ConvertVolumeToSurfaceMesh(MakeVolumeMeshFromVtk<double>(mesh_spec)));
@@ -458,7 +447,7 @@ std::optional<SoftGeometry> MakeSoftRepresentation(
 
   // First, create an inflated mesh.
   auto inflated_mesh = make_unique<VolumeMesh<double>>(
-      MakeBoxVolumeMeshWithMa<double>(inflated_box));
+      MakeBoxVolumeMeshWithMaAndSymmetricTriangles<double>(inflated_box));
 
   const double hydroelastic_modulus =
       PositiveDouble("Box", "soft").Extract(props, kHydroGroup, kElastic);
@@ -563,8 +552,8 @@ std::optional<SoftGeometry> MakeSoftRepresentation(
   // For zero margin, use the pre-computed convex hull for the shape.
   const TriangleSurfaceMesh<double> inflated_surface_mesh =
       MakeTriangleFromPolygonMesh(
-          margin > 0 ? MakeConvexHull(convex_spec.source(), convex_spec.scale(),
-                                      margin)
+          margin > 0 ? MakeConvexHull(convex_spec.source(),
+                                      convex_spec.scale3(), margin)
                      : convex_spec.GetConvexHull());
   auto inflated_mesh = make_unique<VolumeMesh<double>>(
       MakeConvexVolumeMesh<double>(inflated_surface_mesh));

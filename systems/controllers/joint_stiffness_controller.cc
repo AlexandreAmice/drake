@@ -56,24 +56,12 @@ JointStiffnessController<T>::JointStiffnessController(
               {this->all_input_ports_ticket()})
           .get_index();
 
-  auto& output_port_force = this->DeclareVectorOutputPort(
-          "generalized_force", num_q,
-          &JointStiffnessController<T>::CalcOutputForce,
-          {this->all_input_ports_ticket()});
-  output_port_index_force_ = output_port_force.get_index();
-  this->DeprecateOutputPort(
-      output_port_force,
-      "Use the 'actuation' output port instead, which multiplies the "
-      "generalized force by B⁻¹ to be consumed by MultibodyPlant's actuation "
-      "input port.");
-
   auto plant_context = plant_->CreateDefaultContext();
 
   // Declare cache entry for the multibody plant context.
   plant_context_cache_index_ =
       this->DeclareCacheEntry(
-              "plant_context_cache",
-              *plant_context,
+              "plant_context_cache", *plant_context,
               &JointStiffnessController<T>::SetMultibodyContext,
               {this->input_port_ticket(
                   get_input_port_estimated_state().get_index())})
@@ -114,8 +102,7 @@ JointStiffnessController<T>::~JointStiffnessController() = default;
 
 template <typename T>
 void JointStiffnessController<T>::SetMultibodyContext(
-    const Context<T>& context,
-    Context<T>* plant_context) const {
+    const Context<T>& context, Context<T>* plant_context) const {
   const VectorX<T>& x = get_input_port_estimated_state().Eval(context);
   plant_->SetPositionsAndVelocities(plant_context, x);
 }
@@ -123,51 +110,9 @@ void JointStiffnessController<T>::SetMultibodyContext(
 template <typename T>
 void JointStiffnessController<T>::CalcMultibodyForces(
     const Context<T>& context, MultibodyForces<T>* cache_value) const {
-  const auto& plant_context =
-      this->get_cache_entry(plant_context_cache_index_)
-          .template Eval<Context<T>>(context);
+  const auto& plant_context = this->get_cache_entry(plant_context_cache_index_)
+                                  .template Eval<Context<T>>(context);
   plant_->CalcForceElementsContribution(plant_context, cache_value);
-}
-
-// This method should be removed with the removal of the deprecated output port.
-template <typename T>
-void JointStiffnessController<T>::CalcOutputForce(
-    const Context<T>& context, BasicVector<T>* output) const {
-  const int num_q = plant_->num_positions();
-
-  const auto& plant_context =
-      this->get_cache_entry(plant_context_cache_index_)
-          .template Eval<Context<T>>(context);
-
-  // These include gravity.
-  const auto& applied_forces =
-      this->get_cache_entry(applied_forces_cache_index_)
-          .template Eval<MultibodyForces<T>>(context);
-
-  // Compute inverse dynamics with zero generalized accelerations.
-  // ID(q, v, v̇)  = M(q)v̇ + C(q, v)v - tau_app
-  // So with v̇ = 0 we get:
-  // ID(q, v, 0) = C(q,v)v - tau_app(q).
-  VectorX<T> tau = plant_->CalcInverseDynamics(
-      plant_context, VectorX<T>::Zero(num_q), /* vdot = 0 */
-      applied_forces);
-
-  // Subtract off C(q,v)v
-  // Note: we do not simply set v=0 because we want to be able to cancel the
-  // contribution from damping forces.
-  VectorX<T> Cv(num_q);
-  plant_->CalcBiasTerm(plant_context, &Cv);
-  tau -= Cv;
-
-  // Add in the stiffness terms.
-  const VectorX<T>& x = get_input_port_estimated_state().Eval(context);
-  const VectorX<T>& x_d = get_input_port_desired_state().Eval(context);
-
-  tau += (kp_.array() * (x_d.head(num_q) - x.head(num_q)).array() +
-          kd_.array() * (x_d.tail(num_q) - x.tail(num_q)).array())
-             .matrix();
-
-  output->get_mutable_value() = tau;
 }
 
 template <typename T>
@@ -175,9 +120,8 @@ void JointStiffnessController<T>::CalcOutputActuation(
     const Context<T>& context, BasicVector<T>* output) const {
   const int num_q = plant_->num_positions();
 
-  const auto& plant_context =
-      this->get_cache_entry(plant_context_cache_index_)
-          .template Eval<Context<T>>(context);
+  const auto& plant_context = this->get_cache_entry(plant_context_cache_index_)
+                                  .template Eval<Context<T>>(context);
 
   // These include gravity.
   const auto& applied_forces =

@@ -31,16 +31,13 @@ _REPOSITORIES_WITH_NO_METADATA = [
     # Host libraries / binaries.
     "gfortran",
     "glib",
-    "glx",
     "gurobi",
     "lapack",
     "libblas",
     "liblapack",
-    "mumps_internal",
     "nasm",
     "net_sf_jchart2d",
     "opencl",
-    "opengl",
     "org_apache_xmlgraphics_commons",
     "x11",
     "zlib",
@@ -126,12 +123,6 @@ def read_repository_metadata(repositories=None):
         "repository_rule_type": "scripted",
         "upgrade_script": "upgrade.sh",
         # Downloads are associated with individual "crate__..." repositories.
-        "downloads": {},
-    }
-    result["rust_toolchain"] = {
-        "repository_rule_type": "scripted",
-        "upgrade_script": "upgrade.py",
-        # Downloads are associated with individual "rust_..." repositories.
         "downloads": {},
     }
 

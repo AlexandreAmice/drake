@@ -36,25 +36,23 @@ chrpath()
     done
 }
 
-# Helper function to copy the copyright text from an Ubuntu package into the
-# wheel's documentation.
-copy_ubuntu_license()
+# Helper function to copy the imported copyright text into the wheel's
+# documentation.
+copy_license()
 {
     package_name=$1
     mkdir -p ${WHEEL_DIR}/pydrake/doc/${package_name}
-    # TODO(jwnimmer-tri) Is there a simple way to install something slightly
-    # more direct (e.g., LICENSE text itself) instead of the copyright file?
-    cp /usr/share/doc/${package_name}/copyright \
-        ${WHEEL_DIR}/pydrake/doc/${package_name}/copyright
+    cp -t ${WHEEL_DIR}/pydrake/doc/${package_name}/ \
+        /tmp/drake-wheel-build/drake-wheel-licenses/${package_name}/copyright
 }
 
 ###############################################################################
 
 # Activate Drake's virtual environment, which provides some of the tools that
 # we need to build the wheels.
-. /opt/drake-wheel-build/drake/venv/bin/activate
+. /tmp/drake-wheel-build/drake-src/venv/bin/activate
 
-readonly WHEEL_DIR=/opt/drake-wheel-build/wheel
+readonly WHEEL_DIR=/tmp/drake-wheel-build/drake-wheel
 readonly WHEEL_SHARE_DIR=${WHEEL_DIR}/pydrake/share
 
 # TODO(mwoehlke-kitware) Most of this should move to Bazel.
@@ -64,24 +62,25 @@ mkdir -p ${WHEEL_DIR}/pydrake/share/drake
 cd ${WHEEL_DIR}
 
 cp -r -t ${WHEEL_DIR}/drake \
-    /opt/drake/lib/python*/site-packages/drake/*
+    /tmp/drake-wheel-build/drake-dist/lib/python*/site-packages/drake/*
 
 cp -r -t ${WHEEL_DIR}/pydrake \
-    /opt/drake/share/doc \
-    /opt/drake/lib/python*/site-packages/pydrake/*
+    /tmp/drake-wheel-build/drake-dist/share/doc \
+    /tmp/drake-wheel-build/drake-dist/lib/python*/site-packages/pydrake/*
 
 cp -r -t ${WHEEL_DIR}/pydrake/lib \
-    /opt/drake/lib/libdrake*.so
+    /tmp/drake-wheel-build/drake-dist/lib/libdrake*.so
 
 # MOSEK is "sort of" third party, but is procured as part of Drake's build and
-# ends up in /opt/drake. It should end up in the same place as libdrake.so.
+# ends up in /tmp/drake-wheel-build/drake-dist/. It should end up in the same
+# place as libdrake.so.
 cp -r -t ${WHEEL_DIR}/pydrake/lib \
-    /opt/drake/lib/libmosek* \
-    /opt/drake/lib/libtbb*
+    /tmp/drake-wheel-build/drake-dist/lib/libmosek* \
+    /tmp/drake-wheel-build/drake-dist/lib/libtbb*
 
 if [[ "$(uname)" == "Linux" ]]; then
   cp -r -t ${WHEEL_DIR}/pydrake \
-      /opt/drake-wheel-content/*
+      /tmp/drake-wheel-build/drake-wheel-content/*
 fi
 
 # Copy the license files from third party dependencies we vendor.
@@ -89,21 +88,21 @@ if [[ "$(uname)" == "Linux" ]]; then
     # The drake/tools/wheel/test/tests/libs-test.py must be kept in sync with
     # this list. To maintain that correspondence, the _ALLOWED_LIBS entry seen
     # in that test program is added as comment to the end of each line below.
-    copy_ubuntu_license libgfortran5   # libgfortran, libquadmath, libgomp
+    copy_license gcc  # libgfortran, libgomp, libquadmath
 fi
 
 cp -r -t ${WHEEL_SHARE_DIR}/drake \
-    /opt/drake/share/drake/.drake-find_resource-sentinel \
-    /opt/drake/share/drake/package.xml \
-    /opt/drake/share/drake/examples \
-    /opt/drake/share/drake/geometry \
-    /opt/drake/share/drake/multibody \
-    /opt/drake/share/drake/tutorials
+    /tmp/drake-wheel-build/drake-dist/share/drake/.drake-find_resource-sentinel \
+    /tmp/drake-wheel-build/drake-dist/share/drake/package.xml \
+    /tmp/drake-wheel-build/drake-dist/share/drake/examples \
+    /tmp/drake-wheel-build/drake-dist/share/drake/geometry \
+    /tmp/drake-wheel-build/drake-dist/share/drake/multibody \
+    /tmp/drake-wheel-build/drake-dist/share/drake/tutorials
 
 if [[ "$(uname)" == "Linux" ]]; then
     mkdir -p ${WHEEL_SHARE_DIR}/drake/setup
     cp -r -t ${WHEEL_SHARE_DIR}/drake/setup \
-        /opt/drake/share/drake/setup/deepnote
+        /tmp/drake-wheel-build/drake-dist/share/drake/setup/deepnote
 fi
 
 if [[ "$(uname)" == "Linux" ]]; then
