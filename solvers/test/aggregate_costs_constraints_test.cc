@@ -736,7 +736,7 @@ GTEST_TEST(ParseSecondOrderConeConstraints, LorentzCone) {
   std::vector<int> lorentz_cone_y_start_indices;
   std::vector<int> rotated_lorentz_cone_y_start_indices;
   ParseSecondOrderConeConstraints(
-      prog, &A_triplets, &b, &A_row_count, &second_order_cone_length,
+      prog, true, &A_triplets, &b, &A_row_count, &second_order_cone_length,
       &lorentz_cone_y_start_indices, &rotated_lorentz_cone_y_start_indices);
   EXPECT_EQ(A_row_count, 8);
   Eigen::SparseMatrix<double> A(8, prog.num_vars());
@@ -783,7 +783,7 @@ GTEST_TEST(ParseSecondOrderConeConstraints, RotatedLorentzConeConstraint) {
   std::vector<int> lorentz_cone_y_start_indices;
   std::vector<int> rotated_lorentz_cone_y_start_indices;
   ParseSecondOrderConeConstraints(
-      prog, &A_triplets, &b, &A_row_count, &second_order_cone_length,
+      prog, true, &A_triplets, &b, &A_row_count, &second_order_cone_length,
       &lorentz_cone_y_start_indices, &rotated_lorentz_cone_y_start_indices);
   EXPECT_EQ(A_row_count, 7);
   Eigen::SparseMatrix<double> A(7, prog.num_vars());
@@ -857,8 +857,9 @@ GTEST_TEST(ParsePositiveSemidefiniteConstraints, TestPsd) {
     std::vector<std::optional<int>> psd_y_start_indices;
     std::vector<std::optional<int>> lmi_y_start_indices;
     ParsePositiveSemidefiniteConstraints(
-        prog, upper_triangular, &A_triplets, &b, &A_row_count, &psd_cone_length,
-        &lmi_cone_length, &psd_y_start_indices, &lmi_y_start_indices);
+        prog, upper_triangular, /* preserve_inner_product */ true, &A_triplets,
+        &b, &A_row_count, &psd_cone_length, &lmi_cone_length,
+        &psd_y_start_indices, &lmi_y_start_indices);
     EXPECT_EQ(psd_cone_length,
               std::vector<std::optional<int>>({{3}, {std::nullopt}}));
     EXPECT_TRUE(lmi_cone_length.empty());
@@ -964,8 +965,9 @@ GTEST_TEST(ParsePositiveSemidefiniteConstraints, TestLmi) {
     std::vector<std::optional<int>> psd_y_start_indices;
     std::vector<std::optional<int>> lmi_y_start_indices;
     ParsePositiveSemidefiniteConstraints(
-        prog, upper_triangular, &A_triplets, &b, &A_row_count, &psd_cone_length,
-        &lmi_cone_length, &psd_y_start_indices, &lmi_y_start_indices);
+        prog, upper_triangular, /* preserve_inner_product */ true, &A_triplets,
+        &b, &A_row_count, &psd_cone_length, &lmi_cone_length,
+        &psd_y_start_indices, &lmi_y_start_indices);
     EXPECT_EQ(A_row_count, A_row_count_old + 3 * (3 + 1) / 2);
     EXPECT_TRUE(psd_cone_length.empty());
     EXPECT_EQ(lmi_cone_length, std::vector<std::optional<int>>({{3}}));
@@ -1064,9 +1066,9 @@ GTEST_TEST(ParseScalarPositiveSemidefiniteConstraints, Test) {
   std::vector<std::optional<int>> psd_y_start_indices;
   std::vector<std::optional<int>> lmi_y_start_indices;
   ParsePositiveSemidefiniteConstraints(
-      prog, /*upper_triangular=*/true, &A_triplets, &b, &A_row_count,
-      &psd_cone_length, &lmi_cone_length, &psd_y_start_indices,
-      &lmi_y_start_indices);
+      prog, /*upper_triangular=*/true, /* preserve_inner_product */ true,
+      &A_triplets, &b, &A_row_count, &psd_cone_length, &lmi_cone_length,
+      &psd_y_start_indices, &lmi_y_start_indices);
   EXPECT_EQ(psd_cone_length,
             std::vector<std::optional<int>>({{std::nullopt}, {3}}));
   EXPECT_EQ(lmi_cone_length,

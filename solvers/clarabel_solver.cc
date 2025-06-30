@@ -245,14 +245,12 @@ b = [{}]
         out_file << "  clarabel.SecondOrderConeT(" << cone.nvars() << "),"
                  << std::endl;
         break;
-      case clarabel::SupportedConeT<double>::Tag::PSDTriangleConeT:
-        {
-          const clarabel::PSDTriangleConeT<double>* psd_cone =
-              static_cast<const clarabel::PSDTriangleConeT<double>*>(&cone);
-          out_file << "  clarabel.PSDTriangleConeT(" << psd_cone->dimension()
-                  << ")," << std::endl;
-        }
-        break;
+      case clarabel::SupportedConeT<double>::Tag::PSDTriangleConeT: {
+        const clarabel::PSDTriangleConeT<double>* psd_cone =
+            static_cast<const clarabel::PSDTriangleConeT<double>*>(&cone);
+        out_file << "  clarabel.PSDTriangleConeT(" << psd_cone->dimension()
+                 << ")," << std::endl;
+      } break;
       case clarabel::SupportedConeT<double>::Tag::ExponentialConeT:
         out_file << "  clarabel.ExponentialConeT()," << std::endl;
         break;
@@ -424,7 +422,7 @@ void ClarabelSolver::DoSolve2(const MathematicalProgram& prog,
   std::vector<int> lorentz_cone_y_start_indices;
   std::vector<int> rotated_lorentz_cone_y_start_indices;
   internal::ParseSecondOrderConeConstraints(
-      prog, &A_triplets, &b, &A_row_count, &second_order_cone_length,
+      prog, true, &A_triplets, &b, &A_row_count, &second_order_cone_length,
       &lorentz_cone_y_start_indices, &rotated_lorentz_cone_y_start_indices);
   for (const int soc_length : second_order_cone_length) {
     cones.push_back(clarabel::SecondOrderConeT<double>(soc_length));
@@ -445,9 +443,9 @@ void ClarabelSolver::DoSolve2(const MathematicalProgram& prog,
   std::vector<std::optional<int>> psd_y_start_indices;
   std::vector<std::optional<int>> lmi_y_start_indices;
   internal::ParsePositiveSemidefiniteConstraints(
-      prog, /* upper triangular = */ true, &A_triplets, &b, &A_row_count,
-      &psd_cone_length, &lmi_cone_length, &psd_y_start_indices,
-      &lmi_y_start_indices);
+      prog, /* upper triangular = */ true, /* preserve_inner_product */ true,
+      &A_triplets, &b, &A_row_count, &psd_cone_length, &lmi_cone_length,
+      &psd_y_start_indices, &lmi_y_start_indices);
   for (const auto& length : psd_cone_length) {
     if (length.has_value()) {
       cones.push_back(clarabel::PSDTriangleConeT<double>(*length));

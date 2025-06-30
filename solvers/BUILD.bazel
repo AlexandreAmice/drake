@@ -1130,10 +1130,10 @@ drake_cc_library(
     name = "conic_standard_form",
     srcs = ["conic_standard_form.cc"],
     hdrs = ["conic_standard_form.h"],
-    interface_deps = [
+    deps = [
         ":mathematical_program",
     ],
-    deps = [
+    implementation_deps = [
         ":aggregate_costs_constraints",
         "//math:matrix_util",
     ],
@@ -2177,6 +2177,7 @@ drake_cc_googletest(
 drake_cc_googletest(
     name = "projected_gradient_descent_solver_test",
     deps = [
+        ":aggregate_costs_constraints",
         ":equality_constrained_qp_solver",
         ":linear_program_examples",
         ":mathematical_program",
@@ -2188,7 +2189,6 @@ drake_cc_googletest(
         ":solve",
         "//common/test_utilities:eigen_matrix_compare",
         "//common/test_utilities:expect_throws_message",
-        ":aggregate_costs_constraints"
     ],
 )
 
