@@ -170,7 +170,7 @@ struct ConvexConstraintAggregationInfo {
   // prog.positive_semidefinite_constraints() and
   // prog.linear_matrix_inequality_constraints(). See
   // ParsePositiveSemidefiniteConstraints for more details.
-  std::vector<int> psd_cone_lengths;
+  std::vector<std::optional<int>> psd_row_size;
 };
 
 // Iterate over the convex (conic) constraints of prog and aggregate the
@@ -352,8 +352,11 @@ void ParseL2NormCosts(const MathematicalProgram& prog,
                       std::vector<int>* t_slack_indices);
 
 // Parse all second order cone constraints (including both Lorentz cone and
-// rotated Lorentz cone constraint) to the form A*x+s=b, s in K where K is the
-// Cartesian product of Lorentz cone {s | sqrt(s₁²+...+sₙ₋₁²) ≤ s₀}
+// rotated Lorentz cone constraint) to the form A*x+s=b, s in K. If
+// cast_rotated_lorentz_to_lorentz is true, then K is the Cartesian product of
+// Lorentz cone {s | sqrt(s₁²+...+sₙ₋₁²) ≤ s₀}. If
+// cast_rotated_lorentz_to_lorentz is false, then K is the Cartesian product of
+// Lorentz cones and rotated Lorentz cone constraints.
 // @param[in/out] A_triplets We append the second order cone constraints to
 // A_triplets.
 // @param[in/out] b We append the second order cone constraints to b.
@@ -368,15 +371,15 @@ void ParseL2NormCosts(const MathematicalProgram& prog,
 // y[rotated_lorentz_cone_y_start_indices[i]:
 // rotated_lorentz_cone_y_start_indices[i] +
 // prog.rotate_lorentz_cone()[i].evaluator().A().rows] are the y variables for
-// prog.rotated_lorentz_cone_constraints()[i]. Note that we assume the Cartesian
-// product K doesn't contain a
-// rotated Lorentz cone constraint, instead we convert the rotated Lorentz
-// cone constraint to the Lorentz cone constraint through a linear
-// transformation. Hence we need to apply the transpose of that linear
+// prog.rotated_lorentz_cone_constraints()[i]. Note that when
+// cast_rotated_lorentz_to_lorentz is true, we assume the Cartesian product K
+// doesn't contain a rotated Lorentz cone constraint, instead we convert the
+// rotated Lorentz cone constraint to the Lorentz cone constraint through a
+// linear transformation. Hence we need to apply the transpose of that linear
 // transformation on the y variable to get the dual variable in the dual cone
 // of rotated Lorentz cone.
 void ParseSecondOrderConeConstraints(
-    const MathematicalProgram& prog, const bool cast_rotated_lorentz_to_lorentz,
+    const MathematicalProgram& prog, bool cast_rotated_lorentz_to_lorentz,
     std::vector<Eigen::Triplet<double>>* A_triplets, std::vector<double>* b,
     int* A_row_count, std::vector<int>* second_order_cone_length,
     std::vector<int>* lorentz_cone_y_start_indices,
@@ -386,16 +389,17 @@ void ParseSecondOrderConeConstraints(
 // rotated Lorentz cone.
 //
 // We add these rotated Lorentz cones in the form A*x+s=b and s in K, where K is
-// the Cartesian product of Lorentz cones.
+// the Cartesian product of Lorentz cones when cast_rotated_lorentz_to_lorentz
+// is true and K is the Cartesian product of rotated Lorentz cones otherwise.
 // @param A_cone_triplets The triplets of non-zero entries in A_cone.
 // @param b_cone A_cone * x + b_cone is in the rotated Lorentz cone.
 // @param x_indices The index of the variables.
 // @param A_triplets[in/out] The non-zero entry triplet in A before and after
-// adding the Lorentz cone.
+// adding the rotated Lorentz cones.
 // @param b[in/out] The right-hand side vector b before and after adding the
-// Lorentz cone.
+// rotated Lorentz cones.
 // @param A_row_count[in/out] The number of rows in A before and after adding
-// the Lorentz cone.
+// the rotated Loretnz cones.
 // @param second_order_cone_length[in/out] The length of each Lorentz cone
 // before and after adding the Lorentz cone constraint.
 // @param rotated_lorentz_cone_y_start_indices[in/out] The starting index of y
@@ -479,6 +483,9 @@ void ParseExponentialConeConstraints(
 // prog.linear_matrix_inequality_constraints()[i] is not parsed as a PSD cone
 // constraint in the solver, then lmi_y_start_indices[i] is std::nullopt. The
 // input should be an empty vector.
+// pass nullptr to lmi_cone_length, psd_y_start_indices, lmi_y_start_indices
+// leads to the complicated parsing being skipped. TODO(Alexandre.Amice) remove
+// this code and fix conic standard form
 void ParsePositiveSemidefiniteConstraints(
     const MathematicalProgram& prog, bool upper_triangular,
     bool preserve_psd_inner_product_vectorization,

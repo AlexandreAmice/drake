@@ -120,8 +120,9 @@ ConicStandardForm::ConicStandardForm(const MathematicalProgram& prog)
   attributes_to_start_end_pairs_
       .at(ProgramAttribute::kPositiveSemidefiniteConstraint)
       .reserve(info.psd_row_size.size());
-  for (const int row_size : info.psd_row_size) {
-    int psd_length = row_size * (row_size + 1) / 2;
+  for (const std::optional<int> row_size : info.psd_row_size) {
+    DRAKE_THROW_UNLESS(row_size.has_value());
+    int psd_length = *row_size * (*row_size + 1) / 2;
     attributes_to_start_end_pairs_
         .at(ProgramAttribute::kPositiveSemidefiniteConstraint)
         .emplace_back(expected_A_row_count, expected_A_row_count + psd_length);

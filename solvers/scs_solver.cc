@@ -106,7 +106,7 @@ void ParseQuadraticCostWithRotatedLorentzCone(
     b_cone(1) = 2;
     // Add the rotated Lorentz cone constraint
     internal::ParseRotatedLorentzConeConstraint(
-        Ai_triplets, b_cone, Ai_var_indices, A_triplets, b, A_row_count,
+        Ai_triplets, b_cone, Ai_var_indices, true, A_triplets, b, A_row_count,
         second_order_cone_length, std::nullopt);
     // Add the cost y.
     c->push_back(1);
@@ -520,7 +520,7 @@ void ScsSolver::DoSolve2(const MathematicalProgram& prog,
   // of rotated Lorentz cone.
   std::vector<int> rotated_lorentz_cone_y_start_indices;
   internal::ParseSecondOrderConeConstraints(
-      prog, &A_triplets, &b, &A_row_count, &second_order_cone_length,
+      prog, true, &A_triplets, &b, &A_row_count, &second_order_cone_length,
       &lorentz_cone_y_start_indices, &rotated_lorentz_cone_y_start_indices);
 
   // Add PSD or LMI constraint on 2x2 matrices. This must be called with the
@@ -581,7 +581,7 @@ void ScsSolver::DoSolve2(const MathematicalProgram& prog,
   std::vector<std::optional<int>> psd_y_start_indices;
   std::vector<std::optional<int>> lmi_y_start_indices;
   internal::ParsePositiveSemidefiniteConstraints(
-      prog, /* upper_triangular = */ false, &A_triplets, &b, &A_row_count,
+      prog, /* upper_triangular = */ false, true, &A_triplets, &b, &A_row_count,
       &psd_cone_length, &lmi_cone_length, &psd_y_start_indices,
       &lmi_y_start_indices);
   // Set the psd cone length in the SCS cone.

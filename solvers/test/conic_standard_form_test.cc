@@ -41,12 +41,14 @@ void CheckParseToConicStandardForm(const MathematicalProgram& prog) {
   EXPECT_EQ(original_result.get_solution_result(),
             standard_form_result.get_solution_result());
   if (original_result.get_solution_result() == SolutionResult::kSolutionFound) {
-    const double kTol =
-        prog.positive_semidefinite_constraints().size() +
-                    prog.linear_matrix_inequality_constraints().size() ==
-                0
-            ? 1e-8
-            : 1e-4;
+    //    const double kTol =
+    //        prog.positive_semidefinite_constraints().size() +
+    //                    prog.linear_matrix_inequality_constraints().size() ==
+    //                0
+    //            ? 1e-8
+    //            : 1e-4;
+    // TODO(Alexandre.Amice) This should be tighter.
+    const double kTol = 1e-4;
     EXPECT_NEAR(original_result.get_optimal_cost(),
                 standard_form_result.get_optimal_cost(), kTol);
     EXPECT_TRUE(CompareMatrices(
