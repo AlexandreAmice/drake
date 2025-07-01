@@ -22,7 +22,7 @@ void DefineSolversBranchAndBound(py::module m);
 void DefineSolversConicStandardForm(py::module m);
 
 /* Defines bindings per solvers_py_dual_convex_program.cc. */
-void DefineSolversDualConvexProgram(py::module m);
+// void DefineSolversDualConvexProgram(py::module m);
 
 /* Defines the Clarabel bindings. See solvers_py_clarabel.cc. */
 void DefineSolversClarabel(py::module m);
