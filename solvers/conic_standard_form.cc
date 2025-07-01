@@ -1,7 +1,6 @@
 #include "drake/solvers/conic_standard_form.h"
 
 #include <initializer_list>
-#include <iostream>
 #include <limits>
 #include <memory>
 #include <string>
@@ -59,9 +58,6 @@ ConicStandardForm::ConicStandardForm(const MathematicalProgram& prog_input)
 
   std::vector<Binding<QuadraticCost>> quadratic_cost_copy =
       prog->quadratic_costs();
-  std::cout << "prog has " << prog->num_vars() << " variables and "
-            << prog->quadratic_costs().size() << " quadratic costs."
-            << std::endl;
   for (const auto& quadratic_cost : quadratic_cost_copy) {
     DRAKE_THROW_UNLESS(quadratic_cost.evaluator()->is_convex());
     int num_costs_removed = prog->RemoveCost(quadratic_cost);
@@ -87,10 +83,6 @@ ConicStandardForm::ConicStandardForm(const MathematicalProgram& prog_input)
         Q, b, quadratic_cost.evaluator()->c(), xt);
   }
   x_ = prog->decision_variables();
-  std::cout << "prog has " << prog->num_vars() << " variables and "
-            << prog->quadratic_costs().size() << " quadratic costs."
-            << std::endl;
-  std::cout << "Converting program to conic standard form." << std::endl;
 
   std::vector<double> c_std(prog->num_vars(), 0.0);
   internal::ParseLinearCosts(*prog, &c_std, &d_);
