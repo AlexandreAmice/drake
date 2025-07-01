@@ -52,7 +52,7 @@ class ConicStandardForm {
   Eigen::SparseVector<double> b_;
 
   /** The decision variables x of the program.*/
-  const VectorX<symbolic::Variable> x_;
+  VectorX<symbolic::Variable> x_;
 
   /**
    * attributes_to_start_end_pairs[type][i] is a pair of indices

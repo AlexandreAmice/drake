@@ -54,14 +54,13 @@ void CheckParseToConicStandardForm(const MathematicalProgram& prog) {
     EXPECT_TRUE(CompareMatrices(
         original_result.get_x_val(),
         standard_form_result.get_x_val().head(prog.decision_variables().size()),
-        kTol, MatrixCompareType::relative));
+        kTol));
 
     // Check that the decision variables of the original program are used in the
     // standard form program.
-    EXPECT_TRUE(
-        CompareMatrices(original_result.GetSolution(prog.decision_variables()),
-                        original_result.GetSolution(standard_form.x()), 1e-10,
-                        MatrixCompareType::relative));
+    EXPECT_TRUE(CompareMatrices(
+        original_result.GetSolution(prog.decision_variables()),
+        standard_form_result.GetSolution(prog.decision_variables()), kTol));
   }
 }
 }  // namespace
@@ -87,6 +86,31 @@ TEST_F(UnboundedLinearProgramTest0, TestUnbounded) {
 TEST_P(TestEllipsoidsSeparation, TestSOCP) {
   CheckParseToConicStandardForm(prog_);
 }
+
+GTEST_TEST(TestMinimalDistanceFromSphereProblem, TestSocp) {
+  for (const bool use_linear_cost : {false, true}) {
+    std::unique_ptr<MathematicalProgram> prog(
+        MinimalDistanceFromSphereProblem<3>(
+            Eigen::Vector3d(1, 2, 3) /* pt*/,
+            Eigen::Vector3d::Zero() /* center*/, 0.5 /* radius*/,
+            use_linear_cost /* with linear cost */
+            )
+            .get_mutable_prog()
+            ->Clone());
+    for (int i = 0; i < 10; ++i) {
+      // Add the same quadratic cost repeatedly.
+      // This is to test that repeated costs are aggregated correctly.
+      // The cost should be aggregated to a single quadratic cost.
+      const Binding<QuadraticCost>& quadratic_cost = prog->quadratic_costs()[0];
+      prog->AddQuadraticCost(
+          quadratic_cost.evaluator()->Q(), quadratic_cost.evaluator()->b(),
+          quadratic_cost.evaluator()->c(), quadratic_cost.variables(),
+          quadratic_cost.evaluator()->is_convex());
+    }
+    CheckParseToConicStandardForm(*prog);
+  }
+}
+
 INSTANTIATE_TEST_SUITE_P(
     ConicStandardFormTest, TestEllipsoidsSeparation,
     ::testing::ValuesIn(GetEllipsoidsSeparationProblems()));

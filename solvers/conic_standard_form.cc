@@ -1,6 +1,7 @@
 #include "drake/solvers/conic_standard_form.h"
 
 #include <initializer_list>
+#include <iostream>
 #include <limits>
 #include <memory>
 #include <string>
@@ -31,7 +32,9 @@ void CheckSupported(const MathematicalProgram& prog) {
           ProgramAttribute::kRotatedLorentzConeConstraint,
           ProgramAttribute::kPositiveSemidefiniteConstraint,
           // Supported Costs.
-          ProgramAttribute::kLinearCost});
+          ProgramAttribute::kLinearCost,
+          ProgramAttribute::kQuadraticCost,
+      });
   if (!AreRequiredAttributesSupported(prog.required_capabilities(),
                                       supported_attributes,
                                       &unsupported_message)) {
@@ -43,9 +46,10 @@ void CheckSupported(const MathematicalProgram& prog) {
 
 }  // namespace
 
-ConicStandardForm::ConicStandardForm(const MathematicalProgram& prog)
-    : x_{prog.decision_variables()} {
-  CheckSupported(prog);
+ConicStandardForm::ConicStandardForm(const MathematicalProgram& prog_input)
+    : x_{prog_input.decision_variables()} {
+  auto prog = prog_input.Clone();
+  CheckSupported(*prog);
 
   internal::ConvexConstraintAggregationInfo info;
   internal::ConvexConstraintAggregationOptions options;
@@ -53,8 +57,43 @@ ConicStandardForm::ConicStandardForm(const MathematicalProgram& prog)
   options.preserve_psd_inner_product_vectorization = true;
   options.parse_psd_using_upper_triangular = false;
 
-  std::vector<double> c_std(prog.num_vars(), 0.0);
-  internal::ParseLinearCosts(prog, &c_std, &d_);
+  std::vector<Binding<QuadraticCost>> quadratic_cost_copy =
+      prog->quadratic_costs();
+  std::cout << "prog has " << prog->num_vars() << " variables and "
+            << prog->quadratic_costs().size() << " quadratic costs."
+            << std::endl;
+  for (const auto& quadratic_cost : quadratic_cost_copy) {
+    DRAKE_THROW_UNLESS(quadratic_cost.evaluator()->is_convex());
+    int num_costs_removed = prog->RemoveCost(quadratic_cost);
+    if (num_costs_removed == 0) {
+      // If a cost is duplicated, it is possible that this loop tries to remove
+      // it twice. We don't want to repeat adding a quadratic constraint for
+      // this cost.
+      continue;
+    }
+    // We convert the quadratic cost to a linear cost in the standard form.
+    symbolic::Variable t = prog->NewContinuousVariables(1, "t")[0];
+    prog->AddLinearCost(num_costs_removed * t);
+    const VectorXDecisionVariable& x = quadratic_cost.variables();
+    Eigen::MatrixXd Q = Eigen::MatrixXd::Zero(x.size() + 1, x.size() + 1);
+    Q.topLeftCorner(x.size(), x.size()) = quadratic_cost.evaluator()->Q();
+    Eigen::VectorXd b(x.size() + 1);
+    b.head(x.size()) = quadratic_cost.evaluator()->b();
+    b(x.size()) = -1;
+    VectorXDecisionVariable xt(x.size() + 1);
+    xt.head(x.size()) = x;
+    xt(x.size()) = t;
+    prog->AddQuadraticAsRotatedLorentzConeConstraint(
+        Q, b, quadratic_cost.evaluator()->c(), xt);
+  }
+  x_ = prog->decision_variables();
+  std::cout << "prog has " << prog->num_vars() << " variables and "
+            << prog->quadratic_costs().size() << " quadratic costs."
+            << std::endl;
+  std::cout << "Converting program to conic standard form." << std::endl;
+
+  std::vector<double> c_std(prog->num_vars(), 0.0);
+  internal::ParseLinearCosts(*prog, &c_std, &d_);
   c_.resize(c_std.size());
   for (int i = 0; i < ssize(c_std); ++i) {
     if (c_std[i] != 0.0) {
@@ -62,14 +101,14 @@ ConicStandardForm::ConicStandardForm(const MathematicalProgram& prog)
     }
   }
 
-  internal::DoAggregateConvexConstraints(prog, options, &info);
+  internal::DoAggregateConvexConstraints(*prog, options, &info);
   // We need to negate the A_triplets since they return as -Ax + b ∈ K.
   for (int i = 0; i < ssize(info.A_triplets); ++i) {
     info.A_triplets[i] = Eigen::Triplet<double>(info.A_triplets[i].row(),
                                                 info.A_triplets[i].col(),
                                                 -info.A_triplets[i].value());
   }
-  A_.resize(info.A_row_count, prog.num_vars());
+  A_.resize(info.A_row_count, prog->num_vars());
   A_.setFromTriplets(info.A_triplets.begin(), info.A_triplets.end());
 
   b_.resize(info.b_std.size());
