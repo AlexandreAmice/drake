@@ -25,7 +25,7 @@ void DefineSolversConicStandardForm(py::module m) {
           [](const ConicStandardForm& self) {
             Eigen::SparseMatrix<double> b(self.b().rows(), 1);
             for (Eigen::SparseVector<double>::InnerIterator it(self.b()); it;
-                 ++it) {
+                ++it) {
               b.insert(it.index(), 0) = it.value();
             }
             return b;
@@ -36,7 +36,7 @@ void DefineSolversConicStandardForm(py::module m) {
           [](const ConicStandardForm& self) {
             Eigen::SparseMatrix<double> c(self.c().rows(), 1);
             for (Eigen::SparseVector<double>::InnerIterator it(self.c()); it;
-                 ++it) {
+                ++it) {
               c.insert(it.index(), 0) = it.value();
             }
             return c;
