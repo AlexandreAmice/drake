@@ -494,6 +494,43 @@ GTEST_TEST(TestAddDecisionVariables, TestMatrixInput) {
   }
 }
 
+GTEST_TEST(TestSortDecisionVariables, SortDecisionVariables) {
+  // Test the SortDecisionVariables function.
+  MathematicalProgram prog;
+  auto x = prog.NewContinuousVariables<3>("x");
+  auto y = prog.NewContinuousVariables<2>("y");
+  auto z = prog.NewBinaryVariables<4>("z");
+
+  // A variable not contained in prog.
+  Variable w("w", Variable::Type::CONTINUOUS);
+
+  // Contains w which is not currently in prog. Also does not contain every
+  // variable of prog.
+  std::vector<Variable> desired_sort;
+  for (int i = 0; i < y.size(); ++i) {
+    desired_sort.push_back(y(i));
+  }
+  desired_sort.push_back(w);
+
+  std::vector<Variable> expected_sort{y(0), y(1), w,    x(0), x(1),
+                                      x(2), z(0), z(1), z(2), z(3)};
+
+  prog.SortDecisionVariables(desired_sort);
+  EXPECT_EQ(prog.decision_variables().size(),
+            x.size() + y.size() + z.size() + 1);
+  for (int i = 0; i < prog.decision_variables().size(); ++i) {
+    EXPECT_TRUE(prog.decision_variables()(i).equal_to(expected_sort[i]));
+    EXPECT_TRUE(prog.decision_variable(i).equal_to(expected_sort[i]));
+    EXPECT_EQ(
+        prog.decision_variable_index().find(expected_sort[i].get_id())->second,
+        i);
+    EXPECT_EQ(prog.decision_variable_index()
+                  .find(prog.decision_variable(i).get_id())
+                  ->second,
+              i);
+  }
+}
+
 GTEST_TEST(NewIndeterminates, DynamicSizeMatrix) {
   // Adds a dynamic-sized matrix of Indeterminates.
   MathematicalProgram prog;

@@ -205,6 +205,52 @@ void MathematicalProgram::AddDecisionVariables(
   AppendNanToEnd(new_var_count, &x_initial_guess_);
 }
 
+void MathematicalProgram::SortDecisionVariables(
+    const std::vector<Variable>& sorting_variables) {
+  std::unordered_map<Variable::Id, int> sorting_variables_index_map;
+  for (int i = 0; i < ssize(sorting_variables); ++i) {
+    const auto& var = sorting_variables[i];
+    if (!decision_variable_index_.contains(var.get_id())) {
+      // Ensure that decision_variables_ contains every variable of
+      // sorting_variables.
+      AddDecisionVariables(Vector1<Variable>(var));
+    }
+    sorting_variables_index_map[var.get_id()] = i;
+  }
+
+  // Separate elements into two groups
+  std::vector<Variable> sorting_elements;
+  std::vector<Variable> non_sorting_elements;
+
+  // Split decision_variables_ into the two groups
+  for (const Variable& var : decision_variables_) {
+    if (sorting_variables_index_map.find(var.get_id()) ==
+        sorting_variables_index_map.end()) {
+      non_sorting_elements.push_back(var);
+    } else {
+      sorting_elements.push_back(var);
+    }
+  }
+
+  // Sort bar_elements to match the order in bar
+  std::sort(
+      sorting_elements.begin(), sorting_elements.end(),
+      [&sorting_variables_index_map](const Variable& a, const Variable& b) {
+        return sorting_variables_index_map[a.get_id()] <
+               sorting_variables_index_map[b.get_id()];
+      });
+
+  decision_variables_.clear();
+  decision_variables_.insert(decision_variables_.end(),
+                             sorting_elements.begin(), sorting_elements.end());
+  decision_variables_.insert(decision_variables_.end(),
+                             non_sorting_elements.begin(),
+                             non_sorting_elements.end());
+  for (int i = 0; i < ssize(decision_variables_); ++i) {
+    decision_variable_index_[decision_variables_[i].get_id()] = i;
+  }
+}
+
 symbolic::Polynomial MathematicalProgram::NewFreePolynomialImpl(
     const Variables& indeterminates, const int degree, const string& coeff_name,
     symbolic::internal::DegreeType degree_type) {

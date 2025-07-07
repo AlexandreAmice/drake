@@ -450,6 +450,16 @@ class MathematicalProgram {
       const Eigen::Ref<const MatrixXDecisionVariable>& decision_variables);
 
   /**
+   * Sorts the decision variables of this program so that the variables in @p
+   * decision variables are in the front of this program's decision variables,
+   * in the order given in @p decision_variables. If @p decision_variables
+   * contains variables not in this program, then the decision variable is
+   * inserted into this program.
+   */
+  void SortDecisionVariables(
+      const std::vector<symbolic::Variable>& decision_variables);
+
+  /**
    * Returns a free polynomial in a monomial basis over @p indeterminates of a
    * given @p degree. It uses @p coeff_name to make new decision variables and
    * use them as coefficients. For example, `NewFreePolynomial({x₀, x₁}, 2)`
