@@ -51,12 +51,7 @@ filegroup(
 # Mimic these lines from the Makefile:
 #  single: $(SBLAS1) $(ALLBLAS) $(SBLAS2) $(SBLAS3)
 #  double: $(DBLAS1) $(ALLBLAS) $(DBLAS2) $(DBLAS3)
-#  complex16: $(ZBLAS1) $(ZB1AUX) $(ALLBLAS) $(ZBLAS2) $(ZBLAS3)
-BLAS_SRCS = depset(
-    SBLAS1 + ALLBLAS + SBLAS2 + SBLAS3 +
-    DBLAS1 + ALLBLAS + DBLAS2 + DBLAS3 +
-    ZBLAS1 + ZB1AUX + ALLBLAS + ZBLAS2 + ZBLAS3,
-).to_list()
+BLAS_SRCS = depset(DBLAS1 + ALLBLAS + DBLAS2 + DBLAS3).to_list()
 
 fortran_library(
     name = "blas_objects",
@@ -83,14 +78,7 @@ cc_library(
 #  SINGLE_DEPS += $(SCLAUX) $(ALLAUX)
 #  DOUBLE_DEPS := $(DLASRC) $(DSLASRC)
 #  DOUBLE_DEPS += $(DZLAUX) $(ALLAUX)
-#  COMPLEX16_DEPS := $(ZLASRC) $(ZCLASRC)
-LAPACK_ALL_SRCS = depset(
-    SLASRC + DSLASRC +
-    SCLAUX + ALLAUX +
-    DLASRC + DSLASRC +
-    DZLAUX + ALLAUX +
-    ZLASRC + ZCLASRC,
-).to_list()
+LAPACK_ALL_SRCS = depset(DLASRC + DSLASRC + DZLAUX + ALLAUX).to_list()
 
 # The next two need special attention since they are actual Fortran modules.
 
