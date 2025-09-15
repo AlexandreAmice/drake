@@ -21,6 +21,10 @@
 namespace drake {
 namespace planning {
 
+/** Various options which are common to the sampling-based algorithms IrisNp2
+ * and IrisZo for generating collision free polytopes in configuration space.
+ *
+ * @ingroup planning_iris */
 class CommonSampledIrisOptions {
  public:
   DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(CommonSampledIrisOptions);
@@ -172,7 +176,9 @@ class CommonSampledIrisOptions {
  * IrisNp2 requires that the user also provies a version of the function for
  * Eigen::VectorX<AutoDiffXd>. If not specified, the input dimension is assumed
  * to be equal to the output dimension. The user must also specify whether or
- * not the parameterization function can be called in parallel. */
+ * not the parameterization function can be called in parallel.
+ *
+ * @ingroup planning_iris */
 class IrisParameterizationFunction {
  public:
   DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(IrisParameterizationFunction);
@@ -221,7 +227,7 @@ class IrisParameterizationFunction {
    * the order that they should be evaluated. Each `Variable` in `variables`
    * must be used, each `Variable` used in `expression_parameterization` must
    * appear in `variables`, and there must be no duplicates in `variables`.
-   * @note This currently only populates the VectorX<double> parameterization.
+   * @note This constructor only populates the VectorX<double> parameterization.
    * @note Expression parameterizations are always threadsafe.
    * @throws if the number of variables used across
    * `expression_parameterization` does not match `ssize(variables)`.
@@ -237,7 +243,8 @@ class IrisParameterizationFunction {
    * rational kinematic parameterization. Regions are grown in the `s`
    * variables, so as to minimize collisions in the `q` variables. See
    * RationalForwardKinematics for details.
-   * @note This currently only populates the VectorX<double> parameterization.
+   * @note This constructor populates the VectorX<double> and
+   * VectorX<AutoDiffXd> parameterizations.
    * @note The user is responsible for ensuring `kin` (and the underlying
    * MultibodyPlant it is built on) is kept alive. If that object is deleted,
    * then the parameterization can no longer be used. */

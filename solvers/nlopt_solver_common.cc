@@ -2,6 +2,8 @@
 #include "drake/solvers/nlopt_solver.h"
 /* clang-format on */
 
+#include <string>
+
 #include "drake/common/never_destroyed.h"
 #include "drake/solvers/mathematical_program.h"
 
@@ -33,7 +35,8 @@ bool NloptSolver::ProgramAttributesSatisfied(const MathematicalProgram& prog) {
           ProgramAttribute::kLorentzConeConstraint,
           ProgramAttribute::kRotatedLorentzConeConstraint,
           ProgramAttribute::kGenericCost, ProgramAttribute::kLinearCost,
-          ProgramAttribute::kQuadraticCost, ProgramAttribute::kCallback});
+          ProgramAttribute::kQuadraticCost, ProgramAttribute::kL2NormCost,
+          ProgramAttribute::kCallback});
   return AreRequiredAttributesSupported(prog.required_capabilities(),
                                         solver_capabilities.access());
 }

@@ -1,11 +1,13 @@
 #include <cstddef>
 #include <memory>
 #include <set>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include "drake/bindings/pydrake/autodiff_types_pybind.h"
 #include "drake/bindings/pydrake/common/cpp_param_pybind.h"
 #include "drake/bindings/pydrake/common/cpp_template_pybind.h"
-#include "drake/bindings/pydrake/common/deprecation_pybind.h"
 #include "drake/bindings/pydrake/common/eigen_pybind.h"
 #include "drake/bindings/pydrake/documentation_pybind.h"
 #include "drake/bindings/pydrake/pydrake_pybind.h"
@@ -744,6 +746,10 @@ void BindMathematicalProgram(py::module m) {
           &MathematicalProgram::AddL2NormCostUsingConicConstraint, py::arg("A"),
           py::arg("b"), py::arg("vars"),
           doc.MathematicalProgram.AddL2NormCostUsingConicConstraint.doc)
+      .def("AddL1NormCostInEpigraphForm",
+          &MathematicalProgram::AddL1NormCostInEpigraphForm, py::arg("A"),
+          py::arg("b"), py::arg("vars"),
+          doc.MathematicalProgram.AddL1NormCostInEpigraphForm.doc)
       .def("AddMaximizeLogDeterminantCost",
           static_cast<std::tuple<Binding<LinearCost>,
               VectorX<symbolic::Variable>, MatrixX<symbolic::Expression>> (
@@ -1348,36 +1354,7 @@ void BindMathematicalProgram(py::module m) {
           doc.MathematicalProgram.SetSolverOptions.doc)
       .def("solver_options", &MathematicalProgram::solver_options,
           py_rvp::reference_internal,
-          doc.MathematicalProgram.solver_options.doc);
-// Deprecated 2025-09-01.
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-  prog_cls  // BR
-      .def("GetSolverOptions",
-          WrapDeprecated(
-              doc.MathematicalProgram.GetSolverOptionsDouble.doc_deprecated,
-              [](MathematicalProgram& prog, SolverId solver_id) {
-                py::dict out;
-                py::object update = out.attr("update");
-                update(prog.GetSolverOptionsDouble(solver_id));
-                update(prog.GetSolverOptionsInt(solver_id));
-                update(prog.GetSolverOptionsStr(solver_id));
-                return out;
-              }))
-      .def("GetSolverOptions",
-          WrapDeprecated(
-              doc.MathematicalProgram.GetSolverOptionsDouble.doc_deprecated,
-              [](MathematicalProgram& prog, SolverType solver_type) {
-                py::dict out;
-                py::object update = out.attr("update");
-                const SolverId id = SolverTypeConverter::TypeToId(solver_type);
-                update(prog.GetSolverOptionsDouble(id));
-                update(prog.GetSolverOptionsInt(id));
-                update(prog.GetSolverOptionsStr(id));
-                return out;
-              }));
-#pragma GCC diagnostic pop
-  prog_cls  // BR
+          doc.MathematicalProgram.solver_options.doc)
       .def("generic_costs", &MathematicalProgram::generic_costs,
           doc.MathematicalProgram.generic_costs.doc)
       .def("generic_constraints", &MathematicalProgram::generic_constraints,
@@ -1600,10 +1577,25 @@ void BindSolutionResult(py::module m) {
           doc.SolutionResult.kSolutionResultNotSet.doc);
 }
 
+void BindPyFunctionCost(py::module m) {
+  py::class_<PyFunctionCost, Cost, std::shared_ptr<PyFunctionCost>>(
+      m, "PyFunctionCost", "Cost with its evaluator as a Python function")
+      .def(py::init<int, const py::function&, const std::string&>(),
+          py::arg("num_vars"), py::arg("func"), py::arg("description") = "",
+          "Constructs a cost for a python function `func`, applied to "
+          "`num_vars` variables.");
+}
+
 void BindPyFunctionConstraint(py::module m) {
   py::class_<PyFunctionConstraint, Constraint,
       std::shared_ptr<PyFunctionConstraint>>(m, "PyFunctionConstraint",
       "Constraint with its evaluator as a Python function")
+      .def(py::init<int, const py::function&, const Eigen::VectorXd&,
+               const Eigen::VectorXd&, const std::string&>(),
+          py::arg("num_vars"), py::arg("func"), py::arg("lb"), py::arg("ub"),
+          py::arg("description") = "",
+          "Constructs a constraint for a python function `func`, encoding `lb` "
+          "<= `func` (x) <= `ub`, where x is of size `num_vars`.")
       .def("UpdateLowerBound", &PyFunctionConstraint::UpdateLowerBound,
           py::arg("new_lb"), "Update the lower bound of the constraint.")
       .def("UpdateUpperBound", &PyFunctionConstraint::UpdateUpperBound,
@@ -1711,6 +1703,7 @@ void BindFreeFunctions(py::module m) {
 namespace internal {
 void DefineSolversMathematicalProgram(py::module m) {
   // This list must remain in topological dependency order.
+  BindPyFunctionCost(m);
   BindPyFunctionConstraint(m);
   BindMathematicalProgram(m);
   BindSolutionResult(m);

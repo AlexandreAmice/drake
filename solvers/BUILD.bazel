@@ -6,7 +6,6 @@ load(
     "drake_cc_googletest",
     "drake_cc_library",
     "drake_cc_package_library",
-    "drake_cc_test",
 )
 load(
     "//tools/skylark:drake_py.bzl",
@@ -607,7 +606,7 @@ drake_cc_library(
     deps = [
         ":mathematical_program",
         ":solver_interface",
-        "@gtest//:without_main",
+        "@googletest//:gtest_for_library",
     ],
 )
 
@@ -631,7 +630,7 @@ drake_cc_library(
         ":snopt_solver",
         ":solver_type_converter",
         "//common/test_utilities:eigen_matrix_compare",
-        "@gtest//:without_main",
+        "@googletest//:gtest_for_library",
     ],
 )
 
@@ -672,7 +671,7 @@ drake_cc_library(
         ":mosek_solver",
         ":solve",
         "//common/test_utilities:eigen_matrix_compare",
-        "@gtest//:without_main",
+        "@googletest//:gtest_for_library",
     ],
 )
 
@@ -719,7 +718,7 @@ drake_cc_library(
         ":mathematical_program",
         ":mathematical_program_result",
         "//common/test_utilities:symbolic_test_util",
-        "@gtest//:without_main",
+        "@googletest//:gtest_for_library",
     ],
 )
 
@@ -1029,6 +1028,7 @@ drake_cc_variant_library(
         ":mathematical_program",
     ],
     implementation_deps_enabled = [
+        "//common:scope_exit",
         "//math:eigen_sparse_triplet",
         "@osqp_internal//:osqp",
     ],
@@ -1334,7 +1334,7 @@ drake_cc_library(
     hdrs = ["test/csdp_test_examples.h"],
     deps = [
         ":mathematical_program",
-        "@gtest//:without_main",
+        "@googletest//:gtest_for_library",
     ],
 )
 

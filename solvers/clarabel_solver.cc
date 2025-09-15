@@ -250,7 +250,8 @@ b = [{}]
             static_cast<const clarabel::PSDTriangleConeT<double>*>(&cone);
         out_file << "  clarabel.PSDTriangleConeT(" << psd_cone->dimension()
                  << ")," << std::endl;
-      } break;
+        break;
+      }
       case clarabel::SupportedConeT<double>::Tag::ExponentialConeT:
         out_file << "  clarabel.ExponentialConeT()," << std::endl;
         break;

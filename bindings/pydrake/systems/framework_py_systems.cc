@@ -1,5 +1,11 @@
 #include "drake/bindings/pydrake/systems/framework_py_systems.h"
 
+#include <memory>
+#include <set>
+#include <string>
+#include <utility>
+#include <vector>
+
 #include "pybind11/eval.h"
 
 #include "drake/bindings/pydrake/common/cpp_template_pybind.h"
@@ -1085,7 +1091,9 @@ Note: The above is for the C++ documentation. For Python, use
             py::arg("name"), py_rvp::reference_internal,
             doc.Diagram.GetSubsystemByName.doc)
         .def("GetSystems", &Diagram<T>::GetSystems, py_rvp::reference_internal,
-            doc.Diagram.GetSystems.doc);
+            doc.Diagram.GetSystems.doc)
+        .def("AreConnected", &Diagram<T>::AreConnected, py::arg("output"),
+            py::arg("input"), doc.Diagram.AreConnected.doc);
   }
 
   static void DefineVectorSystem(py::module m) {
