@@ -282,7 +282,22 @@ void OsqpSolver::DoSolve2(const MathematicalProgram& prog,
   Eigen::SparseMatrix<c_float> A_sparse;
   std::vector<c_float> l, u;
   ParseAllLinearConstraints(prog, &A_sparse, &l, &u, &constraint_start_row);
-
+  // drake::log()->info(
+  //     "Drake OSQP P:\n{}",
+  //     drake::fmt_eigen(P_upper_sparse.toDense().diagonal().transpose()));
+  // drake::log()->info(
+  //     "Drake OSQP q:\n{}",
+  //     drake::fmt_eigen(
+  //         Eigen::Map<Eigen::VectorXd>(q.data(), q.size()).transpose()));
+  // drake::log()->info("Drake OSQP A:\n{}",
+  // drake::fmt_eigen(A_sparse.toDense())); drake::log()->info(
+  //     "Drake OSQP lb:\n{}",
+  //     drake::fmt_eigen(
+  //         Eigen::Map<Eigen::VectorXd>(l.data(), l.size()).transpose()));
+  // drake::log()->info(
+  //     "Drake OSQP ub:\n{}",
+  //     drake::fmt_eigen(
+  //         Eigen::Map<Eigen::VectorXd>(u.data(), u.size()).transpose()));
   // Now pass the constraint and cost to osqp data.
   OSQPData* data = nullptr;
 

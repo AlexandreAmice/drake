@@ -28,7 +28,8 @@ std::string FormatEigenMatrix(const FormatterEigenRef<Scalar>& matrix)
   // the last ulps in the printout in case we needed that last digit. This
   // will all be fixed once we stop using Eigen IO.
   stream.precision(std::numeric_limits<double>::max_digits10 - 1);
-  stream << matrix;
+  Eigen::IOFormat format(Eigen::StreamPrecision, 0, ", ", "\n", "[", "]");
+  stream << matrix.format(format);
   return stream.str();
 }
 
