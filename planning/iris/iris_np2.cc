@@ -270,7 +270,7 @@ bool RaySamplerProcess(const SceneGraphCollisionChecker& checker,
     std::vector<uint8_t> particle_satisfies_additional_constraints =
         internal::CheckProgConstraintsParallel(
             options.sampled_iris_options.prog_with_additional_constraints,
-            ambient_particles, chunk_size, constraints_tol);
+            candidate_particles, chunk_size, constraints_tol);
 
     for (int i = 0; i < ssize(ambient_particles); ++i) {
       if (!particle_collision_free[i] ||
@@ -555,7 +555,7 @@ HPolyhedron IrisNp2(const SceneGraphCollisionChecker& checker,
   if (options.sampled_iris_options.verbose) {
     log()->info(
         "IrisNp2 finding region that is {} collision free with {} certainty ",
-        options.sampled_iris_options.epsilon,
+        1 - options.sampled_iris_options.epsilon,
         1 - options.sampled_iris_options.delta);
     log()->info("IrisNp2 worst case test requires {} samples.", N_max);
   }
@@ -599,9 +599,6 @@ HPolyhedron IrisNp2(const SceneGraphCollisionChecker& checker,
           options.sampled_iris_options.tau);
 
       particles.resize(N_k);  // Entries will be overwritten.
-
-      // TODO(rhjiang): Implement the ray sampling strategy, and expose it as an
-      // option to the user.
       internal::PopulateParticlesByUniformSampling(
           P_candidate, N_k, options.sampled_iris_options.mixing_steps,
           &generators, &particles);
@@ -910,7 +907,8 @@ HPolyhedron IrisNp2(const SceneGraphCollisionChecker& checker,
           } else {
             internal::AddTangentToPolytope(
                 E, *point_to_add_hyperplane,
-                options.sampled_iris_options.configuration_space_margin, &A, &b,
+                options.sampled_iris_options.configuration_space_margin,
+                options.sampled_iris_options.relax_margin, &A, &b,
                 &num_constraints);
           }
           P_candidate =

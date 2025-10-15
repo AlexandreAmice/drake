@@ -7,8 +7,8 @@
 #include <thread>
 #include <utility>
 
-#include "lcm/lcm-cpp.hpp"
 #include <gtest/gtest.h>
+#include <lcm/lcm-cpp.hpp>
 
 #include "drake/common/test_utilities/expect_throws_message.h"
 #include "drake/lcm/lcmt_drake_signal_utils.h"
@@ -74,6 +74,7 @@ class DrakeLcmTest : public ::testing::Test {
 };
 
 TEST_F(DrakeLcmTest, DefaultUrlTest) {
+  EXPECT_TRUE(DrakeLcm::available());
   EXPECT_GT(dut_->get_lcm_url().size(), 0);
 }
 

@@ -2,7 +2,6 @@ load("//tools/workspace:alias.bzl", "alias_repository")
 load("//tools/workspace:mirrors.bzl", "DEFAULT_MIRRORS")
 load("//tools/workspace/abseil_cpp_internal:repository.bzl", "abseil_cpp_internal_repository")  # noqa
 load("//tools/workspace/bazelisk_internal:repository.bzl", "bazelisk_internal_repository")  # noqa
-load("//tools/workspace/blas:repository.bzl", "blas_repository")
 load("//tools/workspace/buildifier:repository.bzl", "buildifier_repository")
 load("//tools/workspace/ccd_internal:repository.bzl", "ccd_internal_repository")
 load("//tools/workspace/clang_cindex_python3_internal:repository.bzl", "clang_cindex_python3_internal_repository")  # noqa
@@ -11,7 +10,6 @@ load("//tools/workspace/clp_internal:repository.bzl", "clp_internal_repository")
 load("//tools/workspace/coinutils_internal:repository.bzl", "coinutils_internal_repository")  # noqa
 load("//tools/workspace/common_robotics_utilities_internal:repository.bzl", "common_robotics_utilities_internal_repository")  # noqa
 load("//tools/workspace/cpplint_internal:repository.bzl", "cpplint_internal_repository")  # noqa
-load("//tools/workspace/crate_universe:repository.bzl", "crate_universe_repositories_internal")  # noqa
 load("//tools/workspace/csdp_internal:repository.bzl", "csdp_internal_repository")  # noqa
 load("//tools/workspace/curl_internal:repository.bzl", "curl_internal_repository")  # noqa
 load("//tools/workspace/dm_control_internal:repository.bzl", "dm_control_internal_repository")  # noqa
@@ -30,9 +28,9 @@ load("//tools/workspace/gz_utils_internal:repository.bzl", "gz_utils_internal_re
 load("//tools/workspace/highway_internal:repository.bzl", "highway_internal_repository")  # noqa
 load("//tools/workspace/implib_so_internal:repository.bzl", "implib_so_internal_repository")  # noqa
 load("//tools/workspace/ipopt_internal:repository.bzl", "ipopt_internal_repository")  # noqa
-load("//tools/workspace/lapack:repository.bzl", "lapack_repository")
 load("//tools/workspace/lapack_internal:repository.bzl", "lapack_internal_repository")  # noqa
 load("//tools/workspace/lcm:repository.bzl", "lcm_repository")
+load("//tools/workspace/lcm_internal:repository.bzl", "lcm_internal_repository")
 load("//tools/workspace/libjpeg_turbo_internal:repository.bzl", "libjpeg_turbo_internal_repository")  # noqa
 load("//tools/workspace/libpng_internal:repository.bzl", "libpng_internal_repository")  # noqa
 load("//tools/workspace/libtiff_internal:repository.bzl", "libtiff_internal_repository")  # noqa
@@ -48,16 +46,20 @@ load("//tools/workspace/nanoflann_internal:repository.bzl", "nanoflann_internal_
 load("//tools/workspace/nlohmann_internal:repository.bzl", "nlohmann_internal_repository")  # noqa
 load("//tools/workspace/nlopt_internal:repository.bzl", "nlopt_internal_repository")  # noqa
 load("//tools/workspace/onetbb_internal:repository.bzl", "onetbb_internal_repository")  # noqa
-load("//tools/workspace/opencl:repository.bzl", "opencl_repository")
 load("//tools/workspace/osqp_internal:repository.bzl", "osqp_internal_repository")  # noqa
 load("//tools/workspace/pathspec_internal:repository.bzl", "pathspec_internal_repository")  # noqa
 load("//tools/workspace/picosha2_internal:repository.bzl", "picosha2_internal_repository")  # noqa
 load("//tools/workspace/pkgconfig_blas_internal:repository.bzl", "pkgconfig_blas_internal_repository")  # noqa
+load("//tools/workspace/pkgconfig_eigen_internal:repository.bzl", "pkgconfig_eigen_internal_repository")  # noqa
+load("//tools/workspace/pkgconfig_fmt_internal:repository.bzl", "pkgconfig_fmt_internal_repository")  # noqa
+load("//tools/workspace/pkgconfig_glib_internal:repository.bzl", "pkgconfig_glib_internal_repository")  # noqa
 load("//tools/workspace/pkgconfig_lapack_internal:repository.bzl", "pkgconfig_lapack_internal_repository")  # noqa
+load("//tools/workspace/pkgconfig_opencl_internal:repository.bzl", "pkgconfig_opencl_internal_repository")  # noqa
+load("//tools/workspace/pkgconfig_spdlog_internal:repository.bzl", "pkgconfig_spdlog_internal_repository")  # noqa
+load("//tools/workspace/pkgconfig_x11_internal:repository.bzl", "pkgconfig_x11_internal_repository")  # noqa
 load("//tools/workspace/poisson_disk_sampling_internal:repository.bzl", "poisson_disk_sampling_internal_repository")  # noqa
 load("//tools/workspace/pybind11:repository.bzl", "pybind11_repository")
 load("//tools/workspace/pycodestyle:repository.bzl", "pycodestyle_repository")
-load("//tools/workspace/pycodestyle_internal:repository.bzl", "pycodestyle_internal_repository")  # noqa
 load("//tools/workspace/python:repository.bzl", "python_repository")
 load("//tools/workspace/qdldl_internal:repository.bzl", "qdldl_internal_repository")  # noqa
 load("//tools/workspace/qhull_internal:repository.bzl", "qhull_internal_repository")  # noqa
@@ -83,7 +85,6 @@ load("//tools/workspace/usockets_internal:repository.bzl", "usockets_internal_re
 load("//tools/workspace/uwebsockets_internal:repository.bzl", "uwebsockets_internal_repository")  # noqa
 load("//tools/workspace/voxelized_geometry_tools_internal:repository.bzl", "voxelized_geometry_tools_internal_repository")  # noqa
 load("//tools/workspace/vtk_internal:repository.bzl", "vtk_internal_repository")
-load("//tools/workspace/x11:repository.bzl", "x11_repository")
 load("//tools/workspace/xmlrunner_py_internal:repository.bzl", "xmlrunner_py_internal_repository")  # noqa
 load("//tools/workspace/yaml_cpp_internal:repository.bzl", "yaml_cpp_internal_repository")  # noqa
 
@@ -115,6 +116,7 @@ def _add_internal_repositories():
     implib_so_internal_repository(name = "implib_so_internal", mirrors = mirrors)  # noqa
     ipopt_internal_repository(name = "ipopt_internal", mirrors = mirrors)
     lapack_internal_repository(name = "lapack_internal", mirrors = mirrors)
+    lcm_internal_repository(name = "lcm_internal", mirrors = mirrors)
     libjpeg_turbo_internal_repository(name = "libjpeg_turbo_internal", mirrors = mirrors)  # noqa
     libpng_internal_repository(name = "libpng_internal", mirrors = mirrors)
     libtiff_internal_repository(name = "libtiff_internal", mirrors = mirrors)
@@ -132,9 +134,14 @@ def _add_internal_repositories():
     pathspec_internal_repository(name = "pathspec_internal", mirrors = mirrors)
     picosha2_internal_repository(name = "picosha2_internal", mirrors = mirrors)
     pkgconfig_blas_internal_repository(name = "pkgconfig_blas_internal")
+    pkgconfig_eigen_internal_repository(name = "pkgconfig_eigen_internal")
+    pkgconfig_fmt_internal_repository(name = "pkgconfig_fmt_internal")
+    pkgconfig_glib_internal_repository(name = "pkgconfig_glib_internal")
     pkgconfig_lapack_internal_repository(name = "pkgconfig_lapack_internal")
+    pkgconfig_opencl_internal_repository(name = "pkgconfig_opencl_internal")
+    pkgconfig_spdlog_internal_repository(name = "pkgconfig_spdlog_internal")
+    pkgconfig_x11_internal_repository(name = "pkgconfig_x11_internal")
     poisson_disk_sampling_internal_repository(name = "poisson_disk_sampling_internal", mirrors = mirrors)  # noqa
-    pycodestyle_internal_repository(name = "pycodestyle_internal", mirrors = mirrors)  # noqa
     qdldl_internal_repository(name = "qdldl_internal", mirrors = mirrors)
     qhull_internal_repository(name = "qhull_internal", mirrors = mirrors)
     ros_xacro_internal_repository(name = "ros_xacro_internal", mirrors = mirrors)  # noqa
@@ -162,22 +169,35 @@ def _add_internal_repositories():
 
 def _drake_dep_repositories_impl(module_ctx):
     mirrors = DEFAULT_MIRRORS
-    blas_repository(name = "blas")
     drake_models_repository(name = "drake_models", mirrors = mirrors)
     gurobi_repository(name = "gurobi")
-    lapack_repository(name = "lapack")
     lcm_repository(name = "lcm", mirrors = mirrors)
     meshcat_repository(name = "meshcat", mirrors = mirrors)
     mosek_repository(name = "mosek", mirrors = mirrors)
-    opencl_repository(name = "opencl")
     pybind11_repository(name = "pybind11", mirrors = mirrors)
     python_repository(name = "python")
     snopt_repository(name = "snopt")
-    x11_repository(name = "x11")
-    for name in ["eigen", "fmt", "glib", "spdlog", "zlib"]:
+
+    ALIAS_REPOSITORIES = [
+        "blas",
+        "eigen",
+        "fmt",
+        "glib",
+        "lapack",
+        "opencl",
+        "spdlog",
+        "x11",
+        "zlib",
+    ]
+    for name in ALIAS_REPOSITORIES:
+        actual = "@drake//tools/workspace/" + name
+        aliases = {name: actual}
+        if name == "glib":
+            # We provide @glib//glib to match bzlmod glib's package structure.
+            aliases.update({"//glib:glib": actual})
         alias_repository(
             name = name,
-            aliases = {name: "@drake//tools/workspace/" + name},
+            aliases = aliases,
         )
 
     # Deprecated 2026-01-01.
@@ -202,17 +222,4 @@ internal_repositories = module_extension(
     doc = """(Internal use only) Wraps the add_default_repositories repository
     rule into a bzlmod module extension, excluding repositories that are
     already covered by modules, drake_dep_repositories, and crate_universe.""",
-)
-
-def _internal_crate_universe_repositories_impl(module_ctx):
-    names = crate_universe_repositories_internal(mirrors = DEFAULT_MIRRORS)
-    return module_ctx.extension_metadata(
-        root_module_direct_deps = names,
-        root_module_direct_dev_deps = [],
-    )
-
-internal_crate_universe_repositories = module_extension(
-    implementation = _internal_crate_universe_repositories_impl,
-    doc = """(Internal use only) Wraps the crate_universe repository rules to
-    be usable as a bzlmod module extension.""",
 )

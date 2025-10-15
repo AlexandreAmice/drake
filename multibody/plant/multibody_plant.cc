@@ -288,6 +288,17 @@ const DiscreteStepMemory::Data<T>* get_discrete_step_memory(
       .template get<T>();
 }
 
+// Checks the given vector for NaNs, unless the vector is symbolic in which case
+// always returns false.
+template <typename EigenMatrix>
+bool HasNaN(const EigenMatrix& x) {
+  if constexpr (scalar_predicate<typename EigenMatrix::Scalar>::is_bool) {
+    return x.hasNaN();
+  } else {
+    return false;
+  }
+}
+
 }  // namespace
 
 template <typename T>
@@ -1221,7 +1232,7 @@ std::unordered_set<BodyIndex> MultibodyPlant<T>::GetFloatingBaseBodies() const {
   std::unordered_set<BodyIndex> floating_bodies;
   for (BodyIndex body_index(0); body_index < num_bodies(); ++body_index) {
     const RigidBody<T>& body = get_body(body_index);
-    if (body.is_floating()) floating_bodies.insert(body.index());
+    if (body.is_floating_base_body()) floating_bodies.insert(body.index());
   }
   return floating_bodies;
 }
@@ -1273,20 +1284,21 @@ void MultibodyPlant<T>::RegisterRigidBodyWithSceneGraph(
 }
 
 template <typename T>
-void MultibodyPlant<T>::SetFreeBodyPoseInWorldFrame(
+void MultibodyPlant<T>::SetFloatingBaseBodyPoseInWorldFrame(
     systems::Context<T>* context, const RigidBody<T>& body,
     const math::RigidTransform<T>& X_WB) const {
   DRAKE_MBP_THROW_IF_NOT_FINALIZED();
-  DRAKE_THROW_UNLESS(body.is_floating());
+  DRAKE_THROW_UNLESS(body.is_floating_base_body());
   this->ValidateContext(context);
   internal_tree().SetFreeBodyPoseOrThrow(body, X_WB, context);
 }
 
 template <typename T>
-void MultibodyPlant<T>::SetFreeBodyPoseInAnchoredFrame(
+void MultibodyPlant<T>::SetFloatingBaseBodyPoseInAnchoredFrame(
     systems::Context<T>* context, const Frame<T>& frame_F,
     const RigidBody<T>& body, const math::RigidTransform<T>& X_FB) const {
   DRAKE_MBP_THROW_IF_NOT_FINALIZED();
+  DRAKE_THROW_UNLESS(body.is_floating_base_body());
   this->ValidateContext(context);
 
   if (!internal_tree()
@@ -1297,13 +1309,15 @@ void MultibodyPlant<T>::SetFreeBodyPoseInAnchoredFrame(
                            "' must be anchored to the world frame.");
   }
 
-  // Pose of frame F in its parent body frame P.
+  // Pose of frame F in its parent body frame P (not state dependent).
   const RigidTransform<T>& X_PF = frame_F.EvalPoseInBodyFrame(*context);
   // Pose of frame F's parent body P in the world.
+  // TODO(sherm1) This shouldn't be state dependent since F is anchored, but
+  //  it currently is due to the way we evaluate poses.
   const RigidTransform<T>& X_WP = EvalBodyPoseInWorld(*context, frame_F.body());
-  // Pose of "body" B in the world frame.
+  // Pose of floating base body C's body frame in the world frame.
   const RigidTransform<T> X_WB = X_WP * X_PF * X_FB;
-  SetFreeBodyPoseInWorldFrame(context, body, X_WB);
+  SetFloatingBaseBodyPoseInWorldFrame(context, body, X_WB);
 }
 
 template <typename T>
@@ -2622,7 +2636,7 @@ void MultibodyPlant<T>::AddAppliedExternalGeneralizedForces(
   if (applied_generalized_force_input.HasValue(context)) {
     const VectorX<T>& applied_generalized_force =
         applied_generalized_force_input.Eval(context);
-    if (applied_generalized_force.hasNaN()) {
+    if (HasNaN(applied_generalized_force)) {
       throw std::runtime_error(
           "Detected NaN in applied generalized force input port.");
     }
@@ -2670,9 +2684,9 @@ void MultibodyPlant<T>::AddAppliedExternalSpatialForces(
   auto throw_if_contains_nan = [this](const ExternallyAppliedSpatialForce<T>&
                                           external_spatial_force) {
     const SpatialForce<T>& spatial_force = external_spatial_force.F_Bq_W;
-    if (external_spatial_force.p_BoBq_B.hasNaN() ||
-        spatial_force.rotational().hasNaN() ||
-        spatial_force.translational().hasNaN()) {
+    if (HasNaN(external_spatial_force.p_BoBq_B) ||
+        HasNaN(spatial_force.rotational()) ||
+        HasNaN(spatial_force.translational())) {
       throw std::runtime_error(fmt::format(
           "Spatial force applied on body {} contains NaN.",
           internal_tree().get_body(external_spatial_force.body_index).name()));
@@ -2786,7 +2800,7 @@ VectorX<T> MultibodyPlant<T>::AssembleActuationInput(
 
     if (input_port.HasValue(context)) {
       const auto& u_instance = input_port.Eval(context);
-      if (u_instance.hasNaN()) {
+      if (HasNaN(u_instance)) {
         throw std::runtime_error(fmt::format(
             "Actuation input port for model instance {} contains NaN.",
             GetModelInstanceName(model_instance_index)));
@@ -2801,7 +2815,7 @@ VectorX<T> MultibodyPlant<T>::AssembleActuationInput(
       this->get_input_port(input_port_indices_.actuation);
   if (actuation_port.HasValue(context)) {
     const auto& u = actuation_port.Eval(context);
-    if (u.hasNaN()) {
+    if (HasNaN(u)) {
       throw std::runtime_error(
           "Detected NaN in the actuation input port for all instances.");
     }
