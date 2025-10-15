@@ -528,8 +528,7 @@ void BindMathematicalProgram(py::module m) {
       .def("AddDecisionVariables", &MathematicalProgram::AddDecisionVariables,
           py::arg("decision_variables"),
           doc.MathematicalProgram.AddDecisionVariables.doc)
-      .def("SortDecisionVariables", &MathematicalProgram::SortDecisionVariables,
-          doc.MathematicalProgram.SortDecisionVariables.doc)
+      .def("SortDecisionVariables", &MathematicalProgram::SortDecisionVariables)
       .def("NewFreePolynomial", &MathematicalProgram::NewFreePolynomial,
           py::arg("indeterminates"), py::arg("deg"),
           py::arg("coeff_name") = "a",
