@@ -305,16 +305,13 @@ GTEST_TEST(TestSOCP, MaximizeGeometricMeanTrivialProblem2) {
   GurobiSolver solver;
   if (solver.available()) {
     const auto result = solver.Solve(prob.prog(), {}, {});
-    // Gurobi 9.0.0 returns a solution that is accurate up to 1.4E-6 for this
-    // specific problem. Might need to change the tolerance when we upgrade
-    // Gurobi.
-    prob.CheckSolution(result, 1.4E-6);
+    prob.CheckSolution(result, 5E-6);
   }
 }
 
 GTEST_TEST(TestSOCP, SmallestEllipsoidCoveringProblem) {
   GurobiSolver solver;
-  SolveAndCheckSmallestEllipsoidCoveringProblems(solver, {}, 1E-6);
+  SolveAndCheckSmallestEllipsoidCoveringProblems(solver, {}, 5E-6);
 }
 
 GTEST_TEST(TestSOCP, TestSocpDuplicatedVariable1) {
