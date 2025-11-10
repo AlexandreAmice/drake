@@ -33,6 +33,7 @@ void CheckSupported(const MathematicalProgram& prog) {
           // Supported Costs.
           ProgramAttribute::kLinearCost,
           ProgramAttribute::kQuadraticCost,
+          ProgramAttribute::kL2NormCost,
       });
   if (!AreRequiredAttributesSupported(prog.required_capabilities(),
                                       supported_attributes,
@@ -56,6 +57,7 @@ ConicStandardForm::ConicStandardForm(const MathematicalProgram& prog_input)
   options.preserve_psd_inner_product_vectorization = true;
   options.parse_psd_using_upper_triangular = false;
 
+  // Remove the quadratic costs and convert them to a linear cost.
   std::vector<Binding<QuadraticCost>> quadratic_cost_copy =
       prog->quadratic_costs();
   for (const auto& quadratic_cost : quadratic_cost_copy) {
@@ -81,6 +83,20 @@ ConicStandardForm::ConicStandardForm(const MathematicalProgram& prog_input)
     xt(x.size()) = t;
     prog->AddQuadraticAsRotatedLorentzConeConstraint(
         Q, b, quadratic_cost.evaluator()->c(), xt);
+  }
+  // Remove the L2 norm costs and convert them to Lorentz cone constraints.
+  std::vector<Binding<L2NormCost>> l2norm_cost_copy = prog->l2norm_costs();
+  for (const auto& l2norm_cost : l2norm_cost_copy) {
+    int num_costs_removed = prog->RemoveCost(l2norm_cost);
+    if (num_costs_removed == 0) {
+      // If a cost is duplicated, it is possible that this loop tries to remove
+      // it twice. We don't want to repeat adding a Lorentz cone constraint for
+      // this cost.
+      continue;
+    }
+    prog->AddL2NormCostUsingConicConstraint(
+        l2norm_cost.evaluator()->GetDenseA(), l2norm_cost.evaluator()->b(),
+        l2norm_cost.variables());
   }
   x_ = prog->decision_variables();
 
