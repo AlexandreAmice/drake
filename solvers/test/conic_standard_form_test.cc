@@ -11,6 +11,7 @@
 #include "drake/solvers/mathematical_program.h"
 #include "drake/solvers/mosek_solver.h"
 #include "drake/solvers/solve.h"
+#include "drake/solvers/test/l2norm_cost_examples.h"
 #include "drake/solvers/test/linear_program_examples.h"
 #include "drake/solvers/test/second_order_cone_program_examples.h"
 #include "drake/solvers/test/semidefinite_program_examples.h"
@@ -181,6 +182,33 @@ GTEST_TEST(TestSdp, SolveEigenvalueProblem) {
   prog.AddLinearCost(z(0));
 
   CheckParseToConicStandardForm(prog);
+}
+
+GTEST_TEST(TestShortestDistanceToThreePoints, TestL2Norm) {
+  ShortestDistanceToThreePoints dut{};
+  CheckParseToConicStandardForm(dut.prog());
+}
+
+GTEST_TEST(TestShortestDistanceFromCylinderToPoint, TestL2Norm) {
+  ShortestDistanceFromPlaneToTwoPoints dut{};
+  CheckParseToConicStandardForm(dut.prog());
+}
+
+GTEST_TEST(TestShortestDistanceFromPlaneToTwoPoints, TestL2Norm) {
+  ShortestDistanceFromPlaneToTwoPoints dut{};
+  CheckParseToConicStandardForm(dut.prog());
+}
+
+GTEST_TEST(TestRepeatedL2NormCosts, TestL2Norm) {
+  ShortestDistanceFromPlaneToTwoPoints dut{};
+  auto prog = dut.prog().Clone();
+  for (int i = 0; i < 10; ++i) {
+    const Binding<L2NormCost>& l2norm_cost = prog->l2norm_costs()[0];
+    prog->AddL2NormCost(l2norm_cost.evaluator()->GetDenseA(),
+                        l2norm_cost.evaluator()->b(), l2norm_cost.variables());
+  }
+
+  CheckParseToConicStandardForm(*prog);
 }
 
 // GTEST_TEST(TestSdp, SolveSDPwithSecondOrderConeExample1) {

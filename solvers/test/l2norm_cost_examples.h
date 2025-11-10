@@ -46,6 +46,8 @@ class ShortestDistanceFromCylinderToPoint {
       const std::optional<SolverOptions>& solver_options = std::nullopt,
       double tol = 1E-5) const;
 
+  const MathematicalProgram& prog() const { return prog_; }
+
  private:
   MathematicalProgram prog_;
   Vector3<symbolic::Variable> x_;
@@ -66,6 +68,8 @@ class ShortestDistanceFromPlaneToTwoPoints {
       const SolverInterface& solver,
       const std::optional<SolverOptions>& solver_options = std::nullopt,
       double tol = 1E-5) const;
+
+  const MathematicalProgram& prog() const { return prog_; }
 
  private:
   MathematicalProgram prog_;
