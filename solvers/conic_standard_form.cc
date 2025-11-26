@@ -46,7 +46,9 @@ void CheckSupported(const MathematicalProgram& prog) {
 
 }  // namespace
 
-ConicStandardForm::ConicStandardForm(const MathematicalProgram& prog_input)
+ConicStandardForm::ConicStandardForm(
+    const MathematicalProgram& prog_input,
+    ConicStandardFormOptions constructor_options)
     : x_{prog_input.decision_variables()} {
   auto prog = prog_input.Clone();
   CheckSupported(*prog);
@@ -58,31 +60,33 @@ ConicStandardForm::ConicStandardForm(const MathematicalProgram& prog_input)
   options.parse_psd_using_upper_triangular = false;
 
   // Remove the quadratic costs and convert them to a linear cost.
-  std::vector<Binding<QuadraticCost>> quadratic_cost_copy =
-      prog->quadratic_costs();
-  for (const auto& quadratic_cost : quadratic_cost_copy) {
-    DRAKE_THROW_UNLESS(quadratic_cost.evaluator()->is_convex());
-    int num_costs_removed = prog->RemoveCost(quadratic_cost);
-    if (num_costs_removed == 0) {
-      // If a cost is duplicated, it is possible that this loop tries to remove
-      // it twice. We don't want to repeat adding a quadratic constraint for
-      // this cost.
-      continue;
+  if (!constructor_options.keep_quadratic_costs) {
+    std::vector<Binding<QuadraticCost>> quadratic_cost_copy =
+        prog->quadratic_costs();
+    for (const auto& quadratic_cost : quadratic_cost_copy) {
+      DRAKE_THROW_UNLESS(quadratic_cost.evaluator()->is_convex());
+      int num_costs_removed = prog->RemoveCost(quadratic_cost);
+      if (num_costs_removed == 0) {
+        // If a cost is duplicated, it is possible that this loop tries to
+        // remove it twice. We don't want to repeat adding a quadratic
+        // constraint for this cost.
+        continue;
+      }
+      // We convert the quadratic cost to a linear cost in the standard form.
+      symbolic::Variable t = prog->NewContinuousVariables(1, "t")[0];
+      prog->AddLinearCost(num_costs_removed * t);
+      const VectorXDecisionVariable& x = quadratic_cost.variables();
+      Eigen::MatrixXd Q = Eigen::MatrixXd::Zero(x.size() + 1, x.size() + 1);
+      Q.topLeftCorner(x.size(), x.size()) = quadratic_cost.evaluator()->Q();
+      Eigen::VectorXd b(x.size() + 1);
+      b.head(x.size()) = quadratic_cost.evaluator()->b();
+      b(x.size()) = -1;
+      VectorXDecisionVariable xt(x.size() + 1);
+      xt.head(x.size()) = x;
+      xt(x.size()) = t;
+      prog->AddQuadraticAsRotatedLorentzConeConstraint(
+          Q, b, quadratic_cost.evaluator()->c(), xt);
     }
-    // We convert the quadratic cost to a linear cost in the standard form.
-    symbolic::Variable t = prog->NewContinuousVariables(1, "t")[0];
-    prog->AddLinearCost(num_costs_removed * t);
-    const VectorXDecisionVariable& x = quadratic_cost.variables();
-    Eigen::MatrixXd Q = Eigen::MatrixXd::Zero(x.size() + 1, x.size() + 1);
-    Q.topLeftCorner(x.size(), x.size()) = quadratic_cost.evaluator()->Q();
-    Eigen::VectorXd b(x.size() + 1);
-    b.head(x.size()) = quadratic_cost.evaluator()->b();
-    b(x.size()) = -1;
-    VectorXDecisionVariable xt(x.size() + 1);
-    xt.head(x.size()) = x;
-    xt(x.size()) = t;
-    prog->AddQuadraticAsRotatedLorentzConeConstraint(
-        Q, b, quadratic_cost.evaluator()->c(), xt);
   }
   // Remove the L2 norm costs and convert them to Lorentz cone constraints.
   std::vector<Binding<L2NormCost>> l2norm_cost_copy = prog->l2norm_costs();
@@ -100,14 +104,18 @@ ConicStandardForm::ConicStandardForm(const MathematicalProgram& prog_input)
   }
   x_ = prog->decision_variables();
 
+  std::vector<Eigen::Triplet<double>> P_std_upper_triplets;
   std::vector<double> c_std(prog->num_vars(), 0.0);
   internal::ParseLinearCosts(*prog, &c_std, &d_);
-  c_.resize(c_std.size());
+  internal::ParseQuadraticCosts(*prog, &P_std_upper_triplets, &c_std, &d_);
+  c_.resize(static_cast<int>(c_std.size()));
   for (int i = 0; i < ssize(c_std); ++i) {
     if (c_std[i] != 0.0) {
       c_.insert(i) = c_std[i];
     }
   }
+  P_.resize(prog->num_vars(), prog->num_vars());
+  P_.setFromTriplets(P_std_upper_triplets.begin(), P_std_upper_triplets.end());
 
   internal::DoAggregateConvexConstraints(*prog, options, &info);
   // We need to negate the A_triplets since they return as -Ax + b ∈ K.
