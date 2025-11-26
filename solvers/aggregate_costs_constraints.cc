@@ -272,70 +272,83 @@ void DoAggregateConvexConstraints(
     const MathematicalProgram& prog,
     const ConvexConstraintAggregationOptions& options,
     ConvexConstraintAggregationInfo* info) {
-  // Parse Linear Equality Constraints.
-  info->num_linear_equality_constraint_rows = 0;
-  internal::ParseLinearEqualityConstraints(
-      prog, &(info->A_triplets), &(info->b_std), &(info->A_row_count),
-      &(info->linear_eq_dual_variable_start_indices),
-      &(info->num_linear_equality_constraint_rows));
+  if (!options.parse_bounding_box_constraints_as_positive_orthant) {
+    ParseAllLinearConstraintsIntoZeroPositiveOrthantAndBoundingBox(
+        prog, &(info->A_triplets), &(info->b_std), &(info->bb_lb),
+        &(info->bb_ub), &(info->A_row_count),
+        &(info->linear_eq_dual_variable_start_indices),
+        &(info->linear_constraint_dual_indices),
+        &(info->bounding_box_constraint_dual_indices),
+        &(info->num_linear_equality_constraint_rows),
+        &(info->num_linear_constraint_rows),
+        &(info->num_bounding_box_inequality_constraint_rows));
+  } else {
+    // Parse Linear Equality Constraints.
+    info->num_linear_equality_constraint_rows = 0;
+    internal::ParseLinearEqualityConstraints(
+        prog, &(info->A_triplets), &(info->b_std), &(info->A_row_count),
+        &(info->linear_eq_dual_variable_start_indices),
+        &(info->num_linear_equality_constraint_rows));
 
-  // Parse the Bounding Box constraints. The bounding box constraints which are
-  // equalities are immediately added to A and b. The bounding box constraints
-  // which are inequality constraints are stored in A_bb_ineq_triplets and
-  // b_bb_ineq. They will be added to A and b after the linear constraints are
-  // added. The reason for this is we wish A to be compatible with the strict
-  // ordering of the cones given by SCS:
-  // https://www.cvxgrp.org/scs/api/cones.html.
-  std::vector<Eigen::Triplet<double>> A_bb_ineq_triplets;
-  std::vector<double> b_bb_ineq;
-  const int A_row_count_before_parsing_bb{info->A_row_count};
-  ParseBoundingBoxConstraints(
-      prog,
-      // We can directly add the bounding box equality constraints
-      // to A and b.
-      &(info->A_triplets), &(info->b_std), &(info->A_row_count),
-      // We delay adding the bounding box inequality constraints to A and b due
-      // to the strict ordering required by SCS.
-      &A_bb_ineq_triplets, &b_bb_ineq,
-      &(info->num_bounding_box_inequality_constraint_rows),
-      &(info->bounding_box_constraint_dual_indices));
-  const int num_bb_equality_constraint =
-      info->A_row_count - A_row_count_before_parsing_bb;
-  info->num_linear_equality_constraint_rows += num_bb_equality_constraint;
+    // Parse the Bounding Box constraints. The bounding box constraints which
+    // are equalities are immediately added to A and b. The bounding box
+    // constraints which are inequality constraints are stored in
+    // A_bb_ineq_triplets and b_bb_ineq. They will be added to A and b after the
+    // linear constraints are added. The reason for this is we wish A to be
+    // compatible with the strict ordering of the cones given by SCS:
+    // https://www.cvxgrp.org/scs/api/cones.html.
+    std::vector<Eigen::Triplet<double>> A_bb_ineq_triplets;
+    std::vector<double> b_bb_ineq;
+    const int A_row_count_before_parsing_bb{info->A_row_count};
+    ParseBoundingBoxConstraints(
+        prog,
+        // We can directly add the bounding box equality constraints
+        // to A and b.
+        &(info->A_triplets), &(info->b_std), &(info->A_row_count),
+        // We delay adding the bounding box inequality constraints to A and b
+        // due to the strict ordering required by SCS.
+        &A_bb_ineq_triplets, &b_bb_ineq,
+        &(info->num_bounding_box_inequality_constraint_rows),
+        &(info->bounding_box_constraint_dual_indices));
+    const int num_bb_equality_constraint =
+        info->A_row_count - A_row_count_before_parsing_bb;
+    info->num_linear_equality_constraint_rows += num_bb_equality_constraint;
 
-  // Parse Linear Constraints
-  info->num_linear_constraint_rows = 0;
-  internal::ParseLinearConstraints(prog, &(info->A_triplets), &(info->b_std),
-                                   &(info->A_row_count),
-                                   &(info->linear_constraint_dual_indices),
-                                   &(info->num_linear_constraint_rows));
-  // Now we can add the bounding box constraints.
-  for (int i = 0; i < info->num_bounding_box_inequality_constraint_rows; ++i) {
-    info->A_triplets.emplace_back(
-        A_bb_ineq_triplets[i].row() + info->A_row_count,
-        A_bb_ineq_triplets[i].col(), A_bb_ineq_triplets[i].value());
-    info->b_std.push_back(b_bb_ineq[i]);
-  }
+    // Parse Linear Constraints
+    info->num_linear_constraint_rows = 0;
+    internal::ParseLinearConstraints(prog, &(info->A_triplets), &(info->b_std),
+                                     &(info->A_row_count),
+                                     &(info->linear_constraint_dual_indices),
+                                     &(info->num_linear_constraint_rows));
+    // Now we can add the bounding box constraints.
+    for (int i = 0; i < info->num_bounding_box_inequality_constraint_rows;
+         ++i) {
+      info->A_triplets.emplace_back(
+          A_bb_ineq_triplets[i].row() + info->A_row_count,
+          A_bb_ineq_triplets[i].col(), A_bb_ineq_triplets[i].value());
+      info->b_std.push_back(b_bb_ineq[i]);
+    }
 
-  // We need to increment the dual variable index of only the inequality
-  // bounding box constraints.
-  for (int i = 0; i < ssize(prog.bounding_box_constraints()); ++i) {
-    for (int j = 0; j < prog.bounding_box_constraints()[i].variables().rows();
-         ++j) {
-      if (prog.bounding_box_constraints()[i].evaluator()->lower_bound()[j] !=
-          prog.bounding_box_constraints()[i].evaluator()->upper_bound()[j]) {
-        if (info->bounding_box_constraint_dual_indices[i][j].first != -1) {
-          info->bounding_box_constraint_dual_indices[i][j].first +=
-              info->A_row_count;
-        }
-        if (info->bounding_box_constraint_dual_indices[i][j].second != -1) {
-          info->bounding_box_constraint_dual_indices[i][j].second +=
-              info->A_row_count;
+    // We need to increment the dual variable index of only the inequality
+    // bounding box constraints.
+    for (int i = 0; i < ssize(prog.bounding_box_constraints()); ++i) {
+      for (int j = 0; j < prog.bounding_box_constraints()[i].variables().rows();
+           ++j) {
+        if (prog.bounding_box_constraints()[i].evaluator()->lower_bound()[j] !=
+            prog.bounding_box_constraints()[i].evaluator()->upper_bound()[j]) {
+          if (info->bounding_box_constraint_dual_indices[i][j].first != -1) {
+            info->bounding_box_constraint_dual_indices[i][j].first +=
+                info->A_row_count;
+          }
+          if (info->bounding_box_constraint_dual_indices[i][j].second != -1) {
+            info->bounding_box_constraint_dual_indices[i][j].second +=
+                info->A_row_count;
+          }
         }
       }
     }
+    info->A_row_count += info->num_bounding_box_inequality_constraint_rows;
   }
-  info->A_row_count += info->num_bounding_box_inequality_constraint_rows;
 
   // Parse Second-Order cone constraints
   internal::ParseSecondOrderConeConstraints(
@@ -560,6 +573,7 @@ void ParseAllLinearConstraintsIntoZeroPositiveOrthantAndBoundingBox(
     std::vector<int>* linear_eq_y_start_indices,
     std::vector<std::vector<std::pair<int, int>>>*
         linear_constraint_dual_indices,
+    std::vector<std::vector<std::pair<int, int>>>* bbcon_dual_indices,
     int* num_linear_equality_constraint_rows,
     int* num_positive_orthant_constraint_rows,
     int* num_bounding_box_constraint_rows) {
@@ -573,80 +587,23 @@ void ParseAllLinearConstraintsIntoZeroPositiveOrthantAndBoundingBox(
   // then the row -a is added to A_triplets, and lb is added to b. If neither is
   // finite, the constraints is skipped.
 
-  // First, parse the linear equality constraints
   *num_linear_equality_constraint_rows = 0;
   std::vector<Eigen::Triplet<double>> zero_A_triplets;
   std::vector<double> zero_b;
+  *num_positive_orthant_constraint_rows = 0;
+  std::vector<Eigen::Triplet<double>> positive_orthant_A_triplets;
+  std::vector<double> positive_orthant_b;
+
+  *num_bounding_box_constraint_rows = 0;
+  std::vector<Eigen::Triplet<double>> bb_A_triplets;
+
+  // First, parse the linear equality constraints
   int dummy_A_row_count = 0;
   ParseLinearEqualityConstraints(prog, &zero_A_triplets, &zero_b,
                                  &dummy_A_row_count, linear_eq_y_start_indices,
                                  num_linear_equality_constraint_rows);
 
-  // Now parse the bounding box constraints.
-  *num_bounding_box_constraint_rows = 0;
-  std::vector<Eigen::Triplet<double>> bb_A_triplets;
-  const std::unordered_map<symbolic::Variable, Bound> variable_bounds =
-      AggregateBoundingBoxConstraints(prog.bounding_box_constraints());
-  // For each variable with lb <= x <= ub, we check the following
-  // 1. If lb == ub (and both are finite), then we add the constraint x + s = ub
-  // to A_eq_triplets and b_eq
-  // 2. Otherwise, if ub is finite, then we add the constraint x + s = ub to
-  // A_ineq_triplets and b_ineq. If lb is finite, then we add the constraint -x
-  // + s = -lb to A_ineq_triplets and b_ineq.
-  // Now we visit the original bounding box constraints.
-  for (int i = 0; i < ssize(prog.bounding_box_constraints()); ++i) {
-    for (int j = 0; j < prog.bounding_box_constraints()[i].variables().rows();
-         ++j) {
-      const int var_index = prog.FindDecisionVariableIndex(
-          prog.bounding_box_constraints()[i].variables()(j));
-      const Bound& var_bound =
-          variable_bounds.at(prog.bounding_box_constraints()[i].variables()(j));
-      const bool use_lb =
-          var_bound.lower ==
-              prog.bounding_box_constraints()[i].evaluator()->lower_bound()(
-                  j) &&
-          std::isfinite(var_bound.lower);
-      const bool use_ub =
-          var_bound.upper ==
-              prog.bounding_box_constraints()[i].evaluator()->upper_bound()(
-                  j) &&
-          std::isfinite(var_bound.upper);
-      if (use_lb && use_ub && var_bound.lower == var_bound.upper) {
-        // This is an equality constraint x = ub.
-        // Add the constraint x + s = ub and s in the zero cone.
-        zero_A_triplets.emplace_back(*num_linear_equality_constraint_rows,
-                                     var_index, 1);
-        zero_b.push_back(var_bound.upper);
-        *num_linear_equality_constraint_rows += 1;
-      } else if (use_ub && use_lb) {
-        // This is a proper bounding box constraint.
-        bb_ub->push_back(var_bound.upper);
-        bb_lb->push_back(var_bound.lower);
-        bb_A_triplets.emplace_back(*num_bounding_box_constraint_rows, var_index,
-                                   -1);
-        *num_bounding_box_constraint_rows += 1;
-      } else if (use_ub) {
-        // Add the constraint x + s = ub and s in the nonnegative orthant cone.
-        A_triplets->emplace_back(*num_positive_orthant_constraint_rows,
-                                 var_index, 1);
-        b->push_back(var_bound.upper);
-        *num_positive_orthant_constraint_rows += 1;
-      } else if (use_lb) {
-        // Add the constraint -x + s = -lb and s in the nonnegative orthant
-        // cone.
-        A_triplets->emplace_back(*num_positive_orthant_constraint_rows,
-                                 var_index, -1);
-        b->push_back(-var_bound.lower);
-        *num_positive_orthant_constraint_rows += 1;
-      }
-    }
-  }
-
   // Now we parse the linear constraints.
-  *num_positive_orthant_constraint_rows = 0;
-  std::vector<Eigen::Triplet<double>> positive_orthant_A_triplets;
-  std::vector<double> positive_orthant_b;
-
   linear_constraint_dual_indices->reserve(prog.linear_constraints().size());
   for (const auto& linear_constraint : prog.linear_constraints()) {
     linear_constraint_dual_indices->emplace_back(
@@ -665,55 +622,162 @@ void ParseAllLinearConstraintsIntoZeroPositiveOrthantAndBoundingBox(
 
     // Ai is column major and so the outer size is the column.
     for (int col = 0; col < Ai.outerSize(); ++col) {
+      const int xj_index = prog.FindDecisionVariableIndex(x(col));
+
       for (Eigen::SparseMatrix<double>::InnerIterator it(Ai, col); it; ++it) {
         DRAKE_DEMAND(it.col() == col);
-        const double cur_ub = ub(it.row());
-        const double cur_lb = lb(it.row());
+        const int row = it.row();
+        const double cur_ub = ub(row);
+        const double cur_lb = lb(row);
         const bool needs_ub{!std::isinf(cur_ub)};
         const bool needs_lb{!std::isinf(cur_lb)};
-        const int xj_index = prog.FindDecisionVariableIndex(x(it.row()));
-        const bool cur_row_visited = row_visited[it.row()];
+        const bool bounds_equal = cur_ub == cur_lb;
+
         if (!needs_ub && !needs_lb) {
           continue;
-        } else if (needs_ub && needs_lb) {
-          if (!cur_row_visited) {
-            row_visited[it.row()] = true;
-            if (cur_ub == cur_lb) {
-              // Both bounds are finite and equal, so we add to linear equality
-              // constraints.
-              starting_row_indices[it.row()] =
-                  *num_linear_equality_constraint_rows;
-              *num_linear_equality_constraint_rows += 1;
-              // We add these zero constraints as -aᵀx + s = -ub so we don't
-              // have to special case the triplets between the equality and
-              // inequality constraints.
+        }
+
+        if (!row_visited[row]) {
+          row_visited[row] = true;
+          auto& dual_indices = linear_constraint_dual_indices->back()[row];
+
+          if (needs_ub && needs_lb) {
+            const int starting_row = bounds_equal
+                                         ? *num_linear_equality_constraint_rows
+                                         : *num_bounding_box_constraint_rows;
+            starting_row_indices[row] = starting_row;
+            dual_indices.first = starting_row;
+            dual_indices.second = starting_row;
+
+            if (bounds_equal) {
+              // Both bounds finite and equal → linear equality constraint.
+              ++(*num_linear_equality_constraint_rows);
+              // Store as -aᵀx + s = -ub to reuse triplet handling logic.
               zero_b.push_back(-cur_ub);
             } else {
-              // Both bounds are finite and not equal, so we add to bounding box
-              // constraints.
-              starting_row_indices[it.row()] =
-                  *num_bounding_box_constraint_rows;
-              num_bounding_box_constraint_rows += 1;
-              bb_ub->push_back(ub(it.row()));
-              bb_lb->push_back(lb(it.row()));
+              // Both bounds finite but different → bounding box constraint.
+              ++(*num_bounding_box_constraint_rows);
+              bb_ub->push_back(cur_ub);
+              bb_lb->push_back(cur_lb);
             }
+          } else {
+            // Only one finite bound → positive orthant constraint.
+            starting_row_indices[row] = *num_positive_orthant_constraint_rows;
+            dual_indices.first = *num_positive_orthant_constraint_rows;
+            dual_indices.second = *num_bounding_box_constraint_rows;
+            ++(*num_positive_orthant_constraint_rows);
+            // For a lower-bound-only constraint we need -lb here so that after
+            // the sign flip in ConicStandardForm we enforce aᵀx ≥ lb.
+            positive_orthant_b.push_back(needs_ub ? cur_ub : -cur_lb);
           }
-          bb_A_triplets.emplace_back(starting_row_indices[it.row()], xj_index,
+        }
+
+        if (needs_ub && needs_lb && bounds_equal) {
+          zero_A_triplets.emplace_back(starting_row_indices[row], xj_index,
+                                       -it.value());
+        } else if (needs_ub && needs_lb && !bounds_equal) {
+          bb_A_triplets.emplace_back(starting_row_indices[row], xj_index,
                                      -it.value());
         } else {
-          if (!cur_row_visited) {
-            row_visited[it.row()] = true;
-
-            starting_row_indices[it.row()] =
-                *num_positive_orthant_constraint_rows;
-            *num_positive_orthant_constraint_rows += 1;
-            positive_orthant_b.push_back(needs_ub ? ub(it.row())
-                                                  : lb(it.row()));
-          }
           positive_orthant_A_triplets.emplace_back(
-              starting_row_indices[it.row()], xj_index,
+              starting_row_indices[row], xj_index,
               needs_ub ? it.value() : -it.value());
         }
+      }
+    }
+  }
+
+  // Now parse the bounding box constraints.
+  const std::unordered_map<symbolic::Variable, Bound> variable_bounds =
+      AggregateBoundingBoxConstraints(prog.bounding_box_constraints());
+  bbcon_dual_indices->reserve(ssize(prog.bounding_box_constraints()));
+  // For each variable with lb <= x <= ub, we check the following
+  // 1. If lb == ub (and both are finite), then we add the constraint x + s =
+  // ub to A_eq_triplets and b_eq
+  // 2. Otherwise, if ub is finite, then we add the constraint x + s = ub to
+  // A_ineq_triplets and b_ineq. If lb is finite, then we add the constraint
+  // -x
+  // + s = -lb to A_ineq_triplets and b_ineq.
+  // First we visit the aggregated bounds.
+  for (const auto& [var, bound] : variable_bounds) {
+    const bool use_lb = std::isfinite(bound.lower);
+    const bool use_ub = std::isfinite(bound.upper);
+    if (!use_lb && !use_ub) {
+      continue;
+    }
+
+    const int var_index = prog.FindDecisionVariableIndex(var);
+    if (use_lb && use_ub && bound.lower == bound.upper) {
+      // This is an equality constraint x = ub.
+      // Add the constraint x + s = ub and s in the zero cone.
+      zero_A_triplets.emplace_back(*num_linear_equality_constraint_rows,
+                                   var_index, 1);
+      zero_b.push_back(bound.upper);
+      *num_linear_equality_constraint_rows += 1;
+    } else if (use_ub && use_lb) {
+      // This is a proper bounding box constraint.
+      bb_ub->push_back(bound.upper);
+      bb_lb->push_back(bound.lower);
+      bb_A_triplets.emplace_back(*num_bounding_box_constraint_rows, var_index,
+                                 -1);
+      *num_bounding_box_constraint_rows += 1;
+    } else if (use_ub) {
+      // Add the constraint x + s = ub and s in the nonnegative orthant cone.
+      positive_orthant_A_triplets.emplace_back(
+          *num_positive_orthant_constraint_rows, var_index, 1);
+      positive_orthant_b.push_back(bound.upper);
+      *num_positive_orthant_constraint_rows += 1;
+    } else if (use_lb) {
+      // Add the constraint -x + s = -lb and s in the nonnegative orthant
+      // cone.
+      positive_orthant_A_triplets.emplace_back(
+          *num_positive_orthant_constraint_rows, var_index, -1);
+      positive_orthant_b.push_back(-bound.lower);
+      *num_positive_orthant_constraint_rows += 1;
+    }
+  }
+
+  // Now we visit the original bounding box constraints to set the dual
+  // variable indices.
+
+  for (int i = 0; i < ssize(prog.bounding_box_constraints()); ++i) {
+    bbcon_dual_indices->emplace_back(
+        prog.bounding_box_constraints()[i].variables().rows(),
+        std::pair<int, int>(-1, -1));
+    for (int j = 0; j < prog.bounding_box_constraints()[i].variables().rows();
+         ++j) {
+      const Bound& var_bound =
+          variable_bounds.at(prog.bounding_box_constraints()[i].variables()(j));
+      const bool use_lb =
+          var_bound.lower ==
+              prog.bounding_box_constraints()[i].evaluator()->lower_bound()(
+                  j) &&
+          std::isfinite(var_bound.lower);
+      const bool use_ub =
+          var_bound.upper ==
+              prog.bounding_box_constraints()[i].evaluator()->upper_bound()(
+                  j) &&
+          std::isfinite(var_bound.upper);
+      if (use_lb && use_ub && var_bound.lower == var_bound.upper) {
+        // This is an equality constraint x = ub.
+        (*bbcon_dual_indices)[i][j].first =
+            *num_linear_equality_constraint_rows;
+        (*bbcon_dual_indices)[i][j].second =
+            *num_linear_equality_constraint_rows;
+      } else if (use_ub && use_lb) {
+        // This is a proper bounding box constraint.
+        (*bbcon_dual_indices)[i][j].first = *num_bounding_box_constraint_rows;
+        (*bbcon_dual_indices)[i][j].second = *num_bounding_box_constraint_rows;
+      } else if (use_ub) {
+        // Only the upper bound can be active.
+        (*bbcon_dual_indices)[i][j].first = -1;
+        (*bbcon_dual_indices)[i][j].second =
+            *num_positive_orthant_constraint_rows;
+      } else if (use_lb) {
+        // Only the lower bound can be active.
+        (*bbcon_dual_indices)[i][j].first =
+            *num_positive_orthant_constraint_rows;
+        (*bbcon_dual_indices)[i][j].second = -1;
       }
     }
   }
@@ -724,6 +788,10 @@ void ParseAllLinearConstraintsIntoZeroPositiveOrthantAndBoundingBox(
                              triplet.value());
   }
   b->insert(b->end(), zero_b.begin(), zero_b.end());
+  // We need to shift all the y indices for linear equality constraints.
+  for (int& ind : *linear_eq_y_start_indices) {
+    ind += *A_row_count;
+  }
   *A_row_count += *num_linear_equality_constraint_rows;
 
   for (const auto& triplet : positive_orthant_A_triplets) {
@@ -731,6 +799,20 @@ void ParseAllLinearConstraintsIntoZeroPositiveOrthantAndBoundingBox(
                              triplet.value());
   }
   b->insert(b->end(), positive_orthant_b.begin(), positive_orthant_b.end());
+  // We also need to update all the dual variable indices to reflect the new
+  // row numbering.
+  for (int i = 0; i < ssize(prog.linear_constraints()); ++i) {
+    const auto& linear_constraint = prog.linear_constraints()[i];
+    for (int j = 0; j < linear_constraint.evaluator()->num_constraints(); ++j) {
+      auto& dual_index = (*linear_constraint_dual_indices)[i][j];
+      if (dual_index.first != -1) {
+        dual_index.first += *A_row_count;
+      }
+      if (dual_index.second != -1) {
+        dual_index.second += *A_row_count;
+      }
+    }
+  }
   *A_row_count += *num_positive_orthant_constraint_rows;
 
   for (const auto& triplet : bb_A_triplets) {
@@ -738,6 +820,20 @@ void ParseAllLinearConstraintsIntoZeroPositiveOrthantAndBoundingBox(
                              triplet.value());
   }
   b->insert(b->end(), *num_bounding_box_constraint_rows, 0.0);
+  // We also need to update all the dual variable indices to reflect the new
+  // row numbering.
+  for (int i = 0; i < ssize(prog.bounding_box_constraints()); ++i) {
+    for (int j = 0; j < prog.bounding_box_constraints()[i].variables().rows();
+         ++j) {
+      auto& dual_index = (*bbcon_dual_indices)[i][j];
+      if (dual_index.first != -1) {
+        dual_index.first += *A_row_count;
+      }
+      if (dual_index.second != -1) {
+        dual_index.second += *A_row_count;
+      }
+    }
+  }
   *A_row_count += *num_bounding_box_constraint_rows;
 }
 

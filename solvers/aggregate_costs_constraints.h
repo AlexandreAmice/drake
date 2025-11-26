@@ -117,6 +117,7 @@ struct ConvexConstraintAggregationOptions {
   bool cast_rotated_lorentz_to_lorentz{true};
   bool preserve_psd_inner_product_vectorization{true};
   bool parse_psd_using_upper_triangular{true};
+  bool parse_bounding_box_constraints_as_positive_orthant{false};
 };
 
 // Information required to aggregate the convex constraints of a program into
@@ -131,6 +132,10 @@ struct ConvexConstraintAggregationInfo {
   std::vector<Eigen::Triplet<double>> A_triplets;
   // A vector of values to construct the vector b.
   std::vector<double> b_std;
+
+  std::vector<double> bb_lb;
+  std::vector<double> bb_ub;
+
   // The number of rows in the matrix A.
   int A_row_count{0};
   // The total number of variables with bounding box constraints such that
@@ -185,13 +190,66 @@ struct ConvexConstraintAggregationInfo {
 // Second-order cone {(t, x) | |x|₂ ≤ t }
 // Positive semidefinite cone { X | min(eig(X)) ≥ 0, X = Xᵀ }
 // Exponential cone {x,y,z): y>0, y*exp(x/y) <= z}
-// Power cone {(x, y, z): pow(x, α)*pow(y, 1-α) >= |z|, x>=0, y>=0} with α in
-// (0, 1)
-// This convention is compatible with both the SCS and Clarabel solvers.
+// Power cone {(x, y, z): pow(x, α)*pow(y, 1-α) >= |z|, x>=0, y>=0} with α
+// in (0, 1) This convention is compatible with both the SCS and Clarabel
+// solvers.
 void DoAggregateConvexConstraints(
     const MathematicalProgram& prog,
     const ConvexConstraintAggregationOptions& options,
     ConvexConstraintAggregationInfo* info);
+
+/// A generic method for parsing all the linear constraints in prog to the form
+/// A*x + s = b where s is in one of the 0 cone, the positive orthant, or a
+/// bounding box. Any linear constraint such that lower_bound == upper_bound is
+/// parsed as a zero cone constraint. Any linear constraint such that
+/// lower_bound == -infinity or upper_bound == +infinity is parsed as a positive
+/// orthant constraint. The remaining linear constraints are parsed as bounding
+/// box constraints. If the constraint is parse as a bounding box constraint,
+/// then the corresponding row of b will be set to 0 and the actual lower and
+/// upper bounds will be stored in bb_lb and bb_ub respectively. The matrix is
+/// arranged to that all the zero cone entries are first, then the positive
+/// orthant entries, then the bounding box entries.
+/// @param[in] prog The mathematical program containing the linear constraints.
+/// @param[in/out] A_triplets The triplets on the non-zero entries in A.
+/// @param[in/out] b The righthand side of A*x+s=b.
+/// @param[in/out] A_row_count The number of rows in A before and after calling
+/// this function.
+/// @param[out] linear_eq_y_start_indices linear_eq_y_start_indices[i] is the
+/// starting index of the dual variables for the constraint
+/// prog.linear_equality_constraints()[i]. Namely
+/// y[linear_eq_y_start_indices[i]: linear_eq_y_start_indices[i] +
+/// prog.linear_equality_constraints()[i].evaluator()->num_constraints] are the
+/// dual variables for  the linear equality constraint
+/// prog.linear_equality_constraint()(i), where y is the vector containing all
+/// dual variables.
+/// @param[out] linear_constraint_dual_indices
+/// linear_constraint_dual_indices[i][j].first/
+/// linear_constraint_dual_indices[i][j].second
+/// is the dual variable for the lower/upper bound of the j'th row in the
+/// linear constraint prog.linear_constraint()[i], we use -1 to indicate that
+/// the lower or upper bound is infinity.
+/// @param[out] bbcon_dual_indices bbcon_dual_indices[i][j] are the indices of
+/// the dual variable for the j'th row of prog.bounding_box_constraints()[i]. We
+/// use -1 to indicate that it is impossible for this constraint to be active
+/// (for example, another BoundingBoxConstraint imposes a tighter bound on the
+/// same variable).
+/// @param[out] num_linear_equality_constraint_rows The number of new rows
+/// appended to A*x+s=b representing equality constraints.
+/// @param[out] num_positive_orthant_constraint_rows The number of new rows
+/// appended to A*x+s=b representing positive orthant constraints.
+/// @param[out] num_bounding_box_constraint_rows The number of new rows
+/// appended to A*x+s=b representing bounding box constraints.
+void ParseAllLinearConstraintsIntoZeroPositiveOrthantAndBoundingBox(
+    const solvers::MathematicalProgram& prog,
+    std::vector<Eigen::Triplet<double>>* A_triplets, std::vector<double>* b,
+    std::vector<double>* bb_lb, std::vector<double>* bb_ub, int* A_row_count,
+    std::vector<int>* linear_eq_y_start_indices,
+    std::vector<std::vector<std::pair<int, int>>>*
+        linear_constraint_dual_indices,
+    std::vector<std::vector<std::pair<int, int>>>* bbcon_dual_indices,
+    int* num_linear_equality_constraint_rows,
+    int* num_positive_orthant_constraint_rows,
+    int* num_bounding_box_constraint_rows);
 
 // Parse all the bounding box constraints in `prog` to the form
 // A_eq*x+s=b_eq, s in zero cone and A_ineq*x+s=b_ineq, s in positive cone.

@@ -312,4 +312,12 @@ drake_py_unittest(
     ],
 )
 
+drake_py_unittest(
+    name = "conic_standard_form_test",
+    deps = [
+        ":solvers",
+        "//bindings/pydrake/common/test_utilities",
+    ],
+)
+
 add_lint_tests_pydrake()

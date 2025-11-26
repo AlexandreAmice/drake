@@ -1163,6 +1163,120 @@ GTEST_TEST(Parse2x2PositiveSemidefiniteConstraints, TestLMI) {
   EXPECT_EQ(twobytwo_lmi_dual_start_indices,
             std::vector<std::optional<int>>({{0}}));
 }
+
+GTEST_TEST(ParseAllLinearConstraintsIntoZeroPositiveOrthantAndBoundingBox,
+           Test) {
+  MathematicalProgram prog;
+  const auto x = prog.NewContinuousVariables<2>("x");
+  const auto y = prog.NewContinuousVariables<2>("y");
+
+  // A linear constraint that results 2 positive orthant constraints, and one
+  // bounding box constraint.
+  prog.AddLinearConstraint(
+      // clang-format off
+      (Eigen::Matrix3d() << 1, 2, 3, // nolint
+                            4, 5, 6, // nolint
+                            7, 8, 9).finished(), // nolint
+      // clang-format on
+      Eigen::Vector3d(-kInf, 3, 2), Eigen::Vector3d(1, kInf, 4),
+      Vector3<symbolic::Variable>(x(0), y(0), x(0)));
+
+  // A linear constraint that results in an equality constraint.
+  prog.AddLinearConstraint(Eigen::RowVector3d(-1, -3, -2), 7, 7,
+                           Vector3<symbolic::Variable>(x(1), y(1), y(0)));
+
+  prog.AddLinearConstraint(Eigen::RowVector3d(1, 2, 3), -1, 3,
+                           Vector3<symbolic::Variable>(y(0), y(1), x(1)));
+
+  prog.AddBoundingBoxConstraint(Eigen::Vector2d(0, 2), Eigen::Vector2d(1, 10),
+                                Vector2<symbolic::Variable>(x(0), y(0)));
+  prog.AddBoundingBoxConstraint(Eigen::Vector2d(1, -10), Eigen::Vector2d(1, 2),
+                                Vector2<symbolic::Variable>(x(0), x(1)));
+  prog.AddBoundingBoxConstraint(Eigen::Vector2d(-kInf, 13),
+                                Eigen::Vector2d(15, kInf),
+                                Vector2<symbolic::Variable>(y(1), y(0)));
+  prog.AddLinearEqualityConstraint(x(1) + y(1) == 5);
+
+  // start at a non-zero row count to test appending behavior.
+  const int initial_offset = 2;
+  std::vector<Eigen::Triplet<double>> A_triplets;
+  std::vector<double> b;
+  b.insert(b.end(), initial_offset, 0.0);  // initial offset rows
+  std::vector<double> bb_lb;
+  std::vector<double> bb_ub;
+  int A_row_count = initial_offset;
+  std::vector<int> linear_eq_dual_indices;
+  std::vector<std::vector<std::pair<int, int>>> linear_constraint_dual_indices;
+  std::vector<std::vector<std::pair<int, int>>> bounding_box_dual_indices;
+  int num_linear_equality_constraint_rows;
+  int num_positive_orthant_constraint_rows;
+  int num_bounding_box_constraint_rows;
+  ParseAllLinearConstraintsIntoZeroPositiveOrthantAndBoundingBox(
+      prog, &A_triplets, &b, &bb_lb, &bb_ub, &A_row_count,
+      &linear_eq_dual_indices, &linear_constraint_dual_indices,
+      &bounding_box_dual_indices, &num_linear_equality_constraint_rows,
+      &num_positive_orthant_constraint_rows, &num_bounding_box_constraint_rows);
+
+  const int num_linear_equality_constraint_rows_expected = 3;
+  const int num_positive_orthant_constraint_rows_expected = 3;
+  const int num_bounding_box_constraint_rows_expected = 4;
+  EXPECT_EQ(num_linear_equality_constraint_rows,
+            num_linear_equality_constraint_rows_expected);
+  EXPECT_EQ(num_positive_orthant_constraint_rows,
+            num_positive_orthant_constraint_rows_expected);
+  EXPECT_EQ(num_bounding_box_constraint_rows,
+            num_bounding_box_constraint_rows_expected);
+
+  Eigen::MatrixXd A_expected(initial_offset +
+                                 num_linear_equality_constraint_rows_expected +
+                                 num_positive_orthant_constraint_rows_expected +
+                                 num_bounding_box_constraint_rows_expected,
+                             4);
+  // clang-format off
+  A_expected << 0, 0, 0, 0,
+                0, 0, 0, 0,
+                // equality constraints
+                0, 1, 0, 1,
+                0, 1, 2, 3,
+                1, 0, 0, 0,
+                // positive orthant constraints
+                1+3, 0, 2, 0,
+                -(4+6), 0, -5, 0,
+                0, 0, 0, 1,
+                // bounding box constraints
+                -(7+9), 0, -8, 0,
+                0, -3, -1, -2,
+                0,-1, 0, 0,
+                0, 0,-1, 0;
+  // clang-format on
+  Eigen::SparseMatrix<double> A(A_row_count, prog.num_vars());
+  A.setFromTriplets(A_triplets.begin(), A_triplets.end());
+  EXPECT_TRUE(CompareMatrices(A.toDense(), A_expected));
+
+  Eigen::VectorXd b_expected(initial_offset +
+                             num_linear_equality_constraint_rows_expected +
+                             num_positive_orthant_constraint_rows_expected +
+                             num_bounding_box_constraint_rows_expected);
+  // clang-format off
+  b_expected << 0,
+                0,
+                // equality constraints
+                5,
+               -7,
+                1,
+                // positive orthant constraints
+                1,
+                -3,  
+                15,
+                // bounding box constraints
+                0,
+                0,
+                0,
+                0;
+  // clang-format on
+  EXPECT_TRUE(CompareMatrices(Eigen::Map<Eigen::VectorXd>(b.data(), b.size()),
+                              b_expected));
+}
 }  // namespace internal
 }  // namespace solvers
 }  // namespace drake

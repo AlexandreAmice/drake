@@ -24,21 +24,13 @@ struct ConicStandardFormOptions {
   /// so that the vectorized inner product is preserved.
   // bool preserve_psd_inner_product_vectorization{true};
 
-  /**
-   * When converting linear constraints of the form lb ≤ Ax ≤ ub, we guarantee
-   * that the bounds are stored back to back, i.e. [A]x+[lb] ∈ R₊ [A]x+[ub] ∈ R₊
-   * This setting merely controls the attributes_to_start_end_pairs. If this
-   * setting is true, then ProgramAttribute kBoundingBox constraint will be
-   * present, and the start index will be the beginning of the lower bound, and
-   * the end index will be the end of the lower bound, with the break between
-   * the two bounds happening at (start + end)/2. If this setting is false,
-   * ProgramAttribute kLinearConstarint will be used instead, and both
-   * constraints will be as separate positive orthant constraints.
-   */
-  bool use_bounding_box_for_indexing{false};
+  /// If true, parses bounding box constraints as positive orthant cones.
+  /// Otherwise, they are parsed using upper and lower bounds.
+  bool parse_bounding_box_constraints_as_positive_orthant{true};
 };
 
-/** Stores the information required to represent a convex program  (specficially
+/**
+ * Stores the information required to represent a convex program  (specficially
  * an LP, QP, SOCP, or SDP), in standard primal conic
  * form:
  * min 〈 c, x 〉+ d subject to
@@ -46,12 +38,27 @@ struct ConicStandardFormOptions {
  * Where K is the product of the cones:
  * 1) Zero cone {x | x = 0 }
  * 2) Positive orthant {x | x ≥ 0 }
- * 3) Second-order cone {(t, x) | |x|₂ ≤ t }
- * 4) Positive semidefinite cone { X |  min(eig(X)) ≥ 0, X = Xᵀ }g
+ * 3) (Optionally) Bounding box cone {x | lb ≤ x ≤ ub }
+ * 4) Second-order cone {(t, x) | |x|₂ ≤ t }
+ * 5) Positive semidefinite cone { X |  min(eig(X)) ≥ 0, X = Xᵀ }
+ *
+ * The cone information is stored in attributes_to_start_end_pairs_. If a zero
+ * cone attribute is present, it will always be a vector of size 1. If either
+ * non-negative orthant and bounding box cones are present, then the vector will
+ * be of size 1 if the constructor option
+ * parse_bounding_box_constraints_as_positive_orthant is true and will encode
+ * all of the positive orthant cones first followed by all of the bounding box
+ * cones otherwise. If parse_bounding_box_constraints_as_positive_orthant is
+ * false, then the index vector will be of length 2, with the first pair
+ * encoding the start and end indices of the positive orthant cones and the
+ * second pair encoding the start and end indices of the bounding box cones. The
+ * upper and lower bounds will be stored in bb_lower_bounds_ and
+ * bb_upper_bounds_ respectively.
  */
 class ConicStandardForm {
  public:
-  explicit ConicStandardForm(const MathematicalProgram& prog);
+  explicit ConicStandardForm(const MathematicalProgram& prog,
+                             ConicStandardFormOptions options = {});
 
   const Eigen::SparseMatrix<double>& P() const { return P_; }
   const Eigen::SparseVector<double>& c() const { return c_; }

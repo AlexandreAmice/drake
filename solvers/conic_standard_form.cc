@@ -58,6 +58,8 @@ ConicStandardForm::ConicStandardForm(
   options.cast_rotated_lorentz_to_lorentz = true;
   options.preserve_psd_inner_product_vectorization = true;
   options.parse_psd_using_upper_triangular = false;
+  options.parse_bounding_box_constraints_as_positive_orthant =
+      constructor_options.parse_bounding_box_constraints_as_positive_orthant;
 
   // Remove the quadratic costs and convert them to a linear cost.
   if (!constructor_options.keep_quadratic_costs) {
@@ -152,11 +154,34 @@ ConicStandardForm::ConicStandardForm(
   attributes_to_start_end_pairs_.emplace(ProgramAttribute::kLinearConstraint,
                                          std::vector<std::pair<int, int>>{});
   if (total_num_linear_constraints > 0) {
-    attributes_to_start_end_pairs_.at(ProgramAttribute::kLinearConstraint)
-        .emplace_back(expected_A_row_count,
-                      expected_A_row_count + total_num_linear_constraints);
+    if (constructor_options
+            .parse_bounding_box_constraints_as_positive_orthant) {
+      attributes_to_start_end_pairs_.at(ProgramAttribute::kLinearConstraint)
+          .emplace_back(expected_A_row_count,
+                        expected_A_row_count + total_num_linear_constraints);
+      expected_A_row_count += total_num_linear_constraints;
+
+    } else {
+      attributes_to_start_end_pairs_.at(ProgramAttribute::kLinearConstraint)
+          .emplace_back(expected_A_row_count,
+                        expected_A_row_count + info.num_linear_constraint_rows);
+      expected_A_row_count += info.num_linear_constraint_rows;
+      attributes_to_start_end_pairs_.at(ProgramAttribute::kLinearConstraint)
+          .emplace_back(expected_A_row_count,
+                        expected_A_row_count +
+                            info.num_bounding_box_inequality_constraint_rows);
+      expected_A_row_count += info.num_bounding_box_inequality_constraint_rows;
+
+      bb_lower_bounds_ =
+          Eigen::Map<Eigen::VectorXd>(info.bb_lb.data(), info.bb_lb.size());
+      bb_upper_bounds_ =
+          Eigen::Map<Eigen::VectorXd>(info.bb_ub.data(), info.bb_ub.size());
+      DRAKE_DEMAND(bb_lower_bounds_.size() ==
+                   info.num_bounding_box_inequality_constraint_rows);
+      DRAKE_DEMAND(bb_upper_bounds_.size() ==
+                   info.num_bounding_box_inequality_constraint_rows);
+    }
   }
-  expected_A_row_count += total_num_linear_constraints;
 
   attributes_to_start_end_pairs_.emplace(
       ProgramAttribute::kLorentzConeConstraint,
@@ -191,8 +216,16 @@ std::unique_ptr<MathematicalProgram> ConicStandardForm::MakeProgram() const {
       std::make_unique<MathematicalProgram>();
   prog_standard_form->AddDecisionVariables(x_);
   prog_standard_form->AddLinearCost(c_.toDense(), d_, x_);
+  // If quadratic costs were kept, encode them here. P_ stores the (upper
+  // triangular) Hessian terms, while the associated linear and constant terms
+  // are already in c_ and d_ above.
+  if (P_.nonZeros() > 0) {
+    prog_standard_form->AddQuadraticCost(
+        Eigen::MatrixXd(P_), Eigen::VectorXd::Zero(x_.size()), 0.0, x_);
+  }
 
   for (const auto& [attribute, index_pairs] : attributes_to_start_end_pairs_) {
+    int index_pair_index = 0;
     for (const auto& [start, end] : index_pairs) {
       const int length = end - start;
       if (attribute == ProgramAttribute::kLinearEqualityConstraint) {
@@ -200,9 +233,26 @@ std::unique_ptr<MathematicalProgram> ConicStandardForm::MakeProgram() const {
             A_.middleRows(start, length), -b_.segment(start, length).toDense(),
             x_);
       } else if (attribute == ProgramAttribute::kLinearConstraint) {
-        prog_standard_form->AddLinearConstraint(
-            A_.middleRows(start, length), -b_.segment(start, length).toDense(),
-            Eigen::VectorXd::Constant(length, kInf), x_);
+        if (index_pair_index == 0) {
+          prog_standard_form->AddLinearConstraint(
+              A_.middleRows(start, length),
+              -b_.segment(start, length).toDense(),
+              Eigen::VectorXd::Constant(length, kInf), x_);
+        } else if (index_pair_index == 1) {
+          DRAKE_DEMAND(length == bb_lower_bounds_.size());
+          DRAKE_DEMAND(length == bb_upper_bounds_.size());
+          // Bounding box rows in A_ already have the correct sign (see
+          // ParseAllLinearConstraintsIntoZeroPositiveOrthantAndBoundingBox),
+          // so we should not negate them again here.
+          prog_standard_form->AddLinearConstraint(
+              A_.middleRows(start, length), bb_lower_bounds_,
+              bb_upper_bounds_, x_);
+        } else {
+          throw std::runtime_error(
+              "ConicStandardForm::MakeProgram(): More than two linear "
+              "constraint segments found when parsing bounding box "
+              "constraints.");
+        }
       } else if (attribute == ProgramAttribute::kLorentzConeConstraint) {
         prog_standard_form->AddLorentzConeConstraint(
             A_.middleRows(start, length).toDense(),
@@ -224,6 +274,7 @@ std::unique_ptr<MathematicalProgram> ConicStandardForm::MakeProgram() const {
         }
         prog_standard_form->AddPositiveSemidefiniteConstraint(Y);
       }
+      index_pair_index++;
     }
   }
   return prog_standard_form;

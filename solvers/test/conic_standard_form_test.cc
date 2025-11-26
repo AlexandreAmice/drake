@@ -23,8 +23,9 @@ namespace test {
 
 namespace {
 const double kInf = std::numeric_limits<double>::infinity();
-void CheckParseToConicStandardForm(const MathematicalProgram& prog) {
-  ConicStandardForm standard_form{prog};
+void CheckParseToConicStandardForm(const MathematicalProgram& prog,
+                                   ConicStandardFormOptions options) {
+  ConicStandardForm standard_form{prog, options};
   std::unique_ptr<MathematicalProgram> prog_standard_form =
       standard_form.MakeProgram();
 
@@ -67,7 +68,12 @@ void CheckParseToConicStandardForm(const MathematicalProgram& prog) {
 }  // namespace
 
 TEST_P(LinearProgramTest, TestLP) {
-  CheckParseToConicStandardForm(*prob()->prog());
+  ConicStandardFormOptions options{
+      .keep_quadratic_costs = false,
+      .parse_bounding_box_constraints_as_positive_orthant = true};
+  CheckParseToConicStandardForm(*prob()->prog(), options);
+  options.parse_bounding_box_constraints_as_positive_orthant = false;
+  CheckParseToConicStandardForm(*prob()->prog(), options);
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -77,15 +83,39 @@ INSTANTIATE_TEST_SUITE_P(
                        ::testing::ValuesIn(linear_problems())));
 
 TEST_F(InfeasibleLinearProgramTest0, TestInfeasible) {
-  CheckParseToConicStandardForm(*prog_);
+  for (bool keep_quadratic_costs : {true, false}) {
+    for (bool parse_bounding_box_as_positive_orthant : {true, false}) {
+      ConicStandardFormOptions options{
+          .keep_quadratic_costs = keep_quadratic_costs,
+          .parse_bounding_box_constraints_as_positive_orthant =
+              parse_bounding_box_as_positive_orthant};
+      CheckParseToConicStandardForm(*prog_, options);
+    }
+  }
 }
 
 TEST_F(UnboundedLinearProgramTest0, TestUnbounded) {
-  CheckParseToConicStandardForm(*prog_);
+  for (bool keep_quadratic_costs : {true, false}) {
+    for (bool parse_bounding_box_as_positive_orthant : {true, false}) {
+      ConicStandardFormOptions options{
+          .keep_quadratic_costs = keep_quadratic_costs,
+          .parse_bounding_box_constraints_as_positive_orthant =
+              parse_bounding_box_as_positive_orthant};
+      CheckParseToConicStandardForm(*prog_, options);
+    }
+  }
 }
 
 TEST_P(TestEllipsoidsSeparation, TestSOCP) {
-  CheckParseToConicStandardForm(prog_);
+  for (bool keep_quadratic_costs : {true, false}) {
+    for (bool parse_bounding_box_as_positive_orthant : {true, false}) {
+      ConicStandardFormOptions options{
+          .keep_quadratic_costs = keep_quadratic_costs,
+          .parse_bounding_box_constraints_as_positive_orthant =
+              parse_bounding_box_as_positive_orthant};
+      CheckParseToConicStandardForm(prog_, options);
+    }
+  }
 }
 
 GTEST_TEST(TestMinimalDistanceFromSphereProblem, TestSocp) {
@@ -108,7 +138,11 @@ GTEST_TEST(TestMinimalDistanceFromSphereProblem, TestSocp) {
           quadratic_cost.evaluator()->c(), quadratic_cost.variables(),
           quadratic_cost.evaluator()->is_convex());
     }
-    CheckParseToConicStandardForm(*prog);
+    for (bool keep_quadratic_costs : {true, false}) {
+      ConicStandardFormOptions options{.keep_quadratic_costs =
+                                           keep_quadratic_costs};
+      CheckParseToConicStandardForm(*prog, options);
+    }
   }
 }
 
@@ -117,13 +151,29 @@ INSTANTIATE_TEST_SUITE_P(
     ::testing::ValuesIn(GetEllipsoidsSeparationProblems()));
 
 TEST_P(TestQPasSOCP, TestSOCP) {
-  CheckParseToConicStandardForm(prog_socp_);
+  for (bool keep_quadratic_costs : {true, false}) {
+    for (bool parse_bounding_box_as_positive_orthant : {true, false}) {
+      ConicStandardFormOptions options{
+          .keep_quadratic_costs = keep_quadratic_costs,
+          .parse_bounding_box_constraints_as_positive_orthant =
+              parse_bounding_box_as_positive_orthant};
+      CheckParseToConicStandardForm(prog_socp_, options);
+    }
+  }
 }
 INSTANTIATE_TEST_SUITE_P(ConicStandardFormTest, TestQPasSOCP,
                          ::testing::ValuesIn(GetQPasSOCPProblems()));
 
 TEST_P(TestFindSpringEquilibrium, TestSOCP) {
-  CheckParseToConicStandardForm(prog_);
+  for (bool keep_quadratic_costs : {true, false}) {
+    for (bool parse_bounding_box_as_positive_orthant : {true, false}) {
+      ConicStandardFormOptions options{
+          .keep_quadratic_costs = keep_quadratic_costs,
+          .parse_bounding_box_constraints_as_positive_orthant =
+              parse_bounding_box_as_positive_orthant};
+      CheckParseToConicStandardForm(prog_, options);
+    }
+  }
 }
 INSTANTIATE_TEST_SUITE_P(
     ConicStandardFormTest, TestFindSpringEquilibrium,
@@ -131,12 +181,18 @@ INSTANTIATE_TEST_SUITE_P(
 
 GTEST_TEST(TestSos, SimpleSos1) {
   SimpleSos1 dut;
-  CheckParseToConicStandardForm(dut.prog());
+  ConicStandardFormOptions options{
+      .keep_quadratic_costs = false,
+      .parse_bounding_box_constraints_as_positive_orthant = true};
+  CheckParseToConicStandardForm(dut.prog(), options);
 }
 
 GTEST_TEST(TestSos, UnivariateNonnegative1) {
   UnivariateNonnegative1 dut;
-  CheckParseToConicStandardForm(dut.prog());
+  ConicStandardFormOptions options{
+      .keep_quadratic_costs = false,
+      .parse_bounding_box_constraints_as_positive_orthant = true};
+  CheckParseToConicStandardForm(dut.prog(), options);
 }
 
 GTEST_TEST(TestSdp, TestTrivialSDP) {
@@ -153,7 +209,13 @@ GTEST_TEST(TestSdp, TestTrivialSDP) {
 
   // Min S.trace()
   prog.AddLinearCost(S.cast<symbolic::Expression>().trace());
-  CheckParseToConicStandardForm(prog);
+  ConicStandardFormOptions options{
+      .keep_quadratic_costs = false,
+      .parse_bounding_box_constraints_as_positive_orthant = true};
+  CheckParseToConicStandardForm(prog, options);
+  options.parse_bounding_box_constraints_as_positive_orthant =
+      !options.parse_bounding_box_constraints_as_positive_orthant;
+  CheckParseToConicStandardForm(prog, options);
 }
 
 // This tests LMI constraints.
@@ -181,22 +243,28 @@ GTEST_TEST(TestSdp, SolveEigenvalueProblem) {
 
   prog.AddLinearCost(z(0));
 
-  CheckParseToConicStandardForm(prog);
+  ConicStandardFormOptions options{
+      .keep_quadratic_costs = false,
+      .parse_bounding_box_constraints_as_positive_orthant = true};
+  CheckParseToConicStandardForm(prog, options);
+  options.parse_bounding_box_constraints_as_positive_orthant =
+      !options.parse_bounding_box_constraints_as_positive_orthant;
+  CheckParseToConicStandardForm(prog, options);
 }
 
 GTEST_TEST(TestShortestDistanceToThreePoints, TestL2Norm) {
   ShortestDistanceToThreePoints dut{};
-  CheckParseToConicStandardForm(dut.prog());
+  CheckParseToConicStandardForm(dut.prog(), ConicStandardFormOptions{});
 }
 
 GTEST_TEST(TestShortestDistanceFromCylinderToPoint, TestL2Norm) {
   ShortestDistanceFromPlaneToTwoPoints dut{};
-  CheckParseToConicStandardForm(dut.prog());
+  CheckParseToConicStandardForm(dut.prog(), ConicStandardFormOptions{});
 }
 
 GTEST_TEST(TestShortestDistanceFromPlaneToTwoPoints, TestL2Norm) {
   ShortestDistanceFromPlaneToTwoPoints dut{};
-  CheckParseToConicStandardForm(dut.prog());
+  CheckParseToConicStandardForm(dut.prog(), ConicStandardFormOptions{});
 }
 
 GTEST_TEST(TestRepeatedL2NormCosts, TestL2Norm) {
@@ -208,7 +276,7 @@ GTEST_TEST(TestRepeatedL2NormCosts, TestL2Norm) {
                         l2norm_cost.evaluator()->b(), l2norm_cost.variables());
   }
 
-  CheckParseToConicStandardForm(*prog);
+  CheckParseToConicStandardForm(*prog, ConicStandardFormOptions{});
 }
 
 // GTEST_TEST(TestSdp, SolveSDPwithSecondOrderConeExample1) {
