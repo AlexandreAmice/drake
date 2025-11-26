@@ -262,39 +262,6 @@ void AggregateDuplicateVariables(const Eigen::SparseMatrix<double>& A,
   vars_new->conservativeResize(unique_var_count);
 }
 
-// void AggregateConvexConstraints(const MathematicalProgram& prog,
-//                                 Eigen::SparseMatrix<double>* A,
-//                                 Eigen::VectorXd* b,
-//                                 Eigen::SparseMatrix<double>* Aeq,
-//                                 Eigen::VectorXd* beq) {
-//   internal::ConvexConstraintAggregationInfo info;
-//   internal::DoAggregateConvexConstraints(prog, &info);
-//
-//   auto A_triplets_end_of_equalities_iterator = info.A_triplets.begin();
-//   std::advance(A_triplets_end_of_equalities_iterator,
-//                info.num_linear_equality_constraint_rows);
-//
-//   // The first info.num_linear_equality_constraint_rows correspond to
-//   equality
-//   // constraints.
-//   Aeq->resize(info.num_linear_equality_constraint_rows, prog.num_vars());
-//   Aeq->setFromTriplets(info.A_triplets.begin(),
-//                        A_triplets_end_of_equalities_iterator);
-//   beq->resize(info.num_linear_equality_constraint_rows);
-//   (*beq) = Eigen::Map<Eigen::VectorXd>(
-//       info.b_std.data(), info.num_linear_equality_constraint_rows);
-//
-//   // The rest correspond to conic constraints.
-//   int num_conic = info.A_row_count -
-//   info.num_linear_equality_constraint_rows; A->resize(num_conic,
-//   prog.num_vars()); A->setFromTriplets(A_triplets_end_of_equalities_iterator,
-//                      info.A_triplets.end());
-//   b->resize(num_conic);
-//   (*b) = Eigen::Map<Eigen::VectorXd>(
-//       info.b_std.data() + info.num_linear_equality_constraint_rows,
-//       num_conic);
-// }
-
 namespace internal {
 // const Binding<QuadraticCost>* FindNonconvexQuadraticCost(
 //     const std::vector<Binding<QuadraticCost>>& quadratic_costs) {
@@ -586,6 +553,194 @@ void ParseLinearEqualityConstraints(
   }
 }
 
+void ParseAllLinearConstraintsIntoZeroPositiveOrthantAndBoundingBox(
+    const solvers::MathematicalProgram& prog,
+    std::vector<Eigen::Triplet<double>>* A_triplets, std::vector<double>* b,
+    std::vector<double>* bb_lb, std::vector<double>* bb_ub, int* A_row_count,
+    std::vector<int>* linear_eq_y_start_indices,
+    std::vector<std::vector<std::pair<int, int>>>*
+        linear_constraint_dual_indices,
+    int* num_linear_equality_constraint_rows,
+    int* num_positive_orthant_constraint_rows,
+    int* num_bounding_box_constraint_rows) {
+  // If both bounds of lb ≤ aᵀx ≤ ub are finite then the row -a is added to
+  // bb_A_triplets, lb is added to bb_lb, and ub is added to bb_ub. This is in
+  // keeping with the SCS convention that Aᵀx + s must be in a cone, so we get
+  // that -aᵀx + s = 0, s in [lb, ub].
+  //
+  // If only the upper bound is finite, then the row a is added to
+  // positive_orthant_A_triplets, and ub is added to b. If only lb is finite,
+  // then the row -a is added to A_triplets, and lb is added to b. If neither is
+  // finite, the constraints is skipped.
+
+  // First, parse the linear equality constraints
+  *num_linear_equality_constraint_rows = 0;
+  std::vector<Eigen::Triplet<double>> zero_A_triplets;
+  std::vector<double> zero_b;
+  int dummy_A_row_count = 0;
+  ParseLinearEqualityConstraints(prog, &zero_A_triplets, &zero_b,
+                                 &dummy_A_row_count, linear_eq_y_start_indices,
+                                 num_linear_equality_constraint_rows);
+
+  // Now parse the bounding box constraints.
+  *num_bounding_box_constraint_rows = 0;
+  std::vector<Eigen::Triplet<double>> bb_A_triplets;
+  const std::unordered_map<symbolic::Variable, Bound> variable_bounds =
+      AggregateBoundingBoxConstraints(prog.bounding_box_constraints());
+  // For each variable with lb <= x <= ub, we check the following
+  // 1. If lb == ub (and both are finite), then we add the constraint x + s = ub
+  // to A_eq_triplets and b_eq
+  // 2. Otherwise, if ub is finite, then we add the constraint x + s = ub to
+  // A_ineq_triplets and b_ineq. If lb is finite, then we add the constraint -x
+  // + s = -lb to A_ineq_triplets and b_ineq.
+  // Now we visit the original bounding box constraints.
+  for (int i = 0; i < ssize(prog.bounding_box_constraints()); ++i) {
+    for (int j = 0; j < prog.bounding_box_constraints()[i].variables().rows();
+         ++j) {
+      const int var_index = prog.FindDecisionVariableIndex(
+          prog.bounding_box_constraints()[i].variables()(j));
+      const Bound& var_bound =
+          variable_bounds.at(prog.bounding_box_constraints()[i].variables()(j));
+      const bool use_lb =
+          var_bound.lower ==
+              prog.bounding_box_constraints()[i].evaluator()->lower_bound()(
+                  j) &&
+          std::isfinite(var_bound.lower);
+      const bool use_ub =
+          var_bound.upper ==
+              prog.bounding_box_constraints()[i].evaluator()->upper_bound()(
+                  j) &&
+          std::isfinite(var_bound.upper);
+      if (use_lb && use_ub && var_bound.lower == var_bound.upper) {
+        // This is an equality constraint x = ub.
+        // Add the constraint x + s = ub and s in the zero cone.
+        zero_A_triplets.emplace_back(*num_linear_equality_constraint_rows,
+                                     var_index, 1);
+        zero_b.push_back(var_bound.upper);
+        *num_linear_equality_constraint_rows += 1;
+      } else if (use_ub && use_lb) {
+        // This is a proper bounding box constraint.
+        bb_ub->push_back(var_bound.upper);
+        bb_lb->push_back(var_bound.lower);
+        bb_A_triplets.emplace_back(*num_bounding_box_constraint_rows, var_index,
+                                   -1);
+        *num_bounding_box_constraint_rows += 1;
+      } else if (use_ub) {
+        // Add the constraint x + s = ub and s in the nonnegative orthant cone.
+        A_triplets->emplace_back(*num_positive_orthant_constraint_rows,
+                                 var_index, 1);
+        b->push_back(var_bound.upper);
+        *num_positive_orthant_constraint_rows += 1;
+      } else if (use_lb) {
+        // Add the constraint -x + s = -lb and s in the nonnegative orthant
+        // cone.
+        A_triplets->emplace_back(*num_positive_orthant_constraint_rows,
+                                 var_index, -1);
+        b->push_back(-var_bound.lower);
+        *num_positive_orthant_constraint_rows += 1;
+      }
+    }
+  }
+
+  // Now we parse the linear constraints.
+  *num_positive_orthant_constraint_rows = 0;
+  std::vector<Eigen::Triplet<double>> positive_orthant_A_triplets;
+  std::vector<double> positive_orthant_b;
+
+  linear_constraint_dual_indices->reserve(prog.linear_constraints().size());
+  for (const auto& linear_constraint : prog.linear_constraints()) {
+    linear_constraint_dual_indices->emplace_back(
+        linear_constraint.evaluator()->num_constraints(),
+        std::make_pair(-1, -1));
+    const Eigen::VectorXd& ub = linear_constraint.evaluator()->upper_bound();
+    const Eigen::VectorXd& lb = linear_constraint.evaluator()->lower_bound();
+    const VectorXDecisionVariable& x = linear_constraint.variables();
+    const Eigen::SparseMatrix<double>& Ai =
+        linear_constraint.evaluator()->get_sparse_A();
+
+    std::vector<bool> row_visited(
+        linear_constraint.evaluator()->num_constraints(), false);
+    std::vector<int> starting_row_indices(
+        linear_constraint.evaluator()->num_constraints());
+
+    // Ai is column major and so the outer size is the column.
+    for (int col = 0; col < Ai.outerSize(); ++col) {
+      for (Eigen::SparseMatrix<double>::InnerIterator it(Ai, col); it; ++it) {
+        DRAKE_DEMAND(it.col() == col);
+        const double cur_ub = ub(it.row());
+        const double cur_lb = lb(it.row());
+        const bool needs_ub{!std::isinf(cur_ub)};
+        const bool needs_lb{!std::isinf(cur_lb)};
+        const int xj_index = prog.FindDecisionVariableIndex(x(it.row()));
+        const bool cur_row_visited = row_visited[it.row()];
+        if (!needs_ub && !needs_lb) {
+          continue;
+        } else if (needs_ub && needs_lb) {
+          if (!cur_row_visited) {
+            row_visited[it.row()] = true;
+            if (cur_ub == cur_lb) {
+              // Both bounds are finite and equal, so we add to linear equality
+              // constraints.
+              starting_row_indices[it.row()] =
+                  *num_linear_equality_constraint_rows;
+              *num_linear_equality_constraint_rows += 1;
+              // We add these zero constraints as -aᵀx + s = -ub so we don't
+              // have to special case the triplets between the equality and
+              // inequality constraints.
+              zero_b.push_back(-cur_ub);
+            } else {
+              // Both bounds are finite and not equal, so we add to bounding box
+              // constraints.
+              starting_row_indices[it.row()] =
+                  *num_bounding_box_constraint_rows;
+              num_bounding_box_constraint_rows += 1;
+              bb_ub->push_back(ub(it.row()));
+              bb_lb->push_back(lb(it.row()));
+            }
+          }
+          bb_A_triplets.emplace_back(starting_row_indices[it.row()], xj_index,
+                                     -it.value());
+        } else {
+          if (!cur_row_visited) {
+            row_visited[it.row()] = true;
+
+            starting_row_indices[it.row()] =
+                *num_positive_orthant_constraint_rows;
+            *num_positive_orthant_constraint_rows += 1;
+            positive_orthant_b.push_back(needs_ub ? ub(it.row())
+                                                  : lb(it.row()));
+          }
+          positive_orthant_A_triplets.emplace_back(
+              starting_row_indices[it.row()], xj_index,
+              needs_ub ? it.value() : -it.value());
+        }
+      }
+    }
+  }
+
+  // Now we finally need to combine all the triplets and bounds.
+  for (const auto& triplet : zero_A_triplets) {
+    A_triplets->emplace_back(triplet.row() + *A_row_count, triplet.col(),
+                             triplet.value());
+  }
+  b->insert(b->end(), zero_b.begin(), zero_b.end());
+  *A_row_count += *num_linear_equality_constraint_rows;
+
+  for (const auto& triplet : positive_orthant_A_triplets) {
+    A_triplets->emplace_back(triplet.row() + *A_row_count, triplet.col(),
+                             triplet.value());
+  }
+  b->insert(b->end(), positive_orthant_b.begin(), positive_orthant_b.end());
+  *A_row_count += *num_positive_orthant_constraint_rows;
+
+  for (const auto& triplet : bb_A_triplets) {
+    A_triplets->emplace_back(triplet.row() + *A_row_count, triplet.col(),
+                             triplet.value());
+  }
+  b->insert(b->end(), *num_bounding_box_constraint_rows, 0.0);
+  *A_row_count += *num_bounding_box_constraint_rows;
+}
+
 void ParseLinearConstraints(const solvers::MathematicalProgram& prog,
                             std::vector<Eigen::Triplet<double>>* A_triplets,
                             std::vector<double>* b, int* A_row_count,
@@ -625,14 +780,14 @@ void ParseLinearConstraints(const solvers::MathematicalProgram& prog,
       dual_index.first = -1;
       dual_index.second = -1;
       if (!needs_ub && !needs_lb) {
-        // We use -1 to indicate that we won't add linear constraint when both
-        // bounds are infinity.
+        // We use -1 to indicate that we won't add linear constraint when
+        // both bounds are infinity.
         starting_row_indices[i] = -1;
       } else {
         starting_row_indices[i] = *A_row_count + *num_linear_constraint_rows;
         // We first add the constraint for lower bound, and then add the
-        // constraint for upper bound. This is consistent with the loop below
-        // when we modify A_triplets.
+        // constraint for upper bound. This is consistent with the loop
+        // below when we modify A_triplets.
         if (needs_lb) {
           b->push_back(-lb(i));
           dual_index.first = *A_row_count + *num_linear_constraint_rows;
@@ -662,8 +817,8 @@ void ParseLinearConstraints(const solvers::MathematicalProgram& prog,
           ++row_index;
         }
         if (needs_ub) {
-          // If ub != ∞, then the constraint aᵀx + s = ub will be added to the
-          // matrix A, in the row row_index.
+          // If ub != ∞, then the constraint aᵀx + s = ub will be added to
+          // the matrix A, in the row row_index.
           A_triplets->emplace_back(row_index, xj_index, it.value());
         }
       }
@@ -680,13 +835,13 @@ void ParseQuadraticCosts(const MathematicalProgram& prog,
     for (int j = 0; j < cost.evaluator()->Q().cols(); ++j) {
       for (int i = 0; i <= j; ++i) {
         if (cost.evaluator()->Q()(i, j) != 0) {
-          // Since we allow duplicated variables in a quadratic cost, we need to
-          // handle this more carefully. If i != j but var_indices[i] ==
-          // var_indices[j], then it means that the cost is a diagonal term
-          // (Q(i, j) + Q(j, i)) * x[var_indices[i]]² = 2 * Q(i, j)*
-          // x[var_indices[i]]², not a cross term (Q(i, j) + Q(j, i)) *
-          // x[var_indices[i]] * x[var_indices[j]]. Hence we need a factor of 2
-          // for this special case.
+          // Since we allow duplicated variables in a quadratic cost, we
+          // need to handle this more carefully. If i != j but
+          // var_indices[i] == var_indices[j], then it means that the cost
+          // is a diagonal term (Q(i, j) + Q(j, i)) * x[var_indices[i]]² = 2
+          // * Q(i, j)* x[var_indices[i]]², not a cross term (Q(i, j) + Q(j,
+          // i)) * x[var_indices[i]] * x[var_indices[j]]. Hence we need a
+          // factor of 2 for this special case.
           const double factor =
               (i != j && var_indices[i] == var_indices[j]) ? 2 : 1;
           // Since we only add the upper diagonal entries, we need to branch
@@ -811,11 +966,9 @@ void ParseRotatedLorentzConeConstraint(
   //  (a₀ᵀx + b₀) (a₁ᵀx + b₁) ≥ (a₂ᵀx + b₂)² + ... + (aₙ₋₁ᵀx + bₙ₋₁)²
   //  (a₀ᵀx + b₀) ≥ 0
   //  (a₁ᵀx + b₁) ≥ 0
-  // , where aᵢᵀ is the i'th row of A, bᵢ is the i'th row of b. Equivalently the
-  // vector
-  // [ 0.5(a₀ + a₁)ᵀx + 0.5(b₀ + b₁) ]
-  // [ 0.5(a₀ - a₁)ᵀx + 0.5(b₀ - b₁) ]
-  // [           a₂ᵀx +           b₂ ]
+  // , where aᵢᵀ is the i'th row of A, bᵢ is the i'th row of b. Equivalently
+  // the vector [ 0.5(a₀ + a₁)ᵀx + 0.5(b₀ + b₁) ] [ 0.5(a₀ - a₁)ᵀx + 0.5(b₀
+  // - b₁) ] [           a₂ᵀx +           b₂ ]
   //             ...
   // [         aₙ₋₁ᵀx +         bₙ₋₁ ]
   // is in the Lorentz cone. We convert this to the SCS form, that
@@ -874,13 +1027,13 @@ void ParseExponentialConeConstraints(
     std::vector<Eigen::Triplet<double>>* A_triplets, std::vector<double>* b,
     int* A_row_count) {
   for (const auto& binding : prog.exponential_cone_constraints()) {
-    // drake::solvers::ExponentialConstraint enforces that z = A * x + b is in
-    // the exponential cone (z₀ ≥ z₁*exp(z₂ / z₁)). This is different from the
-    // exponential cone used in SCS. In SCS, a vector s is in the exponential
-    // cone, if s₂≥ s₁*exp(s₀ / s₁). To transform drake's Exponential cone to
-    // SCS's exponential cone, we use
-    // -[A.row(2); A.row(1); A.row(0)] * x + s = [b(2); b(1); b(0)], and s is
-    // in SCS's exponential cone, where A = binding.evaluator()->A(), b =
+    // drake::solvers::ExponentialConstraint enforces that z = A * x + b is
+    // in the exponential cone (z₀ ≥ z₁*exp(z₂ / z₁)). This is different
+    // from the exponential cone used in SCS. In SCS, a vector s is in the
+    // exponential cone, if s₂≥ s₁*exp(s₀ / s₁). To transform drake's
+    // Exponential cone to SCS's exponential cone, we use
+    // -[A.row(2); A.row(1); A.row(0)] * x + s = [b(2); b(1); b(0)], and s
+    // is in SCS's exponential cone, where A = binding.evaluator()->A(), b =
     // binding.evaluator()->b().
     const int num_bound_variables = binding.variables().rows();
     for (int i = 0; i < num_bound_variables; ++i) {
@@ -891,8 +1044,8 @@ void ParseExponentialConeConstraints(
       for (Eigen::SparseMatrix<double>::InnerIterator it(
                binding.evaluator()->A(), i);
            it; ++it) {
-        // 2 - it.row() is used for reverse the row order, as mentioned in the
-        // function documentation above.
+        // 2 - it.row() is used for reverse the row order, as mentioned in
+        // the function documentation above.
         A_triplets->emplace_back(*A_row_count + 2 - it.row(),
                                  decision_variable_index, -it.value());
       }
@@ -919,7 +1072,8 @@ void ParsePositiveSemidefiniteConstraints(
   DRAKE_ASSERT(psd_cone_length != nullptr);
   // Make sure that each triplet in A_triplets has row smaller than
   // *A_row_count.
-  // Use kDrakeAssertIsArmed to bypass the entire for loop in the release mode.
+  // Use kDrakeAssertIsArmed to bypass the entire for loop in the release
+  // mode.
   if (kDrakeAssertIsArmed) {
     for (const auto& A_triplet : *A_triplets) {
       DRAKE_DEMAND(A_triplet.row() < *A_row_count);
@@ -950,10 +1104,10 @@ void ParsePositiveSemidefiniteConstraints(
       // ⎢-√2 -√2  -1 ... -√2⎥
       // ⎢    ...            ⎥
       // ⎣-√2 -√2 -√2 ...  -1⎦
-      // The √2 scaling factor in the off-diagonal entries are required by SCS
-      // and Clarabel, as it uses only the lower triangular part (for SCS), or
-      // upper triangular part (for Clarabel) of the symmetric matrix, as
-      // explained in
+      // The √2 scaling factor in the off-diagonal entries are required by
+      // SCS and Clarabel, as it uses only the lower triangular part (for
+      // SCS), or upper triangular part (for Clarabel) of the symmetric
+      // matrix, as explained in
       // https://www.cvxgrp.org/scs/api/cones.html#semidefinite-cones and
       // https://oxfordcontrol.github.io/ClarabelDocs/stable/examples/example_sdp.
       // x is the stacked column vector of the lower triangular part of the
