@@ -20,6 +20,7 @@
 // #include "drake/solvers/clarabel_solver.h"
 // #include "drake/solvers/clp_solver.h"
 // #include "drake/solvers/common_solver_option.h"
+// #include "drake/solvers/conic_standard_form.h"
 // #include "drake/solvers/constraint.h"
 // #include "drake/solvers/cost.h"
 // #include "drake/solvers/create_constraint.h"
@@ -836,6 +837,13 @@ Returns ``aggregated_bounds``:
     of that variable as the tightest bounds of
     ``bounding_box_constraints``.)""";
       } AggregateBoundingBoxConstraints;
+      // Symbol: drake::solvers::AggregateConvexConstraints
+      struct /* AggregateConvexConstraints */ {
+        // Source: drake/solvers/aggregate_costs_constraints.h
+        const char* doc =
+R"""(Aggregate all convex (conic) constraints into conic standard form i.e.
+a single constraint Ax + b ∈ K where K is the product of cones.)""";
+      } AggregateConvexConstraints;
       // Symbol: drake::solvers::AggregateDuplicateVariables
       struct /* AggregateDuplicateVariables */ {
         // Source: drake/solvers/aggregate_costs_constraints.h
@@ -1510,6 +1518,108 @@ of indeterminates, returns this concatenated vector.)""";
 R"""(Concatenates each element in ``var_list`` into a single Eigen vector
 of decision variables, returns this concatenated vector.)""";
       } ConcatenateVariableRefList;
+      // Symbol: drake::solvers::ConicStandardForm
+      struct /* ConicStandardForm */ {
+        // Source: drake/solvers/conic_standard_form.h
+        const char* doc =
+R"""(Stores the information required to represent a convex program
+(specficially an LP, QP, SOCP, or SDP), in standard primal conic form:
+min 〈 c, x 〉+ d subject to Ax + b ∈ K Where K is the product of the
+cones: 1) Zero cone {x | x = 0 } 2) Positive orthant {x | x ≥ 0 } 3)
+(Optionally) Bounding box cone {x | lb ≤ x ≤ ub } 4) Second-order cone
+{(t, x) | |x|₂ ≤ t } 5) Positive semidefinite cone { X | min(eig(X)) ≥
+0, X = Xᵀ }
+
+The cone information is stored in attributes_to_start_end_pairs_. If a
+zero cone attribute is present, it will always be a vector of size 1.
+If either non-negative orthant and bounding box cones are present,
+then the vector will be of size 1 if the constructor option
+parse_bounding_box_constraints_as_positive_orthant is true and will
+encode all of the positive orthant cones first followed by all of the
+bounding box cones otherwise. If
+parse_bounding_box_constraints_as_positive_orthant is false, then the
+index vector will be of length 2, with the first pair encoding the
+start and end indices of the positive orthant cones and the second
+pair encoding the start and end indices of the bounding box cones. The
+upper and lower bounds will be stored in bb_lower_bounds_ and
+bb_upper_bounds_ respectively.)""";
+        // Symbol: drake::solvers::ConicStandardForm::A
+        struct /* A */ {
+          // Source: drake/solvers/conic_standard_form.h
+          const char* doc = R"""()""";
+        } A;
+        // Symbol: drake::solvers::ConicStandardForm::ConicStandardForm
+        struct /* ctor */ {
+          // Source: drake/solvers/conic_standard_form.h
+          const char* doc = R"""()""";
+        } ctor;
+        // Symbol: drake::solvers::ConicStandardForm::MakeProgram
+        struct /* MakeProgram */ {
+          // Source: drake/solvers/conic_standard_form.h
+          const char* doc =
+R"""(Return a MathematicalProgram represented by this standard conic form
+data.)""";
+        } MakeProgram;
+        // Symbol: drake::solvers::ConicStandardForm::P
+        struct /* P */ {
+          // Source: drake/solvers/conic_standard_form.h
+          const char* doc = R"""()""";
+        } P;
+        // Symbol: drake::solvers::ConicStandardForm::attributes_to_start_end_pairs
+        struct /* attributes_to_start_end_pairs */ {
+          // Source: drake/solvers/conic_standard_form.h
+          const char* doc = R"""()""";
+        } attributes_to_start_end_pairs;
+        // Symbol: drake::solvers::ConicStandardForm::b
+        struct /* b */ {
+          // Source: drake/solvers/conic_standard_form.h
+          const char* doc = R"""()""";
+        } b;
+        // Symbol: drake::solvers::ConicStandardForm::bb_lower_bounds
+        struct /* bb_lower_bounds */ {
+          // Source: drake/solvers/conic_standard_form.h
+          const char* doc = R"""()""";
+        } bb_lower_bounds;
+        // Symbol: drake::solvers::ConicStandardForm::bb_upper_bounds
+        struct /* bb_upper_bounds */ {
+          // Source: drake/solvers/conic_standard_form.h
+          const char* doc = R"""()""";
+        } bb_upper_bounds;
+        // Symbol: drake::solvers::ConicStandardForm::c
+        struct /* c */ {
+          // Source: drake/solvers/conic_standard_form.h
+          const char* doc = R"""()""";
+        } c;
+        // Symbol: drake::solvers::ConicStandardForm::d
+        struct /* d */ {
+          // Source: drake/solvers/conic_standard_form.h
+          const char* doc = R"""()""";
+        } d;
+        // Symbol: drake::solvers::ConicStandardForm::x
+        struct /* x */ {
+          // Source: drake/solvers/conic_standard_form.h
+          const char* doc = R"""()""";
+        } x;
+      } ConicStandardForm;
+      // Symbol: drake::solvers::ConicStandardFormOptions
+      struct /* ConicStandardFormOptions */ {
+        // Source: drake/solvers/conic_standard_form.h
+        const char* doc = R"""()""";
+        // Symbol: drake::solvers::ConicStandardFormOptions::keep_quadratic_costs
+        struct /* keep_quadratic_costs */ {
+          // Source: drake/solvers/conic_standard_form.h
+          const char* doc =
+R"""(If true, keeps quadratic costs as-is instead of converting them to
+epigraph form.)""";
+        } keep_quadratic_costs;
+        // Symbol: drake::solvers::ConicStandardFormOptions::parse_bounding_box_constraints_as_positive_orthant
+        struct /* parse_bounding_box_constraints_as_positive_orthant */ {
+          // Source: drake/solvers/conic_standard_form.h
+          const char* doc =
+R"""(If true, parses bounding box constraints as positive orthant cones.
+Otherwise, they are parsed using upper and lower bounds.)""";
+        } parse_bounding_box_constraints_as_positive_orthant;
+      } ConicStandardFormOptions;
       // Symbol: drake::solvers::Constraint
       struct /* Constraint */ {
         // Source: drake/solvers/constraint.h
@@ -6362,6 +6472,16 @@ Parameter ``s``:
 
 See variable_scaling "Variable scaling" for more information.)""";
         } SetVariableScaling;
+        // Symbol: drake::solvers::MathematicalProgram::SortDecisionVariables
+        struct /* SortDecisionVariables */ {
+          // Source: drake/solvers/mathematical_program.h
+          const char* doc =
+R"""(Sorts the decision variables of this program so that the variables in
+``decision`` variables are in the front of this program's decision
+variables, in the order given in ``decision_variables``. If
+``decision_variables`` contains variables not in this program, then
+the decision variable is inserted into this program.)""";
+        } SortDecisionVariables;
         // Symbol: drake::solvers::MathematicalProgram::TightenPsdConstraintToDd
         struct /* TightenPsdConstraintToDd */ {
           // Source: drake/solvers/mathematical_program.h
@@ -8884,6 +9004,19 @@ the problem. Notice that the order of the linear constraints are
 linear inequality first, and then linear equality constraints.)""";
         } y;
       } OsqpSolverDetails;
+      // Symbol: drake::solvers::ParseToConicStandardForm
+      struct /* ParseToConicStandardForm */ {
+        // Source: drake/solvers/conic_standard_form.h
+        const char* doc =
+R"""(Given a convex program (specficially an LP, QP, SOCP, or SDP), parse
+it into an equivalent program in standard primal conic form: min 〈 c,
+x 〉 subject to Ax + b ∈ K Where K is the product of the cones: 1) Zero
+cone {x | x = 0 } 2) Positive orthant {x | x ≥ 0 } 3) Second-order
+cone {(t, x) | |x|₂ ≤ t } 4) Positive semidefinite cone { X |
+min(eig(X)) ≥ 0, X = Xᵀ }
+
+Currently, we only support programs with linear costs.)""";
+      } ParseToConicStandardForm;
       // Symbol: drake::solvers::PerspectiveQuadraticCost
       struct /* PerspectiveQuadraticCost */ {
         // Source: drake/solvers/cost.h

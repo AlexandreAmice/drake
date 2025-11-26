@@ -1,5 +1,8 @@
 #include "drake/solvers/conic_standard_form.h"
 
+#include <limits>
+#include <memory>
+
 #include <gtest/gtest.h>
 
 #include "drake/common/ssize.h"

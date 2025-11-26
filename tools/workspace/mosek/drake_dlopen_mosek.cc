@@ -2,6 +2,7 @@
 #include <stdio.h>
 
 #include <filesystem>
+#include <string>
 
 #include "drake/common/find_loaded_library.h"
 

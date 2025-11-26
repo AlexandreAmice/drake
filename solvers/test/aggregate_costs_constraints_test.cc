@@ -1174,9 +1174,9 @@ GTEST_TEST(ParseAllLinearConstraintsIntoZeroPositiveOrthantAndBoundingBox,
   // bounding box constraint.
   prog.AddLinearConstraint(
       // clang-format off
-      (Eigen::Matrix3d() << 1, 2, 3, // nolint
-                            4, 5, 6, // nolint
-                            7, 8, 9).finished(), // nolint
+      (Eigen::Matrix3d() << 1, 2, 3,  // nolint
+                            4, 5, 6,  // nolint
+                            7, 8, 9).finished(),  // nolint
       // clang-format on
       Eigen::Vector3d(-kInf, 3, 2), Eigen::Vector3d(1, kInf, 4),
       Vector3<symbolic::Variable>(x(0), y(0), x(0)));
@@ -1246,8 +1246,8 @@ GTEST_TEST(ParseAllLinearConstraintsIntoZeroPositiveOrthantAndBoundingBox,
                 // bounding box constraints
                 -(7+9), 0, -8, 0,
                 0, -3, -1, -2,
-                0,-1, 0, 0,
-                0, 0,-1, 0;
+                0, -1, 0, 0,
+                0, 0, -1, 0;
   // clang-format on
   Eigen::SparseMatrix<double> A(A_row_count, prog.num_vars());
   A.setFromTriplets(A_triplets.begin(), A_triplets.end());
@@ -1266,7 +1266,7 @@ GTEST_TEST(ParseAllLinearConstraintsIntoZeroPositiveOrthantAndBoundingBox,
                 1,
                 // positive orthant constraints
                 1,
-                -3,  
+                -3,
                 15,
                 // bounding box constraints
                 0,

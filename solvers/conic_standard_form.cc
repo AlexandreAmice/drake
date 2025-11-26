@@ -244,9 +244,9 @@ std::unique_ptr<MathematicalProgram> ConicStandardForm::MakeProgram() const {
           // Bounding box rows in A_ already have the correct sign (see
           // ParseAllLinearConstraintsIntoZeroPositiveOrthantAndBoundingBox),
           // so we should not negate them again here.
-          prog_standard_form->AddLinearConstraint(
-              A_.middleRows(start, length), bb_lower_bounds_,
-              bb_upper_bounds_, x_);
+          prog_standard_form->AddLinearConstraint(A_.middleRows(start, length),
+                                                  bb_lower_bounds_,
+                                                  bb_upper_bounds_, x_);
         } else {
           throw std::runtime_error(
               "ConicStandardForm::MakeProgram(): More than two linear "
