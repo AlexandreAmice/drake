@@ -38,23 +38,25 @@ class TestConicStandardForm(unittest.TestCase):
         standard_form_prog = conic_standard_form.MakeProgram()
         self.assertEqual(len(standard_form_prog.linear_constraints()), 1)
         self.assertEqual(len(standard_form_prog.linear_costs()), 1)
+        self.assertEqual(len(standard_form_prog.quadratic_costs()), 0)
 
     def test_conic_standard_form_options(self):
         opts = ConicStandardFormOptions()
         self.assertFalse(opts.keep_quadratic_costs)
-        self.assertTrue(opts.parse_bounding_box_constraints_as_positive_orthant)
+        self.assertTrue(
+            opts.parse_bounding_box_constraints_as_positive_orthant
+        )
 
         opts.keep_quadratic_costs = True
         opts.parse_bounding_box_constraints_as_positive_orthant = False
 
         prog = MathematicalProgram()
         x = prog.NewContinuousVariables(1, "x")
-        prog.AddQuadraticCost(2 * np.eye(1), np.zeros(1), x)
+        P = np.array([[2]])
+        prog.AddQuadraticCost(P, np.zeros(1), x)
         prog.AddBoundingBoxConstraint(0, 1, x)
 
         conic_standard_form = ConicStandardForm(prog=prog, options=opts)
         attrs = conic_standard_form.attributes_to_start_end_pairs()
+        np.testing.assert_almost_equal(conic_standard_form.P().toarray(), P)
         self.assertEqual(len(attrs[ProgramAttribute.kLinearConstraint]), 2)
-
-        standard_form_prog = conic_standard_form.MakeProgram()
-        self.assertEqual(len(standard_form_prog.quadratic_costs()), 1)

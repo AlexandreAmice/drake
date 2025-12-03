@@ -35,6 +35,7 @@ void DefineSolversConicStandardForm(py::module m) {
       .def(py::init<const MathematicalProgram&>(), py::arg("prog"))
       .def(py::init<const MathematicalProgram&, ConicStandardFormOptions>(),
           py::arg("prog"), py::arg("options"))
+      .def("P", &ConicStandardForm::P)
       .def("A", &ConicStandardForm::A)
       // TODO(Alexandre.Amice) when pybind 11 supports sparse vectors simplify
       // this binding.
