@@ -359,6 +359,17 @@ void BindMathematicalProgramResult(py::module m) {
           doc.MathematicalProgramResult.get_optimal_cost.doc)
       .def("get_solver_id", &MathematicalProgramResult::get_solver_id,
           doc.MathematicalProgramResult.get_solver_id.doc)
+      .def("set_decision_variable_index",
+          &MathematicalProgramResult::set_decision_variable_index,
+          py::arg("var_index"),
+          doc.MathematicalProgramResult.set_decision_variable_index.doc)
+      .def("set_optimal_cost", &MathematicalProgramResult::set_optimal_cost,
+          py::arg("optimal_cost"),
+          doc.MathematicalProgramResult.set_optimal_cost.doc)
+      .def("set_solution_result",
+          &MathematicalProgramResult::set_solution_result,
+          py::arg("set_solution_result"),
+          doc.MathematicalProgramResult.set_solution_result.doc)
       .def(
           "get_solver_details",
           [](const MathematicalProgramResult& self) {

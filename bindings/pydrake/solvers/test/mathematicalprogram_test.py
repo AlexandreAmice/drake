@@ -163,6 +163,27 @@ class TestMathematicalProgram(unittest.TestCase):
         result.set_x_val(x_val_new)
         np.testing.assert_array_equal(x_val_new, result.get_x_val())
 
+        fresh_result = MathematicalProgramResult()
+        fresh_result.set_decision_variable_index(
+            qp.prog.decision_variable_index()
+        )
+        fresh_result.set_x_val(x_val_new)
+        np.testing.assert_array_equal(x_val_new, fresh_result.get_x_val())
+        np.testing.assert_array_equal(
+            x_val_new, fresh_result.GetSolution(qp.x)
+        )
+
+        fresh_result.set_optimal_cost(4.5)
+        self.assertEqual(fresh_result.get_optimal_cost(), 4.5)
+
+        fresh_result.set_solution_result(
+            mp.SolutionResult.kInfeasibleConstraints
+        )
+        self.assertEqual(
+            fresh_result.get_solution_result(),
+            mp.SolutionResult.kInfeasibleConstraints,
+        )
+
         result.SetSolution(var=qp.x[0], value=1.5)
         self.assertEqual(result.GetSolution(qp.x[0]), 1.5)
 
@@ -571,7 +592,9 @@ class TestMathematicalProgram(unittest.TestCase):
         np.testing.assert_array_equal(
             constraint.GetDenseA(), np.array([[1.0, 2.0, 3.0]])
         )
-        np.testing.assert_array_equal(constraint.upper_bound(), np.array([1.0]))
+        np.testing.assert_array_equal(
+            constraint.upper_bound(), np.array([1.0])
+        )
 
         A_sparse = scipy.sparse.csc_matrix(
             (
@@ -680,8 +703,10 @@ class TestMathematicalProgram(unittest.TestCase):
             mp.MathematicalProgram.NonnegativePolynomial.kSdsos,
             mp.MathematicalProgram.NonnegativePolynomial.kDsos,
         ):
-            poly, gram_odd, gram_even = prog.NewEvenDegreeNonnegativePolynomial(
-                indeterminates=sym.Variables(x), degree=2, type=poly_type
+            poly, gram_odd, gram_even = (
+                prog.NewEvenDegreeNonnegativePolynomial(
+                    indeterminates=sym.Variables(x), degree=2, type=poly_type
+                )
             )
             self.assertIsInstance(poly, sym.Polynomial)
             self.assertIsInstance(gram_odd, np.ndarray)
@@ -1314,7 +1339,9 @@ class TestMathematicalProgram(unittest.TestCase):
 
         def check_and_reset():
             self.assertTrue((prog.GetInitialGuess(x) == x0).all())
-            self.assertTrue((prog.GetInitialGuess(x_matrix) == x0_matrix).all())
+            self.assertTrue(
+                (prog.GetInitialGuess(x_matrix) == x0_matrix).all()
+            )
             prog.SetInitialGuess(x, all_nan)
             self.assertTrue(np.isnan(prog.GetInitialGuess(x)).all())
 
@@ -1984,7 +2011,9 @@ class DummySolverInterface(SolverInterface):
     def solver_id(self):
         return DummySolverInterface.ID
 
-    def Solve(self, prog, initial_guess=None, solver_options=None, result=None):
+    def Solve(
+        self, prog, initial_guess=None, solver_options=None, result=None
+    ):
         # TODO(jwnimmer-tri) This trampoline for Solve is quite awkward.
         if result is not None:
             self._DoSolve(prog, initial_guess, solver_options, result)
