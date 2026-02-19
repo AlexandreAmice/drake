@@ -11,12 +11,15 @@
 
 namespace drake {
 namespace solvers {
+class SolverInterface;
+
 /**
  * Solves an optimization program, with optional initial guess and solver
  * options. This function first chooses the best solver depending on the
  * availability of the solver and the program formulation; it then constructs
- * that solver and call the Solve function of that solver. The optimization
- * result is stored in the return argument.
+ * that solver and calls its Solve function. If @p solver is non-null, this
+ * function will use @p solver directly instead of choosing a solver. The
+ * optimization result is stored in the return argument.
  * @param prog Contains the formulation of the program, and possibly solver
  * options.
  * @param initial_guess The initial guess for the decision variables. If an
@@ -30,12 +33,14 @@ namespace solvers {
  * 2. common option passed as an argument to Solve
  * 3. solver-specific option set on the MathematicalProgram itself
  * 4. solver-specific option passed as an argument to Solve
+ * @param solver If non-null, the solver instance to use.
  * @return result The result of solving the program through the solver.
  */
 MathematicalProgramResult Solve(
     const MathematicalProgram& prog,
     const std::optional<Eigen::VectorXd>& initial_guess,
-    const std::optional<SolverOptions>& solver_options);
+    const std::optional<SolverOptions>& solver_options,
+    const SolverInterface* solver = nullptr);
 
 /**
  * Solves an optimization program with a given initial guess.

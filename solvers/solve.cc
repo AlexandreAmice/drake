@@ -22,10 +22,15 @@ using common_robotics_utilities::parallelism::StaticParallelForIndexLoop;
 MathematicalProgramResult Solve(
     const MathematicalProgram& prog,
     const std::optional<Eigen::VectorXd>& initial_guess,
-    const std::optional<SolverOptions>& solver_options) {
-  const SolverId solver_id = ChooseBestSolver(prog);
-  drake::log()->debug("solvers::Solve will use {}", solver_id);
-  std::unique_ptr<SolverInterface> solver = MakeSolver(solver_id);
+    const std::optional<SolverOptions>& solver_options,
+    const SolverInterface* solver) {
+  std::unique_ptr<SolverInterface> owned_solver;
+  if (solver == nullptr) {
+    const SolverId solver_id = ChooseBestSolver(prog);
+    owned_solver = MakeSolver(solver_id);
+    solver = owned_solver.get();
+  }
+  drake::log()->debug("solvers::Solve will use {}", solver->solver_id());
   MathematicalProgramResult result{};
   solver->Solve(prog, initial_guess, solver_options, &result);
   return result;
@@ -35,11 +40,11 @@ MathematicalProgramResult Solve(
     const MathematicalProgram& prog,
     const Eigen::Ref<const Eigen::VectorXd>& initial_guess) {
   const Eigen::VectorXd initial_guess_xd = initial_guess;
-  return Solve(prog, initial_guess_xd, {});
+  return Solve(prog, initial_guess_xd, {}, nullptr);
 }
 
 MathematicalProgramResult Solve(const MathematicalProgram& prog) {
-  return Solve(prog, {}, {});
+  return Solve(prog, {}, {}, nullptr);
 }
 
 std::vector<MathematicalProgramResult> SolveInParallel(
