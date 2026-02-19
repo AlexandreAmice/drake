@@ -59,6 +59,21 @@ namespace drake {
 namespace solvers {
 namespace {
 
+Eigen::MatrixXd DecomposeQuadraticCostMatrixForConicReformulation(
+    const Eigen::MatrixXd& Q, int cost_index) {
+  try {
+    return math::DecomposePSDmatrixIntoXtransposeTimesX(Q, 1E-10);
+  } catch (const std::exception& e) {
+    throw std::runtime_error(fmt::format(
+        "SCS failed while converting quadratic cost #{} into rotated Lorentz "
+        "cone form. This often indicates the quadratic matrix is not "
+        "numerically positive semidefinite (for example when "
+        "AddQuadraticCost(..., is_convex=true) is set incorrectly). Original "
+        "error: {}",
+        cost_index, e.what()));
+  }
+}
+
 void ParseQuadraticCostWithRotatedLorentzCone(
     const MathematicalProgram& prog, std::vector<double>* c,
     std::vector<Eigen::Triplet<double>>* A_triplets, std::vector<double>* b,
@@ -69,6 +84,7 @@ void ParseQuadraticCostWithRotatedLorentzCone(
   // the rotated Lorentz cone constraint
   // 2(y - r - pᵀz) ≥ zᵀQz.
   // We only need to minimize y then.
+  int cost_index = 0;
   for (const auto& cost : prog.quadratic_costs()) {
     // We will convert the expression 2(y - r - pᵀz) ≥ zᵀQz, to the constraint
     // that the vector A_cone * x + b_cone is in the rotated Lorentz cone, where
@@ -88,7 +104,7 @@ void ParseQuadraticCostWithRotatedLorentzCone(
     // Decompose Q to Cᵀ*C
     const Eigen::MatrixXd& Q = cost.evaluator()->Q();
     const Eigen::MatrixXd C =
-        math::DecomposePSDmatrixIntoXtransposeTimesX(Q, 1E-10);
+        DecomposeQuadraticCostMatrixForConicReformulation(Q, cost_index);
     for (int i = 0; i < C.rows(); ++i) {
       for (int j = 0; j < C.cols(); ++j) {
         if (C(i, j) != 0) {
@@ -110,6 +126,7 @@ void ParseQuadraticCostWithRotatedLorentzCone(
         second_order_cone_length, std::nullopt);
     // Add the cost y.
     c->push_back(1);
+    ++cost_index;
   }
 }
 

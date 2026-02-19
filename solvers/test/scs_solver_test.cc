@@ -9,6 +9,7 @@
 
 #include "drake/common/temp_directory.h"
 #include "drake/common/test_utilities/eigen_matrix_compare.h"
+#include "drake/common/test_utilities/expect_throws_message.h"
 #include "drake/solvers/mathematical_program.h"
 #include "drake/solvers/test/exponential_cone_program_examples.h"
 #include "drake/solvers/test/l2norm_cost_examples.h"
@@ -582,6 +583,23 @@ GTEST_TEST(TestScs, TestNonconvexQP) {
   ScsSolver solver;
   if (solver.is_available()) {
     TestNonconvexQP(solver, true);
+  }
+}
+
+GTEST_TEST(TestScs, QuadraticCostConversionErrorMessage) {
+  MathematicalProgram prog;
+  const auto x = prog.NewContinuousVariables<2>("x");
+  Eigen::Matrix2d Q = Eigen::Matrix2d::Identity();
+  Q(1, 1) = -1e-6;
+  prog.AddQuadraticCost(Q, Eigen::Vector2d::Zero(), 0.0, x,
+                        true /* is_convex */);
+
+  ScsSolver solver;
+  if (solver.is_available()) {
+    DRAKE_EXPECT_THROWS_MESSAGE(
+        solver.Solve(prog),
+        ".*SCS failed while converting quadratic cost #0 into rotated Lorentz "
+        "cone form.*Original error: Y is not positive semidefinite.*");
   }
 }
 
