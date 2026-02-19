@@ -1,5 +1,6 @@
 #include "drake/solvers/semidefinite_relaxation.h"
 
+#include <algorithm>
 #include <limits>
 #include <map>
 #include <vector>
@@ -172,6 +173,32 @@ TEST_F(MakeSemidefiniteRelaxationTest, EnsureProgramsAreValidated) {
   DRAKE_EXPECT_THROWS_MESSAGE(
       MakeSemidefiniteRelaxation(prog_, options),
       ".*GenericCost was declared but is not supported.");
+}
+
+TEST_F(MakeSemidefiniteRelaxationTest, ReturnsVariableToIndexMapping) {
+  SemidefiniteRelaxationOptions options{};
+  options.set_to_weakest();
+  std::map<Variable, int> variable_to_sorted_indices;
+  auto relaxation =
+      MakeSemidefiniteRelaxation(prog_, &variable_to_sorted_indices, options);
+
+  ASSERT_EQ(variable_to_sorted_indices.size(),
+            static_cast<size_t>(prog_.num_vars()));
+  ASSERT_EQ(relaxation->positive_semidefinite_constraints().size(), 1);
+  const int n = prog_.num_vars() + 1;
+  const MatrixX<Variable> X = Eigen::Map<const MatrixX<Variable>>(
+      relaxation->positive_semidefinite_constraints()[0].variables().data(), n,
+      n);
+
+  std::vector<bool> seen_index(static_cast<size_t>(prog_.num_vars()), false);
+  for (const auto& [var, index] : variable_to_sorted_indices) {
+    ASSERT_GE(index, 0);
+    ASSERT_LT(index, prog_.num_vars());
+    EXPECT_TRUE(X(index, n - 1).equal_to(var));
+    seen_index[static_cast<size_t>(index)] = true;
+  }
+  EXPECT_TRUE(std::all_of(seen_index.begin(), seen_index.end(),
+                          [](bool seen) { return seen; }));
 }
 
 // This test is used to verify that the initial linear costs and constraints are

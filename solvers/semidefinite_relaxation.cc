@@ -50,6 +50,7 @@ MatrixXDecisionVariable DoMakeSemidefiniteRelaxation(
     const MathematicalProgram& sub_prog, const Variable& one,
     const SemidefiniteRelaxationOptions& options,
     MathematicalProgram* relaxation,
+    std::map<Variable, int>* variable_to_sorted_indices = nullptr,
     std::optional<int> group_number = std::nullopt) {
   MatrixX<Variable> X;
   std::map<Variable, int> variables_to_sorted_indices;
@@ -68,17 +69,37 @@ MatrixXDecisionVariable DoMakeSemidefiniteRelaxation(
     internal::DoAddImpliedLinearEqualityConstraints(
         sub_prog, X, variables_to_sorted_indices, relaxation);
   }
+  if (variable_to_sorted_indices != nullptr) {
+    *variable_to_sorted_indices = variables_to_sorted_indices;
+  }
   return X;
+}
+
+std::unique_ptr<MathematicalProgram> DoMakeSemidefiniteRelaxationWithOptionalMap(
+    const MathematicalProgram& prog,
+    std::map<Variable, int>* variable_to_sorted_indices,
+    const SemidefiniteRelaxationOptions& options) {
+  const Variable one("one");
+  auto relaxation = InitializeRelaxation(prog, one);
+  DoMakeSemidefiniteRelaxation(prog, one, options, relaxation.get(),
+                               variable_to_sorted_indices);
+  return relaxation;
 }
 }  // namespace
 
 std::unique_ptr<MathematicalProgram> MakeSemidefiniteRelaxation(
     const MathematicalProgram& prog,
     const SemidefiniteRelaxationOptions& options) {
-  const Variable one("one");
-  auto relaxation = InitializeRelaxation(prog, one);
-  DoMakeSemidefiniteRelaxation(prog, one, options, relaxation.get());
-  return relaxation;
+  return DoMakeSemidefiniteRelaxationWithOptionalMap(
+      prog, /*variable_to_sorted_indices=*/nullptr, options);
+}
+
+std::unique_ptr<MathematicalProgram> MakeSemidefiniteRelaxation(
+    const MathematicalProgram& prog,
+    std::map<symbolic::Variable, int>* variable_to_sorted_indices,
+    const SemidefiniteRelaxationOptions& options) {
+  return DoMakeSemidefiniteRelaxationWithOptionalMap(
+      prog, variable_to_sorted_indices, options);
 }
 
 std::unique_ptr<MathematicalProgram> MakeSemidefiniteRelaxation(
@@ -138,7 +159,10 @@ std::unique_ptr<MathematicalProgram> MakeSemidefiniteRelaxation(
   for (const auto& [group, container_program] : groups_to_container_programs) {
     groups_to_psd_variables.emplace(
         group, DoMakeSemidefiniteRelaxation(container_program, one, options,
-                                            relaxation.get(), group_number));
+                                            relaxation.get(),
+                                            /*variable_to_sorted_indices=*/
+                                                nullptr,
+                                            group_number));
     ++group_number;
   }
 
