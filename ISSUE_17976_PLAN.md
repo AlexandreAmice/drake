@@ -43,3 +43,4 @@ Python users cannot use matrix expression bounds via `MathematicalProgram.AddCon
 - 2026-02-19 02:31:00 UTC: Started isolated Bazel run (`--output_base=/tmp/bazel-issue17976-codex`) with filtered test for the new case to avoid contention with other workspace Bazel invocations.
 - 2026-02-19 02:40:00 UTC: Isolated filtered Bazel run continued to compile large pydrake dependency graph and was manually terminated to keep iteration time bounded.
 - 2026-02-19 02:40:00 UTC: Performed lightweight sanity check `python3 -m py_compile bindings/pydrake/solvers/test/mathematicalprogram_test.py`; passed.
+- 2026-02-19 02:42:00 UTC: Pushed branch `issue-17976-feature` to `origin` and opened PR https://github.com/AlexandreAmice/drake/pull/94.
