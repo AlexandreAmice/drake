@@ -1141,8 +1141,18 @@ MSKrescodee MosekSolverProgram::AddQuadraticCostAsLinearCost(
   // license, which is incompatible with Drake's license, so we convert the
   // sparse Q_lower matrix to a dense matrix, and use the dense Cholesky
   // decomposition instead.
-  const Eigen::MatrixXd L = math::DecomposePSDmatrixIntoXtransposeTimesX(
-      Eigen::MatrixXd(Q_lower), std::numeric_limits<double>::epsilon());
+  Eigen::MatrixXd L;
+  try {
+    L = math::DecomposePSDmatrixIntoXtransposeTimesX(
+        Eigen::MatrixXd(Q_lower), std::numeric_limits<double>::epsilon());
+  } catch (const std::exception& e) {
+    throw std::runtime_error(fmt::format(
+        "Mosek failed while converting a quadratic cost into conic form. This "
+        "often indicates the quadratic matrix is not numerically positive "
+        "semidefinite (for example when AddQuadraticCost(..., is_convex=true) "
+        "is set incorrectly). Original error: {}",
+        e.what()));
+  }
   MSKint32t num_mosek_vars = 0;
   rescode = MSK_getnumvar(task_, &num_mosek_vars);
   if (rescode != MSK_RES_OK) {
