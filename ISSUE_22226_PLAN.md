@@ -57,3 +57,4 @@ Added overload in `solvers/solve.h`:
 - 2026-02-19 02:36:00 UTC: Detected accidental duplicate generator API declarations during cleanup pass; consolidated to a single overload signature and removed duplicate implementation path.
 - 2026-02-19 02:38:00 UTC: Updated generator tests to match final signature and confirmed `nullptr => skip` semantics (`kSolutionResultNotSet`) rather than throw.
 - 2026-02-19 02:39:00 UTC: Re-ran `bazel test //solvers:solve_in_parallel_test //solvers:solve_test --test_output=errors`; both passed.
+- 2026-02-19 02:41:00 UTC: Pushed branch `issue-22226-feature` to `origin` and opened PR https://github.com/AlexandreAmice/drake/pull/93.
