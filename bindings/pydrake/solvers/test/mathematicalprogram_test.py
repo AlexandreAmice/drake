@@ -1285,6 +1285,19 @@ class TestMathematicalProgram(unittest.TestCase):
         self.assertTrue(result.GetSolution(x)[0] <= 2)
         self.assertTrue(result.GetSolution(x)[0] >= -2)
 
+    def test_addconstraint_expression_bounds_matrix(self):
+        prog = mp.MathematicalProgram()
+        x = prog.NewContinuousVariables(2, "x")
+        v = np.array([x[0] + 2 * x[1], x[0] - x[1]])
+        lb = np.array([-1.0, -2.0])
+        ub = np.array([3.0, 4.0])
+
+        binding = prog.AddConstraint(v=v, lb=lb, ub=ub)
+        self.assertIsInstance(binding, mp.Binding[mp.Constraint])
+        self.assertIsInstance(binding.evaluator(), mp.LinearConstraint)
+        np.testing.assert_array_equal(binding.evaluator().lower_bound(), lb)
+        np.testing.assert_array_equal(binding.evaluator().upper_bound(), ub)
+
     def test_addconstraint_binding(self):
         prog = mp.MathematicalProgram()
         x = prog.NewContinuousVariables(1, "x")

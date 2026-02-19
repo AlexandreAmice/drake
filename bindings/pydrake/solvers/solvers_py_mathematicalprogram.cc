@@ -795,6 +795,15 @@ void BindMathematicalProgram(py::module m) {
           doc.MathematicalProgram.AddConstraint.doc_3args_e_lb_ub)
       .def("AddConstraint",
           static_cast<Binding<Constraint> (MathematicalProgram::*)(
+              const Eigen::Ref<const MatrixX<symbolic::Expression>>&,
+              const Eigen::Ref<const Eigen::MatrixXd>&,
+              const Eigen::Ref<const Eigen::MatrixXd>&)>(
+              &MathematicalProgram::AddConstraint),
+          py::arg("v"), py::arg("lb"), py::arg("ub"),
+          "Adds constraints represented by symbolic expressions with "
+          "elementwise bounds lb <= v <= ub.")
+      .def("AddConstraint",
+          static_cast<Binding<Constraint> (MathematicalProgram::*)(
               const Formula&)>(&MathematicalProgram::AddConstraint),
           doc.MathematicalProgram.AddConstraint.doc_1args_f)
       .def(
