@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -209,6 +210,35 @@ void f_sninit_76_prototype(const char*, int, int, int[], int, double[], int) {}
 const bool kIsSnopt76 =
     std::is_same_v<decltype(&f_sninit), decltype(&f_sninit_76_prototype)>;
 using Snopt = SnoptImpl<kIsSnopt76>;
+
+std::string CanonicalizeSnoptOptionName(const std::string& key) {
+  std::string result;
+  result.reserve(key.size());
+  bool in_space = false;
+  for (unsigned char c : key) {
+    if (std::isspace(c)) {
+      if (!result.empty()) {
+        in_space = true;
+      }
+      continue;
+    }
+    if (in_space) {
+      result.push_back(' ');
+      in_space = false;
+    }
+    result.push_back(std::tolower(c));
+  }
+  return result;
+}
+
+void RejectAmbiguousSnoptOptionName(const std::string& key) {
+  if (CanonicalizeSnoptOptionName(key) == "max iterations") {
+    throw std::logic_error(
+        "SNOPT option name \"Max iterations\" is ambiguous and unsafe (SNOPT "
+        "may interpret it as \"Maximize\"). Use \"Major iterations limit\" "
+        "or \"Minor iterations limit\" instead.");
+  }
+}
 
 }  // namespace
 
@@ -1339,6 +1369,7 @@ void SolveWithGivenOptions(const MathematicalProgram& prog,
   // Copy `options` into the snopt program storage.
   options->CopyToCallbacks(
       [&storage](const std::string& key, double value) {
+        RejectAmbiguousSnoptOptionName(key);
         int errors = 0;
         Snopt::snsetr(key.c_str(), key.length(), value, &errors, storage.iw(),
                       storage.leniw(), storage.rw(), storage.lenrw());
@@ -1348,6 +1379,7 @@ void SolveWithGivenOptions(const MathematicalProgram& prog,
         }
       },
       [&storage](const std::string& key, int value) {
+        RejectAmbiguousSnoptOptionName(key);
         int errors = 0;
         Snopt::snseti(key.c_str(), key.length(), value, &errors, storage.iw(),
                       storage.leniw(), storage.rw(), storage.lenrw());
@@ -1357,6 +1389,7 @@ void SolveWithGivenOptions(const MathematicalProgram& prog,
         }
       },
       [&storage](const std::string& key, const std::string& value) {
+        RejectAmbiguousSnoptOptionName(key);
         int errors = 0;
         auto option_string = key + " " + value;
         Snopt::snset(option_string.c_str(), option_string.length(), &errors,
