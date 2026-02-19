@@ -4,6 +4,7 @@ import numpy as np
 
 from pydrake.solvers import (
     MakeSemidefiniteRelaxation,
+    MakeSemidefiniteRelaxationWithVariableMapping,
     MathematicalProgram,
     SemidefiniteRelaxationOptions,
 )
@@ -65,3 +66,29 @@ class TestSemidefiniteRelaxation(unittest.TestCase):
 
         options.set_to_strongest()
         self.assertTrue(options.add_implied_linear_constraints)
+
+    def test_MakeSemidefiniteRelaxationWithVariableMapping(self):
+        prog = MathematicalProgram()
+        y = prog.NewContinuousVariables(2, "y")
+        prog.AddLinearConstraint(np.eye(2), np.zeros(2), np.ones(2), y)
+
+        relaxation, variable_to_sorted_indices = (
+            MakeSemidefiniteRelaxationWithVariableMapping(prog=prog)
+        )
+
+        self.assertEqual(len(variable_to_sorted_indices), prog.num_vars())
+        for var in y:
+            self.assertIn(var, variable_to_sorted_indices)
+
+        n = prog.num_vars() + 1
+        psd_vars = np.array(
+            relaxation.positive_semidefinite_constraints()[0].variables(),
+            dtype=object,
+        ).reshape((n, n))
+        seen_indices = set()
+        for var, index in variable_to_sorted_indices.items():
+            self.assertGreaterEqual(index, 0)
+            self.assertLess(index, prog.num_vars())
+            self.assertTrue(psd_vars[index, n - 1].EqualTo(var))
+            seen_indices.add(index)
+        self.assertEqual(len(seen_indices), prog.num_vars())

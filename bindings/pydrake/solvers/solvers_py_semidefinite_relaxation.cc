@@ -48,6 +48,21 @@ void DefineSolversSemidefiniteRelaxation(py::module m) {
           &solvers::MakeSemidefiniteRelaxation),
       py::arg("prog"), py::arg("options") = SemidefiniteRelaxationOptions{},
       doc.MakeSemidefiniteRelaxation.doc_2args);
+  m.def(
+      "MakeSemidefiniteRelaxationWithVariableMapping",
+      [](const MathematicalProgram& prog,
+          const SemidefiniteRelaxationOptions& options) {
+        std::map<symbolic::Variable, int> variable_to_sorted_indices;
+        auto relaxation = solvers::MakeSemidefiniteRelaxation(
+            prog, &variable_to_sorted_indices, options);
+        return py::make_tuple(
+            std::move(relaxation), std::move(variable_to_sorted_indices));
+      },
+      py::arg("prog"), py::arg("options") = SemidefiniteRelaxationOptions{},
+      "Constructs a semidefinite relaxation and returns a tuple "
+      "(relaxation, variable_to_sorted_indices), where each index gives the "
+      "row / column position of the corresponding original decision variable "
+      "in the lifted matrix X.");
   m.def("MakeSemidefiniteRelaxation",
       py::overload_cast<const MathematicalProgram&,
           const std::vector<symbolic::Variables>&,

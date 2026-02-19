@@ -1,5 +1,6 @@
 #pragma once
 
+#include <map>
 #include <memory>
 #include <vector>
 
@@ -71,6 +72,24 @@ struct SemidefiniteRelaxationOptions {
  */
 std::unique_ptr<MathematicalProgram> MakeSemidefiniteRelaxation(
     const MathematicalProgram& prog,
+    const SemidefiniteRelaxationOptions& options = {});
+
+/** Constructs a semidefinite relaxation as in MakeSemidefiniteRelaxation(prog)
+ * and also returns the variable-to-index mapping used in the lifted matrix X.
+ *
+ * Let the sorted original decision variables be y, and let X be the lifted
+ * matrix
+ * X = [Y,    y]
+ *     [yᵀ, one].
+ * Then for each original decision variable v, the mapping gives the index i
+ * such that X(i, X.cols() - 1) == v.
+ *
+ * @param[out] variable_to_sorted_indices Map from original decision variables
+ * to their sorted index in y. Existing contents are overwritten.
+ */
+std::unique_ptr<MathematicalProgram> MakeSemidefiniteRelaxation(
+    const MathematicalProgram& prog,
+    std::map<symbolic::Variable, int>* variable_to_sorted_indices,
     const SemidefiniteRelaxationOptions& options = {});
 
 /** A version of MakeSemidefiniteRelaxation that allows for specifying the
