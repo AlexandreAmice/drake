@@ -56,5 +56,19 @@ GTEST_TEST(SolveTest, TestInitialGuessAndOptions) {
     EXPECT_NEAR(result.GetSolution(x)(0), vars_init(0), 1E-6);
   }
 }
+
+GTEST_TEST(SolveTest, ExplicitSolverArgument) {
+  MathematicalProgram prog;
+  auto x = prog.NewContinuousVariables<2>();
+  prog.AddLinearEqualityConstraint(Eigen::Matrix2d::Identity(),
+                                   Eigen::Vector2d(1, 2), x);
+
+  LinearSystemSolver solver;
+  const auto result = Solve(prog, std::nullopt, std::nullopt, &solver);
+  EXPECT_TRUE(result.is_success());
+  EXPECT_TRUE(
+      CompareMatrices(result.get_x_val(), Eigen::Vector2d(1, 2), 1E-12));
+  EXPECT_EQ(result.get_solver_id(), LinearSystemSolver::id());
+}
 }  // namespace solvers
 }  // namespace drake
