@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <string>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -40,6 +41,22 @@ vec: [ !Deterministic { value: 5.0 },
 )""";
 
 const char* floats = "vec: [5.0, 6.1, 7.2]";
+
+const char* mixture_variants = R"""(
+vec:
+  - !Mixture
+    options:
+      - relative_probability: 1.0
+        distribution: !Deterministic { value: 2.0 }
+      - relative_probability: 3.0
+        distribution: !Deterministic { value: 4.0 }
+  - !Mixture
+    options:
+      - relative_probability: 2.0
+        distribution: !UniformDiscrete { values: [0.0, 1.0] }
+      - relative_probability: 1.0
+        distribution: !Deterministic { value: 2.0 }
+)""";
 
 void CheckGaussianSymbolic(const Expression& e, double mean, double stddev) {
   const Variables vars{e.GetVariables()};
@@ -165,6 +182,42 @@ GTEST_TEST(StochasticTest, ScalarTest) {
   vec = Sample(parsed_floats.vec, &generator);
   ASSERT_EQ(vec.size(), 3);
   EXPECT_TRUE(CompareMatrices(vec, Eigen::Vector3d(5.0, 6.1, 7.2)));
+}
+
+GTEST_TEST(StochasticTest, MixtureTest) {
+  const auto variants = LoadYamlString<DistributionStruct>(mixture_variants);
+  RandomGenerator generator;
+
+  const auto& deterministic_mixture = std::get<Mixture>(variants.vec[0]);
+  EXPECT_NEAR(deterministic_mixture.Mean(), 3.5, 1e-15);
+  EXPECT_EQ(deterministic_mixture.ToSymbolic().GetVariables().size(), 1);
+  for (int i = 0; i < 10; ++i) {
+    const double sample = deterministic_mixture.Sample(&generator);
+    EXPECT_TRUE(sample == 2.0 || sample == 4.0);
+  }
+  EXPECT_FALSE(IsDeterministic(variants.vec[0]));
+
+  const auto& stochastic_mixture = std::get<Mixture>(variants.vec[1]);
+  EXPECT_NEAR(stochastic_mixture.Mean(), 1.0, 1e-15);
+  for (int i = 0; i < 10; ++i) {
+    const double sample = stochastic_mixture.Sample(&generator);
+    EXPECT_TRUE(sample == 0.0 || sample == 1.0 || sample == 2.0);
+  }
+
+  const std::string roundtrip = SaveYamlString(variants, "root");
+  EXPECT_NE(roundtrip.find("!Mixture"), std::string::npos);
+
+  Mixture empty;
+  EXPECT_THROW(empty.Sample(&generator), std::logic_error);
+
+  Mixture invalid_negative;
+  invalid_negative.options.push_back({-1.0, Deterministic(1.0)});
+  EXPECT_THROW(invalid_negative.Mean(), std::logic_error);
+
+  Mixture invalid_zero_sum;
+  invalid_zero_sum.options.push_back({0.0, Deterministic(1.0)});
+  invalid_zero_sum.options.push_back({0.0, Deterministic(2.0)});
+  EXPECT_THROW(invalid_zero_sum.ToSymbolic(), std::logic_error);
 }
 
 struct DistributionVectorStruct {

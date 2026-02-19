@@ -302,9 +302,46 @@ class UniformDiscrete final : public Distribution {
   std::vector<double> values;
 };
 
+/// Variant over scalar distributions excluding Mixture itself.
+using DistributionLeafVariant =
+    std::variant<double, Deterministic, Gaussian, Uniform, UniformDiscrete>;
+
+/// Chooses among several scalar distributions using relative probabilities.
+class Mixture final : public Distribution {
+ public:
+  DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(Mixture);
+
+  struct Option {
+    template <typename Archive>
+    void Serialize(Archive* a) {
+      a->Visit(DRAKE_NVP(relative_probability));
+      a->Visit(DRAKE_NVP(distribution));
+    }
+
+    double relative_probability{};
+    DistributionLeafVariant distribution;
+  };
+
+  Mixture();
+  explicit Mixture(std::vector<Option> options);
+  ~Mixture() final;
+
+  double Sample(drake::RandomGenerator*) const final;
+  double Mean() const final;
+  drake::symbolic::Expression ToSymbolic() const final;
+
+  template <typename Archive>
+  void Serialize(Archive* a) {
+    a->Visit(DRAKE_NVP(options));
+  }
+
+  std::vector<Option> options;
+};
+
 /// Variant over all kinds of distributions.
 using DistributionVariant =
-    std::variant<double, Deterministic, Gaussian, Uniform, UniformDiscrete>;
+    std::variant<double, Deterministic, Gaussian, Uniform, UniformDiscrete,
+                 Mixture>;
 
 /// Copies the given variant into a Distribution base class.
 std::unique_ptr<Distribution> ToDistribution(const DistributionVariant& var);
