@@ -1,3 +1,4 @@
+#include <atomic>
 #include <memory>
 #include <vector>
 
@@ -33,6 +34,98 @@ GTEST_TEST(SolveInParallelTest, OverloadIsNotAmbiguousTest) {
     prog_ptrs.push_back(progs.back().get());
   }
   SolveInParallel(prog_ptrs);
+}
+
+GTEST_TEST(SolveInParallelTest, GeneratorOverloadBasic) {
+  MathematicalProgram prog;
+  const auto x = prog.NewContinuousVariables<2>("x");
+  prog.AddLinearEqualityConstraint(x(0) + x(1) == 1);
+  prog.AddBoundingBoxConstraint(0.0, 1.0, x);
+
+  const int64_t num_trials = 8;
+  std::vector<const MathematicalProgram*> progs(num_trials, &prog);
+  std::vector<std::optional<SolverId>> solver_ids(num_trials, std::nullopt);
+  const SolverId best_solver = ChooseBestSolver(prog);
+  for (int64_t i = 0; i < num_trials; i += 2) {
+    solver_ids[static_cast<size_t>(i)] = best_solver;
+  }
+
+  const std::vector<MathematicalProgramResult> expected = SolveInParallel(
+      progs, nullptr, nullptr, &solver_ids, Parallelism::Max(), true);
+
+  const int64_t range_start = 11;
+  const int64_t range_end = range_start + num_trials;
+  std::atomic<int64_t> prog_generator_calls{0};
+  std::atomic<int64_t> initial_guess_generator_calls{0};
+  std::atomic<int64_t> solver_options_generator_calls{0};
+  std::atomic<int64_t> solver_id_generator_calls{0};
+
+  const SolveInParallelProgramGenerator prog_generator =
+      [&](int, int64_t i) -> const MathematicalProgram* {
+    ++prog_generator_calls;
+    return progs[static_cast<size_t>(i - range_start)];
+  };
+  const std::optional<SolveInParallelInitialGuessGenerator>
+      initial_guess_generator = [&](int, int64_t) -> const Eigen::VectorXd* {
+    ++initial_guess_generator_calls;
+    return nullptr;
+  };
+  const std::optional<SolveInParallelSolverOptionsGenerator>
+      solver_options_generator = [&](int, int64_t) -> const SolverOptions* {
+    ++solver_options_generator_calls;
+    return nullptr;
+  };
+  const std::optional<SolveInParallelSolverIdGenerator> solver_id_generator =
+      [&](int, int64_t i) -> std::optional<SolverId> {
+    ++solver_id_generator_calls;
+    return solver_ids[static_cast<size_t>(i - range_start)];
+  };
+
+  const std::vector<MathematicalProgramResult> actual = SolveInParallel(
+      prog_generator, range_start, range_end, initial_guess_generator,
+      solver_options_generator, solver_id_generator, Parallelism::Max(), true);
+
+  ASSERT_EQ(actual.size(), expected.size());
+  EXPECT_EQ(prog_generator_calls.load(), num_trials);
+  EXPECT_EQ(initial_guess_generator_calls.load(), num_trials);
+  EXPECT_EQ(solver_options_generator_calls.load(), num_trials);
+  EXPECT_EQ(solver_id_generator_calls.load(), num_trials);
+  for (int64_t i = 0; i < num_trials; ++i) {
+    const size_t k = static_cast<size_t>(i);
+    EXPECT_TRUE(actual[k].is_success());
+    EXPECT_EQ(actual[k].get_solver_id(), expected[k].get_solver_id());
+    EXPECT_NEAR(actual[k].GetSolution(x(0)), expected[k].GetSolution(x(0)),
+                1e-8);
+    EXPECT_NEAR(actual[k].GetSolution(x(1)), expected[k].GetSolution(x(1)),
+                1e-8);
+  }
+}
+
+GTEST_TEST(SolveInParallelTest, IthProgramGeneratorOverload) {
+  MathematicalProgram prog;
+  const auto x = prog.NewContinuousVariables<1>("x");
+  prog.AddBoundingBoxConstraint(0.0, 1.0, x);
+  const SolveInParallelIthProgramGenerator make_ith_program =
+      [&](int, int64_t i, SolveInParallelIthProgramData* ith_program_data) {
+        if (i == 0) {
+          return false;
+        }
+        if (i == 1) {
+          return true;
+        }
+        ith_program_data->prog = &prog;
+        return true;
+      };
+  EXPECT_THROW(SolveInParallel(make_ith_program, /*range_start=*/1,
+                               /*range_end=*/0),
+               std::exception);
+
+  const std::vector<MathematicalProgramResult> results =
+      SolveInParallel(make_ith_program, /*range_start=*/0, /*range_end=*/3);
+  ASSERT_EQ(results.size(), 3u);
+  EXPECT_EQ(results[0].get_solution_result(), kSolutionResultNotSet);
+  EXPECT_EQ(results[1].get_solution_result(), kSolutionResultNotSet);
+  EXPECT_TRUE(results[2].is_success());
 }
 
 GTEST_TEST(SolveInParallelTest, TestSolveInParallelInitialGuess) {
