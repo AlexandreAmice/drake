@@ -333,7 +333,10 @@ Polynomial<T> Polynomial<T>::Integral(const T& integration_constant) const {
        iter != ret.monomials_.end(); iter++) {
     if (iter->terms.empty()) {
       Term t;
-      t.var = 0;
+      // Constants can arise here when integrating a derivative. If the source
+      // polynomial is itself constant, preserve the historical univariate
+      // default variable name.
+      t.var = VariableNameToId("t");
       for (typename vector<Monomial>::iterator iterB = ret.monomials_.begin();
            iterB != ret.monomials_.end(); iterB++) {
         if (!iterB->terms.empty()) {
@@ -341,7 +344,6 @@ Polynomial<T> Polynomial<T>::Integral(const T& integration_constant) const {
           break;
         }
       }
-      if (t.var < 1) throw runtime_error("don't know the variable name");
       t.power = 1;
       iter->terms.push_back(t);
     } else {

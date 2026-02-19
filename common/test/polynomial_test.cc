@@ -235,6 +235,19 @@ GTEST_TEST(PolynomialTest, IntegralAndDerivative) {
   testIntegralAndDerivative<double>();
 }
 
+GTEST_TEST(PolynomialTest, IntegralOfConstantDerivative) {
+  // Regression test for #7946.
+  const Eigen::Vector2d coeffs(0.0, 1.0);
+  const Polynomiald ramp(coeffs);
+  const Polynomiald derivative = ramp.Derivative();
+
+  const Polynomiald integrated = derivative.Integral(ramp.EvaluateUnivariate(0));
+
+  EXPECT_TRUE(CompareMatrices(integrated.GetCoefficients(),
+                              ramp.GetCoefficients(), 1e-14,
+                              MatrixCompareType::absolute));
+}
+
 GTEST_TEST(PolynomialTest, TestMakeMonomialsUnique) {
   Eigen::Vector2d coefficients(1, 2);
   Polynomial<double> poly(coefficients);
