@@ -205,6 +205,9 @@ class Distribution {
   virtual ~Distribution();
 
   virtual double Sample(drake::RandomGenerator* generator) const = 0;
+  /// Returns the probability density (for continuous distributions) or
+  /// probability mass (for discrete distributions) at @p value.
+  virtual double CalcProbabilityDensity(double value) const = 0;
   virtual double Mean() const = 0;
   virtual drake::symbolic::Expression ToSymbolic() const = 0;
 
@@ -224,6 +227,7 @@ class Deterministic final : public Distribution {
   ~Deterministic() final;
 
   double Sample(drake::RandomGenerator*) const final;
+  double CalcProbabilityDensity(double value) const final;
   double Mean() const final;
   drake::symbolic::Expression ToSymbolic() const final;
 
@@ -245,6 +249,7 @@ class Gaussian final : public Distribution {
   ~Gaussian() final;
 
   double Sample(drake::RandomGenerator*) const final;
+  double CalcProbabilityDensity(double value) const final;
   double Mean() const final;
   drake::symbolic::Expression ToSymbolic() const final;
 
@@ -268,6 +273,7 @@ class Uniform final : public Distribution {
   ~Uniform() final;
 
   double Sample(drake::RandomGenerator*) const final;
+  double CalcProbabilityDensity(double value) const final;
   double Mean() const final;
   drake::symbolic::Expression ToSymbolic() const final;
 
@@ -291,6 +297,7 @@ class UniformDiscrete final : public Distribution {
   ~UniformDiscrete() final;
 
   double Sample(drake::RandomGenerator*) const final;
+  double CalcProbabilityDensity(double value) const final;
   double Mean() const final;
   drake::symbolic::Expression ToSymbolic() const final;
 
@@ -312,6 +319,10 @@ std::unique_ptr<Distribution> ToDistribution(const DistributionVariant& var);
 /// Like Distribution::Sample, but on a DistributionVariant instead.
 double Sample(const DistributionVariant& var,
               drake::RandomGenerator* generator);
+
+/// Like Distribution::CalcProbabilityDensity, but on a DistributionVariant
+/// instead.
+double CalcProbabilityDensity(const DistributionVariant& var, double value);
 
 /// Like Distribution::Mean, but on a DistributionVariant instead.
 double Mean(const DistributionVariant& var);

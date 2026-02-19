@@ -1,5 +1,7 @@
 #include "drake/common/schema/stochastic.h"
 
+#include <algorithm>
+#include <cmath>
 #include <stdexcept>
 #include <utility>
 
@@ -30,6 +32,10 @@ double Deterministic::Sample(drake::RandomGenerator* generator) const {
   return value;
 }
 
+double Deterministic::CalcProbabilityDensity(double sample) const {
+  return (sample == value) ? 1.0 : 0.0;
+}
+
 double Deterministic::Mean() const {
   return value;
 }
@@ -48,6 +54,18 @@ Gaussian::~Gaussian() {}
 double Gaussian::Sample(drake::RandomGenerator* generator) const {
   std::normal_distribution<double> distribution(mean, stddev);
   return distribution(*generator);
+}
+
+double Gaussian::CalcProbabilityDensity(double sample) const {
+  if (stddev < 0.0) {
+    throw std::logic_error("Cannot CalcProbabilityDensity() with stddev < 0.");
+  }
+  if (stddev == 0.0) {
+    return (sample == mean) ? 1.0 : 0.0;
+  }
+  static constexpr double kSqrt2Pi = 2.5066282746310002;
+  const double z = (sample - mean) / stddev;
+  return std::exp(-0.5 * z * z) / (stddev * kSqrt2Pi);
 }
 
 double Gaussian::Mean() const {
@@ -69,6 +87,19 @@ Uniform::~Uniform() {}
 double Uniform::Sample(drake::RandomGenerator* generator) const {
   std::uniform_real_distribution<double> distribution(min, max);
   return distribution(*generator);
+}
+
+double Uniform::CalcProbabilityDensity(double sample) const {
+  if (max < min) {
+    throw std::logic_error("Cannot CalcProbabilityDensity() with max < min.");
+  }
+  if (min == max) {
+    return (sample == min) ? 1.0 : 0.0;
+  }
+  if (sample < min || sample >= max) {
+    return 0.0;
+  }
+  return 1.0 / (max - min);
 }
 
 double Uniform::Mean() const {
@@ -96,6 +127,15 @@ double UniformDiscrete::Sample(drake::RandomGenerator* generator) const {
   const int index = std::discrete_distribution<int>(weights.begin(),
                                                     weights.end())(*generator);
   return values.at(index);
+}
+
+double UniformDiscrete::CalcProbabilityDensity(double sample) const {
+  if (values.empty()) {
+    throw std::logic_error(
+        "Cannot CalcProbabilityDensity() empty UniformDiscrete distribution.");
+  }
+  const int count = std::count(values.begin(), values.end(), sample);
+  return static_cast<double>(count) / values.size();
 }
 
 double UniformDiscrete::Mean() const {
@@ -146,6 +186,10 @@ unique_ptr<Distribution> ToDistribution(const DistributionVariant& var) {
 double Sample(const DistributionVariant& var,
               drake::RandomGenerator* generator) {
   return ToDistribution(var)->Sample(generator);
+}
+
+double CalcProbabilityDensity(const DistributionVariant& var, double value) {
+  return ToDistribution(var)->CalcProbabilityDensity(value);
 }
 
 double Mean(const DistributionVariant& var) {

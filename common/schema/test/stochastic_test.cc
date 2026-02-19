@@ -74,6 +74,8 @@ GTEST_TEST(StochasticTest, ScalarTest) {
 
   const Deterministic& d = std::get<Deterministic>(variants.vec[0]);
   EXPECT_EQ(d.Sample(&generator), 5.0);
+  EXPECT_EQ(d.CalcProbabilityDensity(5.0), 1.0);
+  EXPECT_EQ(d.CalcProbabilityDensity(4.9), 0.0);
   EXPECT_EQ(d.Mean(), 5.0);
   EXPECT_PRED2(ExprEqual, d.ToSymbolic(), 5.0);
   EXPECT_TRUE(IsDeterministic(variants.vec[0]));
@@ -83,6 +85,8 @@ GTEST_TEST(StochasticTest, ScalarTest) {
   EXPECT_EQ(g.mean, 2.);
   EXPECT_EQ(g.stddev, 4.);
   EXPECT_TRUE(std::isfinite(d.Sample(&generator)));
+  EXPECT_NEAR(g.CalcProbabilityDensity(2.0), 0.09973557010035818, 1e-14);
+  EXPECT_LT(g.CalcProbabilityDensity(2.0 + 40.0), 1e-20);
   EXPECT_EQ(g.Mean(), 2.);
   CheckGaussianSymbolic(g.ToSymbolic(), g.mean, g.stddev);
   EXPECT_FALSE(IsDeterministic(variants.vec[1]));
@@ -94,6 +98,8 @@ GTEST_TEST(StochasticTest, ScalarTest) {
   double uniform_sample = u.Sample(&generator);
   EXPECT_LE(u.min, uniform_sample);
   EXPECT_GE(u.max, uniform_sample);
+  EXPECT_EQ(u.CalcProbabilityDensity(2.0), 0.25);
+  EXPECT_EQ(u.CalcProbabilityDensity(5.0), 0.0);
   EXPECT_EQ(u.Mean(), 3.);
   CheckUniformSymbolic(u.ToSymbolic(), u.min, u.max);
   EXPECT_FALSE(IsDeterministic(variants.vec[2]));
@@ -109,14 +115,25 @@ GTEST_TEST(StochasticTest, ScalarTest) {
             "(if ((3 * random_uniform_0) < 1) then 1 else "
             "(if ((3 * random_uniform_0) < 2) then 1.5 else "
             "2))");
+  EXPECT_EQ(ub.CalcProbabilityDensity(1.0), 1.0 / 3.0);
+  EXPECT_EQ(ub.CalcProbabilityDensity(17.0), 0.0);
   EXPECT_FALSE(IsDeterministic(variants.vec[3]));
   EXPECT_THROW(GetDeterministicValue(variants.vec[3]), std::logic_error);
 
   EXPECT_EQ(std::get<double>(variants.vec[4]), 3.2);
   EXPECT_EQ(Sample(variants.vec[4], &generator), 3.2);
+  EXPECT_EQ(CalcProbabilityDensity(variants.vec[4], 3.2), 1.0);
+  EXPECT_EQ(CalcProbabilityDensity(variants.vec[4], 0.0), 0.0);
   EXPECT_EQ(Mean(variants.vec[4]), 3.2);
   EXPECT_TRUE(IsDeterministic(variants.vec[4]));
   EXPECT_EQ(GetDeterministicValue(variants.vec[4]), 3.2);
+
+  // Check the variant helper API for each non-scalar alternative.
+  EXPECT_EQ(CalcProbabilityDensity(variants.vec[0], 5.0), 1.0);
+  EXPECT_NEAR(CalcProbabilityDensity(variants.vec[1], 2.0), 0.09973557010035818,
+              1e-14);
+  EXPECT_EQ(CalcProbabilityDensity(variants.vec[2], 2.0), 0.25);
+  EXPECT_EQ(CalcProbabilityDensity(variants.vec[3], 1.0), 1.0 / 3.0);
 
   Eigen::VectorXd vec = Sample(variants.vec, &generator);
   ASSERT_EQ(vec.size(), 5);
