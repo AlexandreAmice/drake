@@ -599,6 +599,17 @@ GTEST_TEST(SnoptSolverTest, BadStringParameter) {
       "Error setting Snopt string parameter not_an_option=test");
 }
 
+GTEST_TEST(SnoptSolverTest, RejectAmbiguousMaxIterationsOptionName) {
+  SnoptSolver solver;
+  MathematicalProgram prog;
+  prog.SetSolverOption(solver.solver_id(), "Max iterations", 1000);
+  DRAKE_EXPECT_THROWS_MESSAGE(
+      solver.Solve(prog),
+      ".*SNOPT option name \\\"Max iterations\\\" is ambiguous and unsafe.*"
+      "Use \\\"Major iterations limit\\\" or \\\"Minor iterations limit\\\" "
+      "instead\\.");
+}
+
 GTEST_TEST(SnoptSolverTest, TestNonconvexQP) {
   SnoptSolver solver;
   if (solver.available() && solver.enabled()) {
