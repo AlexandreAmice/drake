@@ -14,6 +14,79 @@ using std::unique_ptr;
 
 namespace drake {
 namespace schema {
+namespace {
+
+std::vector<double> GetNormalizedWeights(
+    const std::vector<Mixture::Option>& options, const char* operation) {
+  if (options.empty()) {
+    throw std::logic_error(
+        fmt::format("Cannot {}() empty Mixture distribution.", operation));
+  }
+  double sum = 0.0;
+  for (const auto& option : options) {
+    if (option.relative_probability < 0.0) {
+      throw std::logic_error(fmt::format(
+          "Cannot {}() Mixture distribution with negative "
+          "relative_probability.",
+          operation));
+    }
+    sum += option.relative_probability;
+  }
+  if (sum == 0.0) {
+    throw std::logic_error(fmt::format(
+        "Cannot {}() Mixture distribution with zero total "
+        "relative_probability.",
+        operation));
+  }
+  std::vector<double> weights(options.size());
+  for (size_t i = 0; i < options.size(); ++i) {
+    weights[i] = options[i].relative_probability / sum;
+  }
+  return weights;
+}
+
+double SampleLeafDistribution(const DistributionLeafVariant& distribution,
+                              drake::RandomGenerator* generator) {
+  return std::visit(
+      [generator](const auto& arg) -> double {
+        using ContainedType = std::decay_t<decltype(arg)>;
+        if constexpr (std::is_same_v<ContainedType, double>) {
+          return arg;
+        } else {
+          return arg.Sample(generator);
+        }
+      },
+      distribution);
+}
+
+double MeanLeafDistribution(const DistributionLeafVariant& distribution) {
+  return std::visit(
+      [](const auto& arg) -> double {
+        using ContainedType = std::decay_t<decltype(arg)>;
+        if constexpr (std::is_same_v<ContainedType, double>) {
+          return arg;
+        } else {
+          return arg.Mean();
+        }
+      },
+      distribution);
+}
+
+Expression ToSymbolicLeafDistribution(
+    const DistributionLeafVariant& distribution) {
+  return std::visit(
+      [](const auto& arg) -> Expression {
+        using ContainedType = std::decay_t<decltype(arg)>;
+        if constexpr (std::is_same_v<ContainedType, double>) {
+          return arg;
+        } else {
+          return arg.ToSymbolic();
+        }
+      },
+      distribution);
+}
+
+}  // namespace
 
 Distribution::Distribution() {}
 
@@ -130,6 +203,47 @@ Expression UniformDiscrete::ToSymbolic() const {
   return result;
 }
 
+Mixture::Mixture() {}
+
+Mixture::Mixture(std::vector<Option> options_in) : options(std::move(options_in)) {}
+
+Mixture::~Mixture() {}
+
+double Mixture::Sample(drake::RandomGenerator* generator) const {
+  const std::vector<double> weights = GetNormalizedWeights(options, "Sample");
+  const int index = std::discrete_distribution<int>(weights.begin(),
+                                                    weights.end())(*generator);
+  return SampleLeafDistribution(options.at(index).distribution, generator);
+}
+
+double Mixture::Mean() const {
+  const std::vector<double> weights = GetNormalizedWeights(options, "Mean");
+  double result = 0.0;
+  for (size_t i = 0; i < options.size(); ++i) {
+    result += weights[i] * MeanLeafDistribution(options[i].distribution);
+  }
+  return result;
+}
+
+Expression Mixture::ToSymbolic() const {
+  const std::vector<double> weights = GetNormalizedWeights(options, "ToSymbolic");
+  std::vector<double> cumulative_weights(weights.size());
+  double cumulative = 0.0;
+  for (size_t i = 0; i < weights.size(); ++i) {
+    cumulative += weights[i];
+    cumulative_weights[i] = cumulative;
+  }
+  std::uniform_real_distribution<Expression> distribution(0.0, 1.0);
+  const Expression selector = distribution();
+  Expression result = ToSymbolicLeafDistribution(options.back().distribution);
+  for (int i = static_cast<int>(options.size()) - 2; i >= 0; --i) {
+    result = if_then_else(selector < cumulative_weights.at(i),
+                          ToSymbolicLeafDistribution(options.at(i).distribution),
+                          result);
+  }
+  return result;
+}
+
 unique_ptr<Distribution> ToDistribution(const DistributionVariant& var) {
   return std::visit(
       [](auto&& arg) -> unique_ptr<Distribution> {
@@ -199,6 +313,9 @@ bool IsDeterministic(const DistributionVariant& var) {
           },
           [](const UniformDiscrete& arg) {
             return arg.values.size() == 1;
+          },
+          [](const Mixture&) {
+            return false;
           },
       },
       var);
