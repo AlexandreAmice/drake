@@ -101,26 +101,31 @@ GTEST_TEST(SolveInParallelTest, GeneratorOverloadBasic) {
   }
 }
 
-GTEST_TEST(SolveInParallelTest, GeneratorOverloadHandlesInvalidRangeAndNull) {
+GTEST_TEST(SolveInParallelTest, IthProgramGeneratorOverload) {
   MathematicalProgram prog;
   const auto x = prog.NewContinuousVariables<1>("x");
   prog.AddBoundingBoxConstraint(0.0, 1.0, x);
-  const SolveInParallelProgramGenerator program_generator =
-      [&](int, int64_t) -> const MathematicalProgram* {
-    return &prog;
-  };
-  EXPECT_THROW(SolveInParallel(program_generator, /*range_start=*/1,
+  const SolveInParallelIthProgramGenerator make_ith_program =
+      [&](int, int64_t i, SolveInParallelIthProgramData* ith_program_data) {
+        if (i == 0) {
+          return false;
+        }
+        if (i == 1) {
+          return true;
+        }
+        ith_program_data->prog = &prog;
+        return true;
+      };
+  EXPECT_THROW(SolveInParallel(make_ith_program, /*range_start=*/1,
                                /*range_end=*/0),
                std::exception);
 
-  const std::vector<MathematicalProgramResult> results = SolveInParallel(
-      [&](int, int64_t i) -> const MathematicalProgram* {
-        return (i == 0) ? nullptr : &prog;
-      },
-      /*range_start=*/0, /*range_end=*/2);
-  ASSERT_EQ(results.size(), 2u);
+  const std::vector<MathematicalProgramResult> results =
+      SolveInParallel(make_ith_program, /*range_start=*/0, /*range_end=*/3);
+  ASSERT_EQ(results.size(), 3u);
   EXPECT_EQ(results[0].get_solution_result(), kSolutionResultNotSet);
-  EXPECT_TRUE(results[1].is_success());
+  EXPECT_EQ(results[1].get_solution_result(), kSolutionResultNotSet);
+  EXPECT_TRUE(results[2].is_success());
 }
 
 GTEST_TEST(SolveInParallelTest, TestSolveInParallelInitialGuess) {

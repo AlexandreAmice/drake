@@ -43,13 +43,8 @@ MathematicalProgramResult Solve(const MathematicalProgram& prog) {
 }
 
 std::vector<MathematicalProgramResult> SolveInParallel(
-    const SolveInParallelProgramGenerator& prog_generator,
+    const SolveInParallelIthProgramGenerator& make_ith_program,
     const int64_t range_start, const int64_t range_end,
-    const std::optional<SolveInParallelInitialGuessGenerator>&
-        initial_guess_generator,
-    const std::optional<SolveInParallelSolverOptionsGenerator>&
-        solver_options_generator,
-    const std::optional<SolveInParallelSolverIdGenerator>& solver_id_generator,
     const Parallelism parallelism, const bool dynamic_schedule) {
   DRAKE_THROW_UNLESS(range_start <= range_end);
   const int64_t num_progs = range_end - range_start;
@@ -65,10 +60,10 @@ std::vector<MathematicalProgramResult> SolveInParallel(
   // because it's not thread safe.)
   std::vector<uint8_t> result_is_populated(static_cast<size_t>(num_progs), 0);
 
-  // Cache generated programs so that non-thread-safe programs encountered
+  // Cache generated input data so that non-thread-safe programs encountered
   // during the parallel pass can be solved serially without re-generating.
-  std::vector<const MathematicalProgram*> generated_progs(
-      static_cast<size_t>(num_progs), nullptr);
+  std::vector<std::optional<SolveInParallelIthProgramData>> generated_data(
+      static_cast<size_t>(num_progs), std::nullopt);
 
   // As unique types of solvers are encountered by the threads, we will cache
   // the solvers into this data structure so that we don't have to create and
@@ -83,15 +78,24 @@ std::vector<MathematicalProgramResult> SolveInParallel(
                        const int64_t i_rel) {
     const int64_t i = i_rel + range_start;
     const size_t k = static_cast<size_t>(i_rel);
-    const MathematicalProgram* prog = generated_progs[k];
-    if (prog == nullptr && !result_is_populated[k]) {
-      prog = prog_generator(thread_num, i);
-      generated_progs[k] = prog;
+    if (!generated_data[k].has_value() && !result_is_populated[k]) {
+      SolveInParallelIthProgramData ith_program_data{};
+      const bool should_solve =
+          make_ith_program(thread_num, i, &ith_program_data);
+      if (!should_solve) {
+        result_is_populated[k] = true;
+        return;
+      }
+      generated_data[k] = std::move(ith_program_data);
     }
-    if (prog == nullptr) {
+    DRAKE_DEMAND(generated_data[k].has_value());
+    const SolveInParallelIthProgramData& ith_program_data =
+        generated_data[k].value();
+    if (ith_program_data.prog == nullptr) {
       result_is_populated[k] = true;
       return;
     }
+    const MathematicalProgram* prog = ith_program_data.prog;
 
     // If this program is not thread safe, then skip it and save it for later.
     if (in_parallel && !prog->IsThreadSafe()) {
@@ -99,9 +103,7 @@ std::vector<MathematicalProgramResult> SolveInParallel(
     }
 
     // Access (or choose) the required solver.
-    const std::optional<SolverId> maybe_solver_id =
-        solver_id_generator.has_value() ? (*solver_id_generator)(thread_num, i)
-                                        : std::optional<SolverId>{};
+    const std::optional<SolverId>& maybe_solver_id = ith_program_data.solver_id;
     const SolverId solver_id = maybe_solver_id.has_value()
                                    ? *maybe_solver_id
                                    : ChooseBestSolver(*prog);
@@ -121,35 +123,16 @@ std::vector<MathematicalProgramResult> SolveInParallel(
     // (during the serial cleanup pass) it is allowed `parallelism`. Note that
     // if the user set a solver-specific options to use more threads, that could
     // cause it to exceed its limit.
-    std::optional<SolverOptions> new_options;
-    const SolverOptions* options_for_i =
-        solver_options_generator.has_value()
-            ? (*solver_options_generator)(thread_num, i)
-            : nullptr;
-    if (options_for_i != nullptr) {
-      // TODO(jwnimmer-tri) The SolverBase should offer an overload to take a
-      // list of options, so that we can avoid this copying.
-      new_options.emplace(*options_for_i);
-    } else {
-      new_options.emplace();
-    }
+    std::optional<SolverOptions> new_options =
+        ith_program_data.solver_options.has_value()
+            ? ith_program_data.solver_options
+            : std::optional<SolverOptions>(SolverOptions{});
     new_options->SetOption(CommonSolverOption::kMaxThreads,
                            in_parallel ? 1 : parallelism.num_threads());
 
-    // Convert the initial guess from nullable to optional.
-    // TODO(jwnimmer-tri) The SolverBase should offer a nullable overload so
-    // that we can avoid this copying.
-    std::optional<Eigen::VectorXd> initial_guess;
-    const Eigen::VectorXd* initial_guess_for_i =
-        initial_guess_generator.has_value()
-            ? (*initial_guess_generator)(thread_num, i)
-            : nullptr;
-    if (initial_guess_for_i != nullptr) {
-      initial_guess = *initial_guess_for_i;
-    }
-
     // Solve the program.
-    solver.Solve(*prog, initial_guess, new_options, &(results[k]));
+    solver.Solve(*prog, ith_program_data.initial_guess, new_options,
+                 &(results[k]));
     result_is_populated[k] = true;
   };
   const auto solve_ith_parallel = [&](const int thread_num, const int64_t i) {
@@ -187,6 +170,44 @@ std::vector<MathematicalProgramResult> SolveInParallel(
   }
 
   return results;
+}
+
+std::vector<MathematicalProgramResult> SolveInParallel(
+    const SolveInParallelProgramGenerator& prog_generator,
+    const int64_t range_start, const int64_t range_end,
+    const std::optional<SolveInParallelInitialGuessGenerator>&
+        initial_guess_generator,
+    const std::optional<SolveInParallelSolverOptionsGenerator>&
+        solver_options_generator,
+    const std::optional<SolveInParallelSolverIdGenerator>& solver_id_generator,
+    const Parallelism parallelism, const bool dynamic_schedule) {
+  const SolveInParallelIthProgramGenerator make_ith_program =
+      [prog_generator, initial_guess_generator, solver_options_generator,
+          solver_id_generator](const int thread_num, const int64_t i,
+          SolveInParallelIthProgramData* ith_program_data) {
+        DRAKE_DEMAND(ith_program_data != nullptr);
+        ith_program_data->prog = prog_generator(thread_num, i);
+        if (initial_guess_generator.has_value()) {
+          const Eigen::VectorXd* initial_guess =
+              (*initial_guess_generator)(thread_num, i);
+          if (initial_guess != nullptr) {
+            ith_program_data->initial_guess = *initial_guess;
+          }
+        }
+        if (solver_options_generator.has_value()) {
+          const SolverOptions* solver_options =
+              (*solver_options_generator)(thread_num, i);
+          if (solver_options != nullptr) {
+            ith_program_data->solver_options = *solver_options;
+          }
+        }
+        if (solver_id_generator.has_value()) {
+          ith_program_data->solver_id = (*solver_id_generator)(thread_num, i);
+        }
+        return true;
+      };
+  return SolveInParallel(make_ith_program, range_start, range_end, parallelism,
+                         dynamic_schedule);
 }
 
 std::vector<MathematicalProgramResult> SolveInParallel(
