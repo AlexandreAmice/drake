@@ -283,6 +283,18 @@ bool SameSettings(const OSQPSettings& a, const OSQPSettings& b) {
 
 // Own both Drake's translation buffers and the native solver workspace.
 struct OsqpProblemData final : SolverDataCache {
+  bool DoSolve(const MathematicalProgram& prog, const Eigen::VectorXd& guess,
+               internal::SpecificOptions* options,
+               MathematicalProgramResult* result) final {
+    SolveWithCache(prog, guess, options, result, this);
+    return true;
+  }
+  static void SolveWithCache(const MathematicalProgram& prog,
+                             const Eigen::VectorXd& initial_guess,
+                             internal::SpecificOptions* options,
+                             MathematicalProgramResult* result,
+                             OsqpProblemData* cached);
+
   explicit OsqpProblemData(const MathematicalProgram& prog, bool retain)
       : SolverDataCache(prog, OsqpSolver::id()), q(prog.num_vars(), 0) {
     if (retain) snapshot.emplace(prog);
@@ -529,11 +541,17 @@ void OsqpSolver::DoSolve2(const MathematicalProgram& prog,
                           const Eigen::VectorXd& initial_guess,
                           internal::SpecificOptions* options,
                           MathematicalProgramResult* result) const {
-  OsqpSolverDetails& solver_details =
-      result->SetSolverDetailsType<OsqpSolverDetails>();
+  OsqpProblemData::SolveWithCache(prog, initial_guess, options, result,
+                                  nullptr);
+}
 
-  auto* cached =
-      dynamic_cast<OsqpProblemData*>(result->get_mutable_solver_cache());
+void OsqpProblemData::SolveWithCache(const MathematicalProgram& prog,
+                                     const Eigen::VectorXd& initial_guess,
+                                     internal::SpecificOptions* options,
+                                     MathematicalProgramResult* result,
+                                     OsqpProblemData* cached) {
+  auto& solver_details = result->SetSolverDetailsType<OsqpSolverDetails>();
+
   const internal::SolverCacheOptions cache_options(options, cached != nullptr);
   OSQPSettings new_settings{};
   auto* settings = &new_settings;
@@ -581,7 +599,7 @@ void OsqpSolver::DoSolve2(const MathematicalProgram& prog,
 
   bool completed = false;
   ScopeExit invalidate_on_exception([&]() {
-    if (!completed) result->SetSolverCache(nullptr);
+    if (!completed && cached) cached->Invalidate();
   });
   // If any step fails, it will set the solution_result and skip other steps.
   std::optional<SolutionResult> solution_result;
@@ -698,7 +716,7 @@ void OsqpSolver::DoSolve2(const MathematicalProgram& prog,
   }
   result->set_solution_result(solution_result.value());
   if (solution_result == SolutionResult::kInvalidInput) {
-    result->SetSolverCache(nullptr);
+    if (cached) cached->Invalidate();
   } else {
     if (solution_result != SolutionResult::kSolutionFound)
       osqp_cold_start(solver);

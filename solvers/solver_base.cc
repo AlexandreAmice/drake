@@ -7,6 +7,7 @@
 
 #include "drake/common/drake_assert.h"
 #include "drake/common/nice_type_name.h"
+#include "drake/common/scope_exit.h"
 #include "drake/solvers/solver_cache_profiler.h"
 
 namespace drake {
@@ -144,6 +145,16 @@ void SolverBase::DoSolve(const MathematicalProgram& prog,
                          const SolverOptions& merged_options,
                          MathematicalProgramResult* result) const {
   internal::SpecificOptions options{&solver_id_, &merged_options};
+  if (auto cache = result->ReleaseSolverCache()) {
+    // Keep the workspace alive while its virtual operation runs. Rebuilding
+    // may install a replacement; native failure invalidates the old cache.
+    ScopeExit restore([&] {
+      if (cache && cache->valid_ && !result->has_solver_cache())
+        result->SetSolverCache(std::move(cache));
+    });
+    if (cache->DoSolve(prog, initial_guess, &options, result)) return;
+    result->SetSolverCache(std::move(cache));
+  }
   DoSolve2(prog, initial_guess, &options, result);
 }
 

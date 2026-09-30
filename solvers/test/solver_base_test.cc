@@ -153,6 +153,42 @@ class StubSolverBase2 final : public StubSolverBase {
   }
 };
 
+// A cache operation can reject preflight without losing its native state.
+class DispatchCache final : public SolverDataCache {
+ public:
+  DispatchCache(const MathematicalProgram& prog, bool* destroyed)
+      : SolverDataCache(prog, StubSolverBase::id()), destroyed_(destroyed) {}
+  ~DispatchCache() final { *destroyed_ = true; }
+  bool invalidate{};
+
+ private:
+  bool DoSolve(const MathematicalProgram&, const Eigen::VectorXd&,
+               internal::SpecificOptions*, MathematicalProgramResult*) final {
+    if (invalidate) Invalidate();
+    EXPECT_FALSE(*destroyed_);
+    throw std::runtime_error("cache operation rejected");
+  }
+  bool* destroyed_;
+};
+
+GTEST_TEST(SolverBaseCacheTest, VirtualDispatchAndExceptionLifetime) {
+  StubSolverBase2 solver;
+  MathematicalProgram prog;
+  prog.NewContinuousVariables<2>();
+  bool destroyed = false;
+  auto cache = std::make_unique<DispatchCache>(prog, &destroyed);
+  auto* borrowed = cache.get();
+  MathematicalProgramResult result;
+  result.SetSolverCache(std::move(cache));
+  EXPECT_THROW(solver.Solve(prog, {}, {}, &result), std::runtime_error);
+  EXPECT_FALSE(destroyed);
+  EXPECT_EQ(result.get_solver_cache(), borrowed);
+  borrowed->invalidate = true;
+  EXPECT_THROW(solver.Solve(prog, {}, {}, &result), std::runtime_error);
+  EXPECT_TRUE(destroyed);
+  EXPECT_FALSE(result.has_solver_cache());
+}
+
 GTEST_TEST(SolverBaseTest, BasicAccessors) {
   StubSolverBase1 dut;
   EXPECT_EQ(dut.solver_id(), StubSolverBase::id());

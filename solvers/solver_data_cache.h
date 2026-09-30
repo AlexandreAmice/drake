@@ -4,6 +4,8 @@
 #include <string>
 #include <utility>
 
+#include <Eigen/Core>
+
 #include "drake/common/drake_copyable.h"
 #include "drake/common/identifier.h"
 #include "drake/solvers/solver_id.h"
@@ -12,6 +14,10 @@ namespace drake {
 namespace solvers {
 
 class MathematicalProgram;
+class MathematicalProgramResult;
+namespace internal {
+class SpecificOptions;
+}
 
 /** Opaque native solver state owned by a MathematicalProgramResult.
 The cache belongs to one solver and one program instance. It may outlive
@@ -29,7 +35,18 @@ class SolverDataCache {
  protected:
   SolverDataCache(const MathematicalProgram& prog, SolverId solver_id);
 
+  // Native operations invalidate the cache until they have succeeded. A
+  // preflight rejection leaves it valid, so the caller can restore ownership.
+  void Invalidate() { valid_ = false; }
+
  private:
+  friend class SolverBase;
+  // Returns false for caches whose solver implements its own dispatch.
+  virtual bool DoSolve(const MathematicalProgram&, const Eigen::VectorXd&,
+                       internal::SpecificOptions*, MathematicalProgramResult*) {
+    return false;
+  }
+  bool valid_{true};
   Identifier<MathematicalProgram> program_id_;
   SolverId solver_id_;
 };
