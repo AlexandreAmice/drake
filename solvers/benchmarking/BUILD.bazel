@@ -81,4 +81,28 @@ drake_cc_googlebench_binary(
     ],
 )
 
+drake_cc_library(
+    name = "native_mpc",
+    testonly = True,
+    hdrs = ["native_mpc.h"],
+    deps = [
+        ":mpc_fixture",
+        "//tools/performance:fixture_memory",
+    ],
+)
+
+drake_cc_googlebench_binary(
+    name = "benchmark_native_osqp",
+    srcs = ["benchmark_native_osqp.cc"],
+    deps = [
+        ":native_mpc",
+        "//solvers:aggregate_costs_constraints",
+        "//solvers:osqp_solver",
+        "//tools/performance:gflags_main",
+        "@osqp_internal//:osqp",
+    ],
+    add_test_rule = True,
+    test_rule_args = ["--benchmark_filter=.*/50/2/[012]/1$$"],
+)
+
 add_lint_tests()
