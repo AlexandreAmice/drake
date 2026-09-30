@@ -370,15 +370,59 @@ struct OsqpProblemData final : SolverDataCache {
   OSQPInt UpdateMatrices(const MathematicalProgram& prog) {
     std::map<int, double> p_changes, a_changes;
     DRAKE_DEMAND(CollectMatrixChanges(prog, &p_changes, &a_changes).empty());
+    // Reaggregate touched slots from current contributions. Adding deltas
+    // would lose small new coefficients when old coefficients were large.
+    for (auto* changes : {&p_changes, &a_changes}) {
+      for (auto& [index, value] : *changes) value = 0;
+    }
+    const auto scale = [&](int index) {
+      const auto it = prog.GetVariableScaling().find(index);
+      return it == prog.GetVariableScaling().end() ? 1.0 : it->second;
+    };
+    const auto accumulate = [&](const auto& matrix, int row, int col,
+                                double value, auto* changes) {
+      if (value == 0) return;
+      const auto it = changes->find(FindEntry(matrix, row, col));
+      if (it != changes->end()) it->second += value;
+    };
+    if (!p_changes.empty()) {
+      for (const auto& entry : snapshot->costs) {
+        const auto* Q = entry.current_Q();
+        if (Q == nullptr) continue;
+        for (int j = 0; j < Q->cols(); ++j) {
+          for (int i = 0; i <= j; ++i) {
+            const int vi = entry.variable_indices[i];
+            const int vj = entry.variable_indices[j];
+            const double factor = i != j && vi == vj ? 2 : 1;
+            accumulate(P_upper_sparse, std::min(vi, vj), std::max(vi, vj),
+                       factor * (*Q)(i, j) * scale(vi) * scale(vj), &p_changes);
+          }
+        }
+      }
+    }
+    if (!a_changes.empty()) {
+      int row = 0;
+      for (const auto& entry : snapshot->constraints) {
+        const auto& A = *entry.current_A();
+        for (int j = 0; j < A.outerSize(); ++j) {
+          const int col = entry.variable_indices[j];
+          for (Eigen::SparseMatrix<double>::InnerIterator it(A, j); it; ++it) {
+            accumulate(A_sparse, row + it.row(), col, it.value() * scale(col),
+                       &a_changes);
+          }
+        }
+        row += entry.v.size();
+      }
+    }
     std::vector<OSQPInt> pi, ai;
     std::vector<OSQPFloat> px, ax;
     const auto apply = [](const auto& changes, auto* matrix, auto* indices,
                           auto* values) {
-      for (const auto& [index, delta] : changes) {
-        if (delta == 0) continue;
+      for (const auto& [index, value] : changes) {
+        if (matrix->valuePtr()[index] == value) continue;
         indices->push_back(index);
-        matrix->valuePtr()[index] += delta;
-        values->push_back(matrix->valuePtr()[index]);
+        matrix->valuePtr()[index] = value;
+        values->push_back(value);
       }
     };
     apply(p_changes, &P_upper_sparse, &pi, &px);
@@ -392,20 +436,25 @@ struct OsqpProblemData final : SolverDataCache {
   OSQPInt UpdateVectors(const MathematicalProgram& prog) {
     bool cost_changed = false;
     bool bounds_changed = false;
-    for (auto& entry : snapshot->costs) {
-      if (entry.VectorsMatch()) continue;
-      const auto& b = *entry.current_v();
-      for (int i = 0; i < b.size(); ++i) {
-        const double delta = b(i) - entry.v(i);
-        if (delta == 0) continue;
-        const int index = entry.variable_indices[i];
-        const auto scale = prog.GetVariableScaling().find(index);
-        q[index] +=
-            delta *
-            (scale == prog.GetVariableScaling().end() ? 1 : scale->second);
-        cost_changed = true;
+    for (const auto& entry : snapshot->costs) {
+      cost_changed |= (entry.v.array() != entry.current_v()->array()).any();
+    }
+    if (cost_changed) std::fill(q.begin(), q.end(), 0);
+    constant_cost_term = 0;
+    // Match the original quadratic-then-linear aggregation order. Recompute
+    // from absolute coefficients to avoid cancellation across updates.
+    for (bool quadratic : {true, false}) {
+      for (const auto& entry : snapshot->costs) {
+        if ((entry.current_Q() != nullptr) != quadratic) continue;
+        constant_cost_term += entry.current_constant();
+        if (!cost_changed) continue;
+        const auto& b = *entry.current_v();
+        for (int i = 0; i < b.size(); ++i) q[entry.variable_indices[i]] += b(i);
       }
-      constant_cost_term += entry.current_constant() - entry.constant;
+    }
+    if (cost_changed) {
+      for (const auto& [index, scale] : prog.GetVariableScaling())
+        q[index] *= scale;
     }
     int row = 0;
     for (auto& entry : snapshot->constraints) {
@@ -520,6 +569,10 @@ void OsqpSolver::DoSolve2(const MathematicalProgram& prog,
     solver_details.cache.rebuild_reason = rebuild_reason;
   }
 
+  bool completed = false;
+  ScopeExit invalidate_on_exception([&]() {
+    if (!completed) result->SetSolverCache(nullptr);
+  });
   // If any step fails, it will set the solution_result and skip other steps.
   std::optional<SolutionResult> solution_result;
 
@@ -638,6 +691,7 @@ void OsqpSolver::DoSolve2(const MathematicalProgram& prog,
       osqp_cold_start(solver);
     if (cache_options.retain && fresh) result->SetSolverCache(std::move(fresh));
   }
+  completed = true;
 }
 
 }  // namespace solvers

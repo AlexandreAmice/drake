@@ -781,6 +781,15 @@ drake_cc_library(
 )
 
 drake_cc_googletest(
+    name = "solver_cache_test",
+    deps = [
+        ":osqp_solver",
+        ":scs_solver",
+        "//common/test_utilities:eigen_matrix_compare",
+    ],
+)
+
+drake_cc_googletest(
     name = "solver_program_snapshot_test",
     deps = [":solver_program_snapshot"],
 )

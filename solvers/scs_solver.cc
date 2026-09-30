@@ -378,7 +378,7 @@ struct ScsProblemData final : SolverDataCache {
              MathematicalProgramResult* result);
   void WriteReproduction(const std::string& filename) const;
   std::string CheckUpdates() const;
-  scs_int UpdateVectors();
+  scs_int UpdateVectors(int num_vars);
   void InitializeVectorRows();
   bool quadratic_reformulated{};
   std::vector<int> constraint_cone_rows;
@@ -721,10 +721,13 @@ std::string ScsProblemData::CheckUpdates() const {
   return {};
 }
 
-scs_int ScsProblemData::UpdateVectors() {
+scs_int ScsProblemData::UpdateVectors(int num_vars) {
   bool c_changed = false, b_changed = false;
+  cost_constant = 0;
   for (size_t j = 0; j < snapshot->costs.size(); ++j) {
     auto& entry = snapshot->costs[j];
+    if (quadratic_reformulated && entry.current_Q()) continue;
+    cost_constant += entry.current_constant();
     if (entry.VectorsMatch()) continue;
     const auto& b = *entry.current_v();
     if (cost_cone_rows[j] >= 0) {
@@ -733,13 +736,21 @@ scs_int ScsProblemData::UpdateVectors() {
       b_changed = true;
       continue;
     }
-    for (int i = 0; i < b.size(); ++i) {
-      const double delta = b(i) - entry.v(i);
-      if (delta == 0) continue;
-      scs_problem_data->c[entry.variable_indices[i]] += delta;
-      c_changed = true;
+    c_changed |= (entry.v.array() != b.array()).any();
+  }
+  if (c_changed) {
+    // Preserve auxiliary objective entries and reaggregate original variable
+    // entries absolutely, without cancellation from old large coefficients.
+    std::fill_n(scs_problem_data->c, num_vars, 0);
+    for (size_t j = 0; j < snapshot->costs.size(); ++j) {
+      const auto& entry = snapshot->costs[j];
+      if (cost_cone_rows[j] >= 0 ||
+          (quadratic_reformulated && entry.current_Q()))
+        continue;
+      const auto& b = *entry.current_v();
+      for (int i = 0; i < b.size(); ++i)
+        scs_problem_data->c[entry.variable_indices[i]] += b(i);
     }
-    cost_constant += entry.current_constant() - entry.constant;
   }
   for (size_t j = 0; j < snapshot->constraints.size(); ++j) {
     auto& entry = snapshot->constraints[j];
@@ -932,8 +943,12 @@ void ScsSolver::DoSolve2(const MathematicalProgram& prog,
                                    : SolverCacheStatus::kReused;
     details.cache.rebuild_reason = rebuild_reason;
   }
+  bool completed = false;
+  ScopeExit invalidate_on_exception([&]() {
+    if (!completed) result->SetSolverCache(nullptr);
+  });
   if (!fresh && !data.snapshot->IsUnchanged()) {
-    if (data.UpdateVectors() != 0) {
+    if (data.UpdateVectors(prog.num_vars()) != 0) {
       result->SetSolverCache(nullptr);
       result->set_solution_result(SolutionResult::kInvalidInput);
       return;
@@ -942,11 +957,13 @@ void ScsSolver::DoSolve2(const MathematicalProgram& prog,
   }
   if (!reproduction_file.empty()) data.WriteReproduction(reproduction_file);
   data.Solve(prog, initial_guess, cache_options.warm_start, result);
-  if (result->get_solution_result() == SolutionResult::kInvalidInput) {
+  if (result->get_solution_result() == SolutionResult::kInvalidInput ||
+      result->get_solution_result() == SolutionResult::kSolverSpecificError) {
     result->SetSolverCache(nullptr);
   } else if (cache_options.retain && fresh) {
     result->SetSolverCache(std::move(fresh));
   }
+  completed = true;
 }
 
 }  // namespace solvers

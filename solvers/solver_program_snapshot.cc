@@ -91,27 +91,41 @@ double SolverBindingSnapshot::current_constant() const {
 
 bool SolverBindingSnapshot::MatrixMatches() const {
   if (!recognized) return false;
-  if (const auto* a = current_A(); a && !Equal(A, *a)) return false;
-  if (const auto* q = current_Q(); q && !Equal(Q, *q)) return false;
+  if (const auto* a = current_A(); a && !Equal(A, *a)) {
+    return false;
+  }
+  if (const auto* q = current_Q(); q && !Equal(Q, *q)) {
+    return false;
+  }
   return true;
 }
 
 bool SolverBindingSnapshot::VectorsMatch() const {
   if (!recognized || constant != current_constant()) return false;
-  if (const auto* b = current_v(); b && !Equal(v, *b)) return false;
-  if (const auto* b = current_w(); b && !Equal(w, *b)) return false;
+  if (const auto* b = current_v(); b && !Equal(v, *b)) {
+    return false;
+  }
+  if (const auto* b = current_w(); b && !Equal(w, *b)) {
+    return false;
+  }
   return true;
 }
 
 bool SolverBindingSnapshot::DimensionsMatch() const {
   if (const auto* a = current_A();
-      a && (a->rows() != A.rows() || a->cols() != A.cols()))
+      a && (a->rows() != A.rows() || a->cols() != A.cols())) {
     return false;
+  }
   if (const auto* q = current_Q();
-      q && (q->rows() != Q.rows() || q->cols() != Q.cols()))
+      q && (q->rows() != Q.rows() || q->cols() != Q.cols())) {
     return false;
-  if (const auto* b = current_v(); b && b->size() != v.size()) return false;
-  if (const auto* b = current_w(); b && b->size() != w.size()) return false;
+  }
+  if (const auto* b = current_v(); b && b->size() != v.size()) {
+    return false;
+  }
+  if (const auto* b = current_w(); b && b->size() != w.size()) {
+    return false;
+  }
   return true;
 }
 
@@ -144,23 +158,48 @@ std::string SolverProgramSnapshot::CheckStructure(
       return "decision variables changed";
   }
   if (scaling_ != prog.GetVariableScaling()) return "variable scaling changed";
-  const auto check = [](const auto& old, const auto& current) {
-    if (old.size() != current.size()) return false;
-    for (size_t i = 0; i < old.size(); ++i) {
-      if (old[i].binding.evaluator().get() != current[i].evaluator().get() ||
-          !old[i].DimensionsMatch())
-        return false;
-      const auto& a = old[i].binding.variables();
-      const auto& b = current[i].variables();
-      if (a.size() != b.size()) return false;
-      for (int j = 0; j < a.size(); ++j) {
-        if (!a(j).equal_to(b(j))) return false;
+  const auto check = [](const auto& old, const auto&... groups) {
+    size_t index = 0;
+    bool matches = true;
+    const auto visit = [&](const auto& group) {
+      for (const auto& current : group) {
+        if (index >= old.size()) {
+          matches = false;
+          break;
+        }
+        const auto& previous = old[index++];
+        if (previous.binding.evaluator().get() != current.evaluator().get() ||
+            !previous.DimensionsMatch()) {
+          matches = false;
+          continue;
+        }
+        const auto& a = previous.binding.variables();
+        const auto& b = current.variables();
+        if (a.size() != b.size()) {
+          matches = false;
+          continue;
+        }
+        for (int j = 0; j < a.size(); ++j) {
+          if (!a(j).equal_to(b(j))) matches = false;
+        }
       }
-    }
-    return true;
+    };
+    (visit(groups), ...);
+    return matches && index == old.size();
   };
-  if (!check(costs, prog.GetAllCosts()) ||
-      !check(constraints, prog.GetAllConstraints()))
+  // Match GetAllCosts/GetAllConstraints order, but avoid allocating temporary
+  // Binding vectors and copying every binding's variable vector on each solve.
+  if (!check(costs, prog.generic_costs(), prog.linear_costs(),
+             prog.quadratic_costs(), prog.l2norm_costs()) ||
+      !check(constraints, prog.generic_constraints(),
+             prog.quadratic_constraints(), prog.linear_constraints(),
+             prog.linear_equality_constraints(),
+             prog.bounding_box_constraints(), prog.lorentz_cone_constraints(),
+             prog.rotated_lorentz_cone_constraints(),
+             prog.linear_matrix_inequality_constraints(),
+             prog.positive_semidefinite_constraints(),
+             prog.linear_complementarity_constraints(),
+             prog.exponential_cone_constraints()))
     return "bindings changed";
   return {};
 }
