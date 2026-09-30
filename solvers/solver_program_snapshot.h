@@ -40,6 +40,7 @@ struct SolverBindingSnapshot {
   const Eigen::VectorXd* current_v() const;
   const Eigen::VectorXd* current_w() const;
   double current_constant() const;
+  bool AnalyzeChanges();
   bool MatrixMatches() const;
   bool VectorsMatch() const;
   bool DimensionsMatch() const;
@@ -53,6 +54,10 @@ struct SolverBindingSnapshot {
   Eigen::VectorXd v, w;
   double constant{};
   bool recognized{};
+  bool matrix_changed{};
+  bool vectors_changed{};
+  bool linear_cost_changed{};
+  bool constant_changed{};
 
  private:
   std::unique_ptr<SolverCoefficientReader> reader_;
@@ -61,12 +66,18 @@ struct SolverBindingSnapshot {
 class SolverProgramSnapshot {
  public:
   explicit SolverProgramSnapshot(const MathematicalProgram& prog);
-  std::string CheckStructure(const MathematicalProgram& prog) const;
+  std::string CheckStructure(const MathematicalProgram& prog,
+                             bool check_dimensions = true) const;
+  // Validates structure and records numerical changes without native mutation.
+  std::string AnalyzeChanges(const MathematicalProgram& prog);
+  bool changed() const { return changed_; }
+  void CommitChanges();
   bool IsUnchanged() const;
   std::vector<SolverBindingSnapshot> costs;
   std::vector<SolverBindingSnapshot> constraints;
 
  private:
+  bool changed_{};
   VectorXDecisionVariable variables_;
   std::unordered_map<int, double> scaling_;
 };

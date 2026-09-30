@@ -717,18 +717,18 @@ void ScsProblemData::InitializeVectorRows(const MathematicalProgram& prog) {
 std::string ScsProblemData::CheckUpdates() const {
   for (const auto* entries : {&snapshot->costs, &snapshot->constraints}) {
     for (const auto& entry : *entries) {
-      if (!entry.MatrixMatches()) return "SCS matrix changed";
+      if (entry.matrix_changed) return "SCS matrix changed";
     }
   }
   for (const auto& entry : snapshot->costs) {
-    if (entry.VectorsMatch()) continue;
+    if (!entry.vectors_changed) continue;
 
     if (quadratic_reformulated && entry.current_Q())
       return "quadratic cost reformulation changed";
   }
   for (size_t j = 0; j < snapshot->constraints.size(); ++j) {
     const auto& entry = snapshot->constraints[j];
-    if (entry.VectorsMatch()) continue;
+    if (!entry.vectors_changed) continue;
     if (constraint_cone_rows[j] >= 0) continue;
     if (constraint_rows[j].empty()) return "constraint reformulation changed";
     for (int i = 0; i < entry.v.size(); ++i) {
@@ -747,7 +747,7 @@ scs_int ScsProblemData::UpdateVectors(int num_vars) {
     auto& entry = snapshot->costs[j];
     if (quadratic_reformulated && entry.current_Q()) continue;
     cost_constant += entry.current_constant();
-    if (entry.VectorsMatch()) continue;
+    if (!entry.vectors_changed) continue;
     const auto& b = *entry.current_v();
     if (cost_cone_rows[j] >= 0) {
       for (int i = 0; i < b.size(); ++i)
@@ -755,7 +755,7 @@ scs_int ScsProblemData::UpdateVectors(int num_vars) {
       b_changed = true;
       continue;
     }
-    c_changed |= (entry.v.array() != b.array()).any();
+    c_changed |= entry.linear_cost_changed;
   }
   if (c_changed) {
     // Preserve auxiliary objective entries and reaggregate original variable
@@ -773,7 +773,7 @@ scs_int ScsProblemData::UpdateVectors(int num_vars) {
   }
   for (size_t j = 0; j < snapshot->constraints.size(); ++j) {
     auto& entry = snapshot->constraints[j];
-    if (entry.VectorsMatch()) continue;
+    if (!entry.vectors_changed) continue;
     if (constraint_cone_rows[j] >= 0) {
       const int start = constraint_cone_rows[j];
       const auto& b = *entry.current_v();
@@ -799,13 +799,7 @@ scs_int ScsProblemData::UpdateVectors(int num_vars) {
                              c_changed ? scs_problem_data->c : nullptr)
                 : 0;
   }
-  if (error == 0) {
-    for (auto* entries : {&snapshot->costs, &snapshot->constraints}) {
-      for (auto& entry : *entries) {
-        if (!entry.VectorsMatch()) entry.RefreshVectors();
-      }
-    }
-  }
+  if (error == 0) snapshot->CommitChanges();
   return error;
 }
 
@@ -954,7 +948,7 @@ void ScsProblemData::SolveWithCache(const MathematicalProgram& prog,
   SolverCachePhaseScope validation_phase(SolverCachePhase::kValidation);
   std::string rebuild_reason;
   if (cached) {
-    rebuild_reason = cached->snapshot->CheckStructure(prog);
+    rebuild_reason = cached->snapshot->AnalyzeChanges(prog);
     if (rebuild_reason.empty() && !SameSettings(cached->settings, settings))
       rebuild_reason = "solver settings changed";
     if (rebuild_reason.empty()) rebuild_reason = cached->CheckUpdates();
@@ -978,7 +972,7 @@ void ScsProblemData::SolveWithCache(const MathematicalProgram& prog,
   ScopeExit invalidate_on_exception([&]() {
     if (!completed && cached) cached->Invalidate();
   });
-  if (!fresh && !data.snapshot->IsUnchanged()) {
+  if (!fresh && data.snapshot->changed()) {
     SolverCachePhaseScope phase(SolverCachePhase::kUpdatePrepare);
     if (data.UpdateVectors(prog.num_vars()) != 0) {
       if (cached) cached->Invalidate();

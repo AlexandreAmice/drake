@@ -346,7 +346,7 @@ struct OsqpProblemData final : SolverDataCache {
         (*changes)[index] += delta;
     };
     for (const auto& entry : snapshot->costs) {
-      if (entry.MatrixMatches()) continue;
+      if (!entry.matrix_changed) continue;
       const auto& Q = *entry.current_Q();
       for (int j = 0; j < Q.cols(); ++j) {
         for (int i = 0; i <= j; ++i) {
@@ -361,7 +361,7 @@ struct OsqpProblemData final : SolverDataCache {
     }
     int row = 0;
     for (const auto& entry : snapshot->constraints) {
-      if (!entry.MatrixMatches()) {
+      if (entry.matrix_changed) {
         const auto add_matrix = [&](const auto& A, double sign) {
           for (int j = 0; j < A.outerSize(); ++j) {
             const int col = entry.variable_indices[j];
@@ -380,14 +380,15 @@ struct OsqpProblemData final : SolverDataCache {
     return reason;
   }
 
-  std::string CheckUpdates(const MathematicalProgram& prog) const {
-    std::map<int, double> p_changes, a_changes;
-    return CollectMatrixChanges(prog, &p_changes, &a_changes);
+  std::string CheckUpdates(const MathematicalProgram& prog) {
+    pending_p_changes.clear();
+    pending_a_changes.clear();
+    return CollectMatrixChanges(prog, &pending_p_changes, &pending_a_changes);
   }
 
   OSQPInt UpdateMatrices(const MathematicalProgram& prog) {
-    std::map<int, double> p_changes, a_changes;
-    DRAKE_DEMAND(CollectMatrixChanges(prog, &p_changes, &a_changes).empty());
+    auto& p_changes = pending_p_changes;
+    auto& a_changes = pending_a_changes;
     // Reaggregate touched slots from current contributions. Adding deltas
     // would lose small new coefficients when old coefficients were large.
     for (auto* changes : {&p_changes, &a_changes}) {
@@ -456,7 +457,7 @@ struct OsqpProblemData final : SolverDataCache {
     bool cost_changed = false;
     bool bounds_changed = false;
     for (const auto& entry : snapshot->costs) {
-      cost_changed |= (entry.v.array() != entry.current_v()->array()).any();
+      cost_changed |= entry.linear_cost_changed;
     }
     if (cost_changed) std::fill(q.begin(), q.end(), 0);
     constant_cost_term = 0;
@@ -477,7 +478,7 @@ struct OsqpProblemData final : SolverDataCache {
     }
     int row = 0;
     for (auto& entry : snapshot->constraints) {
-      if (!entry.VectorsMatch()) {
+      if (entry.vectors_changed) {
         for (int i = 0; i < entry.v.size(); ++i) {
           l[row + i] = ConvertInfinity((*entry.current_v())(i));
           u[row + i] = ConvertInfinity((*entry.current_w())(i));
@@ -493,16 +494,10 @@ struct OsqpProblemData final : SolverDataCache {
                                    bounds_changed ? l.data() : nullptr,
                                    bounds_changed ? u.data() : nullptr);
     }
-    if (error == 0) {
-      for (auto* entries : {&snapshot->costs, &snapshot->constraints}) {
-        for (auto& entry : *entries) {
-          if (!entry.VectorsMatch()) entry.RefreshVectors();
-        }
-      }
-    }
     return error;
   }
 
+  std::map<int, double> pending_p_changes, pending_a_changes;
   Eigen::SparseMatrix<OSQPFloat> P_upper_sparse;
   Eigen::SparseMatrix<OSQPFloat> A_sparse;
   std::vector<OSQPFloat> q, l, u;
@@ -572,7 +567,7 @@ void OsqpProblemData::SolveWithCache(const MathematicalProgram& prog,
   SolverCachePhaseScope validation_phase(SolverCachePhase::kValidation);
   std::string rebuild_reason;
   if (cached != nullptr) {
-    rebuild_reason = cached->snapshot->CheckStructure(prog);
+    rebuild_reason = cached->snapshot->AnalyzeChanges(prog);
     if (rebuild_reason.empty() && !SameSettings(cached->settings, new_settings))
       rebuild_reason = "solver settings changed";
     if (rebuild_reason.empty()) rebuild_reason = cached->CheckUpdates(prog);
@@ -611,17 +606,12 @@ void OsqpProblemData::SolveWithCache(const MathematicalProgram& prog,
     }
   }
 
-  if (!fresh && !data.snapshot->IsUnchanged()) {
+  if (!fresh && data.snapshot->changed()) {
     SolverCachePhaseScope phase(SolverCachePhase::kUpdatePrepare);
     if (data.UpdateMatrices(prog) != 0 || data.UpdateVectors(prog) != 0) {
       solution_result = SolutionResult::kInvalidInput;
     } else {
-      for (auto* entries :
-           {&data.snapshot->costs, &data.snapshot->constraints}) {
-        for (auto& entry : *entries) {
-          if (!entry.MatrixMatches()) entry.Refresh();
-        }
-      }
+      data.snapshot->CommitChanges();
       solver_details.cache.status = SolverCacheStatus::kUpdated;
     }
   }
