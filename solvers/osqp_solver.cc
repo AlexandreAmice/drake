@@ -1,7 +1,6 @@
 #include "drake/solvers/osqp_solver.h"
 
 #include <algorithm>
-#include <map>
 #include <memory>
 #include <optional>
 #include <unordered_map>
@@ -17,6 +16,7 @@
 #include "drake/solvers/mathematical_program.h"
 #include "drake/solvers/solver_cache_options.h"
 #include "drake/solvers/solver_program_snapshot.h"
+#include "drake/solvers/solver_sparse_update.h"
 #include "drake/solvers/specific_options.h"
 
 // This function must appear in the global namespace -- the Serialize pattern
@@ -301,6 +301,7 @@ struct OsqpProblemData final : SolverDataCache {
     ParseQuadraticCosts(prog, &P_upper_sparse, &q, &constant_cost_term);
     ParseLinearCosts(prog, &q, &constant_cost_term);
     ParseAllLinearConstraints(prog, &A_sparse, &l, &u, &constraint_start_row);
+    if (retain) InitializeMatrixContributions(prog);
   }
 
   ~OsqpProblemData() {
@@ -328,9 +329,61 @@ struct OsqpProblemData final : SolverDataCache {
     return found != end && *found == row ? found - matrix.innerIndexPtr() : -1;
   }
 
-  std::string CollectMatrixChanges(const MathematicalProgram& prog,
-                                   std::map<int, double>* p_changes,
-                                   std::map<int, double>* a_changes) const {
+  struct Contribution {
+    const internal::SolverBindingSnapshot* binding;
+    int row, col;
+    double factor;
+  };
+
+  void InitializeMatrixContributions(const MathematicalProgram& prog) {
+    pending_p_changes = internal::SolverSparseUpdate(P_upper_sparse.nonZeros());
+    pending_a_changes = internal::SolverSparseUpdate(A_sparse.nonZeros());
+    p_contributions.resize(P_upper_sparse.nonZeros());
+    a_contributions.resize(A_sparse.nonZeros());
+    const auto scale = [&](int variable) {
+      const auto it = prog.GetVariableScaling().find(variable);
+      return it == prog.GetVariableScaling().end() ? 1.0 : it->second;
+    };
+    for (const auto& entry : snapshot->costs) {
+      const auto* Q = entry.current_Q();
+      if (!Q) continue;
+      for (int col = 0; col < Q->cols(); ++col) {
+        for (int row = 0; row <= col; ++row) {
+          const int vi = entry.variable_indices[row];
+          const int vj = entry.variable_indices[col];
+          const int slot =
+              FindEntry(P_upper_sparse, std::min(vi, vj), std::max(vi, vj));
+          if (slot < 0) continue;
+          const double factor = row != col && vi == vj ? 2 : 1;
+          p_contributions[slot].push_back(
+              {&entry, row, col, factor * scale(vi) * scale(vj)});
+        }
+      }
+    }
+    int start = 0;
+    for (const auto& entry : snapshot->constraints) {
+      for (int col = 0; col < entry.A.cols(); ++col) {
+        const int variable = entry.variable_indices[col];
+        const auto* begin =
+            A_sparse.innerIndexPtr() + A_sparse.outerIndexPtr()[variable];
+        const auto* end =
+            A_sparse.innerIndexPtr() + A_sparse.outerIndexPtr()[variable + 1];
+        // Include zero local coefficients whenever another contribution keeps
+        // the native slot present, including repeated variables in a binding.
+        for (auto* row = std::lower_bound(begin, end, start);
+             row != end && *row < start + entry.A.rows(); ++row) {
+          const int slot = row - A_sparse.innerIndexPtr();
+          a_contributions[slot].push_back(
+              {&entry, *row - start, col, scale(variable)});
+        }
+      }
+      start += entry.A.rows();
+    }
+  }
+
+  std::string CollectMatrixChanges(
+      const MathematicalProgram& prog, internal::SolverSparseUpdate* p_changes,
+      internal::SolverSparseUpdate* a_changes) const {
     std::string reason;
     const auto scale = [&](int index) {
       const auto it = prog.GetVariableScaling().find(index);
@@ -343,7 +396,7 @@ struct OsqpProblemData final : SolverDataCache {
       if (index < 0)
         reason = "matrix sparsity changed";
       else
-        (*changes)[index] += delta;
+        changes->Mark(index);
     };
     for (const auto& entry : snapshot->costs) {
       if (!entry.matrix_changed) continue;
@@ -381,71 +434,28 @@ struct OsqpProblemData final : SolverDataCache {
   }
 
   std::string CheckUpdates(const MathematicalProgram& prog) {
-    pending_p_changes.clear();
-    pending_a_changes.clear();
+    pending_p_changes.Reset();
+    pending_a_changes.Reset();
     return CollectMatrixChanges(prog, &pending_p_changes, &pending_a_changes);
   }
 
-  OSQPInt UpdateMatrices(const MathematicalProgram& prog) {
-    auto& p_changes = pending_p_changes;
-    auto& a_changes = pending_a_changes;
-    // Reaggregate touched slots from current contributions. Adding deltas
-    // would lose small new coefficients when old coefficients were large.
-    for (auto* changes : {&p_changes, &a_changes}) {
-      for (auto& [index, value] : *changes) value = 0;
-    }
-    const auto scale = [&](int index) {
-      const auto it = prog.GetVariableScaling().find(index);
-      return it == prog.GetVariableScaling().end() ? 1.0 : it->second;
-    };
-    const auto accumulate = [&](const auto& matrix, int row, int col,
-                                double value, auto* changes) {
-      if (value == 0) return;
-      const auto it = changes->find(FindEntry(matrix, row, col));
-      if (it != changes->end()) it->second += value;
-    };
-    if (!p_changes.empty()) {
-      for (const auto& entry : snapshot->costs) {
-        const auto* Q = entry.current_Q();
-        if (Q == nullptr) continue;
-        for (int j = 0; j < Q->cols(); ++j) {
-          for (int i = 0; i <= j; ++i) {
-            const int vi = entry.variable_indices[i];
-            const int vj = entry.variable_indices[j];
-            const double factor = i != j && vi == vj ? 2 : 1;
-            accumulate(P_upper_sparse, std::min(vi, vj), std::max(vi, vj),
-                       factor * (*Q)(i, j) * scale(vi) * scale(vj), &p_changes);
-          }
-        }
-      }
-    }
-    if (!a_changes.empty()) {
-      int row = 0;
-      for (const auto& entry : snapshot->constraints) {
-        const auto& A = *entry.current_A();
-        for (int j = 0; j < A.outerSize(); ++j) {
-          const int col = entry.variable_indices[j];
-          for (Eigen::SparseMatrix<double>::InnerIterator it(A, j); it; ++it) {
-            accumulate(A_sparse, row + it.row(), col, it.value() * scale(col),
-                       &a_changes);
-          }
-        }
-        row += entry.v.size();
-      }
-    }
-    std::vector<OSQPInt> pi, ai;
-    std::vector<OSQPFloat> px, ax;
-    const auto apply = [](const auto& changes, auto* matrix, auto* indices,
-                          auto* values) {
-      for (const auto& [index, value] : changes) {
-        if (matrix->valuePtr()[index] == value) continue;
-        indices->push_back(index);
-        matrix->valuePtr()[index] = value;
-        values->push_back(value);
-      }
-    };
-    apply(p_changes, &P_upper_sparse, &pi, &px);
-    apply(a_changes, &A_sparse, &ai, &ax);
+  OSQPInt UpdateMatrices() {
+    pending_p_changes.Apply(P_upper_sparse.valuePtr(), [&](int slot) {
+      double value = 0;
+      for (const auto& c : p_contributions[slot])
+        value += c.factor * (*c.binding->current_Q())(c.row, c.col);
+      return value;
+    });
+    pending_a_changes.Apply(A_sparse.valuePtr(), [&](int slot) {
+      double value = 0;
+      for (const auto& c : a_contributions[slot])
+        value += c.factor * c.binding->current_A()->coeff(c.row, c.col);
+      return value;
+    });
+    const auto& pi = pending_p_changes.indices();
+    const auto& ai = pending_a_changes.indices();
+    const auto& px = pending_p_changes.values();
+    const auto& ax = pending_a_changes.values();
     if (px.empty() && ax.empty()) return 0;
     SolverCachePhaseScope phase(SolverCachePhase::kNativeUpdate);
     return osqp_update_data_mat(
@@ -497,7 +507,8 @@ struct OsqpProblemData final : SolverDataCache {
     return error;
   }
 
-  std::map<int, double> pending_p_changes, pending_a_changes;
+  internal::SolverSparseUpdate pending_p_changes, pending_a_changes;
+  std::vector<std::vector<Contribution>> p_contributions, a_contributions;
   Eigen::SparseMatrix<OSQPFloat> P_upper_sparse;
   Eigen::SparseMatrix<OSQPFloat> A_sparse;
   std::vector<OSQPFloat> q, l, u;
@@ -608,7 +619,7 @@ void OsqpProblemData::SolveWithCache(const MathematicalProgram& prog,
 
   if (!fresh && data.snapshot->changed()) {
     SolverCachePhaseScope phase(SolverCachePhase::kUpdatePrepare);
-    if (data.UpdateMatrices(prog) != 0 || data.UpdateVectors(prog) != 0) {
+    if (data.UpdateMatrices() != 0 || data.UpdateVectors(prog) != 0) {
       solution_result = SolutionResult::kInvalidInput;
     } else {
       data.snapshot->CommitChanges();
