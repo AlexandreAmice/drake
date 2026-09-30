@@ -773,6 +773,19 @@ drake_cc_library(
 )
 
 drake_cc_library(
+    name = "solver_program_snapshot",
+    srcs = ["solver_program_snapshot.cc"],
+    hdrs = ["solver_program_snapshot.h"],
+    visibility = ["//solvers:__pkg__"],
+    deps = [":mathematical_program"],
+)
+
+drake_cc_googletest(
+    name = "solver_program_snapshot_test",
+    deps = [":solver_program_snapshot"],
+)
+
+drake_cc_library(
     name = "solver_cache_options",
     hdrs = ["solver_cache_options.h"],
     visibility = ["//solvers:__pkg__"],
