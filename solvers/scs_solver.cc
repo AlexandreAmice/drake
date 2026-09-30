@@ -29,7 +29,9 @@
 #include "drake/solvers/mathematical_program_result.h"
 #include "drake/solvers/scs_clarabel_common.h"
 #include "drake/solvers/solver_cache_options.h"
+#include "drake/solvers/solver_cache_profiler.h"
 #include "drake/solvers/solver_program_snapshot.h"
+#include "drake/solvers/solver_result_access.h"
 
 // This function must appear in the global namespace -- the Serialize pattern
 // uses ADL (argument-dependent lookup) and the namespace for the ScsSettings
@@ -58,8 +60,6 @@ static void Serialize(
   // TODO(jwnimmer-tri) Handle write_data_filename.
   // TODO(jwnimmer-tri) Handle log_csv_filename.
 }
-
-#include "drake/solvers/solver_cache_profiler.h"
 
 namespace drake {
 namespace solvers {
@@ -867,6 +867,12 @@ void ScsProblemData::Solve(const MathematicalProgram& prog,
     return;
   }
 
+  if (auto* previous =
+          internal::SolverResultAccess::PreviousDetails<ScsSolverDetails>(
+              result)) {
+    solver_details.y.swap(previous->y);
+    solver_details.s.swap(previous->s);
+  }
   solver_details.iter = scs_info.iter;
   solver_details.primal_objective = scs_info.pobj;
   solver_details.dual_objective = scs_info.dobj;

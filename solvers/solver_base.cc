@@ -71,9 +71,19 @@ void SolverBase::Solve(const MathematicalProgram& prog,
   if (retain_cache && result->get_solver_cache()) {
     result->get_solver_cache()->CheckCompatibility(prog, solver_id());
   }
-  auto cache = result->ReleaseSolverCache();
-  *result = {};
-  if (retain_cache) result->SetSolverCache(std::move(cache));
+  const bool reuse_result = retain_cache && result->has_solver_cache();
+  if (reuse_result)
+    result->PrepareForSolve();
+  else
+    *result = {};
+  bool prepared = false;
+  ScopeExit clear_unprepared([&] {
+    if (!prepared && reuse_result) {
+      auto cache = result->ReleaseSolverCache();
+      *result = {};
+      result->SetSolverCache(std::move(cache));
+    }
+  });
   if (!available()) {
     const std::string name = ShortName(*this);
     throw std::invalid_argument(fmt::format(
@@ -95,7 +105,8 @@ void SolverBase::Solve(const MathematicalProgram& prog,
     throw std::invalid_argument(ExplainUnsatisfiedProgramAttributes(prog));
   }
   result->set_solver_id(solver_id());
-  result->set_decision_variable_index(prog.decision_variable_index());
+  result->SetVariableIndexForSolve(prog.decision_variable_index());
+  prepared = true;
   const Eigen::VectorXd& x_init =
       initial_guess ? *initial_guess : prog.initial_guess();
   if (x_init.rows() != prog.num_vars()) {

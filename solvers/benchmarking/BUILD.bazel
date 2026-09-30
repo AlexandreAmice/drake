@@ -103,6 +103,7 @@ drake_cc_googlebench_binary(
     ],
     add_test_rule = True,
     test_rule_args = ["--benchmark_filter=.*/50/2/[012]/1$$"],
+    test_rule_opt_in_condition = "//tools/workspace/osqp_internal:enabled",
 )
 
 drake_cc_googlebench_binary(
@@ -117,6 +118,7 @@ drake_cc_googlebench_binary(
     ],
     add_test_rule = True,
     test_rule_args = ["--benchmark_filter=.*/50/2/[013]/1$$"],
+    test_rule_opt_in_condition = "//tools/workspace/scs_internal:enabled",
 )
 
 add_lint_tests()

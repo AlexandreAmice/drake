@@ -786,6 +786,13 @@ drake_cc_library(
 )
 
 drake_cc_library(
+    name = "solver_result_access",
+    hdrs = ["solver_result_access.h"],
+    visibility = ["//solvers:__pkg__"],
+    deps = [":mathematical_program_result"],
+)
+
+drake_cc_library(
     name = "solver_sparse_update",
     hdrs = ["solver_sparse_update.h"],
     visibility = ["//solvers:__pkg__"],
@@ -1122,6 +1129,7 @@ drake_cc_variant_library(
         ":solver_cache_options",
         ":solver_cache_profiler",
         ":solver_program_snapshot",
+        ":solver_result_access",
         ":solver_sparse_update",
         "//common:scope_exit",
         "//math:eigen_sparse_triplet",
@@ -1185,6 +1193,7 @@ drake_cc_variant_library(
         ":solver_cache_options",
         ":solver_cache_profiler",
         ":solver_program_snapshot",
+        ":solver_result_access",
         "//common:scope_exit",
         "//math:eigen_sparse_triplet",
         "//math:matrix_util",

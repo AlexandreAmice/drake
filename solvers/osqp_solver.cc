@@ -15,7 +15,9 @@
 #include "drake/solvers/aggregate_costs_constraints.h"
 #include "drake/solvers/mathematical_program.h"
 #include "drake/solvers/solver_cache_options.h"
+#include "drake/solvers/solver_cache_profiler.h"
 #include "drake/solvers/solver_program_snapshot.h"
+#include "drake/solvers/solver_result_access.h"
 #include "drake/solvers/solver_sparse_update.h"
 #include "drake/solvers/specific_options.h"
 
@@ -68,8 +70,6 @@ static void Serialize(
   archive->Visit(MakeNameValue("polish_refine_iter",  // BR
                                &settings.polish_refine_iter));
 }
-
-#include "drake/solvers/solver_cache_profiler.h"
 
 namespace drake {
 namespace solvers {
@@ -143,7 +143,8 @@ void ParseLinearConstraints(
     const std::vector<Binding<C>>& linear_constraints,
     std::vector<Eigen::Triplet<OSQPFloat>>* A_triplets,
     std::vector<OSQPFloat>* l, std::vector<OSQPFloat>* u, int* num_A_rows,
-    std::unordered_map<Binding<Constraint>, int>* constraint_start_row) {
+    std::unordered_map<Binding<Constraint>, int, internal::BindingHash,
+                       internal::BindingEqual>* constraint_start_row) {
   // Loop over the linear constraints, stack them to get l, u and A.
   for (const auto& constraint : linear_constraints) {
     const std::vector<int> x_indices =
@@ -174,7 +175,8 @@ void ParseBoundingBoxConstraints(
     const MathematicalProgram& prog,
     std::vector<Eigen::Triplet<OSQPFloat>>* A_triplets,
     std::vector<OSQPFloat>* l, std::vector<OSQPFloat>* u, int* num_A_rows,
-    std::unordered_map<Binding<Constraint>, int>* constraint_start_row) {
+    std::unordered_map<Binding<Constraint>, int, internal::BindingHash,
+                       internal::BindingEqual>* constraint_start_row) {
   // Loop over the linear constraints, stack them to get l, u and A.
   for (const auto& constraint : prog.bounding_box_constraints()) {
     const Binding<Constraint> constraint_cast =
@@ -201,7 +203,8 @@ void ParseBoundingBoxConstraints(
 void ParseAllLinearConstraints(
     const MathematicalProgram& prog, Eigen::SparseMatrix<OSQPFloat>* A,
     std::vector<OSQPFloat>* l, std::vector<OSQPFloat>* u,
-    std::unordered_map<Binding<Constraint>, int>* constraint_start_row) {
+    std::unordered_map<Binding<Constraint>, int, internal::BindingHash,
+                       internal::BindingEqual>* constraint_start_row) {
   std::vector<Eigen::Triplet<OSQPFloat>> A_triplets;
   l->clear();
   u->clear();
@@ -513,7 +516,9 @@ struct OsqpProblemData final : SolverDataCache {
   Eigen::SparseMatrix<OSQPFloat> A_sparse;
   std::vector<OSQPFloat> q, l, u;
   double constant_cost_term{};
-  std::unordered_map<Binding<Constraint>, int> constraint_start_row;
+  std::unordered_map<Binding<Constraint>, int, internal::BindingHash,
+                     internal::BindingEqual>
+      constraint_start_row;
   OSQPSettings settings{};
   OSQPSolver* solver{};
   std::optional<internal::SolverProgramSnapshot> snapshot;
@@ -523,18 +528,17 @@ template <typename C>
 void SetDualSolution(
     const std::vector<Binding<C>>& constraints,
     const Eigen::VectorXd& all_dual_solution,
-    const std::unordered_map<Binding<Constraint>, int>& constraint_start_row,
+    const std::unordered_map<Binding<Constraint>, int, internal::BindingHash,
+                             internal::BindingEqual>& constraint_start_row,
     MathematicalProgramResult* result) {
   for (const auto& constraint : constraints) {
     // OSQP uses the dual variable `y` as the negation of the shadow price, so
     // we need to negate `all_dual_solution` as Drake interprets dual solution
     // as the shadow price.
-    const Binding<Constraint> constraint_cast =
-        internal::BindingDynamicCast<Constraint>(constraint);
-    result->set_dual_solution(
-        constraint,
-        -all_dual_solution.segment(constraint_start_row.at(constraint_cast),
-                                   constraint.evaluator()->num_constraints()));
+    result->set_dual_solution(constraint,
+                              -all_dual_solution.segment(
+                                  constraint_start_row.find(constraint)->second,
+                                  constraint.evaluator()->num_constraints()));
   }
 }
 }  // namespace
@@ -679,6 +683,10 @@ void OsqpProblemData::SolveWithCache(const MathematicalProgram& prog,
     } else {
       result->set_x_val(osqp_sol.cast<double>());
     }
+    if (auto* previous =
+            internal::SolverResultAccess::PreviousDetails<OsqpSolverDetails>(
+                result))
+      solver_details.y.swap(previous->y);
     solver_details.y = Eigen::Map<Eigen::VectorXd>(solver->solution->y, m);
     SetDualSolution(prog.linear_constraints(), solver_details.y,
                     constraint_start_row, result);
