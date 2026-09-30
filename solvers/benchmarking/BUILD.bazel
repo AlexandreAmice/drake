@@ -105,4 +105,18 @@ drake_cc_googlebench_binary(
     test_rule_args = ["--benchmark_filter=.*/50/2/[012]/1$$"],
 )
 
+drake_cc_googlebench_binary(
+    name = "benchmark_native_scs",
+    srcs = ["benchmark_native_scs.cc"],
+    deps = [
+        ":native_mpc",
+        "//solvers:aggregate_costs_constraints",
+        "//solvers:scs_solver",
+        "//tools/performance:gflags_main",
+        "@scs_internal//:scsdir",
+    ],
+    add_test_rule = True,
+    test_rule_args = ["--benchmark_filter=.*/50/2/[013]/1$$"],
+)
+
 add_lint_tests()
