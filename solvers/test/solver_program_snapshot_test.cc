@@ -81,6 +81,36 @@ GTEST_TEST(SolverProgramSnapshotTest, EvaluatorStorageAndAllocation) {
   }
 }
 
+GTEST_TEST(SolverProgramSnapshotTest, AnalyzeAndCommit) {
+  MathematicalProgram prog;
+  const auto x = prog.NewContinuousVariables<2>();
+  auto cost = prog.AddQuadraticCost(Eigen::Matrix2d::Identity(),
+                                    Eigen::Vector2d::Zero(), x);
+  auto bounds = prog.AddBoundingBoxConstraint(-1, 1, x);
+  SolverProgramSnapshot snapshot(prog);
+  bounds.evaluator()->UpdateLowerBound(Eigen::Vector2d::Constant(-2));
+  {
+    test::LimitMalloc guard;
+    EXPECT_TRUE(snapshot.AnalyzeChanges(prog).empty());
+    EXPECT_TRUE(snapshot.changed());
+    EXPECT_FALSE(snapshot.costs[0].vectors_changed);
+    EXPECT_TRUE(snapshot.constraints[0].vectors_changed);
+    EXPECT_FALSE(snapshot.constraints[0].matrix_changed);
+    snapshot.CommitChanges();
+    EXPECT_TRUE(snapshot.AnalyzeChanges(prog).empty());
+    EXPECT_FALSE(snapshot.changed());
+  }
+  cost.evaluator()->UpdateCoefficients(Eigen::Matrix2d::Identity(),
+                                       Eigen::Vector2d::Zero(), 3);
+  EXPECT_TRUE(snapshot.AnalyzeChanges(prog).empty());
+  EXPECT_TRUE(snapshot.costs[0].constant_changed);
+  EXPECT_FALSE(snapshot.costs[0].linear_cost_changed);
+  // Analysis leaves the saved coefficients intact until native updates commit.
+  EXPECT_EQ(snapshot.costs[0].constant, 0);
+  snapshot.CommitChanges();
+  EXPECT_EQ(snapshot.costs[0].constant, 3);
+}
+
 }  // namespace
 }  // namespace internal
 }  // namespace solvers

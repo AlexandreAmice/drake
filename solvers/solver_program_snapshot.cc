@@ -116,6 +116,24 @@ double SolverBindingSnapshot::current_constant() const {
   return reader_->Read().constant;
 }
 
+bool SolverBindingSnapshot::AnalyzeChanges() {
+  const auto current = reader_->Read();
+  if ((current.A &&
+       (A.rows() != current.A->rows() || A.cols() != current.A->cols())) ||
+      (current.Q &&
+       (Q.rows() != current.Q->rows() || Q.cols() != current.Q->cols())) ||
+      (current.v && v.size() != current.v->size()) ||
+      (current.w && w.size() != current.w->size()))
+    return false;
+  matrix_changed = !recognized || (current.A && !Equal(A, *current.A)) ||
+                   (current.Q && !Equal(Q, *current.Q));
+  constant_changed = constant != current.constant;
+  linear_cost_changed = current.v && !Equal(v, *current.v);
+  vectors_changed = !recognized || constant_changed || linear_cost_changed ||
+                    (current.w && !Equal(w, *current.w));
+  return true;
+}
+
 bool SolverBindingSnapshot::MatrixMatches() const {
   const auto current = reader_->Read();
   if (!recognized) return false;
@@ -196,14 +214,15 @@ SolverProgramSnapshot::SolverProgramSnapshot(const MathematicalProgram& prog)
 }
 
 std::string SolverProgramSnapshot::CheckStructure(
-    const MathematicalProgram& prog) const {
+    const MathematicalProgram& prog, bool check_dimensions) const {
   if (variables_.size() != prog.num_vars()) return "decision variables changed";
   for (int i = 0; i < variables_.size(); ++i) {
     if (!variables_(i).equal_to(prog.decision_variables()(i)))
       return "decision variables changed";
   }
   if (scaling_ != prog.GetVariableScaling()) return "variable scaling changed";
-  const auto check = [](const auto& old, const auto&... groups) {
+  const auto check = [check_dimensions](const auto& old,
+                                        const auto&... groups) {
     size_t index = 0;
     bool matches = true;
     const auto visit = [&](const auto& group) {
@@ -214,7 +233,7 @@ std::string SolverProgramSnapshot::CheckStructure(
         }
         const auto& previous = old[index++];
         if (previous.binding.evaluator().get() != current.evaluator().get() ||
-            !previous.DimensionsMatch()) {
+            (check_dimensions && !previous.DimensionsMatch())) {
           matches = false;
           continue;
         }
@@ -247,6 +266,31 @@ std::string SolverProgramSnapshot::CheckStructure(
              prog.exponential_cone_constraints()))
     return "bindings changed";
   return {};
+}
+
+std::string SolverProgramSnapshot::AnalyzeChanges(
+    const MathematicalProgram& prog) {
+  const std::string reason = CheckStructure(prog, false);
+  if (!reason.empty()) return reason;
+  changed_ = false;
+  for (auto* entries : {&costs, &constraints}) {
+    for (auto& entry : *entries) {
+      if (!entry.AnalyzeChanges()) return "bindings changed";
+      changed_ |= entry.matrix_changed || entry.vectors_changed;
+    }
+  }
+  return {};
+}
+
+void SolverProgramSnapshot::CommitChanges() {
+  for (auto* entries : {&costs, &constraints}) {
+    for (auto& entry : *entries) {
+      if (entry.matrix_changed)
+        entry.Refresh();
+      else if (entry.vectors_changed)
+        entry.RefreshVectors();
+    }
+  }
 }
 
 bool SolverProgramSnapshot::IsUnchanged() const {
