@@ -1,6 +1,7 @@
 #include "drake/solvers/scs_solver.h"
 
 #include <fstream>
+#include <memory>
 #include <optional>
 #include <unordered_map>
 #include <utility>
@@ -353,25 +354,49 @@ sol = solver.solve()
 
   out_file.close();
 }
+struct ScsProblemData {
+  ScsProblemData(const MathematicalProgram& prog,
+                 internal::SpecificOptions* options);
+  void Solve(const MathematicalProgram& prog, MathematicalProgramResult* result);
+
+  std::unique_ptr<ScsCone, decltype(&SCS(free_cone))> cone_owner{
+      static_cast<ScsCone*>(scs_calloc(1, sizeof(ScsCone))), SCS(free_cone)};
+  std::unique_ptr<ScsData, decltype(&SCS(free_data))> data_owner{
+      static_cast<ScsData*>(scs_calloc(1, sizeof(ScsData))), SCS(free_data)};
+  std::unique_ptr<ScsSolution, decltype(&SCS(free_sol))> solution_owner{
+      static_cast<ScsSolution*>(scs_calloc(1, sizeof(ScsSolution))), SCS(free_sol)};
+  ScsCone* cone{cone_owner.get()};
+  ScsData* scs_problem_data{data_owner.get()};
+  ScsSolution* scs_sol{solution_owner.get()};
+  ScsSettings settings{};
+  int A_row_count{};
+  double cost_constant{};
+  std::vector<int> linear_eq_y_start_indices;
+  std::vector<std::vector<std::pair<int, int>>> bbcon_dual_indices;
+  std::vector<std::vector<std::pair<int, int>>> linear_constraint_dual_indices;
+  std::vector<std::optional<int>> scalar_psd_dual_indices;
+  std::vector<std::optional<int>> scalar_lmi_dual_indices;
+  std::vector<int> lorentz_cone_y_start_indices;
+  std::vector<int> rotated_lorentz_cone_y_start_indices;
+  std::vector<std::optional<int>> twobytwo_psd_dual_start_indices;
+  std::vector<std::optional<int>> twobytwo_lmi_dual_start_indices;
+  std::vector<std::optional<int>> psd_y_start_indices;
+  std::vector<std::optional<int>> lmi_y_start_indices;
+  std::vector<int> l2norm_costs_lorentz_cone_y_start_indices;
+};
+
 }  // namespace
 
 bool ScsSolver::is_available() {
   return true;
 }
 
-void ScsSolver::DoSolve2(const MathematicalProgram& prog,
-                         const Eigen::VectorXd& initial_guess,
-                         internal::SpecificOptions* options,
-                         MathematicalProgramResult* result) const {
+ScsProblemData::ScsProblemData(const MathematicalProgram& prog,
+                                 internal::SpecificOptions* options) {
   if (!prog.GetVariableScaling().empty()) {
     static const logging::Warn log_once(
         "ScsSolver doesn't support the feature of variable scaling.");
   }
-
-  // TODO(hongkai.dai): allow warm starting SCS with initial guess on
-  // primal/dual variables and primal residues.
-  unused(initial_guess);
-  // The initial guess for SCS is unused.
   // SCS solves the problem in this form
   // min 0.5xᵀPx + cᵀx
   // s.t A x + s = b
@@ -422,22 +447,7 @@ void ScsSolver::DoSolve2(const MathematicalProgram& prog,
   // symmetric Hessian.
   std::vector<Eigen::Triplet<double>> P_upper_triplets;
 
-  // cone stores all the cones K in the problem.
-  ScsCone* cone = static_cast<ScsCone*>(scs_calloc(1, sizeof(ScsCone)));
-  ScsData* scs_problem_data =
-      static_cast<ScsData*>(scs_calloc(1, sizeof(ScsData)));
-  ScsSettings* scs_stgs =
-      static_cast<ScsSettings*>(scs_calloc(1, sizeof(ScsSettings)));
-  // This guard will free cone, scs_problem_data, and scs_stgs (together with
-  // their instantiated members) upon return from the DoSolve function.
-  ScopeExit scs_free_guard([&cone, &scs_problem_data, &scs_stgs]() {
-    SCS(free_cone)(cone);
-    SCS(free_data)(scs_problem_data);
-    scs_free(scs_stgs);
-  });
-
-  // A_row_count will increment, when we add each constraint.
-  int A_row_count = 0;
+  auto* scs_stgs = &settings;
   std::vector<double> b;
 
   // `c` is the coefficient in the linear cost cᵀx
@@ -445,7 +455,7 @@ void ScsSolver::DoSolve2(const MathematicalProgram& prog,
 
   // Our cost (LinearCost, QuadraticCost, etc) also allows a constant term, we
   // add these constant terms to `cost_constant`.
-  double cost_constant{0};
+
 
   // Parse linear cost
   internal::ParseLinearCosts(prog, &c, &cost_constant);
@@ -459,7 +469,7 @@ void ScsSolver::DoSolve2(const MathematicalProgram& prog,
   // dual variables for  the linear equality constraint
   // prog.linear_equality_constraint()(i), where y is the vector containing all
   // dual variables.
-  std::vector<int> linear_eq_y_start_indices;
+
   int num_linear_equality_constraints_rows;
   internal::ParseLinearEqualityConstraints(
       prog, &A_triplets, &b, &A_row_count, &linear_eq_y_start_indices,
@@ -471,7 +481,7 @@ void ScsSolver::DoSolve2(const MathematicalProgram& prog,
   // variable for the lower/upper bound of the j'th row in the bounding box
   // constraint prog.bounding_box_constraint()[i], we use -1 to indicate that
   // the lower or upper bound is infinity.
-  std::vector<std::vector<std::pair<int, int>>> bbcon_dual_indices;
+
   ParseBoundingBoxConstraint(prog, &A_triplets, &b, &A_row_count, cone,
                              &bbcon_dual_indices);
 
@@ -480,7 +490,7 @@ void ScsSolver::DoSolve2(const MathematicalProgram& prog,
   // is the dual variable for the lower/upper bound of the j'th row in the
   // linear constraint prog.linear_constraint()[i], we use -1 to indicate that
   // the lower or upper bound is infinity.
-  std::vector<std::vector<std::pair<int, int>>> linear_constraint_dual_indices;
+
   int num_linear_constraint_rows = 0;
   internal::ParseLinearConstraints(prog, &A_triplets, &b, &A_row_count,
                                    &linear_constraint_dual_indices,
@@ -494,8 +504,8 @@ void ScsSolver::DoSolve2(const MathematicalProgram& prog,
   // ParseLinearConstraints(), and finally calling
   // ParsePositiveSemidefiniteConstraints().
   int scalar_psd_positive_cone_length{};
-  std::vector<std::optional<int>> scalar_psd_dual_indices;
-  std::vector<std::optional<int>> scalar_lmi_dual_indices;
+
+
   internal::ParseScalarPositiveSemidefiniteConstraints(
       prog, &A_triplets, &b, &A_row_count, &scalar_psd_positive_cone_length,
       &scalar_psd_dual_indices, &scalar_lmi_dual_indices);
@@ -508,7 +518,7 @@ void ScsSolver::DoSolve2(const MathematicalProgram& prog,
   // y[lorentz_cone_y_start_indices[i]:
   //   lorentz_cone_y_start_indices[i] + second_order_cone_length[i]]
   // are the dual variables for prog.lorentz_cone_constraints()[i].
-  std::vector<int> lorentz_cone_y_start_indices;
+
   // y[rotated_lorentz_cone_y_start_indices[i]:
   // rotated_lorentz_cone_y_start_indices[i] +
   // prog.rotate_lorentz_cone()[i].evaluator().A().rows] are the y variables for
@@ -518,7 +528,7 @@ void ScsSolver::DoSolve2(const MathematicalProgram& prog,
   // transformation. Hence we need to apply the transpose of that linear
   // transformation on the y variable to get the dual variable in the dual cone
   // of rotated Lorentz cone.
-  std::vector<int> rotated_lorentz_cone_y_start_indices;
+
   internal::ParseSecondOrderConeConstraints(
       prog, &A_triplets, &b, &A_row_count, &second_order_cone_length,
       &lorentz_cone_y_start_indices, &rotated_lorentz_cone_y_start_indices);
@@ -528,8 +538,8 @@ void ScsSolver::DoSolve2(const MathematicalProgram& prog,
   // ParsePositiveSemidefiniteConstraints() as the 2x2 PSD/LMI constraints are
   // formulated as second order cones.
   int num_second_order_cones_from_psd{};
-  std::vector<std::optional<int>> twobytwo_psd_dual_start_indices;
-  std::vector<std::optional<int>> twobytwo_lmi_dual_start_indices;
+
+
   internal::Parse2x2PositiveSemidefiniteConstraints(
       prog, &A_triplets, &b, &A_row_count, &num_second_order_cones_from_psd,
       &twobytwo_psd_dual_start_indices, &twobytwo_lmi_dual_start_indices);
@@ -540,7 +550,7 @@ void ScsSolver::DoSolve2(const MathematicalProgram& prog,
   // Add L2NormCost. L2NormCost should be parsed together with the other second
   // order cone constraints, since we introduce new second order cone
   // constraints to formulate the L2 norm cost.
-  std::vector<int> l2norm_costs_lorentz_cone_y_start_indices;
+
   std::vector<int> l2norm_costs_t_slack_indices;
   internal::ParseL2NormCosts(prog, &num_x, &A_triplets, &b, &A_row_count,
                              &second_order_cone_length,
@@ -578,8 +588,8 @@ void ScsSolver::DoSolve2(const MathematicalProgram& prog,
   // Parse PositiveSemidefiniteConstraint and LinearMatrixInequalityConstraint.
   std::vector<std::optional<int>> psd_cone_length;
   std::vector<std::optional<int>> lmi_cone_length;
-  std::vector<std::optional<int>> psd_y_start_indices;
-  std::vector<std::optional<int>> lmi_y_start_indices;
+
+
   internal::ParsePositiveSemidefiniteConstraints(
       prog, /* upper_triangular = */ false, &A_triplets, &b, &A_row_count,
       &psd_cone_length, &lmi_cone_length, &psd_y_start_indices,
@@ -656,14 +666,12 @@ void ScsSolver::DoSolve2(const MathematicalProgram& prog,
   SetScsProblemData(A_row_count, num_x, A, b, P_upper_triplets, c,
                     scs_problem_data);
 
-  ScsInfo scs_info{0};
+}
 
-  ScsSolution* scs_sol =
-      static_cast<ScsSolution*>(scs_calloc(1, sizeof(ScsSolution)));
-  ScopeExit sol_guard([&scs_sol]() {
-    SCS(free_sol)(scs_sol);
-  });
-
+void ScsProblemData::Solve(const MathematicalProgram& prog,
+                           MathematicalProgramResult* result) {
+  auto* scs_stgs = &settings;
+  ScsInfo scs_info{};
   ScsSolverDetails& solver_details =
       result->SetSolverDetailsType<ScsSolverDetails>();
   solver_details.scs_status =
@@ -721,6 +729,15 @@ void ScsSolver::DoSolve2(const MathematicalProgram& prog,
   }
 
   result->set_solution_result(solution_result);
+}
+
+void ScsSolver::DoSolve2(const MathematicalProgram& prog,
+                         const Eigen::VectorXd& initial_guess,
+                         internal::SpecificOptions* options,
+                         MathematicalProgramResult* result) const {
+  unused(initial_guess);
+  ScsProblemData data(prog, options);
+  data.Solve(prog, result);
 }
 
 }  // namespace solvers
