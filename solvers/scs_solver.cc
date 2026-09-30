@@ -374,6 +374,18 @@ bool SameSettings(const ScsSettings& a, const ScsSettings& b) {
 }
 
 struct ScsProblemData final : SolverDataCache {
+  bool DoSolve(const MathematicalProgram& prog, const Eigen::VectorXd& guess,
+               internal::SpecificOptions* options,
+               MathematicalProgramResult* result) final {
+    SolveWithCache(prog, guess, options, result, this);
+    return true;
+  }
+  static void SolveWithCache(const MathematicalProgram& prog,
+                             const Eigen::VectorXd& initial_guess,
+                             internal::SpecificOptions* options,
+                             MathematicalProgramResult* result,
+                             ScsProblemData* cached);
+
   ScsProblemData(const MathematicalProgram& prog, bool retain);
   ~ScsProblemData() final {
     if (work != nullptr) scs_finish(work);
@@ -923,8 +935,14 @@ void ScsSolver::DoSolve2(const MathematicalProgram& prog,
                          const Eigen::VectorXd& initial_guess,
                          internal::SpecificOptions* options,
                          MathematicalProgramResult* result) const {
-  auto* cached =
-      dynamic_cast<ScsProblemData*>(result->get_mutable_solver_cache());
+  ScsProblemData::SolveWithCache(prog, initial_guess, options, result, nullptr);
+}
+
+void ScsProblemData::SolveWithCache(const MathematicalProgram& prog,
+                                    const Eigen::VectorXd& initial_guess,
+                                    internal::SpecificOptions* options,
+                                    MathematicalProgramResult* result,
+                                    ScsProblemData* cached) {
   const internal::SolverCacheOptions cache_options(options, cached != nullptr);
   ScsSettings settings{};
   scs_set_default_settings(&settings);
@@ -962,12 +980,12 @@ void ScsSolver::DoSolve2(const MathematicalProgram& prog,
   }
   bool completed = false;
   ScopeExit invalidate_on_exception([&]() {
-    if (!completed) result->SetSolverCache(nullptr);
+    if (!completed && cached) cached->Invalidate();
   });
   if (!fresh && !data.snapshot->IsUnchanged()) {
     SolverCachePhaseScope phase(SolverCachePhase::kUpdatePrepare);
     if (data.UpdateVectors(prog.num_vars()) != 0) {
-      result->SetSolverCache(nullptr);
+      if (cached) cached->Invalidate();
       result->set_solution_result(SolutionResult::kInvalidInput);
       return;
     }
@@ -977,7 +995,7 @@ void ScsSolver::DoSolve2(const MathematicalProgram& prog,
   data.Solve(prog, initial_guess, cache_options.warm_start, result);
   if (result->get_solution_result() == SolutionResult::kInvalidInput ||
       result->get_solution_result() == SolutionResult::kSolverSpecificError) {
-    result->SetSolverCache(nullptr);
+    if (cached) cached->Invalidate();
   } else if (cache_options.retain && fresh) {
     result->SetSolverCache(std::move(fresh));
   }

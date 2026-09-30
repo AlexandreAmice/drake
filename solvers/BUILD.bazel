@@ -450,6 +450,7 @@ drake_cc_library(
         ":mathematical_program",
         ":solver_id",
         "//common:identifier",
+        "@eigen",
     ],
 )
 
@@ -822,6 +823,7 @@ drake_cc_library(
         ":solver_cache_profiler",
         ":solver_interface",
         ":specific_options",
+        "//common:scope_exit",
     ],
 )
 
