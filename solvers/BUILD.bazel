@@ -786,6 +786,21 @@ drake_cc_library(
 )
 
 drake_cc_library(
+    name = "solver_sparse_update",
+    hdrs = ["solver_sparse_update.h"],
+    visibility = ["//solvers:__pkg__"],
+    deps = ["//common:essential"],
+)
+
+drake_cc_googletest(
+    name = "solver_sparse_update_test",
+    deps = [
+        ":solver_sparse_update",
+        "//common/test_utilities:limit_malloc",
+    ],
+)
+
+drake_cc_library(
     name = "solver_program_snapshot",
     srcs = ["solver_program_snapshot.cc"],
     hdrs = ["solver_program_snapshot.h"],
@@ -1107,6 +1122,7 @@ drake_cc_variant_library(
         ":solver_cache_options",
         ":solver_cache_profiler",
         ":solver_program_snapshot",
+        ":solver_sparse_update",
         "//common:scope_exit",
         "//math:eigen_sparse_triplet",
         "@osqp_internal//:osqp",
