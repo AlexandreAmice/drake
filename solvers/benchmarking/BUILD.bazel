@@ -47,4 +47,21 @@ drake_py_experiment_binary(
     googlebench_binary = ":benchmark_ipopt_solver",
 )
 
+drake_cc_googlebench_binary(
+    name = "benchmark_solver_cache",
+    srcs = ["benchmark_solver_cache.cc"],
+    deps = [
+        "//common:add_text_logging_gflags",
+        "//solvers:osqp_solver",
+        "//solvers:scs_solver",
+        "//tools/performance:fixture_common",
+        "//tools/performance:gflags_main",
+    ],
+    add_test_rule = True,
+    test_rule_args = [
+        "--benchmark_filter=.*/20/1/0$$",
+        "--benchmark_min_time=0.01s",
+    ],
+)
+
 add_lint_tests()
