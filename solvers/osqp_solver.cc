@@ -248,6 +248,39 @@ OSQPCscMatrix* EigenSparseToCSC(const Eigen::SparseMatrix<OSQPFloat>& mat) {
   return result;
 }
 
+// Own both Drake's translation buffers and the native solver workspace.
+struct OsqpProblemData {
+  explicit OsqpProblemData(const MathematicalProgram& prog)
+      : q(prog.num_vars(), 0) {
+    ParseQuadraticCosts(prog, &P_upper_sparse, &q, &constant_cost_term);
+    ParseLinearCosts(prog, &q, &constant_cost_term);
+    ParseAllLinearConstraints(prog, &A_sparse, &l, &u, &constraint_start_row);
+  }
+
+  ~OsqpProblemData() {
+    if (solver != nullptr) osqp_cleanup(solver);
+  }
+
+  OSQPInt Setup() {
+    const auto* P = EigenSparseToCSC(P_upper_sparse);
+    const auto* A = EigenSparseToCSC(A_sparse);
+    ScopeExit guard([P, A]() {
+      OSQPCscMatrix_free(const_cast<OSQPCscMatrix*>(P));
+      OSQPCscMatrix_free(const_cast<OSQPCscMatrix*>(A));
+    });
+    return osqp_setup(&solver, P, q.data(), A, l.data(), u.data(),
+                      A_sparse.rows(), q.size(), &settings);
+  }
+
+  Eigen::SparseMatrix<OSQPFloat> P_upper_sparse;
+  Eigen::SparseMatrix<OSQPFloat> A_sparse;
+  std::vector<OSQPFloat> q, l, u;
+  double constant_cost_term{};
+  std::unordered_map<Binding<Constraint>, int> constraint_start_row;
+  OSQPSettings settings{};
+  OSQPSolver* solver{};
+};
+
 template <typename C>
 void SetDualSolution(
     const std::vector<Binding<C>>& constraints,
@@ -279,44 +312,12 @@ void OsqpSolver::DoSolve2(const MathematicalProgram& prog,
   OsqpSolverDetails& solver_details =
       result->SetSolverDetailsType<OsqpSolverDetails>();
 
-  // OSQP solves a convex quadratic programming problem
-  // min 0.5 xᵀPx + qᵀx
-  // s.t l ≤ Ax ≤ u
-  // OSQP is written in C, so this function will be in C style.
-
-  // Get the cost for the QP.
-  // Since OSQP 0.6.0 the P matrix is required to be upper triangular.
-  Eigen::SparseMatrix<OSQPFloat> P_upper_sparse;
-  std::vector<OSQPFloat> q(prog.num_vars(), 0);
-  double constant_cost_term{0};
-
-  ParseQuadraticCosts(prog, &P_upper_sparse, &q, &constant_cost_term);
-  ParseLinearCosts(prog, &q, &constant_cost_term);
-
-  // linear_constraint_start_row[binding] stores the starting row index in A
-  // corresponding to the linear constraint `binding`.
-  std::unordered_map<Binding<Constraint>, int> constraint_start_row;
-
-  // Parse the linear constraints.
-  Eigen::SparseMatrix<OSQPFloat> A_sparse;
-  std::vector<OSQPFloat> l, u;
-  ParseAllLinearConstraints(prog, &A_sparse, &l, &u, &constraint_start_row);
-
-  // Now populate the constraint and cost as OSQP data.
-  const OSQPInt n = prog.num_vars();
-  const OSQPInt m = A_sparse.rows();
-  const OSQPCscMatrix* P = EigenSparseToCSC(P_upper_sparse);
-  const OSQPCscMatrix* A = EigenSparseToCSC(A_sparse);
-  ScopeExit csc_guard([P, A]() {
-    OSQPCscMatrix_free(const_cast<OSQPCscMatrix*>(P));
-    OSQPCscMatrix_free(const_cast<OSQPCscMatrix*>(A));
-  });
-
-  // Create the settings, initialized to the upstream defaults.
-  OSQPSettings* settings = OSQPSettings_new();
-  ScopeExit settings_guard([settings]() {
-    OSQPSettings_free(settings);
-  });
+  OsqpProblemData data(prog);
+  auto* settings = &data.settings;
+  const auto& constraint_start_row = data.constraint_start_row;
+  const auto& constant_cost_term = data.constant_cost_term;
+  const int m = data.A_sparse.rows();
+  auto*& solver = data.solver;
   osqp_set_default_settings(settings);
   // Customize the defaults for Drake.
   // - Default polishing to true, to get an accurate solution.
@@ -334,16 +335,8 @@ void OsqpSolver::DoSolve2(const MathematicalProgram& prog,
   // If any step fails, it will set the solution_result and skip other steps.
   std::optional<SolutionResult> solution_result;
 
-  // Setup workspace.
-  OSQPSolver* solver = nullptr;
-  ScopeExit solver_guard([&solver]() {
-    if (solver != nullptr) {
-      osqp_cleanup(solver);
-    }
-  });
   if (!solution_result) {
-    const OSQPInt osqp_setup_err =
-        osqp_setup(&solver, P, q.data(), A, l.data(), u.data(), m, n, settings);
+    const OSQPInt osqp_setup_err = data.Setup();
     if (osqp_setup_err != 0) {
       solution_result = SolutionResult::kInvalidInput;
     }
