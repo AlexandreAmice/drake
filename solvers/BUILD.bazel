@@ -773,6 +773,13 @@ drake_cc_library(
 )
 
 drake_cc_library(
+    name = "solver_cache_options",
+    hdrs = ["solver_cache_options.h"],
+    visibility = ["//solvers:__pkg__"],
+    deps = [":specific_options"],
+)
+
+drake_cc_library(
     name = "solver_base",
     srcs = ["solver_base.cc"],
     hdrs = ["solver_base.h"],

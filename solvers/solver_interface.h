@@ -64,6 +64,11 @@ class SolverInterface {
   /// If the @p prog has set an option for a solver, and @p solver_options
   /// contains a different value for the same option on the same solver, then @p
   /// solver_options takes priority.
+  /// Solvers supporting the solver-specific `retain_solver_cache` option
+  /// can retain native state in @p result. Pass the same result on subsequent
+  /// calls to reuse that state with the same program instance. Copies of the
+  /// result omit the cache. Concurrent calls using the same result are not
+  /// supported. Solution fields are replaced on every solve.
   /// Derived implementations of this interface may elect to throw
   /// std::exception for badly formed programs.
   virtual void Solve(const MathematicalProgram& prog,

@@ -10685,8 +10685,13 @@ written to ``prog``. If the ``prog`` has set an initial guess, and
 ``initial_guess`` is set, then ``initial_guess`` takes priority. If
 the ``prog`` has set an option for a solver, and ``solver_options``
 contains a different value for the same option on the same solver,
-then ``solver_options`` takes priority. Derived implementations of
-this interface may elect to throw RuntimeError for badly formed
+then ``solver_options`` takes priority. Solvers supporting the
+solver-specific ``retain_solver_cache`` option can retain native state
+in ``result``. Pass the same result on subsequent calls to reuse that
+state with the same program instance. Copies of the result omit the
+cache. Concurrent calls using the same result are not supported.
+Solution fields are replaced on every solve. Derived implementations
+of this interface may elect to throw RuntimeError for badly formed
 programs.)""";
         } Solve;
         // Symbol: drake::solvers::SolverInterface::SolverInterface
