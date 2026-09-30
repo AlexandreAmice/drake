@@ -193,6 +193,39 @@ GTEST_TEST(OsqpSolverCacheTest, RepeatedVariablesInQuadraticCost) {
   EXPECT_NEAR(result.GetSolution(x(0)), 1.0 / 2.8, 1e-5);
 }
 
+GTEST_TEST(OsqpSolverCacheTest, LargeVariableScaling) {
+  OsqpSolver solver;
+  if (!solver.available()) GTEST_SKIP();
+  MathematicalProgram prog;
+  const auto x = prog.NewContinuousVariables<1>();
+  // The squared scale overflows, but each scaled Hessian entry is finite.
+  const double scale = 1e155;
+  prog.SetVariableScaling(x(0), scale);
+  const Eigen::VectorXd b = Eigen::VectorXd::Constant(1, -1e-145);
+  auto cost =
+      prog.AddQuadraticCost(Eigen::MatrixXd::Constant(1, 1, 1e-300), b, x);
+  prog.SetSolverOption(solver.id(), "eps_abs", 1e-8);
+  prog.SetSolverOption(solver.id(), "eps_rel", 1e-8);
+  SolverOptions options;
+  options.SetOption(solver.id(), "retain_solver_cache", 1);
+  options.SetOption(solver.id(), "solver_cache_rebuild_policy", "error");
+  auto result = solver.Solve(prog, {}, options);
+  ASSERT_TRUE(result.is_success());
+  for (double factor : {2.0, 0.5}) {
+    cost.evaluator()->UpdateCoefficients(
+        Eigen::MatrixXd::Constant(1, 1, factor * 1e-300), b);
+    solver.Solve(prog, {}, options, &result);
+    const auto fresh = solver.Solve(prog);
+    ASSERT_TRUE(result.is_success());
+    ASSERT_TRUE(fresh.is_success());
+    EXPECT_NEAR(result.GetSolution(x(0)) / scale, 1 / factor, 1e-6);
+    EXPECT_NEAR(result.GetSolution(x(0)) / scale,
+                fresh.GetSolution(x(0)) / scale, 1e-6);
+    EXPECT_EQ(result.get_solver_details<OsqpSolver>().cache.status,
+              SolverCacheStatus::kUpdated);
+  }
+}
+
 TYPED_TEST(SolverCacheTest, ResultStorageDoesNotExposeStaleValues) {
   TypeParam solver;
   if (!solver.available()) GTEST_SKIP();
