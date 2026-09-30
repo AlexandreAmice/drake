@@ -396,7 +396,9 @@ struct ScsProblemData final : SolverDataCache {
   void WriteReproduction(const std::string& filename) const;
   std::string CheckUpdates() const;
   scs_int UpdateVectors(int num_vars);
-  void InitializeVectorRows();
+  void InitializeVectorRows(const MathematicalProgram& prog);
+  std::vector<double> lower_sign;
+  std::vector<Eigen::Matrix2d> cone_offset_transform;
   bool quadratic_reformulated{};
   std::vector<int> constraint_cone_rows;
   std::vector<int> cost_cone_rows;
@@ -679,36 +681,36 @@ ScsProblemData::ScsProblemData(const MathematicalProgram& prog, bool retain)
 
   SetScsProblemData(A_row_count, num_x, A, b, P_upper_triplets, c,
                     scs_problem_data);
-  if (snapshot) InitializeVectorRows();
+  if (snapshot) InitializeVectorRows(prog);
 }
 
-void ScsProblemData::InitializeVectorRows() {
-  int l2 = 0;
-  for (const auto& entry : snapshot->costs) {
-    cost_cone_rows.push_back(
-        dynamic_cast<const L2NormCost*>(entry.binding.evaluator().get())
-            ? l2norm_costs_lorentz_cone_y_start_indices[l2++] + 1
-            : -1);
+void ScsProblemData::InitializeVectorRows(const MathematicalProgram& prog) {
+  cost_cone_rows.resize(snapshot->costs.size(), -1);
+  int index = prog.generic_costs().size() + prog.linear_costs().size() +
+              prog.quadratic_costs().size();
+  for (int start : l2norm_costs_lorentz_cone_y_start_indices)
+    cost_cone_rows[index++] = start + 1;
+  constraint_rows.resize(snapshot->constraints.size());
+  constraint_cone_rows.resize(snapshot->constraints.size(), -1);
+  lower_sign.resize(snapshot->constraints.size(), -1);
+  cone_offset_transform.resize(snapshot->constraints.size(),
+                               Eigen::Matrix2d::Identity());
+  index =
+      prog.generic_constraints().size() + prog.quadratic_constraints().size();
+  for (const auto& rows : linear_constraint_dual_indices)
+    constraint_rows[index++] = rows;
+  for (size_t i = 0; i < prog.linear_equality_constraints().size(); ++i) {
+    const int start = linear_eq_y_start_indices[i];
+    for (int row = 0; row < snapshot->constraints[index].v.size(); ++row)
+      constraint_rows[index].emplace_back(start + row, -1);
+    lower_sign[index++] = 1;
   }
-  int linear = 0, equality = 0, box = 0, lorentz = 0, rotated = 0;
-  for (const auto& entry : snapshot->constraints) {
-    const auto* e = entry.binding.evaluator().get();
-    std::vector<std::pair<int, int>> rows;
-    int cone_row = -1;
-    if (dynamic_cast<const BoundingBoxConstraint*>(e)) {
-      rows = bbcon_dual_indices[box++];
-    } else if (dynamic_cast<const LinearEqualityConstraint*>(e)) {
-      const int start = linear_eq_y_start_indices[equality++];
-      for (int i = 0; i < entry.v.size(); ++i) rows.emplace_back(start + i, -1);
-    } else if (dynamic_cast<const LinearConstraint*>(e)) {
-      rows = linear_constraint_dual_indices[linear++];
-    } else if (dynamic_cast<const LorentzConeConstraint*>(e)) {
-      cone_row = lorentz_cone_y_start_indices[lorentz++];
-    } else if (dynamic_cast<const RotatedLorentzConeConstraint*>(e)) {
-      cone_row = rotated_lorentz_cone_y_start_indices[rotated++];
-    }
-    constraint_cone_rows.push_back(cone_row);
-    constraint_rows.push_back(std::move(rows));
+  for (const auto& rows : bbcon_dual_indices) constraint_rows[index++] = rows;
+  for (int start : lorentz_cone_y_start_indices)
+    constraint_cone_rows[index++] = start;
+  for (int start : rotated_lorentz_cone_y_start_indices) {
+    constraint_cone_rows[index] = start;
+    cone_offset_transform[index++] << 0.5, 0.5, 0.5, -0.5;
   }
 }
 
@@ -776,21 +778,15 @@ scs_int ScsProblemData::UpdateVectors(int num_vars) {
       const int start = constraint_cone_rows[j];
       const auto& b = *entry.current_v();
       for (int i = 0; i < b.size(); ++i) scs_problem_data->b[start + i] = b(i);
-      if (dynamic_cast<const RotatedLorentzConeConstraint*>(
-              entry.binding.evaluator().get())) {
-        scs_problem_data->b[start] = 0.5 * (b(0) + b(1));
-        scs_problem_data->b[start + 1] = 0.5 * (b(0) - b(1));
-      }
+      Eigen::Map<Eigen::Vector2d>(scs_problem_data->b + start) =
+          cone_offset_transform[j] * b.head<2>();
       b_changed = true;
       continue;
     }
-    const bool equality = dynamic_cast<const LinearEqualityConstraint*>(
-                              entry.binding.evaluator().get()) != nullptr;
     for (int i = 0; i < entry.v.size(); ++i) {
       const auto [lower, upper] = constraint_rows[j][i];
       if (lower >= 0)
-        scs_problem_data->b[lower] =
-            (equality ? 1 : -1) * (*entry.current_v())(i);
+        scs_problem_data->b[lower] = lower_sign[j] * (*entry.current_v())(i);
       if (upper >= 0) scs_problem_data->b[upper] = (*entry.current_w())(i);
     }
     b_changed = true;

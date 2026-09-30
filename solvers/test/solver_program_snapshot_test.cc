@@ -2,6 +2,8 @@
 
 #include <gtest/gtest.h>
 
+#include "drake/common/test_utilities/limit_malloc.h"
+
 namespace drake {
 namespace solvers {
 namespace internal {
@@ -48,6 +50,35 @@ GTEST_TEST(SolverProgramSnapshotTest, StructureAndSparseCoefficients) {
   EXPECT_TRUE(snapshot.IsUnchanged());
   prog.RemoveConstraint(c);
   EXPECT_EQ(snapshot.CheckStructure(prog), "bindings changed");
+}
+
+GTEST_TEST(SolverProgramSnapshotTest, EvaluatorStorageAndAllocation) {
+  MathematicalProgram prog;
+  const auto x = prog.NewContinuousVariables<2>();
+  auto constraint = prog.AddLinearConstraint(Eigen::Matrix2d::Identity(),
+                                             Eigen::Vector2d::Zero(),
+                                             Eigen::Vector2d::Ones(), x);
+  SolverProgramSnapshot snapshot(prog);
+  {
+    test::LimitMalloc guard;
+    EXPECT_TRUE(snapshot.CheckStructure(prog).empty());
+    EXPECT_TRUE(snapshot.IsUnchanged());
+  }
+  // Updating a retained evaluator may replace its sparse coefficient storage.
+  constraint.evaluator()->UpdateCoefficients(Eigen::MatrixXd::Ones(3, 2),
+                                             Eigen::VectorXd::Zero(3),
+                                             Eigen::VectorXd::Ones(3));
+  EXPECT_EQ(snapshot.CheckStructure(prog), "bindings changed");
+  constraint.evaluator()->UpdateCoefficients(2 * Eigen::Matrix2d::Identity(),
+                                             Eigen::Vector2d::Zero(),
+                                             Eigen::Vector2d::Ones());
+  EXPECT_TRUE(snapshot.CheckStructure(prog).empty());
+  EXPECT_FALSE(snapshot.IsUnchanged());
+  snapshot.constraints[0].Refresh();
+  {
+    test::LimitMalloc guard;
+    EXPECT_TRUE(snapshot.IsUnchanged());
+  }
 }
 
 }  // namespace
