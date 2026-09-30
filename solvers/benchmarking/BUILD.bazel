@@ -52,6 +52,7 @@ drake_cc_googlebench_binary(
     srcs = ["benchmark_solver_cache.cc"],
     deps = [
         "//common:add_text_logging_gflags",
+        "//common:essential",
         "//solvers:osqp_solver",
         "//solvers:scs_solver",
         "//tools/performance:fixture_common",
@@ -59,7 +60,7 @@ drake_cc_googlebench_binary(
     ],
     add_test_rule = True,
     test_rule_args = [
-        "--benchmark_filter=.*/20/1/0$$",
+        "--benchmark_filter=.*/50/1/0$$",
         "--benchmark_min_time=0.01s",
     ],
 )
