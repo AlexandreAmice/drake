@@ -1,5 +1,6 @@
 #include "drake/solvers/scs_solver.h"
 
+#include <algorithm>
 #include <fstream>
 #include <memory>
 #include <optional>
@@ -27,6 +28,8 @@
 #include "drake/solvers/mathematical_program.h"
 #include "drake/solvers/mathematical_program_result.h"
 #include "drake/solvers/scs_clarabel_common.h"
+#include "drake/solvers/solver_cache_options.h"
+#include "drake/solvers/solver_program_snapshot.h"
 
 // This function must appear in the global namespace -- the Serialize pattern
 // uses ADL (argument-dependent lookup) and the namespace for the ScsSettings
@@ -354,10 +357,34 @@ sol = solver.solve()
 
   out_file.close();
 }
-struct ScsProblemData {
-  ScsProblemData(const MathematicalProgram& prog,
-                 internal::SpecificOptions* options);
-  void Solve(const MathematicalProgram& prog, MathematicalProgramResult* result);
+bool SameSettings(const ScsSettings& a, const ScsSettings& b) {
+  return a.normalize == b.normalize &&
+         a.scale == b.scale &&
+         a.adaptive_scale == b.adaptive_scale &&
+         a.rho_x == b.rho_x &&
+         a.max_iters == b.max_iters &&
+         a.eps_abs == b.eps_abs &&
+         a.eps_rel == b.eps_rel &&
+         a.eps_infeas == b.eps_infeas &&
+         a.alpha == b.alpha &&
+         a.time_limit_secs == b.time_limit_secs &&
+         a.verbose == b.verbose &&
+         a.warm_start == b.warm_start &&
+         a.acceleration_lookback == b.acceleration_lookback &&
+         a.acceleration_interval == b.acceleration_interval;
+}
+
+struct ScsProblemData final : SolverDataCache {
+  ScsProblemData(const MathematicalProgram& prog, bool retain);
+  ~ScsProblemData() final {
+    if (work != nullptr) scs_finish(work);
+  }
+  void Solve(const MathematicalProgram& prog, const Eigen::VectorXd& initial_guess,
+             bool warm_start, MathematicalProgramResult* result);
+  void WriteReproduction(const std::string& filename) const;
+  ScsWork* work{};
+  bool can_warm_start{};
+  std::optional<internal::SolverProgramSnapshot> snapshot;
 
   std::unique_ptr<ScsCone, decltype(&SCS(free_cone))> cone_owner{
       static_cast<ScsCone*>(scs_calloc(1, sizeof(ScsCone))), SCS(free_cone)};
@@ -391,8 +418,9 @@ bool ScsSolver::is_available() {
   return true;
 }
 
-ScsProblemData::ScsProblemData(const MathematicalProgram& prog,
-                                 internal::SpecificOptions* options) {
+ScsProblemData::ScsProblemData(const MathematicalProgram& prog, bool retain)
+    : SolverDataCache(prog, ScsSolver::id()) {
+  if (retain) snapshot.emplace(prog);
   if (!prog.GetVariableScaling().empty()) {
     static const logging::Warn log_once(
         "ScsSolver doesn't support the feature of variable scaling.");
@@ -447,7 +475,6 @@ ScsProblemData::ScsProblemData(const MathematicalProgram& prog,
   // symmetric Hessian.
   std::vector<Eigen::Triplet<double>> P_upper_triplets;
 
-  auto* scs_stgs = &settings;
   std::vector<double> b;
 
   // `c` is the coefficient in the linear cost cᵀx
@@ -633,49 +660,60 @@ ScsProblemData::ScsProblemData(const MathematicalProgram& prog,
   A.setFromTriplets(A_triplets.begin(), A_triplets.end());
   A.makeCompressed();
 
-  // Set the parameters to default values.
-  scs_set_default_settings(scs_stgs);
-  // Customize the defaults for Drake:
-  // - SCS 3.0 uses 1E-4 as the default value, see
-  //   https://www.cvxgrp.org/scs/api/settings.html?highlight=eps_abs). This
-  //   tolerance is too loose. We set the default tolerance to 1E-5 for better
-  //   accuracy.
-  scs_stgs->eps_abs = 1E-5;
-  // - SCS 3.0 uses 1E-4 as the default value, see
-  //   https://www.cvxgrp.org/scs/api/settings.html?highlight=eps_rel). This
-  //   tolerance is too loose. We set the default tolerance to 1E-5 for better
-  //   accuracy.
-  scs_stgs->eps_rel = 1E-5;
-  // Apply the user's additional custom options (if any).
-  options->Respell([&](const auto& common, auto* respelled) {
-    respelled->emplace("verbose", common.print_to_console ? 1 : 0);
-    // TODO(jwnimmer-tri) Handle common.print_file_name.
-    if (!common.standalone_reproduction_file_name.empty()) {
-      Eigen::SparseMatrix<double> P(num_x, num_x);
-      P.setFromTriplets(P_upper_triplets.begin(), P_upper_triplets.end());
-      WriteScsReproduction(common.standalone_reproduction_file_name, P,
-                           Eigen::Map<Eigen::VectorXd>(c.data(), num_x), A,
-                           Eigen::Map<Eigen::VectorXd>(b.data(), b.size()),
-                           *cone);
-    }
-    // SCS does not support setting the number of threads so we ignore the
-    // kMaxThreads option.
-  });
-  options->CopyToSerializableStruct(scs_stgs);
-
   SetScsProblemData(A_row_count, num_x, A, b, P_upper_triplets, c,
                     scs_problem_data);
 
 }
 
+void ScsProblemData::WriteReproduction(const std::string& filename) const {
+  const auto to_eigen = [](const ScsMatrix* matrix, int n) {
+    if (matrix == nullptr) return Eigen::SparseMatrix<double>(n, n);
+    return Eigen::SparseMatrix<double>(
+        Eigen::Map<const Eigen::SparseMatrix<scs_float, Eigen::ColMajor, scs_int>>(
+            matrix->m, matrix->n, matrix->p[matrix->n], matrix->p, matrix->i, matrix->x));
+  };
+  const auto& d = *scs_problem_data;
+  WriteScsReproduction(filename, to_eigen(d.P, d.n),
+      Eigen::Map<Eigen::VectorXd>(d.c, d.n), to_eigen(d.A, d.n),
+      Eigen::Map<Eigen::VectorXd>(d.b, d.m), *cone);
+}
+
 void ScsProblemData::Solve(const MathematicalProgram& prog,
+                           const Eigen::VectorXd& initial_guess, bool warm_start,
                            MathematicalProgramResult* result) {
-  auto* scs_stgs = &settings;
   ScsInfo scs_info{};
   ScsSolverDetails& solver_details =
       result->SetSolverDetailsType<ScsSolverDetails>();
-  solver_details.scs_status =
-      scs(scs_problem_data, cone, scs_stgs, scs_sol, &scs_info);
+  if (work == nullptr) work = scs_init(scs_problem_data, cone, &settings);
+  if (work == nullptr) {
+    result->set_solution_result(SolutionResult::kInvalidInput);
+    return;
+  }
+  bool use_warm_start = warm_start && settings.warm_start && can_warm_start;
+  // Preserve the existing stateless behavior; initial guesses are enabled for
+  // the opt-in cached path, including native auxiliary variables and slacks.
+  if (snapshot && settings.warm_start && initial_guess.array().isFinite().all()) {
+    if (!scs_sol->x) {
+      scs_sol->x = static_cast<scs_float*>(scs_calloc(scs_problem_data->n, sizeof(scs_float)));
+      scs_sol->y = static_cast<scs_float*>(scs_calloc(scs_problem_data->m, sizeof(scs_float)));
+      scs_sol->s = static_cast<scs_float*>(scs_calloc(scs_problem_data->m, sizeof(scs_float)));
+    }
+    if (!use_warm_start) {
+      std::fill_n(scs_sol->x, scs_problem_data->n, 0);
+      std::fill_n(scs_sol->y, scs_problem_data->m, 0);
+      std::fill_n(scs_sol->s, scs_problem_data->m, 0);
+    }
+    Eigen::Map<Eigen::VectorXd>(scs_sol->x, prog.num_vars()) = initial_guess;
+    use_warm_start = true;
+  }
+  solver_details.scs_status = scs_solve(work, scs_sol, &scs_info, use_warm_start);
+  can_warm_start = solver_details.scs_status == SCS_SOLVED ||
+                   solver_details.scs_status == SCS_SOLVED_INACCURATE;
+  if (scs_sol->x == nullptr || scs_sol->y == nullptr || scs_sol->s == nullptr) {
+    can_warm_start = false;
+    result->set_solution_result(SolutionResult::kInvalidInput);
+    return;
+  }
 
   solver_details.iter = scs_info.iter;
   solver_details.primal_objective = scs_info.pobj;
@@ -735,9 +773,47 @@ void ScsSolver::DoSolve2(const MathematicalProgram& prog,
                          const Eigen::VectorXd& initial_guess,
                          internal::SpecificOptions* options,
                          MathematicalProgramResult* result) const {
-  unused(initial_guess);
-  ScsProblemData data(prog, options);
-  data.Solve(prog, result);
+  auto* cached = dynamic_cast<ScsProblemData*>(result->get_mutable_solver_cache());
+  const internal::SolverCacheOptions cache_options(options, cached != nullptr);
+  ScsSettings settings{};
+  scs_set_default_settings(&settings);
+  settings.eps_abs = 1e-5;
+  settings.eps_rel = 1e-5;
+  if (cache_options.retain) settings.warm_start = 1;
+  std::string reproduction_file;
+  options->Respell([&](const auto& common, auto* respelled) {
+    respelled->emplace("verbose", common.print_to_console ? 1 : 0);
+    reproduction_file = common.standalone_reproduction_file_name;
+  });
+  options->CopyToSerializableStruct(&settings);
+  std::string rebuild_reason;
+  if (cached) {
+    rebuild_reason = cached->snapshot->CheckStructure(prog);
+    if (rebuild_reason.empty() && !SameSettings(cached->settings, settings))
+      rebuild_reason = "solver settings changed";
+    if (rebuild_reason.empty() && !cached->snapshot->IsUnchanged())
+      rebuild_reason = "problem coefficients changed";
+    cache_options.CheckRebuild(rebuild_reason);
+  }
+  std::unique_ptr<ScsProblemData> fresh;
+  if (!cached || !rebuild_reason.empty()) {
+    fresh = std::make_unique<ScsProblemData>(prog, cache_options.retain);
+    fresh->settings = settings;
+  }
+  auto& data = fresh ? *fresh : *cached;
+  if (!reproduction_file.empty()) data.WriteReproduction(reproduction_file);
+  auto& details = result->SetSolverDetailsType<ScsSolverDetails>();
+  if (cache_options.retain) {
+    details.cache.status = !cached ? SolverCacheStatus::kCreated
+        : fresh ? SolverCacheStatus::kRebuilt : SolverCacheStatus::kReused;
+    details.cache.rebuild_reason = rebuild_reason;
+  }
+  data.Solve(prog, initial_guess, cache_options.warm_start, result);
+  if (result->get_solution_result() == SolutionResult::kInvalidInput) {
+    result->SetSolverCache(nullptr);
+  } else if (cache_options.retain && fresh) {
+    result->SetSolverCache(std::move(fresh));
+  }
 }
 
 }  // namespace solvers

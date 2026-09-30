@@ -33,6 +33,38 @@ constexpr double kTol = 1e-3;
 
 using testing::HasSubstr;
 
+GTEST_TEST(ScsCacheTest, ReuseAndRebuild) {
+  ScsSolver solver;
+  if (!solver.available()) GTEST_SKIP();
+  MathematicalProgram prog;
+  const auto x = prog.NewContinuousVariables<2>();
+  prog.AddQuadraticCost(x(0) * x(0) + x(1) * x(1));
+  prog.AddBoundingBoxConstraint(1, 2, x);
+  SolverOptions options;
+  options.SetOption(solver.id(), "retain_solver_cache", 1);
+  auto result = solver.Solve(prog, {}, options);
+  ASSERT_TRUE(result.is_success());
+  EXPECT_EQ(result.get_solver_details<ScsSolver>().cache.status,
+            SolverCacheStatus::kCreated);
+  const auto* cache = result.get_solver_cache();
+  solver.Solve(prog, {}, options, &result);
+  ASSERT_TRUE(result.is_success());
+  EXPECT_EQ(result.get_solver_cache(), cache);
+  EXPECT_EQ(result.get_solver_details<ScsSolver>().cache.status,
+            SolverCacheStatus::kReused);
+  auto clone = prog.Clone();
+  EXPECT_THROW(solver.Solve(*clone, {}, options, &result), std::invalid_argument);
+  options.SetOption(solver.id(), "solver_cache_rebuild_policy", "error");
+  prog.AddLinearCost(x(0));
+  EXPECT_THROW(solver.Solve(prog, {}, options, &result), std::runtime_error);
+  EXPECT_EQ(result.get_solver_cache(), cache);
+  options.SetOption(solver.id(), "solver_cache_rebuild_policy", "allow");
+  solver.Solve(prog, {}, options, &result);
+  EXPECT_TRUE(result.is_success());
+  EXPECT_EQ(result.get_solver_details<ScsSolver>().cache.status,
+            SolverCacheStatus::kRebuilt);
+}
+
 GTEST_TEST(LinearProgramTest, Test0) {
   // Test a linear program with only equality constraint.
   // min x(0) + 2 * x(1)

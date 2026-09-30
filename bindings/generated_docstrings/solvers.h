@@ -10093,6 +10093,12 @@ R"""(Type of details stored in MathematicalProgramResult.)""";
 R"""(The SCS solver details after calling Solve() function. The user can
 call MathematicalProgramResult∷get_solver_details<ScsSolver>() to
 obtain the details.)""";
+        // Symbol: drake::solvers::ScsSolverDetails::cache
+        struct /* cache */ {
+          // Source: drake/solvers/scs_solver.h
+          const char* doc =
+R"""(Native workspace reuse during this solve.)""";
+        } cache;
         // Symbol: drake::solvers::ScsSolverDetails::dual_objective
         struct /* dual_objective */ {
           // Source: drake/solvers/scs_solver.h

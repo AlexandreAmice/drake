@@ -1138,6 +1138,8 @@ drake_cc_variant_library(
     ],
     implementation_deps_enabled = [
         ":scs_clarabel_common",
+        ":solver_cache_options",
+        ":solver_program_snapshot",
         "//common:scope_exit",
         "//math:eigen_sparse_triplet",
         "//math:matrix_util",

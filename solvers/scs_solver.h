@@ -13,6 +13,8 @@ namespace solvers {
  * details.
  */
 struct ScsSolverDetails {
+  /// Native workspace reuse during this solve.
+  SolverCacheDetails cache;
   /// The status of the solver at termination. Please refer to
   /// https://github.com/cvxgrp/scs/blob/master/include/glbopts.h
   /// Note that the SCS code on github master might be slightly more up-to-date
