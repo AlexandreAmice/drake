@@ -59,6 +59,7 @@
 // #include "drake/solvers/solution_result.h"
 // #include "drake/solvers/solve.h"
 // #include "drake/solvers/solver_base.h"
+// #include "drake/solvers/solver_data_cache.h"
 // #include "drake/solvers/solver_id.h"
 // #include "drake/solvers/solver_interface.h"
 // #include "drake/solvers/solver_options.h"
@@ -6903,6 +6904,12 @@ R"""(Constructs the result.
 Note:
     The solver_details is set to nullptr.)""";
         } ctor;
+        // Symbol: drake::solvers::MathematicalProgramResult::ReleaseSolverCache
+        struct /* ReleaseSolverCache */ {
+          // Source: drake/solvers/mathematical_program_result.h
+          const char* doc =
+R"""((Advanced.) Transfers cache ownership out of this result.)""";
+        } ReleaseSolverCache;
         // Symbol: drake::solvers::MathematicalProgramResult::SetSolution
         struct /* SetSolution */ {
           // Source: drake/solvers/mathematical_program_result.h
@@ -6915,6 +6922,12 @@ Raises:
     ``decision_variable_index``, as the input argument of
     set_decision_variable_index().)""";
         } SetSolution;
+        // Symbol: drake::solvers::MathematicalProgramResult::SetSolverCache
+        struct /* SetSolverCache */ {
+          // Source: drake/solvers/mathematical_program_result.h
+          const char* doc =
+R"""((Advanced.) Installs native state owned by this result.)""";
+        } SetSolverCache;
         // Symbol: drake::solvers::MathematicalProgramResult::SetSolverDetailsType
         struct /* SetSolverDetailsType */ {
           // Source: drake/solvers/mathematical_program_result.h
@@ -6941,6 +6954,12 @@ has not been set.)""";
           // Source: drake/solvers/mathematical_program_result.h
           const char* doc = R"""(Gets decision_variable_index.)""";
         } get_decision_variable_index;
+        // Symbol: drake::solvers::MathematicalProgramResult::get_mutable_solver_cache
+        struct /* get_mutable_solver_cache */ {
+          // Source: drake/solvers/mathematical_program_result.h
+          const char* doc =
+R"""((Advanced.) Mutable access for solver implementations.)""";
+        } get_mutable_solver_cache;
         // Symbol: drake::solvers::MathematicalProgramResult::get_optimal_cost
         struct /* get_optimal_cost */ {
           // Source: drake/solvers/mathematical_program_result.h
@@ -6951,6 +6970,14 @@ has not been set.)""";
           // Source: drake/solvers/mathematical_program_result.h
           const char* doc = R"""(Gets SolutionResult.)""";
         } get_solution_result;
+        // Symbol: drake::solvers::MathematicalProgramResult::get_solver_cache
+        struct /* get_solver_cache */ {
+          // Source: drake/solvers/mathematical_program_result.h
+          const char* doc =
+R"""(Returns the optional native solver cache. Copies of this result omit
+the cache; moves transfer it. The pointer is borrowed and is
+invalidated by replacing the cache or destroying this result.)""";
+        } get_solver_cache;
         // Symbol: drake::solvers::MathematicalProgramResult::get_solver_details
         struct /* get_solver_details */ {
           // Source: drake/solvers/mathematical_program_result.h
@@ -6982,6 +7009,12 @@ Precondition:
           // Source: drake/solvers/mathematical_program_result.h
           const char* doc = R"""(Gets the decision variable values.)""";
         } get_x_val;
+        // Symbol: drake::solvers::MathematicalProgramResult::has_solver_cache
+        struct /* has_solver_cache */ {
+          // Source: drake/solvers/mathematical_program_result.h
+          const char* doc =
+R"""(Returns whether this result owns a native solver cache.)""";
+        } has_solver_cache;
         // Symbol: drake::solvers::MathematicalProgramResult::is_success
         struct /* is_success */ {
           // Source: drake/solvers/mathematical_program_result.h
@@ -10522,6 +10555,78 @@ default implementation.)""";
           const char* doc = R"""()""";
         } solver_id;
       } SolverBase;
+      // Symbol: drake::solvers::SolverCacheDetails
+      struct /* SolverCacheDetails */ {
+        // Source: drake/solvers/solver_data_cache.h
+        const char* doc =
+R"""(Cache diagnostics for one solve; independent of the retained
+workspace.)""";
+        // Symbol: drake::solvers::SolverCacheDetails::rebuild_reason
+        struct /* rebuild_reason */ {
+          // Source: drake/solvers/solver_data_cache.h
+          const char* doc = R"""()""";
+        } rebuild_reason;
+        // Symbol: drake::solvers::SolverCacheDetails::status
+        struct /* status */ {
+          // Source: drake/solvers/solver_data_cache.h
+          const char* doc = R"""()""";
+        } status;
+      } SolverCacheDetails;
+      // Symbol: drake::solvers::SolverCacheStatus
+      struct /* SolverCacheStatus */ {
+        // Source: drake/solvers/solver_data_cache.h
+        const char* doc =
+R"""(What happened to the native workspace during this solve.)""";
+        // Symbol: drake::solvers::SolverCacheStatus::kCreated
+        struct /* kCreated */ {
+          // Source: drake/solvers/solver_data_cache.h
+          const char* doc = R"""()""";
+        } kCreated;
+        // Symbol: drake::solvers::SolverCacheStatus::kNotUsed
+        struct /* kNotUsed */ {
+          // Source: drake/solvers/solver_data_cache.h
+          const char* doc = R"""()""";
+        } kNotUsed;
+        // Symbol: drake::solvers::SolverCacheStatus::kRebuilt
+        struct /* kRebuilt */ {
+          // Source: drake/solvers/solver_data_cache.h
+          const char* doc = R"""()""";
+        } kRebuilt;
+        // Symbol: drake::solvers::SolverCacheStatus::kReused
+        struct /* kReused */ {
+          // Source: drake/solvers/solver_data_cache.h
+          const char* doc = R"""()""";
+        } kReused;
+        // Symbol: drake::solvers::SolverCacheStatus::kUpdated
+        struct /* kUpdated */ {
+          // Source: drake/solvers/solver_data_cache.h
+          const char* doc = R"""()""";
+        } kUpdated;
+      } SolverCacheStatus;
+      // Symbol: drake::solvers::SolverDataCache
+      struct /* SolverDataCache */ {
+        // Source: drake/solvers/solver_data_cache.h
+        const char* doc =
+R"""(Opaque native solver state owned by a MathematicalProgramResult. The
+cache belongs to one solver and one program instance. It may outlive
+either, but cannot be used with another program, including a Clone().)""";
+        // Symbol: drake::solvers::SolverDataCache::CheckCompatibility
+        struct /* CheckCompatibility */ {
+          // Source: drake/solvers/solver_data_cache.h
+          const char* doc =
+R"""(Throws if the solver or program does not match this cache.)""";
+        } CheckCompatibility;
+        // Symbol: drake::solvers::SolverDataCache::SolverDataCache
+        struct /* ctor */ {
+          // Source: drake/solvers/solver_data_cache.h
+          const char* doc = R"""()""";
+        } ctor;
+        // Symbol: drake::solvers::SolverDataCache::solver_id
+        struct /* solver_id */ {
+          // Source: drake/solvers/solver_data_cache.h
+          const char* doc = R"""()""";
+        } solver_id;
+      } SolverDataCache;
       // Symbol: drake::solvers::SolverId
       struct /* SolverId */ {
         // Source: drake/solvers/solver_id.h

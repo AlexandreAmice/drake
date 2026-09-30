@@ -24,6 +24,7 @@
 #include "drake/common/drake_copyable.h"
 #include "drake/common/eigen_types.h"
 #include "drake/common/fmt.h"
+#include "drake/common/identifier.h"
 #include "drake/common/polynomial.h"
 #include "drake/common/symbolic/expression.h"
 #include "drake/common/symbolic/monomial_util.h"
@@ -3770,6 +3771,12 @@ class MathematicalProgram {
   //@}
 
  private:
+  friend class SolverDataCache;
+  // Identity is distinct even for clones or programs allocated at a reused
+  // address. Only the solver cache needs to inspect it.
+  Identifier<MathematicalProgram> solver_cache_id_{
+      Identifier<MathematicalProgram>::get_new_id()};
+
   // Copy constructor is private for use in implementing Clone().
   explicit MathematicalProgram(const MathematicalProgram&);
 

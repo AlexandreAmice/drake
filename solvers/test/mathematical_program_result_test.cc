@@ -1,9 +1,12 @@
 #include "drake/solvers/mathematical_program_result.h"
 
+#include <cstddef>
 #include <limits>
 #include <memory>
+#include <new>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -18,6 +21,54 @@
 namespace drake {
 namespace solvers {
 namespace {
+class TestCache final : public SolverDataCache {
+ public:
+  explicit TestCache(const MathematicalProgram& prog)
+      : SolverDataCache(prog, OsqpSolver::id()) {}
+};
+
+GTEST_TEST(SolverCacheTest, OwnershipAndProgramIdentity) {
+  MathematicalProgram prog;
+  MathematicalProgram other;
+  MathematicalProgramResult result;
+  result.set_optimal_cost(42.0);
+  result.SetSolverCache(std::make_unique<TestCache>(prog));
+  const auto* cache = result.get_solver_cache();
+  EXPECT_NO_THROW(cache->CheckCompatibility(prog, OsqpSolver::id()));
+  EXPECT_THROW(cache->CheckCompatibility(other, OsqpSolver::id()),
+               std::invalid_argument);
+  auto clone = prog.Clone();
+  EXPECT_THROW(cache->CheckCompatibility(*clone, OsqpSolver::id()),
+               std::invalid_argument);
+  EXPECT_THROW(cache->CheckCompatibility(prog, SnoptSolver::id()),
+               std::invalid_argument);
+  MathematicalProgramResult copied(result);
+  EXPECT_EQ(copied.get_solver_cache(), nullptr);
+  EXPECT_EQ(copied.get_optimal_cost(), 42.0);
+  EXPECT_EQ(result.get_solver_cache(), cache);
+  copied = result;
+  EXPECT_EQ(copied.get_solver_cache(), nullptr);
+  MathematicalProgramResult moved(std::move(result));
+  EXPECT_EQ(moved.get_solver_cache(), cache);
+  EXPECT_EQ(result.get_solver_cache(), nullptr);
+  result = std::move(moved);
+  EXPECT_EQ(result.get_solver_cache(), cache);
+  copied.SetSolverCache(std::make_unique<TestCache>(prog));
+  copied = result;
+  EXPECT_EQ(copied.get_solver_cache(), nullptr);
+}
+
+GTEST_TEST(SolverCacheTest, ReusedProgramAddress) {
+  alignas(MathematicalProgram) std::byte storage[sizeof(MathematicalProgram)];
+  auto* first = new (storage) MathematicalProgram;
+  TestCache cache(*first);
+  first->~MathematicalProgram();
+  auto* second = new (storage) MathematicalProgram;
+  EXPECT_THROW(cache.CheckCompatibility(*second, OsqpSolver::id()),
+               std::invalid_argument);
+  second->~MathematicalProgram();
+}
+
 class MathematicalProgramResultTest : public ::testing::Test {
  public:
   MathematicalProgramResultTest()

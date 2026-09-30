@@ -417,6 +417,7 @@ drake_cc_library(
         ":solver_options",
         "//common:autodiff",
         "//common:essential",
+        "//common:identifier",
         "//common:polynomial",
         "//common/symbolic:expression",
         "//common/symbolic:monomial_util",
@@ -430,6 +431,17 @@ drake_cc_library(
 )
 
 drake_cc_library(
+    name = "solver_data_cache",
+    srcs = ["solver_data_cache.cc"],
+    hdrs = ["solver_data_cache.h"],
+    deps = [
+        ":mathematical_program",
+        ":solver_id",
+        "//common:identifier",
+    ],
+)
+
+drake_cc_library(
     name = "mathematical_program_result",
     srcs = ["mathematical_program_result.cc"],
     hdrs = ["mathematical_program_result.h"],
@@ -438,6 +450,7 @@ drake_cc_library(
         ":constraint",
         ":mathematical_program",
         ":solution_result",
+        ":solver_data_cache",
         ":solver_id",
         "//common:value",
         "//common/symbolic:expression",
