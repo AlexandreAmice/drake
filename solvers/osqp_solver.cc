@@ -1,8 +1,11 @@
 #include "drake/solvers/osqp_solver.h"
 
+#include <algorithm>
+#include <map>
 #include <memory>
 #include <optional>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include <osqp.h>
@@ -12,9 +15,9 @@
 #include "drake/math/eigen_sparse_triplet.h"
 #include "drake/solvers/aggregate_costs_constraints.h"
 #include "drake/solvers/mathematical_program.h"
-#include "drake/solvers/specific_options.h"
 #include "drake/solvers/solver_cache_options.h"
 #include "drake/solvers/solver_program_snapshot.h"
+#include "drake/solvers/specific_options.h"
 
 // This function must appear in the global namespace -- the Serialize pattern
 // uses ADL (argument-dependent lookup) and the namespace for the OSQPSettings
@@ -252,35 +255,25 @@ OSQPCscMatrix* EigenSparseToCSC(const Eigen::SparseMatrix<OSQPFloat>& mat) {
 }
 
 bool SameSettings(const OSQPSettings& a, const OSQPSettings& b) {
-  return a.device == b.device &&
-         a.allocate_solution == b.allocate_solution &&
-         a.verbose == b.verbose &&
-         a.profiler_level == b.profiler_level &&
-         a.warm_starting == b.warm_starting &&
-         a.scaling == b.scaling &&
-         a.polishing == b.polishing &&
-         a.rho == b.rho &&
-         a.rho_is_vec == b.rho_is_vec &&
-         a.sigma == b.sigma &&
-         a.alpha == b.alpha &&
-         a.cg_max_iter == b.cg_max_iter &&
+  return a.device == b.device && a.allocate_solution == b.allocate_solution &&
+         a.verbose == b.verbose && a.profiler_level == b.profiler_level &&
+         a.warm_starting == b.warm_starting && a.scaling == b.scaling &&
+         a.polishing == b.polishing && a.rho == b.rho &&
+         a.rho_is_vec == b.rho_is_vec && a.sigma == b.sigma &&
+         a.alpha == b.alpha && a.cg_max_iter == b.cg_max_iter &&
          a.cg_tol_reduction == b.cg_tol_reduction &&
          a.cg_tol_fraction == b.cg_tol_fraction &&
          a.adaptive_rho == b.adaptive_rho &&
          a.adaptive_rho_interval == b.adaptive_rho_interval &&
          a.adaptive_rho_fraction == b.adaptive_rho_fraction &&
          a.adaptive_rho_tolerance == b.adaptive_rho_tolerance &&
-         a.max_iter == b.max_iter &&
-         a.eps_abs == b.eps_abs &&
-         a.eps_rel == b.eps_rel &&
-         a.eps_prim_inf == b.eps_prim_inf &&
+         a.max_iter == b.max_iter && a.eps_abs == b.eps_abs &&
+         a.eps_rel == b.eps_rel && a.eps_prim_inf == b.eps_prim_inf &&
          a.eps_dual_inf == b.eps_dual_inf &&
          a.scaled_termination == b.scaled_termination &&
          a.check_termination == b.check_termination &&
-         a.check_dualgap == b.check_dualgap &&
-         a.time_limit == b.time_limit &&
-         a.delta == b.delta &&
-         a.polish_refine_iter == b.polish_refine_iter;
+         a.check_dualgap == b.check_dualgap && a.time_limit == b.time_limit &&
+         a.delta == b.delta && a.polish_refine_iter == b.polish_refine_iter;
 }
 
 // Own both Drake's translation buffers and the native solver workspace.
@@ -308,13 +301,92 @@ struct OsqpProblemData final : SolverDataCache {
                       A_sparse.rows(), q.size(), &settings);
   }
 
-  std::string CheckUpdates() const {
-    for (const auto* entries : {&snapshot->costs, &snapshot->constraints}) {
-      for (const auto& entry : *entries) {
-        if (!entry.MatrixMatches()) return "problem matrices changed";
+  // Find existing CSC slots without inserting entries or changing sparsity.
+  static int FindEntry(const Eigen::SparseMatrix<OSQPFloat>& matrix, int row,
+                       int col) {
+    const auto* begin = matrix.innerIndexPtr() + matrix.outerIndexPtr()[col];
+    const auto* end = matrix.innerIndexPtr() + matrix.outerIndexPtr()[col + 1];
+    const auto* found = std::lower_bound(begin, end, row);
+    return found != end && *found == row ? found - matrix.innerIndexPtr() : -1;
+  }
+
+  std::string CollectMatrixChanges(const MathematicalProgram& prog,
+                                   std::map<int, double>* p_changes,
+                                   std::map<int, double>* a_changes) const {
+    std::string reason;
+    const auto scale = [&](int index) {
+      const auto it = prog.GetVariableScaling().find(index);
+      return it == prog.GetVariableScaling().end() ? 1.0 : it->second;
+    };
+    const auto add = [&](const auto& matrix, int row, int col, double delta,
+                         auto* changes) {
+      if (delta == 0) return;
+      const int index = FindEntry(matrix, row, col);
+      if (index < 0)
+        reason = "matrix sparsity changed";
+      else
+        (*changes)[index] += delta;
+    };
+    for (const auto& entry : snapshot->costs) {
+      if (entry.MatrixMatches()) continue;
+      const auto& Q = *entry.current_Q();
+      for (int j = 0; j < Q.cols(); ++j) {
+        for (int i = 0; i <= j; ++i) {
+          const int vi = entry.variable_indices[i];
+          const int vj = entry.variable_indices[j];
+          const double factor = i != j && vi == vj ? 2 : 1;
+          add(P_upper_sparse, std::min(vi, vj), std::max(vi, vj),
+              factor * scale(vi) * scale(vj) * (Q(i, j) - entry.Q(i, j)),
+              p_changes);
+        }
       }
     }
-    return {};
+    int row = 0;
+    for (const auto& entry : snapshot->constraints) {
+      if (!entry.MatrixMatches()) {
+        const auto add_matrix = [&](const auto& A, double sign) {
+          for (int j = 0; j < A.outerSize(); ++j) {
+            const int col = entry.variable_indices[j];
+            for (Eigen::SparseMatrix<double>::InnerIterator it(A, j); it;
+                 ++it) {
+              add(A_sparse, row + it.row(), col, sign * scale(col) * it.value(),
+                  a_changes);
+            }
+          }
+        };
+        add_matrix(entry.A, -1);
+        add_matrix(*entry.current_A(), 1);
+      }
+      row += entry.v.size();
+    }
+    return reason;
+  }
+
+  std::string CheckUpdates(const MathematicalProgram& prog) const {
+    std::map<int, double> p_changes, a_changes;
+    return CollectMatrixChanges(prog, &p_changes, &a_changes);
+  }
+
+  OSQPInt UpdateMatrices(const MathematicalProgram& prog) {
+    std::map<int, double> p_changes, a_changes;
+    DRAKE_DEMAND(CollectMatrixChanges(prog, &p_changes, &a_changes).empty());
+    std::vector<OSQPInt> pi, ai;
+    std::vector<OSQPFloat> px, ax;
+    const auto apply = [](const auto& changes, auto* matrix, auto* indices,
+                          auto* values) {
+      for (const auto& [index, delta] : changes) {
+        if (delta == 0) continue;
+        indices->push_back(index);
+        matrix->valuePtr()[index] += delta;
+        values->push_back(matrix->valuePtr()[index]);
+      }
+    };
+    apply(p_changes, &P_upper_sparse, &pi, &px);
+    apply(a_changes, &A_sparse, &ai, &ax);
+    if (px.empty() && ax.empty()) return 0;
+    return osqp_update_data_mat(
+        solver, px.empty() ? nullptr : px.data(), pi.data(), pi.size(),
+        ax.empty() ? nullptr : ax.data(), ai.data(), ai.size());
   }
 
   OSQPInt UpdateVectors(const MathematicalProgram& prog) {
@@ -328,7 +400,9 @@ struct OsqpProblemData final : SolverDataCache {
         if (delta == 0) continue;
         const int index = entry.variable_indices[i];
         const auto scale = prog.GetVariableScaling().find(index);
-        q[index] += delta * (scale == prog.GetVariableScaling().end() ? 1 : scale->second);
+        q[index] +=
+            delta *
+            (scale == prog.GetVariableScaling().end() ? 1 : scale->second);
         cost_changed = true;
       }
       constant_cost_term += entry.current_constant() - entry.constant;
@@ -347,8 +421,8 @@ struct OsqpProblemData final : SolverDataCache {
     OSQPInt error = 0;
     if (cost_changed || bounds_changed) {
       error = osqp_update_data_vec(solver, cost_changed ? q.data() : nullptr,
-                                  bounds_changed ? l.data() : nullptr,
-                                  bounds_changed ? u.data() : nullptr);
+                                   bounds_changed ? l.data() : nullptr,
+                                   bounds_changed ? u.data() : nullptr);
     }
     if (error == 0) {
       for (auto* entries : {&snapshot->costs, &snapshot->constraints}) {
@@ -401,7 +475,8 @@ void OsqpSolver::DoSolve2(const MathematicalProgram& prog,
   OsqpSolverDetails& solver_details =
       result->SetSolverDetailsType<OsqpSolverDetails>();
 
-  auto* cached = dynamic_cast<OsqpProblemData*>(result->get_mutable_solver_cache());
+  auto* cached =
+      dynamic_cast<OsqpProblemData*>(result->get_mutable_solver_cache());
   const internal::SolverCacheOptions cache_options(options, cached != nullptr);
   OSQPSettings new_settings{};
   auto* settings = &new_settings;
@@ -424,7 +499,7 @@ void OsqpSolver::DoSolve2(const MathematicalProgram& prog,
     rebuild_reason = cached->snapshot->CheckStructure(prog);
     if (rebuild_reason.empty() && !SameSettings(cached->settings, new_settings))
       rebuild_reason = "solver settings changed";
-    if (rebuild_reason.empty()) rebuild_reason = cached->CheckUpdates();
+    if (rebuild_reason.empty()) rebuild_reason = cached->CheckUpdates(prog);
     cache_options.CheckRebuild(rebuild_reason);
   }
   std::unique_ptr<OsqpProblemData> fresh;
@@ -438,8 +513,10 @@ void OsqpSolver::DoSolve2(const MathematicalProgram& prog,
   const int m = data.A_sparse.rows();
   auto*& solver = data.solver;
   if (cache_options.retain) {
-    solver_details.cache.status = cached == nullptr ? SolverCacheStatus::kCreated
-        : fresh ? SolverCacheStatus::kRebuilt : SolverCacheStatus::kReused;
+    solver_details.cache.status = cached == nullptr
+                                      ? SolverCacheStatus::kCreated
+                                  : fresh ? SolverCacheStatus::kRebuilt
+                                          : SolverCacheStatus::kReused;
     solver_details.cache.rebuild_reason = rebuild_reason;
   }
 
@@ -454,9 +531,15 @@ void OsqpSolver::DoSolve2(const MathematicalProgram& prog,
   }
 
   if (!fresh && !data.snapshot->IsUnchanged()) {
-    if (data.UpdateVectors(prog) != 0) {
+    if (data.UpdateMatrices(prog) != 0 || data.UpdateVectors(prog) != 0) {
       solution_result = SolutionResult::kInvalidInput;
     } else {
+      for (auto* entries :
+           {&data.snapshot->costs, &data.snapshot->constraints}) {
+        for (auto& entry : *entries) {
+          if (!entry.MatrixMatches()) entry.Refresh();
+        }
+      }
       solver_details.cache.status = SolverCacheStatus::kUpdated;
     }
   }
@@ -467,7 +550,8 @@ void OsqpSolver::DoSolve2(const MathematicalProgram& prog,
   if (!solution_result && initial_guess.array().isFinite().all() &&
       (!cache_options.retain || new_settings.warm_starting)) {
     Eigen::VectorXd guess = initial_guess;
-    for (const auto& [index, scale] : prog.GetVariableScaling()) guess(index) /= scale;
+    for (const auto& [index, scale] : prog.GetVariableScaling())
+      guess(index) /= scale;
     const OSQPInt error = osqp_warm_start(solver, guess.data(), nullptr);
     if (error != 0) solution_result = SolutionResult::kInvalidInput;
   }
@@ -550,7 +634,8 @@ void OsqpSolver::DoSolve2(const MathematicalProgram& prog,
   if (solution_result == SolutionResult::kInvalidInput) {
     result->SetSolverCache(nullptr);
   } else {
-    if (solution_result != SolutionResult::kSolutionFound) osqp_cold_start(solver);
+    if (solution_result != SolutionResult::kSolutionFound)
+      osqp_cold_start(solver);
     if (cache_options.retain && fresh) result->SetSolverCache(std::move(fresh));
   }
 }
