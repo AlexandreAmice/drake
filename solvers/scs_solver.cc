@@ -358,18 +358,12 @@ sol = solver.solve()
   out_file.close();
 }
 bool SameSettings(const ScsSettings& a, const ScsSettings& b) {
-  return a.normalize == b.normalize &&
-         a.scale == b.scale &&
-         a.adaptive_scale == b.adaptive_scale &&
-         a.rho_x == b.rho_x &&
-         a.max_iters == b.max_iters &&
-         a.eps_abs == b.eps_abs &&
-         a.eps_rel == b.eps_rel &&
-         a.eps_infeas == b.eps_infeas &&
-         a.alpha == b.alpha &&
-         a.time_limit_secs == b.time_limit_secs &&
-         a.verbose == b.verbose &&
-         a.warm_start == b.warm_start &&
+  return a.normalize == b.normalize && a.scale == b.scale &&
+         a.adaptive_scale == b.adaptive_scale && a.rho_x == b.rho_x &&
+         a.max_iters == b.max_iters && a.eps_abs == b.eps_abs &&
+         a.eps_rel == b.eps_rel && a.eps_infeas == b.eps_infeas &&
+         a.alpha == b.alpha && a.time_limit_secs == b.time_limit_secs &&
+         a.verbose == b.verbose && a.warm_start == b.warm_start &&
          a.acceleration_lookback == b.acceleration_lookback &&
          a.acceleration_interval == b.acceleration_interval;
 }
@@ -379,13 +373,16 @@ struct ScsProblemData final : SolverDataCache {
   ~ScsProblemData() final {
     if (work != nullptr) scs_finish(work);
   }
-  void Solve(const MathematicalProgram& prog, const Eigen::VectorXd& initial_guess,
-             bool warm_start, MathematicalProgramResult* result);
+  void Solve(const MathematicalProgram& prog,
+             const Eigen::VectorXd& initial_guess, bool warm_start,
+             MathematicalProgramResult* result);
   void WriteReproduction(const std::string& filename) const;
   std::string CheckUpdates() const;
   scs_int UpdateVectors();
   void InitializeVectorRows();
   bool quadratic_reformulated{};
+  std::vector<int> constraint_cone_rows;
+  std::vector<int> cost_cone_rows;
   std::vector<std::vector<std::pair<int, int>>> constraint_rows;
   ScsWork* work{};
   bool can_warm_start{};
@@ -396,7 +393,8 @@ struct ScsProblemData final : SolverDataCache {
   std::unique_ptr<ScsData, decltype(&SCS(free_data))> data_owner{
       static_cast<ScsData*>(scs_calloc(1, sizeof(ScsData))), SCS(free_data)};
   std::unique_ptr<ScsSolution, decltype(&SCS(free_sol))> solution_owner{
-      static_cast<ScsSolution*>(scs_calloc(1, sizeof(ScsSolution))), SCS(free_sol)};
+      static_cast<ScsSolution*>(scs_calloc(1, sizeof(ScsSolution))),
+      SCS(free_sol)};
   ScsCone* cone{cone_owner.get()};
   ScsData* scs_problem_data{data_owner.get()};
   ScsSolution* scs_sol{solution_owner.get()};
@@ -488,7 +486,6 @@ ScsProblemData::ScsProblemData(const MathematicalProgram& prog, bool retain)
   // Our cost (LinearCost, QuadraticCost, etc) also allows a constant term, we
   // add these constant terms to `cost_constant`.
 
-
   // Parse linear cost
   internal::ParseLinearCosts(prog, &c, &cost_constant);
 
@@ -537,7 +534,6 @@ ScsProblemData::ScsProblemData(const MathematicalProgram& prog, bool retain)
   // ParsePositiveSemidefiniteConstraints().
   int scalar_psd_positive_cone_length{};
 
-
   internal::ParseScalarPositiveSemidefiniteConstraints(
       prog, &A_triplets, &b, &A_row_count, &scalar_psd_positive_cone_length,
       &scalar_psd_dual_indices, &scalar_lmi_dual_indices);
@@ -570,7 +566,6 @@ ScsProblemData::ScsProblemData(const MathematicalProgram& prog, bool retain)
   // ParsePositiveSemidefiniteConstraints() as the 2x2 PSD/LMI constraints are
   // formulated as second order cones.
   int num_second_order_cones_from_psd{};
-
 
   internal::Parse2x2PositiveSemidefiniteConstraints(
       prog, &A_triplets, &b, &A_row_count, &num_second_order_cones_from_psd,
@@ -622,7 +617,6 @@ ScsProblemData::ScsProblemData(const MathematicalProgram& prog, bool retain)
   std::vector<std::optional<int>> psd_cone_length;
   std::vector<std::optional<int>> lmi_cone_length;
 
-
   internal::ParsePositiveSemidefiniteConstraints(
       prog, /* upper_triangular = */ false, &A_triplets, &b, &A_row_count,
       &psd_cone_length, &lmi_cone_length, &psd_y_start_indices,
@@ -672,10 +666,18 @@ ScsProblemData::ScsProblemData(const MathematicalProgram& prog, bool retain)
 }
 
 void ScsProblemData::InitializeVectorRows() {
-  int linear = 0, equality = 0, box = 0;
+  int l2 = 0;
+  for (const auto& entry : snapshot->costs) {
+    cost_cone_rows.push_back(
+        dynamic_cast<const L2NormCost*>(entry.binding.evaluator().get())
+            ? l2norm_costs_lorentz_cone_y_start_indices[l2++] + 1
+            : -1);
+  }
+  int linear = 0, equality = 0, box = 0, lorentz = 0, rotated = 0;
   for (const auto& entry : snapshot->constraints) {
     const auto* e = entry.binding.evaluator().get();
     std::vector<std::pair<int, int>> rows;
+    int cone_row = -1;
     if (dynamic_cast<const BoundingBoxConstraint*>(e)) {
       rows = bbcon_dual_indices[box++];
     } else if (dynamic_cast<const LinearEqualityConstraint*>(e)) {
@@ -683,7 +685,12 @@ void ScsProblemData::InitializeVectorRows() {
       for (int i = 0; i < entry.v.size(); ++i) rows.emplace_back(start + i, -1);
     } else if (dynamic_cast<const LinearConstraint*>(e)) {
       rows = linear_constraint_dual_indices[linear++];
+    } else if (dynamic_cast<const LorentzConeConstraint*>(e)) {
+      cone_row = lorentz_cone_y_start_indices[lorentz++];
+    } else if (dynamic_cast<const RotatedLorentzConeConstraint*>(e)) {
+      cone_row = rotated_lorentz_cone_y_start_indices[rotated++];
     }
+    constraint_cone_rows.push_back(cone_row);
     constraint_rows.push_back(std::move(rows));
   }
 }
@@ -696,14 +703,14 @@ std::string ScsProblemData::CheckUpdates() const {
   }
   for (const auto& entry : snapshot->costs) {
     if (entry.VectorsMatch()) continue;
-    if (dynamic_cast<const L2NormCost*>(entry.binding.evaluator().get()))
-      return "cost reformulation changed";
+
     if (quadratic_reformulated && entry.current_Q())
       return "quadratic cost reformulation changed";
   }
   for (size_t j = 0; j < snapshot->constraints.size(); ++j) {
     const auto& entry = snapshot->constraints[j];
     if (entry.VectorsMatch()) continue;
+    if (constraint_cone_rows[j] >= 0) continue;
     if (constraint_rows[j].empty()) return "constraint reformulation changed";
     for (int i = 0; i < entry.v.size(); ++i) {
       if (std::isinf(entry.v(i)) != std::isinf((*entry.current_v())(i)) ||
@@ -716,9 +723,16 @@ std::string ScsProblemData::CheckUpdates() const {
 
 scs_int ScsProblemData::UpdateVectors() {
   bool c_changed = false, b_changed = false;
-  for (auto& entry : snapshot->costs) {
+  for (size_t j = 0; j < snapshot->costs.size(); ++j) {
+    auto& entry = snapshot->costs[j];
     if (entry.VectorsMatch()) continue;
     const auto& b = *entry.current_v();
+    if (cost_cone_rows[j] >= 0) {
+      for (int i = 0; i < b.size(); ++i)
+        scs_problem_data->b[cost_cone_rows[j] + i] = b(i);
+      b_changed = true;
+      continue;
+    }
     for (int i = 0; i < b.size(); ++i) {
       const double delta = b(i) - entry.v(i);
       if (delta == 0) continue;
@@ -730,19 +744,34 @@ scs_int ScsProblemData::UpdateVectors() {
   for (size_t j = 0; j < snapshot->constraints.size(); ++j) {
     auto& entry = snapshot->constraints[j];
     if (entry.VectorsMatch()) continue;
+    if (constraint_cone_rows[j] >= 0) {
+      const int start = constraint_cone_rows[j];
+      const auto& b = *entry.current_v();
+      for (int i = 0; i < b.size(); ++i) scs_problem_data->b[start + i] = b(i);
+      if (dynamic_cast<const RotatedLorentzConeConstraint*>(
+              entry.binding.evaluator().get())) {
+        scs_problem_data->b[start] = 0.5 * (b(0) + b(1));
+        scs_problem_data->b[start + 1] = 0.5 * (b(0) - b(1));
+      }
+      b_changed = true;
+      continue;
+    }
     const bool equality = dynamic_cast<const LinearEqualityConstraint*>(
-        entry.binding.evaluator().get()) != nullptr;
+                              entry.binding.evaluator().get()) != nullptr;
     for (int i = 0; i < entry.v.size(); ++i) {
       const auto [lower, upper] = constraint_rows[j][i];
-      if (lower >= 0) scs_problem_data->b[lower] =
-          (equality ? 1 : -1) * (*entry.current_v())(i);
+      if (lower >= 0)
+        scs_problem_data->b[lower] =
+            (equality ? 1 : -1) * (*entry.current_v())(i);
       if (upper >= 0) scs_problem_data->b[upper] = (*entry.current_w())(i);
     }
     b_changed = true;
   }
-  const scs_int error = b_changed || c_changed ? scs_update(work,
-      b_changed ? scs_problem_data->b : nullptr,
-      c_changed ? scs_problem_data->c : nullptr) : 0;
+  const scs_int error =
+      b_changed || c_changed
+          ? scs_update(work, b_changed ? scs_problem_data->b : nullptr,
+                       c_changed ? scs_problem_data->c : nullptr)
+          : 0;
   if (error == 0) {
     for (auto* entries : {&snapshot->costs, &snapshot->constraints}) {
       for (auto& entry : *entries) {
@@ -757,18 +786,20 @@ void ScsProblemData::WriteReproduction(const std::string& filename) const {
   const auto to_eigen = [](const ScsMatrix* matrix, int n) {
     if (matrix == nullptr) return Eigen::SparseMatrix<double>(n, n);
     return Eigen::SparseMatrix<double>(
-        Eigen::Map<const Eigen::SparseMatrix<scs_float, Eigen::ColMajor, scs_int>>(
-            matrix->m, matrix->n, matrix->p[matrix->n], matrix->p, matrix->i, matrix->x));
+        Eigen::Map<
+            const Eigen::SparseMatrix<scs_float, Eigen::ColMajor, scs_int>>(
+            matrix->m, matrix->n, matrix->p[matrix->n], matrix->p, matrix->i,
+            matrix->x));
   };
   const auto& d = *scs_problem_data;
-  WriteScsReproduction(filename, to_eigen(d.P, d.n),
-      Eigen::Map<Eigen::VectorXd>(d.c, d.n), to_eigen(d.A, d.n),
-      Eigen::Map<Eigen::VectorXd>(d.b, d.m), *cone);
+  WriteScsReproduction(
+      filename, to_eigen(d.P, d.n), Eigen::Map<Eigen::VectorXd>(d.c, d.n),
+      to_eigen(d.A, d.n), Eigen::Map<Eigen::VectorXd>(d.b, d.m), *cone);
 }
 
 void ScsProblemData::Solve(const MathematicalProgram& prog,
-                           const Eigen::VectorXd& initial_guess, bool warm_start,
-                           MathematicalProgramResult* result) {
+                           const Eigen::VectorXd& initial_guess,
+                           bool warm_start, MathematicalProgramResult* result) {
   ScsInfo scs_info{};
   ScsSolverDetails& solver_details =
       result->SetSolverDetailsType<ScsSolverDetails>();
@@ -780,11 +811,15 @@ void ScsProblemData::Solve(const MathematicalProgram& prog,
   bool use_warm_start = warm_start && settings.warm_start && can_warm_start;
   // Preserve the existing stateless behavior; initial guesses are enabled for
   // the opt-in cached path, including native auxiliary variables and slacks.
-  if (snapshot && settings.warm_start && initial_guess.array().isFinite().all()) {
+  if (snapshot && settings.warm_start &&
+      initial_guess.array().isFinite().all()) {
     if (!scs_sol->x) {
-      scs_sol->x = static_cast<scs_float*>(scs_calloc(scs_problem_data->n, sizeof(scs_float)));
-      scs_sol->y = static_cast<scs_float*>(scs_calloc(scs_problem_data->m, sizeof(scs_float)));
-      scs_sol->s = static_cast<scs_float*>(scs_calloc(scs_problem_data->m, sizeof(scs_float)));
+      scs_sol->x = static_cast<scs_float*>(
+          scs_calloc(scs_problem_data->n, sizeof(scs_float)));
+      scs_sol->y = static_cast<scs_float*>(
+          scs_calloc(scs_problem_data->m, sizeof(scs_float)));
+      scs_sol->s = static_cast<scs_float*>(
+          scs_calloc(scs_problem_data->m, sizeof(scs_float)));
     }
     if (!use_warm_start) {
       std::fill_n(scs_sol->x, scs_problem_data->n, 0);
@@ -794,7 +829,8 @@ void ScsProblemData::Solve(const MathematicalProgram& prog,
     Eigen::Map<Eigen::VectorXd>(scs_sol->x, prog.num_vars()) = initial_guess;
     use_warm_start = true;
   }
-  solver_details.scs_status = scs_solve(work, scs_sol, &scs_info, use_warm_start);
+  solver_details.scs_status =
+      scs_solve(work, scs_sol, &scs_info, use_warm_start);
   can_warm_start = solver_details.scs_status == SCS_SOLVED ||
                    solver_details.scs_status == SCS_SOLVED_INACCURATE;
   if (scs_sol->x == nullptr || scs_sol->y == nullptr || scs_sol->s == nullptr) {
@@ -861,7 +897,8 @@ void ScsSolver::DoSolve2(const MathematicalProgram& prog,
                          const Eigen::VectorXd& initial_guess,
                          internal::SpecificOptions* options,
                          MathematicalProgramResult* result) const {
-  auto* cached = dynamic_cast<ScsProblemData*>(result->get_mutable_solver_cache());
+  auto* cached =
+      dynamic_cast<ScsProblemData*>(result->get_mutable_solver_cache());
   const internal::SolverCacheOptions cache_options(options, cached != nullptr);
   ScsSettings settings{};
   scs_set_default_settings(&settings);
@@ -891,7 +928,8 @@ void ScsSolver::DoSolve2(const MathematicalProgram& prog,
   auto& details = result->SetSolverDetailsType<ScsSolverDetails>();
   if (cache_options.retain) {
     details.cache.status = !cached ? SolverCacheStatus::kCreated
-        : fresh ? SolverCacheStatus::kRebuilt : SolverCacheStatus::kReused;
+                           : fresh ? SolverCacheStatus::kRebuilt
+                                   : SolverCacheStatus::kReused;
     details.cache.rebuild_reason = rebuild_reason;
   }
   if (!fresh && !data.snapshot->IsUnchanged()) {
