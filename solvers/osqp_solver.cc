@@ -308,6 +308,58 @@ struct OsqpProblemData final : SolverDataCache {
                       A_sparse.rows(), q.size(), &settings);
   }
 
+  std::string CheckUpdates() const {
+    for (const auto* entries : {&snapshot->costs, &snapshot->constraints}) {
+      for (const auto& entry : *entries) {
+        if (!entry.MatrixMatches()) return "problem matrices changed";
+      }
+    }
+    return {};
+  }
+
+  OSQPInt UpdateVectors(const MathematicalProgram& prog) {
+    bool cost_changed = false;
+    bool bounds_changed = false;
+    for (auto& entry : snapshot->costs) {
+      if (entry.VectorsMatch()) continue;
+      const auto& b = *entry.current_v();
+      for (int i = 0; i < b.size(); ++i) {
+        const double delta = b(i) - entry.v(i);
+        if (delta == 0) continue;
+        const int index = entry.variable_indices[i];
+        const auto scale = prog.GetVariableScaling().find(index);
+        q[index] += delta * (scale == prog.GetVariableScaling().end() ? 1 : scale->second);
+        cost_changed = true;
+      }
+      constant_cost_term += entry.current_constant() - entry.constant;
+    }
+    int row = 0;
+    for (auto& entry : snapshot->constraints) {
+      if (!entry.VectorsMatch()) {
+        for (int i = 0; i < entry.v.size(); ++i) {
+          l[row + i] = ConvertInfinity((*entry.current_v())(i));
+          u[row + i] = ConvertInfinity((*entry.current_w())(i));
+        }
+        bounds_changed = true;
+      }
+      row += entry.v.size();
+    }
+    OSQPInt error = 0;
+    if (cost_changed || bounds_changed) {
+      error = osqp_update_data_vec(solver, cost_changed ? q.data() : nullptr,
+                                  bounds_changed ? l.data() : nullptr,
+                                  bounds_changed ? u.data() : nullptr);
+    }
+    if (error == 0) {
+      for (auto* entries : {&snapshot->costs, &snapshot->constraints}) {
+        for (auto& entry : *entries) {
+          if (!entry.VectorsMatch()) entry.RefreshVectors();
+        }
+      }
+    }
+    return error;
+  }
+
   Eigen::SparseMatrix<OSQPFloat> P_upper_sparse;
   Eigen::SparseMatrix<OSQPFloat> A_sparse;
   std::vector<OSQPFloat> q, l, u;
@@ -372,8 +424,7 @@ void OsqpSolver::DoSolve2(const MathematicalProgram& prog,
     rebuild_reason = cached->snapshot->CheckStructure(prog);
     if (rebuild_reason.empty() && !SameSettings(cached->settings, new_settings))
       rebuild_reason = "solver settings changed";
-    if (rebuild_reason.empty() && !cached->snapshot->IsUnchanged())
-      rebuild_reason = "problem coefficients changed";
+    if (rebuild_reason.empty()) rebuild_reason = cached->CheckUpdates();
     cache_options.CheckRebuild(rebuild_reason);
   }
   std::unique_ptr<OsqpProblemData> fresh;
@@ -399,6 +450,14 @@ void OsqpSolver::DoSolve2(const MathematicalProgram& prog,
     const OSQPInt osqp_setup_err = data.Setup();
     if (osqp_setup_err != 0) {
       solution_result = SolutionResult::kInvalidInput;
+    }
+  }
+
+  if (!fresh && !data.snapshot->IsUnchanged()) {
+    if (data.UpdateVectors(prog) != 0) {
+      solution_result = SolutionResult::kInvalidInput;
+    } else {
+      solver_details.cache.status = SolverCacheStatus::kUpdated;
     }
   }
 

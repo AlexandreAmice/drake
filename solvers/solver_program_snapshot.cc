@@ -16,7 +16,8 @@ bool Equal(const Eigen::MatrixBase<DerivedA>& a,
 bool Equal(const Eigen::SparseMatrix<double>& a,
            const Eigen::SparseMatrix<double>& b) {
   if (a.rows() != b.rows() || a.cols() != b.cols() ||
-      a.nonZeros() != b.nonZeros()) return false;
+      a.nonZeros() != b.nonZeros())
+    return false;
   for (int col = 0; col < a.outerSize(); ++col) {
     Eigen::SparseMatrix<double>::InnerIterator i(a, col), j(b, col);
     for (; i && j; ++i, ++j) {
@@ -28,8 +29,8 @@ bool Equal(const Eigen::SparseMatrix<double>& a,
 }
 }  // namespace
 
-SolverBindingSnapshot::SolverBindingSnapshot(
-    Binding<EvaluatorBase> binding_in, const MathematicalProgram& prog)
+SolverBindingSnapshot::SolverBindingSnapshot(Binding<EvaluatorBase> binding_in,
+                                             const MathematicalProgram& prog)
     : binding(std::move(binding_in)),
       variable_indices(prog.FindDecisionVariableIndices(binding.variables())) {
   const auto* e = binding.evaluator().get();
@@ -54,7 +55,8 @@ const Eigen::SparseMatrix<double>* SolverBindingSnapshot::current_A() const {
 }
 
 const Eigen::MatrixXd* SolverBindingSnapshot::current_Q() const {
-  if (const auto* c = dynamic_cast<const QuadraticCost*>(binding.evaluator().get()))
+  if (const auto* c =
+          dynamic_cast<const QuadraticCost*>(binding.evaluator().get()))
     return &c->Q();
   return nullptr;
 }
@@ -65,7 +67,8 @@ const Eigen::VectorXd* SolverBindingSnapshot::current_v() const {
   if (const auto* c = dynamic_cast<const QuadraticCost*>(e)) return &c->b();
   if (const auto* c = dynamic_cast<const LinearConstraint*>(e))
     return &c->lower_bound();
-  if (const auto* c = dynamic_cast<const LorentzConeConstraint*>(e)) return &c->b();
+  if (const auto* c = dynamic_cast<const LorentzConeConstraint*>(e))
+    return &c->b();
   if (const auto* c = dynamic_cast<const RotatedLorentzConeConstraint*>(e))
     return &c->b();
   if (const auto* c = dynamic_cast<const L2NormCost*>(e)) return &c->b();
@@ -73,7 +76,8 @@ const Eigen::VectorXd* SolverBindingSnapshot::current_v() const {
 }
 
 const Eigen::VectorXd* SolverBindingSnapshot::current_w() const {
-  if (const auto* c = dynamic_cast<const LinearConstraint*>(binding.evaluator().get()))
+  if (const auto* c =
+          dynamic_cast<const LinearConstraint*>(binding.evaluator().get()))
     return &c->upper_bound();
   return nullptr;
 }
@@ -100,10 +104,12 @@ bool SolverBindingSnapshot::VectorsMatch() const {
 }
 
 bool SolverBindingSnapshot::DimensionsMatch() const {
-  if (const auto* a = current_A(); a &&
-      (a->rows() != A.rows() || a->cols() != A.cols())) return false;
-  if (const auto* q = current_Q(); q &&
-      (q->rows() != Q.rows() || q->cols() != Q.cols())) return false;
+  if (const auto* a = current_A();
+      a && (a->rows() != A.rows() || a->cols() != A.cols()))
+    return false;
+  if (const auto* q = current_Q();
+      q && (q->rows() != Q.rows() || q->cols() != Q.cols()))
+    return false;
   if (const auto* b = current_v(); b && b->size() != v.size()) return false;
   if (const auto* b = current_w(); b && b->size() != w.size()) return false;
   return true;
@@ -112,14 +118,20 @@ bool SolverBindingSnapshot::DimensionsMatch() const {
 void SolverBindingSnapshot::Refresh() {
   if (const auto* a = current_A()) A = *a;
   if (const auto* q = current_Q()) Q = *q;
+  RefreshVectors();
+}
+
+void SolverBindingSnapshot::RefreshVectors() {
   if (const auto* b = current_v()) v = *b;
   if (const auto* b = current_w()) w = *b;
   constant = current_constant();
 }
 
 SolverProgramSnapshot::SolverProgramSnapshot(const MathematicalProgram& prog)
-    : variables_(prog.decision_variables()), scaling_(prog.GetVariableScaling()) {
-  for (const auto& binding : prog.GetAllCosts()) costs.emplace_back(binding, prog);
+    : variables_(prog.decision_variables()),
+      scaling_(prog.GetVariableScaling()) {
+  for (const auto& binding : prog.GetAllCosts())
+    costs.emplace_back(binding, prog);
   for (const auto& binding : prog.GetAllConstraints())
     constraints.emplace_back(binding, prog);
 }
@@ -136,7 +148,8 @@ std::string SolverProgramSnapshot::CheckStructure(
     if (old.size() != current.size()) return false;
     for (size_t i = 0; i < old.size(); ++i) {
       if (old[i].binding.evaluator().get() != current[i].evaluator().get() ||
-          !old[i].DimensionsMatch()) return false;
+          !old[i].DimensionsMatch())
+        return false;
       const auto& a = old[i].binding.variables();
       const auto& b = current[i].variables();
       if (a.size() != b.size()) return false;
@@ -147,7 +160,8 @@ std::string SolverProgramSnapshot::CheckStructure(
     return true;
   };
   if (!check(costs, prog.GetAllCosts()) ||
-      !check(constraints, prog.GetAllConstraints())) return "bindings changed";
+      !check(constraints, prog.GetAllConstraints()))
+    return "bindings changed";
   return {};
 }
 

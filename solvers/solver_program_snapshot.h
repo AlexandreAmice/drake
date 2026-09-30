@@ -25,6 +25,7 @@ struct SolverBindingSnapshot {
   bool VectorsMatch() const;
   bool DimensionsMatch() const;
   void Refresh();
+  void RefreshVectors();
 
   Binding<EvaluatorBase> binding;
   std::vector<int> variable_indices;
