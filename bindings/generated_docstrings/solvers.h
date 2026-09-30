@@ -59,6 +59,7 @@
 // #include "drake/solvers/solution_result.h"
 // #include "drake/solvers/solve.h"
 // #include "drake/solvers/solver_base.h"
+// #include "drake/solvers/solver_data_cache.h"
 // #include "drake/solvers/solver_id.h"
 // #include "drake/solvers/solver_interface.h"
 // #include "drake/solvers/solver_options.h"
@@ -6903,6 +6904,12 @@ R"""(Constructs the result.
 Note:
     The solver_details is set to nullptr.)""";
         } ctor;
+        // Symbol: drake::solvers::MathematicalProgramResult::ReleaseSolverCache
+        struct /* ReleaseSolverCache */ {
+          // Source: drake/solvers/mathematical_program_result.h
+          const char* doc =
+R"""((Advanced.) Transfers cache ownership out of this result.)""";
+        } ReleaseSolverCache;
         // Symbol: drake::solvers::MathematicalProgramResult::SetSolution
         struct /* SetSolution */ {
           // Source: drake/solvers/mathematical_program_result.h
@@ -6915,6 +6922,12 @@ Raises:
     ``decision_variable_index``, as the input argument of
     set_decision_variable_index().)""";
         } SetSolution;
+        // Symbol: drake::solvers::MathematicalProgramResult::SetSolverCache
+        struct /* SetSolverCache */ {
+          // Source: drake/solvers/mathematical_program_result.h
+          const char* doc =
+R"""((Advanced.) Installs native state owned by this result.)""";
+        } SetSolverCache;
         // Symbol: drake::solvers::MathematicalProgramResult::SetSolverDetailsType
         struct /* SetSolverDetailsType */ {
           // Source: drake/solvers/mathematical_program_result.h
@@ -6941,6 +6954,12 @@ has not been set.)""";
           // Source: drake/solvers/mathematical_program_result.h
           const char* doc = R"""(Gets decision_variable_index.)""";
         } get_decision_variable_index;
+        // Symbol: drake::solvers::MathematicalProgramResult::get_mutable_solver_cache
+        struct /* get_mutable_solver_cache */ {
+          // Source: drake/solvers/mathematical_program_result.h
+          const char* doc =
+R"""((Advanced.) Mutable access for solver implementations.)""";
+        } get_mutable_solver_cache;
         // Symbol: drake::solvers::MathematicalProgramResult::get_optimal_cost
         struct /* get_optimal_cost */ {
           // Source: drake/solvers/mathematical_program_result.h
@@ -6951,6 +6970,14 @@ has not been set.)""";
           // Source: drake/solvers/mathematical_program_result.h
           const char* doc = R"""(Gets SolutionResult.)""";
         } get_solution_result;
+        // Symbol: drake::solvers::MathematicalProgramResult::get_solver_cache
+        struct /* get_solver_cache */ {
+          // Source: drake/solvers/mathematical_program_result.h
+          const char* doc =
+R"""(Returns the optional native solver cache. Copies of this result omit
+the cache; moves transfer it. The pointer is borrowed and is
+invalidated by replacing the cache or destroying this result.)""";
+        } get_solver_cache;
         // Symbol: drake::solvers::MathematicalProgramResult::get_solver_details
         struct /* get_solver_details */ {
           // Source: drake/solvers/mathematical_program_result.h
@@ -6982,6 +7009,12 @@ Precondition:
           // Source: drake/solvers/mathematical_program_result.h
           const char* doc = R"""(Gets the decision variable values.)""";
         } get_x_val;
+        // Symbol: drake::solvers::MathematicalProgramResult::has_solver_cache
+        struct /* has_solver_cache */ {
+          // Source: drake/solvers/mathematical_program_result.h
+          const char* doc =
+R"""(Returns whether this result owns a native solver cache.)""";
+        } has_solver_cache;
         // Symbol: drake::solvers::MathematicalProgramResult::is_success
         struct /* is_success */ {
           // Source: drake/solvers/mathematical_program_result.h
@@ -8898,6 +8931,12 @@ R"""(Type of details stored in MathematicalProgramResult.)""";
 R"""(The OSQP solver details after calling Solve() function. The user can
 call MathematicalProgramResult∷get_solver_details<OsqpSolver>() to
 obtain the details.)""";
+        // Symbol: drake::solvers::OsqpSolverDetails::cache
+        struct /* cache */ {
+          // Source: drake/solvers/osqp_solver.h
+          const char* doc =
+R"""(Native workspace reuse during this solve.)""";
+        } cache;
         // Symbol: drake::solvers::OsqpSolverDetails::dual_res
         struct /* dual_res */ {
           // Source: drake/solvers/osqp_solver.h
@@ -10054,6 +10093,12 @@ R"""(Type of details stored in MathematicalProgramResult.)""";
 R"""(The SCS solver details after calling Solve() function. The user can
 call MathematicalProgramResult∷get_solver_details<ScsSolver>() to
 obtain the details.)""";
+        // Symbol: drake::solvers::ScsSolverDetails::cache
+        struct /* cache */ {
+          // Source: drake/solvers/scs_solver.h
+          const char* doc =
+R"""(Native workspace reuse during this solve.)""";
+        } cache;
         // Symbol: drake::solvers::ScsSolverDetails::dual_objective
         struct /* dual_objective */ {
           // Source: drake/solvers/scs_solver.h
@@ -10522,6 +10567,78 @@ default implementation.)""";
           const char* doc = R"""()""";
         } solver_id;
       } SolverBase;
+      // Symbol: drake::solvers::SolverCacheDetails
+      struct /* SolverCacheDetails */ {
+        // Source: drake/solvers/solver_data_cache.h
+        const char* doc =
+R"""(Cache diagnostics for one solve; independent of the retained
+workspace.)""";
+        // Symbol: drake::solvers::SolverCacheDetails::rebuild_reason
+        struct /* rebuild_reason */ {
+          // Source: drake/solvers/solver_data_cache.h
+          const char* doc = R"""()""";
+        } rebuild_reason;
+        // Symbol: drake::solvers::SolverCacheDetails::status
+        struct /* status */ {
+          // Source: drake/solvers/solver_data_cache.h
+          const char* doc = R"""()""";
+        } status;
+      } SolverCacheDetails;
+      // Symbol: drake::solvers::SolverCacheStatus
+      struct /* SolverCacheStatus */ {
+        // Source: drake/solvers/solver_data_cache.h
+        const char* doc =
+R"""(What happened to the native workspace during this solve.)""";
+        // Symbol: drake::solvers::SolverCacheStatus::kCreated
+        struct /* kCreated */ {
+          // Source: drake/solvers/solver_data_cache.h
+          const char* doc = R"""()""";
+        } kCreated;
+        // Symbol: drake::solvers::SolverCacheStatus::kNotUsed
+        struct /* kNotUsed */ {
+          // Source: drake/solvers/solver_data_cache.h
+          const char* doc = R"""()""";
+        } kNotUsed;
+        // Symbol: drake::solvers::SolverCacheStatus::kRebuilt
+        struct /* kRebuilt */ {
+          // Source: drake/solvers/solver_data_cache.h
+          const char* doc = R"""()""";
+        } kRebuilt;
+        // Symbol: drake::solvers::SolverCacheStatus::kReused
+        struct /* kReused */ {
+          // Source: drake/solvers/solver_data_cache.h
+          const char* doc = R"""()""";
+        } kReused;
+        // Symbol: drake::solvers::SolverCacheStatus::kUpdated
+        struct /* kUpdated */ {
+          // Source: drake/solvers/solver_data_cache.h
+          const char* doc = R"""()""";
+        } kUpdated;
+      } SolverCacheStatus;
+      // Symbol: drake::solvers::SolverDataCache
+      struct /* SolverDataCache */ {
+        // Source: drake/solvers/solver_data_cache.h
+        const char* doc =
+R"""(Opaque native solver state owned by a MathematicalProgramResult. The
+cache belongs to one solver and one program instance. It may outlive
+either, but cannot be used with another program, including a Clone().)""";
+        // Symbol: drake::solvers::SolverDataCache::CheckCompatibility
+        struct /* CheckCompatibility */ {
+          // Source: drake/solvers/solver_data_cache.h
+          const char* doc =
+R"""(Throws if the solver or program does not match this cache.)""";
+        } CheckCompatibility;
+        // Symbol: drake::solvers::SolverDataCache::SolverDataCache
+        struct /* ctor */ {
+          // Source: drake/solvers/solver_data_cache.h
+          const char* doc = R"""()""";
+        } ctor;
+        // Symbol: drake::solvers::SolverDataCache::solver_id
+        struct /* solver_id */ {
+          // Source: drake/solvers/solver_data_cache.h
+          const char* doc = R"""()""";
+        } solver_id;
+      } SolverDataCache;
       // Symbol: drake::solvers::SolverId
       struct /* SolverId */ {
         // Source: drake/solvers/solver_id.h
@@ -10580,8 +10697,13 @@ written to ``prog``. If the ``prog`` has set an initial guess, and
 ``initial_guess`` is set, then ``initial_guess`` takes priority. If
 the ``prog`` has set an option for a solver, and ``solver_options``
 contains a different value for the same option on the same solver,
-then ``solver_options`` takes priority. Derived implementations of
-this interface may elect to throw RuntimeError for badly formed
+then ``solver_options`` takes priority. Solvers supporting the
+solver-specific ``retain_solver_cache`` option can retain native state
+in ``result``. Pass the same result on subsequent calls to reuse that
+state with the same program instance. Copies of the result omit the
+cache. Concurrent calls using the same result are not supported.
+Solution fields are replaced on every solve. Derived implementations
+of this interface may elect to throw RuntimeError for badly formed
 programs.)""";
         } Solve;
         // Symbol: drake::solvers::SolverInterface::SolverInterface
@@ -10647,6 +10769,81 @@ verification of solver parameters. It does not even verify that the
 specified solver exists. Use this only when you have particular
 knowledge of what solver is being invoked, and exactly what tuning is
 required.
+
+@par Repeated solves with OSQP or SCS OSQP and SCS accept these
+Drake-specific options (set with their SolverId): -
+``retain_solver_cache`` (integer 0 or 1): retain native solver data in
+the MathematicalProgramResult. The default is 0 for a fresh result,
+and 1 when reusing a result that already owns a cache. Setting 0
+discards an existing cache and performs a fresh solve. -
+``solver_cache_rebuild_policy`` (string ``"allow"`` or ``"error"``):
+allow rebuilding incompatible native data, or throw instead. The
+default is ``"allow"``. Initial cache construction is allowed under
+either policy. - ``warm_start_from_cache`` (integer 0 or 1, default
+1): reuse previous native iterates when valid. Native options
+disabling warm starts take precedence.
+
+Use the existing result-output overload for repeated solves:
+
+
+.. raw:: html
+
+    <details><summary>Click to expand C++ code...</summary>
+
+.. code-block:: c++
+
+    OsqpSolver solver;
+    SolverOptions options;
+    options.SetOption(solver.id(), "retain_solver_cache", 1);
+    MathematicalProgramResult result;
+    solver.Solve(prog, {}, options, &result);
+    // Update a cost or constraint through its existing evaluator API.
+    solver.Solve(prog, {}, options, &result);
+
+.. raw:: html
+
+    </details>
+
+In Python the corresponding calls are:
+
+
+.. code-block:: python
+
+    options.SetOption(solver.id(), "retain_solver_cache", 1)
+    result = solver.Solve(prog, None, options)
+    # Update costs or constraints, then overwrite the same result.
+    solver.Solve(prog, None, options, result)
+
+A cache belongs to one program instance and solver. Reusing it with
+another program, including a Clone(), throws. The program may be
+modified in place; structure and coefficient comparisons determine
+which native data to update. The cache does not keep the program
+alive. Copies of the result preserve its solution and solver details
+but omit its cache; moves transfer the cache. Python copy.copy and
+copy.deepcopy also omit the cache. Reusing a result replaces its
+previous solution. Concurrent use of one result is unsupported.
+
+OSQP supports vector changes and matrix values within the stored
+sparsity pattern; new sparse entries require rebuilding. SCS supports
+changes to native b and c only; changes to matrices, cones, or
+auxiliary variables require rebuilding. Both rebuild for structural,
+scaling, or effective native settings changes. Some reformulations
+turn an objective-vector change into a native matrix change. Solver
+details include a ``cache`` member describing creation, reuse, update,
+or rebuilding, with a rebuild reason. Strict rejection preserves the
+workspace; a failed native update discards it.
+
+The usual initial-guess precedence applies: an explicit guess
+overrides the program guess. A finite selected guess overrides cached
+primal iterates; otherwise valid cached iterates are used. Rebuilds
+discard old iterates. Result values remain independent of native
+iterate storage. This opt-in path also enables initial guesses for
+SCS, which ignores them in ordinary solves.
+
+Coefficient comparisons still read problem data each solve. Result
+extraction and some updates allocate memory; caching does not promise
+allocation-free or hard real-time execution. Matrix updates can
+require numerical refactorization.
 
 Supported solver names/options:
 

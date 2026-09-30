@@ -43,7 +43,32 @@ void SolverBase::Solve(const MathematicalProgram& prog,
                        const std::optional<Eigen::VectorXd>& initial_guess,
                        const std::optional<SolverOptions>& solver_options,
                        MathematicalProgramResult* result) const {
+  // Validate the pairing before clearing the result, so accidentally passing
+  // another program leaves both the solution and its cache intact.
+  bool retain_cache = result->get_solver_cache() != nullptr;
+  const SolverOptions::OptionValue* retain_option = nullptr;
+  for (const SolverOptions* source :
+       {&prog.solver_options(), solver_options ? &*solver_options : nullptr}) {
+    if (source == nullptr) continue;
+    const auto solver = source->options.find(solver_id().name());
+    if (solver == source->options.end()) continue;
+    const auto option = solver->second.find("retain_solver_cache");
+    if (option == solver->second.end()) continue;
+    retain_option = &option->second;
+  }
+  if (retain_option != nullptr) {
+    const int* value = std::get_if<int>(retain_option);
+    if (value == nullptr || (*value != 0 && *value != 1)) {
+      throw std::invalid_argument("retain_solver_cache must be 0 or 1");
+    }
+    retain_cache = *value != 0;
+  }
+  if (retain_cache && result->get_solver_cache()) {
+    result->get_solver_cache()->CheckCompatibility(prog, solver_id());
+  }
+  auto cache = result->ReleaseSolverCache();
   *result = {};
+  if (retain_cache) result->SetSolverCache(std::move(cache));
   if (!available()) {
     const std::string name = ShortName(*this);
     throw std::invalid_argument(fmt::format(

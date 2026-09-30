@@ -1,0 +1,67 @@
+#pragma once
+
+#include <memory>
+#include <string>
+#include <utility>
+
+#include "drake/common/drake_copyable.h"
+#include "drake/common/identifier.h"
+#include "drake/solvers/solver_id.h"
+
+namespace drake {
+namespace solvers {
+
+class MathematicalProgram;
+
+/** Opaque native solver state owned by a MathematicalProgramResult.
+The cache belongs to one solver and one program instance. It may outlive
+either, but cannot be used with another program, including a Clone(). */
+class SolverDataCache {
+ public:
+  DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(SolverDataCache);
+  virtual ~SolverDataCache();
+
+  const SolverId& solver_id() const { return solver_id_; }
+  /** Throws if the solver or program does not match this cache. */
+  void CheckCompatibility(const MathematicalProgram& prog,
+                          const SolverId& solver_id) const;
+
+ protected:
+  SolverDataCache(const MathematicalProgram& prog, SolverId solver_id);
+
+ private:
+  Identifier<MathematicalProgram> program_id_;
+  SolverId solver_id_;
+};
+
+/** What happened to the native workspace during this solve. */
+enum class SolverCacheStatus {
+  kNotUsed,
+  kCreated,
+  kReused,
+  kUpdated,
+  kRebuilt,
+};
+
+/** Cache diagnostics for one solve; independent of the retained workspace. */
+struct SolverCacheDetails {
+  SolverCacheStatus status{SolverCacheStatus::kNotUsed};
+  std::string rebuild_reason;
+};
+
+namespace internal {
+// Preserve result value semantics without copying opaque native resources.
+struct SolverDataCacheStorage {
+  SolverDataCacheStorage() = default;
+  SolverDataCacheStorage(const SolverDataCacheStorage&) {}
+  SolverDataCacheStorage& operator=(const SolverDataCacheStorage& other) {
+    if (this != &other) value.reset();
+    return *this;
+  }
+  SolverDataCacheStorage(SolverDataCacheStorage&&) = default;
+  SolverDataCacheStorage& operator=(SolverDataCacheStorage&&) = default;
+  std::unique_ptr<SolverDataCache> value;
+};
+}  // namespace internal
+}  // namespace solvers
+}  // namespace drake

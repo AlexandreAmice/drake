@@ -299,9 +299,21 @@ void BindSolverInterface(py::module_ m) {
 
 void BindMathematicalProgramResult(py::module_ m) {
   constexpr auto& doc = pydrake_doc_solvers.drake.solvers;
-  class_<MathematicalProgramResult>(
-      m, "MathematicalProgramResult", doc.MathematicalProgramResult.doc)
-      .def(py::init<>(), doc.MathematicalProgramResult.ctor.doc)
+  py::enum_<solvers::SolverCacheStatus>(m, "SolverCacheStatus")
+      .value("kNotUsed", solvers::SolverCacheStatus::kNotUsed)
+      .value("kCreated", solvers::SolverCacheStatus::kCreated)
+      .value("kReused", solvers::SolverCacheStatus::kReused)
+      .value("kUpdated", solvers::SolverCacheStatus::kUpdated)
+      .value("kRebuilt", solvers::SolverCacheStatus::kRebuilt);
+  class_<solvers::SolverCacheDetails>(m, "SolverCacheDetails")
+      .def_ro("status", &solvers::SolverCacheDetails::status)
+      .def_ro("rebuild_reason", &solvers::SolverCacheDetails::rebuild_reason);
+  auto cls = class_<MathematicalProgramResult>(
+      m, "MathematicalProgramResult", doc.MathematicalProgramResult.doc);
+  DefCopyAndDeepCopy(&cls);
+  cls.def(py::init<>(), doc.MathematicalProgramResult.ctor.doc)
+      .def("has_solver_cache", &MathematicalProgramResult::has_solver_cache,
+          doc.MathematicalProgramResult.has_solver_cache.doc)
       .def("is_success", &MathematicalProgramResult::is_success,
           doc.MathematicalProgramResult.is_success.doc)
       .def("set_x_val", &MathematicalProgramResult::set_x_val, py::arg("x_val"),

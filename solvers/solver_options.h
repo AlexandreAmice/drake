@@ -17,6 +17,64 @@ verification of solver parameters. It does not even verify that the specified
 solver exists. Use this only when you have particular knowledge of what solver
 is being invoked, and exactly what tuning is required.
 
+@anchor solver_cache
+@par Repeated solves with OSQP or SCS
+OSQP and SCS accept these Drake-specific options (set with their SolverId):
+- `retain_solver_cache` (integer 0 or 1): retain native solver data in the
+  MathematicalProgramResult. The default is 0 for a fresh result, and 1 when
+  reusing a result that already owns a cache. Setting 0 discards an existing
+  cache and performs a fresh solve.
+- `solver_cache_rebuild_policy` (string `"allow"` or `"error"`): allow
+rebuilding incompatible native data, or throw instead. The default is `"allow"`.
+  Initial cache construction is allowed under either policy.
+- `warm_start_from_cache` (integer 0 or 1, default 1): reuse previous native
+  iterates when valid. Native options disabling warm starts take precedence.
+
+Use the existing result-output overload for repeated solves:
+@code
+OsqpSolver solver;
+SolverOptions options;
+options.SetOption(solver.id(), "retain_solver_cache", 1);
+MathematicalProgramResult result;
+solver.Solve(prog, {}, options, &result);
+// Update a cost or constraint through its existing evaluator API.
+solver.Solve(prog, {}, options, &result);
+@endcode
+In Python the corresponding calls are:
+@code{.py}
+options.SetOption(solver.id(), "retain_solver_cache", 1)
+result = solver.Solve(prog, None, options)
+# Update costs or constraints, then overwrite the same result.
+solver.Solve(prog, None, options, result)
+@endcode
+
+A cache belongs to one program instance and solver. Reusing it with another
+program, including a Clone(), throws. The program may be modified in place;
+structure and coefficient comparisons determine which native data to update.
+The cache does not keep the program alive. Copies of the result preserve its
+solution and solver details but omit its cache; moves transfer the cache.
+Python copy.copy and copy.deepcopy also omit the cache. Reusing a result
+replaces its previous solution. Concurrent use of one result is unsupported.
+
+OSQP supports vector changes and matrix values within the stored sparsity
+pattern; new sparse entries require rebuilding. SCS supports changes to native
+b and c only; changes to matrices, cones, or auxiliary variables require
+rebuilding. Both rebuild for structural, scaling, or effective native settings
+changes. Some reformulations turn an objective-vector change into a native
+matrix change. Solver details include a `cache` member describing creation,
+reuse, update, or rebuilding, with a rebuild reason. Strict rejection preserves
+the workspace; a failed native update discards it.
+
+The usual initial-guess precedence applies: an explicit guess overrides the
+program guess. A finite selected guess overrides cached primal iterates;
+otherwise valid cached iterates are used. Rebuilds discard old iterates.
+Result values remain independent of native iterate storage. This opt-in path
+also enables initial guesses for SCS, which ignores them in ordinary solves.
+
+Coefficient comparisons still read problem data each solve. Result extraction
+and some updates allocate memory; caching does not promise allocation-free or
+hard real-time execution. Matrix updates can require numerical refactorization.
+
 Supported solver names/options:
 
 "SNOPT" -- Parameter names and values as specified in SNOPT User's Guide section

@@ -18,6 +18,7 @@
 #include "drake/solvers/constraint.h"
 #include "drake/solvers/mathematical_program.h"
 #include "drake/solvers/solution_result.h"
+#include "drake/solvers/solver_data_cache.h"
 #include "drake/solvers/solver_id.h"
 
 namespace drake {
@@ -78,6 +79,31 @@ class MathematicalProgramResult final {
    * @note The solver_details is set to nullptr.
    */
   MathematicalProgramResult();
+
+  /** Returns whether this result owns a native solver cache. */
+  bool has_solver_cache() const { return solver_cache_.value != nullptr; }
+
+  /** Returns the optional native solver cache. Copies of this result omit
+  the cache; moves transfer it. The pointer is borrowed and is invalidated by
+  replacing the cache or destroying this result. */
+  const SolverDataCache* get_solver_cache() const {
+    return solver_cache_.value.get();
+  }
+
+  /** (Advanced.) Mutable access for solver implementations. */
+  SolverDataCache* get_mutable_solver_cache() {
+    return solver_cache_.value.get();
+  }
+
+  /** (Advanced.) Transfers cache ownership out of this result. */
+  std::unique_ptr<SolverDataCache> ReleaseSolverCache() {
+    return std::move(solver_cache_.value);
+  }
+
+  /** (Advanced.) Installs native state owned by this result. */
+  void SetSolverCache(std::unique_ptr<SolverDataCache> cache) {
+    solver_cache_.value = std::move(cache);
+  }
 
   /** Returns true if the optimization problem is solved successfully; false
    * otherwise.
@@ -512,6 +538,7 @@ class MathematicalProgramResult final {
   // @}
 
  private:
+  internal::SolverDataCacheStorage solver_cache_;
   std::optional<std::unordered_map<symbolic::Variable::Id, int>>
       decision_variable_index_{};
   SolutionResult solution_result_{};

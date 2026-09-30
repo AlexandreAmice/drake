@@ -417,6 +417,7 @@ drake_cc_library(
         ":solver_options",
         "//common:autodiff",
         "//common:essential",
+        "//common:identifier",
         "//common:polynomial",
         "//common/symbolic:expression",
         "//common/symbolic:monomial_util",
@@ -430,6 +431,17 @@ drake_cc_library(
 )
 
 drake_cc_library(
+    name = "solver_data_cache",
+    srcs = ["solver_data_cache.cc"],
+    hdrs = ["solver_data_cache.h"],
+    deps = [
+        ":mathematical_program",
+        ":solver_id",
+        "//common:identifier",
+    ],
+)
+
+drake_cc_library(
     name = "mathematical_program_result",
     srcs = ["mathematical_program_result.cc"],
     hdrs = ["mathematical_program_result.h"],
@@ -438,6 +450,7 @@ drake_cc_library(
         ":constraint",
         ":mathematical_program",
         ":solution_result",
+        ":solver_data_cache",
         ":solver_id",
         "//common:value",
         "//common/symbolic:expression",
@@ -760,6 +773,35 @@ drake_cc_library(
 )
 
 drake_cc_library(
+    name = "solver_program_snapshot",
+    srcs = ["solver_program_snapshot.cc"],
+    hdrs = ["solver_program_snapshot.h"],
+    visibility = ["//solvers:__pkg__"],
+    deps = [":mathematical_program"],
+)
+
+drake_cc_googletest(
+    name = "solver_cache_test",
+    deps = [
+        ":osqp_solver",
+        ":scs_solver",
+        "//common/test_utilities:eigen_matrix_compare",
+    ],
+)
+
+drake_cc_googletest(
+    name = "solver_program_snapshot_test",
+    deps = [":solver_program_snapshot"],
+)
+
+drake_cc_library(
+    name = "solver_cache_options",
+    hdrs = ["solver_cache_options.h"],
+    visibility = ["//solvers:__pkg__"],
+    deps = [":specific_options"],
+)
+
+drake_cc_library(
     name = "solver_base",
     srcs = ["solver_base.cc"],
     hdrs = ["solver_base.h"],
@@ -1044,6 +1086,8 @@ drake_cc_variant_library(
         ":mathematical_program",
     ],
     implementation_deps_enabled = [
+        ":solver_cache_options",
+        ":solver_program_snapshot",
         "//common:scope_exit",
         "//math:eigen_sparse_triplet",
         "@osqp_internal//:osqp",
@@ -1103,6 +1147,8 @@ drake_cc_variant_library(
     ],
     implementation_deps_enabled = [
         ":scs_clarabel_common",
+        ":solver_cache_options",
+        ":solver_program_snapshot",
         "//common:scope_exit",
         "//math:eigen_sparse_triplet",
         "//math:matrix_util",

@@ -91,6 +91,48 @@ class StubSolverBase1 final : public StubSolverBase {
 };
 
 // A concrete SolverBase implementation that overrides DoSolve2().
+class StubCache final : public SolverDataCache {
+ public:
+  explicit StubCache(const MathematicalProgram& prog)
+      : SolverDataCache(prog, StubSolverBase::id()) {}
+};
+
+GTEST_TEST(SolverBaseCacheTest, PreserveAndCheckPairing) {
+  StubSolverBase1 solver;
+  MathematicalProgram prog;
+  prog.NewContinuousVariables<2>();
+  MathematicalProgramResult result;
+  result.SetSolverCache(std::make_unique<StubCache>(prog));
+  const auto* cache = result.get_solver_cache();
+  solver.Solve(prog, {}, {}, &result);
+  EXPECT_EQ(result.get_solver_cache(), cache);
+  auto clone = prog.Clone();
+  EXPECT_THROW(solver.Solve(*clone, {}, {}, &result), std::invalid_argument);
+  EXPECT_EQ(result.get_solver_cache(), cache);
+  EXPECT_EQ(result.get_optimal_cost(), 1.0);
+  SolverOptions options;
+  options.SetOption(solver.id(), "retain_solver_cache", 0);
+  solver.Solve(*clone, {}, options, &result);
+  EXPECT_EQ(result.get_solver_cache(), nullptr);
+}
+
+GTEST_TEST(SolverBaseCacheTest, Options) {
+  StubSolverBase1 solver;
+  MathematicalProgram prog;
+  prog.NewContinuousVariables<2>();
+  MathematicalProgramResult result;
+  result.SetSolverCache(std::make_unique<StubCache>(prog));
+  // The explicit option overrides even an invalid program-level value.
+  prog.SetSolverOption(solver.id(), "retain_solver_cache", "invalid");
+  SolverOptions options;
+  options.SetOption(solver.id(), "retain_solver_cache", 1);
+  solver.Solve(prog, {}, options, &result);
+  EXPECT_NE(result.get_solver_cache(), nullptr);
+  options.SetOption(solver.id(), "retain_solver_cache", 2);
+  EXPECT_THROW(solver.Solve(prog, {}, options, &result), std::invalid_argument);
+  EXPECT_NE(result.get_solver_cache(), nullptr);
+}
+
 class StubSolverBase2 final : public StubSolverBase {
   DRAKE_NO_COPY_NO_MOVE_NO_ASSIGN(StubSolverBase2)
   using StubSolverBase::StubSolverBase;

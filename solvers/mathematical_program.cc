@@ -61,7 +61,10 @@ MathematicalProgram::MathematicalProgram(const MathematicalProgram&) = default;
 MathematicalProgram::~MathematicalProgram() = default;
 
 std::unique_ptr<MathematicalProgram> MathematicalProgram::Clone() const {
-  return std::unique_ptr<MathematicalProgram>(new MathematicalProgram(*this));
+  auto result =
+      std::unique_ptr<MathematicalProgram>(new MathematicalProgram(*this));
+  result->solver_cache_id_ = Identifier<MathematicalProgram>::get_new_id();
+  return result;
 }
 
 string MathematicalProgram::to_string() const {
