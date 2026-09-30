@@ -1,3 +1,4 @@
+#include <future>
 #include <memory>
 #include <type_traits>
 
@@ -190,6 +191,142 @@ GTEST_TEST(OsqpSolverCacheTest, RepeatedVariablesInQuadraticCost) {
   cost.evaluator()->UpdateCoefficients(Q, Eigen::Vector2d(-1, -1));
   solver.Solve(prog, {}, options, &result);
   EXPECT_NEAR(result.GetSolution(x(0)), 1.0 / 2.8, 1e-5);
+}
+
+GTEST_TEST(OsqpSolverCacheTest, LargeVariableScaling) {
+  OsqpSolver solver;
+  if (!solver.available()) GTEST_SKIP();
+  MathematicalProgram prog;
+  const auto x = prog.NewContinuousVariables<1>();
+  // The squared scale overflows, but each scaled Hessian entry is finite.
+  const double scale = 1e155;
+  prog.SetVariableScaling(x(0), scale);
+  const Eigen::VectorXd b = Eigen::VectorXd::Constant(1, -1e-145);
+  auto cost =
+      prog.AddQuadraticCost(Eigen::MatrixXd::Constant(1, 1, 1e-300), b, x);
+  prog.SetSolverOption(solver.id(), "eps_abs", 1e-8);
+  prog.SetSolverOption(solver.id(), "eps_rel", 1e-8);
+  SolverOptions options;
+  options.SetOption(solver.id(), "retain_solver_cache", 1);
+  options.SetOption(solver.id(), "solver_cache_rebuild_policy", "error");
+  auto result = solver.Solve(prog, {}, options);
+  ASSERT_TRUE(result.is_success());
+  for (double factor : {2.0, 0.5}) {
+    cost.evaluator()->UpdateCoefficients(
+        Eigen::MatrixXd::Constant(1, 1, factor * 1e-300), b);
+    solver.Solve(prog, {}, options, &result);
+    const auto fresh = solver.Solve(prog);
+    ASSERT_TRUE(result.is_success());
+    ASSERT_TRUE(fresh.is_success());
+    EXPECT_NEAR(result.GetSolution(x(0)) / scale, 1 / factor, 1e-6);
+    EXPECT_NEAR(result.GetSolution(x(0)) / scale,
+                fresh.GetSolution(x(0)) / scale, 1e-6);
+    EXPECT_EQ(result.get_solver_details<OsqpSolver>().cache.status,
+              SolverCacheStatus::kUpdated);
+  }
+}
+
+TYPED_TEST(SolverCacheTest, ResultStorageDoesNotExposeStaleValues) {
+  TypeParam solver;
+  if (!solver.available()) GTEST_SKIP();
+  MathematicalProgram prog;
+  const auto x = prog.NewContinuousVariables<2>();
+  prog.AddQuadraticCost(Eigen::Matrix2d::Identity(), Eigen::Vector2d::Ones(),
+                        x);
+  auto box = prog.AddBoundingBoxConstraint(0, 2, x);
+  SolverOptions options;
+  options.SetOption(solver.id(), "retain_solver_cache", 1);
+  auto result = solver.Solve(prog, {}, options);
+  ASSERT_TRUE(result.is_success());
+  const auto copy = result;
+  const auto saved_dual = copy.GetDualSolution(box);
+  const auto saved_details = copy.template get_solver_details<TypeParam>();
+  auto incompatible_options = options;
+  incompatible_options.SetOption(solver.id(), "eps_abs", 1e-8);
+  incompatible_options.SetOption(solver.id(), "solver_cache_rebuild_policy",
+                                 "error");
+  EXPECT_THROW(solver.Solve(prog, {}, incompatible_options, &result),
+               std::runtime_error);
+  EXPECT_FALSE(result.is_success());
+  EXPECT_THROW(static_cast<void>(result.GetDualSolution(box)),
+               std::invalid_argument);
+  EXPECT_TRUE(result.get_x_val().array().isNaN().all());
+  if constexpr (std::is_same_v<TypeParam, OsqpSolver>) {
+    EXPECT_EQ(result.template get_solver_details<TypeParam>().y.size(), 0);
+  } else {
+    EXPECT_THROW(result.template get_solver_details<TypeParam>(),
+                 std::logic_error);
+  }
+  EXPECT_TRUE(CompareMatrices(copy.GetDualSolution(box), saved_dual));
+  EXPECT_TRUE(CompareMatrices(copy.template get_solver_details<TypeParam>().y,
+                              saved_details.y));
+  box.evaluator()->UpdateLowerBound(Eigen::Vector2d::Constant(0.5));
+  solver.Solve(prog, {}, options, &result);
+  ASSERT_TRUE(result.is_success());
+  EXPECT_GT(result.GetDualSolution(box).norm(), saved_dual.norm());
+  prog.RemoveConstraint(box);
+  solver.Solve(prog, {}, options, &result);
+  EXPECT_TRUE(result.is_success());
+  EXPECT_THROW(static_cast<void>(result.GetDualSolution(box)),
+               std::invalid_argument);
+  EXPECT_TRUE(CompareMatrices(copy.GetDualSolution(box), saved_dual));
+}
+
+TYPED_TEST(SolverCacheTest, SeparateResultsOnSeparateThreads) {
+  TypeParam solver;
+  if (!solver.available()) GTEST_SKIP();
+  MathematicalProgram prog;
+  const auto x = prog.NewContinuousVariables<2>();
+  prog.AddQuadraticCost(Eigen::Matrix2d::Identity(), Eigen::Vector2d::Ones(),
+                        x);
+  prog.AddBoundingBoxConstraint(0, 2, x);
+  SolverOptions options;
+  options.SetOption(solver.id(), "retain_solver_cache", 1);
+  const auto solve = [&] {
+    auto result = solver.Solve(prog, {}, options);
+    for (int i = 0; i < 20; ++i) {
+      solver.Solve(prog, {}, options, &result);
+      DRAKE_DEMAND(result.is_success());
+    }
+    return result;
+  };
+  auto first = std::async(std::launch::async, solve);
+  auto second = std::async(std::launch::async, solve);
+  const auto a = first.get();
+  const auto b = second.get();
+  EXPECT_NE(a.get_solver_cache(), b.get_solver_cache());
+  EXPECT_TRUE(CompareMatrices(a.get_x_val(), b.get_x_val()));
+}
+
+GTEST_TEST(OsqpSolverCacheTest, NewLocalCoefficientInExistingNativeSlot) {
+  OsqpSolver solver;
+  if (!solver.available()) GTEST_SKIP();
+  MathematicalProgram prog;
+  const auto x = prog.NewContinuousVariables<1>();
+  prog.SetVariableScaling(x(0), 3);
+  prog.AddQuadraticCost(Eigen::MatrixXd::Identity(1, 1),
+                        Eigen::VectorXd::Constant(1, -3), x);
+  VectorXDecisionVariable repeated(2);
+  repeated << x(0), x(0);
+  auto constraint = prog.AddLinearConstraint(
+      Eigen::RowVector2d(1, 0), Eigen::VectorXd::Zero(1),
+      Eigen::VectorXd::Constant(1, 2), repeated);
+  SolverOptions options;
+  options.SetOption(solver.id(), "retain_solver_cache", 1);
+  options.SetOption(solver.id(), "solver_cache_rebuild_policy", "error");
+  options.SetOption(solver.id(), "eps_abs", 1e-8);
+  options.SetOption(solver.id(), "eps_rel", 1e-8);
+  auto result = solver.Solve(prog, {}, options);
+  for (double coefficient : {2.0, 1.0}) {
+    constraint.evaluator()->UpdateCoefficients(
+        Eigen::RowVector2d(0, coefficient), Eigen::VectorXd::Zero(1),
+        Eigen::VectorXd::Constant(1, 2));
+    solver.Solve(prog, {}, options, &result);
+    ASSERT_TRUE(result.is_success());
+    EXPECT_NEAR(result.GetSolution(x(0)), 2 / coefficient, 1e-6);
+    EXPECT_EQ(result.get_solver_details<OsqpSolver>().cache.status,
+              SolverCacheStatus::kUpdated);
+  }
 }
 
 }  // namespace

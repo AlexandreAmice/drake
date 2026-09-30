@@ -141,6 +141,26 @@ class Binding {
 
 namespace internal {
 
+// Heterogeneous lookup avoids copying a binding's variable vector merely to
+// look up a binding of a statically known constraint subtype.
+struct BindingHash : DefaultHash {
+  using is_transparent = void;
+};
+struct BindingEqual {
+  using is_transparent = void;
+  template <typename A, typename B>
+  bool operator()(const Binding<A>& a, const Binding<B>& b) const {
+    const EvaluatorBase* left = a.evaluator().get();
+    const EvaluatorBase* right = b.evaluator().get();
+    if (left != right || a.variables().size() != b.variables().size())
+      return false;
+    for (int i = 0; i < a.variables().size(); ++i) {
+      if (!a.variables()(i).equal_to(b.variables()(i))) return false;
+    }
+    return true;
+  }
+};
+
 /*
  * Create binding, inferring the type from the provided pointer.
  * @tparam C Cost or Constraint type to be bound.

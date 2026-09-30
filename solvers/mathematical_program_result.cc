@@ -21,6 +21,33 @@ MathematicalProgramResult::MathematicalProgramResult()
       solver_id_{UnknownId()},
       solver_details_{nullptr} {}
 
+void MathematicalProgramResult::PrepareForSolve() {
+  // Prune entries that were not populated in the preceding solve. Entries
+  // retained for storage reuse are invisible until populated in this solve.
+  std::erase_if(dual_solutions_, [&](const auto& item) {
+    return item.second.generation != solve_generation_;
+  });
+  if (++solve_generation_ == 0) {
+    dual_solutions_.clear();
+    solve_generation_ = 1;
+  }
+  solution_result_ = SolutionResult::kSolutionResultNotSet;
+  optimal_cost_ = NAN;
+  solver_id_ = UnknownId();
+  x_val_.setConstant(NAN);
+  suboptimal_x_val_.clear();
+  suboptimal_objectives_.clear();
+  previous_details_.value.reset(solver_details_.release());
+}
+
+void MathematicalProgramResult::SetVariableIndexForSolve(
+    const std::unordered_map<symbolic::Variable::Id, int>& index) {
+  if (!decision_variable_index_ || *decision_variable_index_ != index)
+    decision_variable_index_ = index;
+  x_val_.resize(index.size());
+  x_val_.setConstant(NAN);
+}
+
 const AbstractValue& MathematicalProgramResult::get_abstract_solver_details()
     const {
   if (!solver_details_) {

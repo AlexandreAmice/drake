@@ -15,7 +15,9 @@
 #include "drake/solvers/aggregate_costs_constraints.h"
 #include "drake/solvers/mathematical_program.h"
 #include "drake/solvers/solver_cache_options.h"
+#include "drake/solvers/solver_cache_profiler.h"
 #include "drake/solvers/solver_program_snapshot.h"
+#include "drake/solvers/solver_result_access.h"
 #include "drake/solvers/solver_sparse_update.h"
 #include "drake/solvers/specific_options.h"
 
@@ -68,8 +70,6 @@ static void Serialize(
   archive->Visit(MakeNameValue("polish_refine_iter",  // BR
                                &settings.polish_refine_iter));
 }
-
-#include "drake/solvers/solver_cache_profiler.h"
 
 namespace drake {
 namespace solvers {
@@ -143,7 +143,8 @@ void ParseLinearConstraints(
     const std::vector<Binding<C>>& linear_constraints,
     std::vector<Eigen::Triplet<OSQPFloat>>* A_triplets,
     std::vector<OSQPFloat>* l, std::vector<OSQPFloat>* u, int* num_A_rows,
-    std::unordered_map<Binding<Constraint>, int>* constraint_start_row) {
+    std::unordered_map<Binding<Constraint>, int, internal::BindingHash,
+                       internal::BindingEqual>* constraint_start_row) {
   // Loop over the linear constraints, stack them to get l, u and A.
   for (const auto& constraint : linear_constraints) {
     const std::vector<int> x_indices =
@@ -174,7 +175,8 @@ void ParseBoundingBoxConstraints(
     const MathematicalProgram& prog,
     std::vector<Eigen::Triplet<OSQPFloat>>* A_triplets,
     std::vector<OSQPFloat>* l, std::vector<OSQPFloat>* u, int* num_A_rows,
-    std::unordered_map<Binding<Constraint>, int>* constraint_start_row) {
+    std::unordered_map<Binding<Constraint>, int, internal::BindingHash,
+                       internal::BindingEqual>* constraint_start_row) {
   // Loop over the linear constraints, stack them to get l, u and A.
   for (const auto& constraint : prog.bounding_box_constraints()) {
     const Binding<Constraint> constraint_cast =
@@ -201,7 +203,8 @@ void ParseBoundingBoxConstraints(
 void ParseAllLinearConstraints(
     const MathematicalProgram& prog, Eigen::SparseMatrix<OSQPFloat>* A,
     std::vector<OSQPFloat>* l, std::vector<OSQPFloat>* u,
-    std::unordered_map<Binding<Constraint>, int>* constraint_start_row) {
+    std::unordered_map<Binding<Constraint>, int, internal::BindingHash,
+                       internal::BindingEqual>* constraint_start_row) {
   std::vector<Eigen::Triplet<OSQPFloat>> A_triplets;
   l->clear();
   u->clear();
@@ -333,6 +336,8 @@ struct OsqpProblemData final : SolverDataCache {
     const internal::SolverBindingSnapshot* binding;
     int row, col;
     double factor;
+    double column_scale{1};
+    double row_scale{1};
   };
 
   void InitializeMatrixContributions(const MathematicalProgram& prog) {
@@ -355,8 +360,9 @@ struct OsqpProblemData final : SolverDataCache {
               FindEntry(P_upper_sparse, std::min(vi, vj), std::max(vi, vj));
           if (slot < 0) continue;
           const double factor = row != col && vi == vj ? 2 : 1;
-          p_contributions[slot].push_back(
-              {&entry, row, col, factor * scale(vi) * scale(vj)});
+          p_contributions[slot].push_back({&entry, row, col, factor,
+                                           scale(std::max(vi, vj)),
+                                           scale(std::min(vi, vj))});
         }
       }
     }
@@ -382,16 +388,10 @@ struct OsqpProblemData final : SolverDataCache {
   }
 
   std::string CollectMatrixChanges(
-      const MathematicalProgram& prog, internal::SolverSparseUpdate* p_changes,
+      internal::SolverSparseUpdate* p_changes,
       internal::SolverSparseUpdate* a_changes) const {
     std::string reason;
-    const auto scale = [&](int index) {
-      const auto it = prog.GetVariableScaling().find(index);
-      return it == prog.GetVariableScaling().end() ? 1.0 : it->second;
-    };
-    const auto add = [&](const auto& matrix, int row, int col, double delta,
-                         auto* changes) {
-      if (delta == 0) return;
+    const auto add = [&](const auto& matrix, int row, int col, auto* changes) {
       const int index = FindEntry(matrix, row, col);
       if (index < 0)
         reason = "matrix sparsity changed";
@@ -403,47 +403,48 @@ struct OsqpProblemData final : SolverDataCache {
       const auto& Q = *entry.current_Q();
       for (int j = 0; j < Q.cols(); ++j) {
         for (int i = 0; i <= j; ++i) {
+          if (Q(i, j) == entry.Q(i, j)) continue;
           const int vi = entry.variable_indices[i];
           const int vj = entry.variable_indices[j];
-          const double factor = i != j && vi == vj ? 2 : 1;
-          add(P_upper_sparse, std::min(vi, vj), std::max(vi, vj),
-              factor * scale(vi) * scale(vj) * (Q(i, j) - entry.Q(i, j)),
-              p_changes);
+          add(P_upper_sparse, std::min(vi, vj), std::max(vi, vj), p_changes);
         }
       }
     }
     int row = 0;
     for (const auto& entry : snapshot->constraints) {
       if (entry.matrix_changed) {
-        const auto add_matrix = [&](const auto& A, double sign) {
+        const auto add_matrix = [&](const auto& A) {
           for (int j = 0; j < A.outerSize(); ++j) {
             const int col = entry.variable_indices[j];
             for (Eigen::SparseMatrix<double>::InnerIterator it(A, j); it;
                  ++it) {
-              add(A_sparse, row + it.row(), col, sign * scale(col) * it.value(),
-                  a_changes);
+              if (it.value() != 0)
+                add(A_sparse, row + it.row(), col, a_changes);
             }
           }
         };
-        add_matrix(entry.A, -1);
-        add_matrix(*entry.current_A(), 1);
+        add_matrix(entry.A);
+        add_matrix(*entry.current_A());
       }
       row += entry.v.size();
     }
     return reason;
   }
 
-  std::string CheckUpdates(const MathematicalProgram& prog) {
+  std::string CheckUpdates() {
     pending_p_changes.Reset();
     pending_a_changes.Reset();
-    return CollectMatrixChanges(prog, &pending_p_changes, &pending_a_changes);
+    return CollectMatrixChanges(&pending_p_changes, &pending_a_changes);
   }
 
   OSQPInt UpdateMatrices() {
     pending_p_changes.Apply(P_upper_sparse.valuePtr(), [&](int slot) {
       double value = 0;
+      // Match fresh parsing: scale each coefficient by its column, then row.
+      // Multiplying the scales first can overflow or underflow independently.
       for (const auto& c : p_contributions[slot])
-        value += c.factor * (*c.binding->current_Q())(c.row, c.col);
+        value += c.factor * (*c.binding->current_Q())(c.row, c.col) *
+                 c.column_scale * c.row_scale;
       return value;
     });
     pending_a_changes.Apply(A_sparse.valuePtr(), [&](int slot) {
@@ -513,7 +514,9 @@ struct OsqpProblemData final : SolverDataCache {
   Eigen::SparseMatrix<OSQPFloat> A_sparse;
   std::vector<OSQPFloat> q, l, u;
   double constant_cost_term{};
-  std::unordered_map<Binding<Constraint>, int> constraint_start_row;
+  std::unordered_map<Binding<Constraint>, int, internal::BindingHash,
+                     internal::BindingEqual>
+      constraint_start_row;
   OSQPSettings settings{};
   OSQPSolver* solver{};
   std::optional<internal::SolverProgramSnapshot> snapshot;
@@ -523,18 +526,17 @@ template <typename C>
 void SetDualSolution(
     const std::vector<Binding<C>>& constraints,
     const Eigen::VectorXd& all_dual_solution,
-    const std::unordered_map<Binding<Constraint>, int>& constraint_start_row,
+    const std::unordered_map<Binding<Constraint>, int, internal::BindingHash,
+                             internal::BindingEqual>& constraint_start_row,
     MathematicalProgramResult* result) {
   for (const auto& constraint : constraints) {
     // OSQP uses the dual variable `y` as the negation of the shadow price, so
     // we need to negate `all_dual_solution` as Drake interprets dual solution
     // as the shadow price.
-    const Binding<Constraint> constraint_cast =
-        internal::BindingDynamicCast<Constraint>(constraint);
-    result->set_dual_solution(
-        constraint,
-        -all_dual_solution.segment(constraint_start_row.at(constraint_cast),
-                                   constraint.evaluator()->num_constraints()));
+    result->set_dual_solution(constraint,
+                              -all_dual_solution.segment(
+                                  constraint_start_row.find(constraint)->second,
+                                  constraint.evaluator()->num_constraints()));
   }
 }
 }  // namespace
@@ -581,7 +583,7 @@ void OsqpProblemData::SolveWithCache(const MathematicalProgram& prog,
     rebuild_reason = cached->snapshot->AnalyzeChanges(prog);
     if (rebuild_reason.empty() && !SameSettings(cached->settings, new_settings))
       rebuild_reason = "solver settings changed";
-    if (rebuild_reason.empty()) rebuild_reason = cached->CheckUpdates(prog);
+    if (rebuild_reason.empty()) rebuild_reason = cached->CheckUpdates();
     cache_options.CheckRebuild(rebuild_reason);
   }
   std::unique_ptr<OsqpProblemData> fresh;
@@ -679,6 +681,10 @@ void OsqpProblemData::SolveWithCache(const MathematicalProgram& prog,
     } else {
       result->set_x_val(osqp_sol.cast<double>());
     }
+    if (auto* previous =
+            internal::SolverResultAccess::PreviousDetails<OsqpSolverDetails>(
+                result))
+      solver_details.y.swap(previous->y);
     solver_details.y = Eigen::Map<Eigen::VectorXd>(solver->solution->y, m);
     SetDualSolution(prog.linear_constraints(), solver_details.y,
                     constraint_start_row, result);

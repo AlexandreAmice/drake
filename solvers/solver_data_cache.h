@@ -68,17 +68,19 @@ struct SolverCacheDetails {
 
 namespace internal {
 // Preserve result value semantics without copying opaque native resources.
-struct SolverDataCacheStorage {
-  SolverDataCacheStorage() = default;
-  SolverDataCacheStorage(const SolverDataCacheStorage&) {}
-  SolverDataCacheStorage& operator=(const SolverDataCacheStorage& other) {
+template <typename T>
+struct SolverScratchStorage {
+  SolverScratchStorage() = default;
+  SolverScratchStorage(const SolverScratchStorage&) {}
+  SolverScratchStorage& operator=(const SolverScratchStorage& other) {
     if (this != &other) value.reset();
     return *this;
   }
-  SolverDataCacheStorage(SolverDataCacheStorage&&) = default;
-  SolverDataCacheStorage& operator=(SolverDataCacheStorage&&) = default;
-  std::unique_ptr<SolverDataCache> value;
+  SolverScratchStorage(SolverScratchStorage&&) = default;
+  SolverScratchStorage& operator=(SolverScratchStorage&&) = default;
+  std::unique_ptr<T> value;
 };
+using SolverDataCacheStorage = SolverScratchStorage<SolverDataCache>;
 }  // namespace internal
 }  // namespace solvers
 }  // namespace drake

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -23,6 +24,10 @@
 
 namespace drake {
 namespace solvers {
+namespace internal {
+class SolverResultAccess;
+}
+
 /**
  * Retrieve the value of a single variable @p var from @p variable_values.
  * @param var The variable whose value is going to be retrieved. @p var.get_id()
@@ -150,9 +155,16 @@ class MathematicalProgramResult final {
   void set_dual_solution(
       const Binding<C>& constraint,
       const Eigen::Ref<const Eigen::VectorXd>& dual_solution) {
-    const Binding<Constraint> constraint_cast =
-        internal::BindingDynamicCast<Constraint>(constraint);
-    dual_solutions_.emplace(constraint_cast, dual_solution);
+    auto it = dual_solutions_.find(constraint);
+    if (it == dual_solutions_.end()) {
+      auto constraint_cast =
+          internal::BindingDynamicCast<Constraint>(constraint);
+      it = dual_solutions_.try_emplace(std::move(constraint_cast)).first;
+    }
+    if (it->second.generation != solve_generation_) {
+      it->second.value = dual_solution;
+      it->second.generation = solve_generation_;
+    }
   }
 
   /** Gets the optimal cost. */
@@ -369,10 +381,9 @@ class MathematicalProgramResult final {
   template <typename C>
   [[nodiscard]] Eigen::VectorXd GetDualSolution(
       const Binding<C>& constraint) const {
-    const Binding<Constraint> constraint_cast =
-        internal::BindingDynamicCast<Constraint>(constraint);
-    auto it = dual_solutions_.find(constraint_cast);
-    if (it == dual_solutions_.end()) {
+    auto it = dual_solutions_.find(constraint);
+    if (it == dual_solutions_.end() ||
+        it->second.generation != solve_generation_) {
       // Throws a more meaningful error message when the user wants to retrieve
       // a dual solution from a Gurobi result for a program containing second
       // order cone constraints, but forgot to explicitly turn on the flag to
@@ -396,7 +407,7 @@ class MathematicalProgramResult final {
           "{} does not currently support getting dual solution yet.",
           solver_id_.name()));
     } else {
-      return it->second;
+      return it->second.value;
     }
   }
 
@@ -538,6 +549,12 @@ class MathematicalProgramResult final {
   // @}
 
  private:
+  friend class SolverBase;
+  friend class internal::SolverResultAccess;
+  void PrepareForSolve();
+  void SetVariableIndexForSolve(
+      const std::unordered_map<symbolic::Variable::Id, int>& index);
+  internal::SolverScratchStorage<AbstractValue> previous_details_;
   internal::SolverDataCacheStorage solver_cache_;
   std::optional<std::unordered_map<symbolic::Variable::Id, int>>
       decision_variable_index_{};
@@ -553,7 +570,14 @@ class MathematicalProgramResult final {
   std::vector<Eigen::VectorXd> suboptimal_x_val_{};
   std::vector<double> suboptimal_objectives_{};
   // Stores the dual variable solutions for each constraint.
-  std::unordered_map<Binding<Constraint>, Eigen::VectorXd> dual_solutions_{};
+  struct DualSolution {
+    Eigen::VectorXd value;
+    uint64_t generation{};
+  };
+  uint64_t solve_generation_{1};
+  std::unordered_map<Binding<Constraint>, DualSolution, internal::BindingHash,
+                     internal::BindingEqual>
+      dual_solutions_;
 };
 
 }  // namespace solvers
