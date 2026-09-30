@@ -18,6 +18,7 @@ void DefineSolversScs(py::module_ m) {
       .def_static("id", &ScsSolver::id, doc.ScsSolver.id.doc);
 
   class_<ScsSolverDetails>(m, "ScsSolverDetails", doc.ScsSolverDetails.doc)
+      .def_ro("cache", &ScsSolverDetails::cache, doc.ScsSolverDetails.cache.doc)
       .def_ro("scs_status", &ScsSolverDetails::scs_status,
           doc.ScsSolverDetails.scs_status.doc)
       .def_ro("iter", &ScsSolverDetails::iter, doc.ScsSolverDetails.iter.doc)

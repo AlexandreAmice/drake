@@ -18,6 +18,8 @@ void DefineSolversOsqp(py::module_ m) {
       .def_static("id", &OsqpSolver::id, doc.OsqpSolver.id.doc);
 
   class_<OsqpSolverDetails>(m, "OsqpSolverDetails", doc.OsqpSolverDetails.doc)
+      .def_ro(
+          "cache", &OsqpSolverDetails::cache, doc.OsqpSolverDetails.cache.doc)
       .def_ro("iter", &OsqpSolverDetails::iter, doc.OsqpSolverDetails.iter.doc)
       .def_ro("status_val", &OsqpSolverDetails::status_val,
           doc.OsqpSolverDetails.status_val.doc)

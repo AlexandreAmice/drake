@@ -18,8 +18,8 @@
 #include "drake/solvers/constraint.h"
 #include "drake/solvers/mathematical_program.h"
 #include "drake/solvers/solution_result.h"
-#include "drake/solvers/solver_id.h"
 #include "drake/solvers/solver_data_cache.h"
+#include "drake/solvers/solver_id.h"
 
 namespace drake {
 namespace solvers {
@@ -79,6 +79,9 @@ class MathematicalProgramResult final {
    * @note The solver_details is set to nullptr.
    */
   MathematicalProgramResult();
+
+  /** Returns whether this result owns a native solver cache. */
+  bool has_solver_cache() const { return solver_cache_.value != nullptr; }
 
   /** Returns the optional native solver cache. Copies of this result omit
   the cache; moves transfer it. The pointer is borrowed and is invalidated by
