@@ -804,7 +804,10 @@ drake_cc_googletest(
 
 drake_cc_googletest(
     name = "solver_program_snapshot_test",
-    deps = [":solver_program_snapshot"],
+    deps = [
+        ":solver_program_snapshot",
+        "//common/test_utilities:limit_malloc",
+    ],
 )
 
 drake_cc_library(

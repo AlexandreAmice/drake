@@ -27,127 +27,172 @@ bool Equal(const Eigen::SparseMatrix<double>& a,
   }
   return true;
 }
+// Overload resolution uses the type of the program's binding collection.
+// Generic evaluator collections remain conservative even if their evaluator
+// happens to implement one of the specialized families.
+SolverBindingCoefficients ReadCoefficients(const EvaluatorBase&) {
+  return {.recognized = false};
+}
+SolverBindingCoefficients ReadCoefficients(const LinearCost& c) {
+  return {.v = &c.a(), .constant = c.b()};
+}
+SolverBindingCoefficients ReadCoefficients(const QuadraticCost& c) {
+  return {.Q = &c.Q(), .v = &c.b(), .constant = c.c()};
+}
+SolverBindingCoefficients ReadCoefficients(const LinearConstraint& c) {
+  return {.A = &c.get_sparse_A(), .v = &c.lower_bound(), .w = &c.upper_bound()};
+}
+SolverBindingCoefficients ReadCoefficients(const LorentzConeConstraint& c) {
+  return {.A = &c.A(), .v = &c.b()};
+}
+SolverBindingCoefficients ReadCoefficients(
+    const RotatedLorentzConeConstraint& c) {
+  return {.A = &c.A(), .v = &c.b()};
+}
+SolverBindingCoefficients ReadCoefficients(const L2NormCost& c) {
+  return {.A = &c.get_sparse_A(), .v = &c.b()};
+}
+SolverBindingCoefficients ReadCoefficients(
+    const PositiveSemidefiniteConstraint&) {
+  return {};
+}
+SolverBindingCoefficients ReadCoefficients(
+    const LinearMatrixInequalityConstraint&) {
+  return {};
+}
+SolverBindingCoefficients ReadCoefficients(const ExponentialConeConstraint&) {
+  return {};
+}
+
+template <typename Evaluator>
+class TypedCoefficientReader final : public SolverCoefficientReader {
+ public:
+  explicit TypedCoefficientReader(const Evaluator* evaluator)
+      : evaluator_(evaluator) {}
+  SolverBindingCoefficients Read() const final {
+    return ReadCoefficients(*evaluator_);
+  }
+
+ private:
+  // The snapshot's Binding owns the evaluator for this reader's lifetime.
+  const Evaluator* const evaluator_;
+};
+
+template <typename Evaluator>
+void AppendSnapshots(const std::vector<Binding<Evaluator>>& bindings,
+                     const MathematicalProgram& prog,
+                     std::vector<SolverBindingSnapshot>* snapshots) {
+  for (const auto& binding : bindings) {
+    snapshots->emplace_back(binding, prog,
+                            std::make_unique<TypedCoefficientReader<Evaluator>>(
+                                binding.evaluator().get()));
+  }
+}
 }  // namespace
 
-SolverBindingSnapshot::SolverBindingSnapshot(Binding<EvaluatorBase> binding_in,
-                                             const MathematicalProgram& prog)
+SolverBindingSnapshot::SolverBindingSnapshot(
+    Binding<EvaluatorBase> binding_in, const MathematicalProgram& prog,
+    std::unique_ptr<SolverCoefficientReader> reader)
     : binding(std::move(binding_in)),
-      variable_indices(prog.FindDecisionVariableIndices(binding.variables())) {
-  const auto* e = binding.evaluator().get();
-  recognized = current_A() || current_Q() || current_v() ||
-               dynamic_cast<const PositiveSemidefiniteConstraint*>(e) ||
-               dynamic_cast<const LinearMatrixInequalityConstraint*>(e) ||
-               dynamic_cast<const ExponentialConeConstraint*>(e);
+      variable_indices(prog.FindDecisionVariableIndices(binding.variables())),
+      reader_(std::move(reader)) {
+  recognized = reader_->Read().recognized;
   Refresh();
 }
 
 const Eigen::SparseMatrix<double>* SolverBindingSnapshot::current_A() const {
-  const auto* e = binding.evaluator().get();
-  if (const auto* c = dynamic_cast<const LinearConstraint*>(e))
-    return &c->get_sparse_A();
-  if (const auto* c = dynamic_cast<const LorentzConeConstraint*>(e))
-    return &c->A();
-  if (const auto* c = dynamic_cast<const RotatedLorentzConeConstraint*>(e))
-    return &c->A();
-  if (const auto* c = dynamic_cast<const L2NormCost*>(e))
-    return &c->get_sparse_A();
-  return nullptr;
+  return reader_->Read().A;
 }
-
 const Eigen::MatrixXd* SolverBindingSnapshot::current_Q() const {
-  if (const auto* c =
-          dynamic_cast<const QuadraticCost*>(binding.evaluator().get()))
-    return &c->Q();
-  return nullptr;
+  return reader_->Read().Q;
 }
-
 const Eigen::VectorXd* SolverBindingSnapshot::current_v() const {
-  const auto* e = binding.evaluator().get();
-  if (const auto* c = dynamic_cast<const LinearCost*>(e)) return &c->a();
-  if (const auto* c = dynamic_cast<const QuadraticCost*>(e)) return &c->b();
-  if (const auto* c = dynamic_cast<const LinearConstraint*>(e))
-    return &c->lower_bound();
-  if (const auto* c = dynamic_cast<const LorentzConeConstraint*>(e))
-    return &c->b();
-  if (const auto* c = dynamic_cast<const RotatedLorentzConeConstraint*>(e))
-    return &c->b();
-  if (const auto* c = dynamic_cast<const L2NormCost*>(e)) return &c->b();
-  return nullptr;
+  return reader_->Read().v;
 }
-
 const Eigen::VectorXd* SolverBindingSnapshot::current_w() const {
-  if (const auto* c =
-          dynamic_cast<const LinearConstraint*>(binding.evaluator().get()))
-    return &c->upper_bound();
-  return nullptr;
+  return reader_->Read().w;
 }
-
 double SolverBindingSnapshot::current_constant() const {
-  const auto* e = binding.evaluator().get();
-  if (const auto* c = dynamic_cast<const LinearCost*>(e)) return c->b();
-  if (const auto* c = dynamic_cast<const QuadraticCost*>(e)) return c->c();
-  return 0;
+  return reader_->Read().constant;
 }
 
 bool SolverBindingSnapshot::MatrixMatches() const {
+  const auto current = reader_->Read();
   if (!recognized) return false;
-  if (const auto* a = current_A(); a && !Equal(A, *a)) {
+  if (const auto* a = current.A; a && !Equal(A, *a)) {
     return false;
   }
-  if (const auto* q = current_Q(); q && !Equal(Q, *q)) {
+  if (const auto* q = current.Q; q && !Equal(Q, *q)) {
     return false;
   }
   return true;
 }
 
 bool SolverBindingSnapshot::VectorsMatch() const {
-  if (!recognized || constant != current_constant()) return false;
-  if (const auto* b = current_v(); b && !Equal(v, *b)) {
+  const auto current = reader_->Read();
+  if (!recognized || constant != current.constant) return false;
+  if (const auto* b = current.v; b && !Equal(v, *b)) {
     return false;
   }
-  if (const auto* b = current_w(); b && !Equal(w, *b)) {
+  if (const auto* b = current.w; b && !Equal(w, *b)) {
     return false;
   }
   return true;
 }
 
 bool SolverBindingSnapshot::DimensionsMatch() const {
-  if (const auto* a = current_A();
+  const auto current = reader_->Read();
+  if (const auto* a = current.A;
       a && (a->rows() != A.rows() || a->cols() != A.cols())) {
     return false;
   }
-  if (const auto* q = current_Q();
+  if (const auto* q = current.Q;
       q && (q->rows() != Q.rows() || q->cols() != Q.cols())) {
     return false;
   }
-  if (const auto* b = current_v(); b && b->size() != v.size()) {
+  if (const auto* b = current.v; b && b->size() != v.size()) {
     return false;
   }
-  if (const auto* b = current_w(); b && b->size() != w.size()) {
+  if (const auto* b = current.w; b && b->size() != w.size()) {
     return false;
   }
   return true;
 }
 
 void SolverBindingSnapshot::Refresh() {
-  if (const auto* a = current_A()) A = *a;
-  if (const auto* q = current_Q()) Q = *q;
+  const auto current = reader_->Read();
+  if (const auto* a = current.A) A = *a;
+  if (const auto* q = current.Q) Q = *q;
   RefreshVectors();
 }
 
 void SolverBindingSnapshot::RefreshVectors() {
-  if (const auto* b = current_v()) v = *b;
-  if (const auto* b = current_w()) w = *b;
-  constant = current_constant();
+  const auto current = reader_->Read();
+  if (const auto* b = current.v) v = *b;
+  if (const auto* b = current.w) w = *b;
+  constant = current.constant;
 }
 
 SolverProgramSnapshot::SolverProgramSnapshot(const MathematicalProgram& prog)
     : variables_(prog.decision_variables()),
       scaling_(prog.GetVariableScaling()) {
-  for (const auto& binding : prog.GetAllCosts())
-    costs.emplace_back(binding, prog);
-  for (const auto& binding : prog.GetAllConstraints())
-    constraints.emplace_back(binding, prog);
+  AppendSnapshots(prog.generic_costs(), prog, &costs);
+  AppendSnapshots(prog.linear_costs(), prog, &costs);
+  AppendSnapshots(prog.quadratic_costs(), prog, &costs);
+  AppendSnapshots(prog.l2norm_costs(), prog, &costs);
+  AppendSnapshots(prog.generic_constraints(), prog, &constraints);
+  AppendSnapshots(prog.quadratic_constraints(), prog, &constraints);
+  AppendSnapshots(prog.linear_constraints(), prog, &constraints);
+  AppendSnapshots(prog.linear_equality_constraints(), prog, &constraints);
+  AppendSnapshots(prog.bounding_box_constraints(), prog, &constraints);
+  AppendSnapshots(prog.lorentz_cone_constraints(), prog, &constraints);
+  AppendSnapshots(prog.rotated_lorentz_cone_constraints(), prog, &constraints);
+  AppendSnapshots(prog.linear_matrix_inequality_constraints(), prog,
+                  &constraints);
+  AppendSnapshots(prog.positive_semidefinite_constraints(), prog, &constraints);
+  AppendSnapshots(prog.linear_complementarity_constraints(), prog,
+                  &constraints);
+  AppendSnapshots(prog.exponential_cone_constraints(), prog, &constraints);
 }
 
 std::string SolverProgramSnapshot::CheckStructure(
