@@ -33,6 +33,50 @@ constexpr double kTol = 1e-3;
 
 using testing::HasSubstr;
 
+GTEST_TEST(ScsCacheTest, VectorUpdatesMatchFreshSolves) {
+  ScsSolver solver;
+  if (!solver.available()) GTEST_SKIP();
+  MathematicalProgram prog;
+  const auto x = prog.NewContinuousVariables<2>();
+  auto cost = prog.AddQuadraticCost(Eigen::Matrix2d::Identity(),
+                                    Eigen::Vector2d::Zero(), x);
+  auto box = prog.AddBoundingBoxConstraint(0, 2, x);
+  auto equality = prog.AddLinearEqualityConstraint(Eigen::RowVector2d(1, 1), 1, x);
+  prog.SetSolverOption(solver.id(), "eps_abs", 1e-8);
+  prog.SetSolverOption(solver.id(), "eps_rel", 1e-8);
+  SolverOptions options;
+  options.SetOption(solver.id(), "retain_solver_cache", 1);
+  options.SetOption(solver.id(), "solver_cache_rebuild_policy", "error");
+  auto result = solver.Solve(prog, {}, options);
+  const auto* cache = result.get_solver_cache();
+  for (int i = 1; i <= 20; ++i) {
+    cost.evaluator()->UpdateCoefficients(Eigen::Matrix2d::Identity(),
+        Eigen::Vector2d(-0.1 * i, 0), 0.2 * i);
+    equality.evaluator()->UpdateCoefficients(Eigen::RowVector2d(1, 1),
+        Eigen::VectorXd::Constant(1, 1 + 0.02 * i));
+    box.evaluator()->UpdateUpperBound(Eigen::Vector2d::Constant(2 + 0.02 * i));
+    solver.Solve(prog, {}, options, &result);
+    const auto fresh = solver.Solve(prog);
+    ASSERT_TRUE(result.is_success());
+    EXPECT_EQ(result.get_solver_cache(), cache);
+    EXPECT_EQ(result.get_solver_details<ScsSolver>().cache.status,
+              SolverCacheStatus::kUpdated);
+    EXPECT_TRUE(CompareMatrices(result.get_x_val(), fresh.get_x_val(), 1e-5));
+    EXPECT_NEAR(result.get_optimal_cost(), fresh.get_optimal_cost(), 1e-5);
+    EXPECT_TRUE(CompareMatrices(result.GetDualSolution(equality),
+                               fresh.GetDualSolution(equality), 1e-5));
+  }
+  box.evaluator()->UpdateUpperBound(Eigen::Vector2d::Constant(
+      std::numeric_limits<double>::infinity()));
+  EXPECT_THROW(solver.Solve(prog, {}, options, &result), std::runtime_error);
+  EXPECT_EQ(result.get_solver_cache(), cache);
+  options.SetOption(solver.id(), "solver_cache_rebuild_policy", "allow");
+  solver.Solve(prog, {}, options, &result);
+  EXPECT_TRUE(result.is_success());
+  EXPECT_EQ(result.get_solver_details<ScsSolver>().cache.status,
+            SolverCacheStatus::kRebuilt);
+}
+
 GTEST_TEST(ScsCacheTest, ReuseAndRebuild) {
   ScsSolver solver;
   if (!solver.available()) GTEST_SKIP();

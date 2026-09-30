@@ -382,6 +382,11 @@ struct ScsProblemData final : SolverDataCache {
   void Solve(const MathematicalProgram& prog, const Eigen::VectorXd& initial_guess,
              bool warm_start, MathematicalProgramResult* result);
   void WriteReproduction(const std::string& filename) const;
+  std::string CheckUpdates() const;
+  scs_int UpdateVectors();
+  void InitializeVectorRows();
+  bool quadratic_reformulated{};
+  std::vector<std::vector<std::pair<int, int>>> constraint_rows;
   ScsWork* work{};
   bool can_warm_start{};
   std::optional<internal::SolverProgramSnapshot> snapshot;
@@ -598,6 +603,7 @@ ScsProblemData::ScsProblemData(const MathematicalProgram& prog, bool retain)
     // the program is un-constrained but with a quadratic cost, since SCS
     // doesn't handle un-constrained QP, we convert this un-constrained QP to a
     // program with linear cost and rotated Lorentz cone constraint.
+    quadratic_reformulated = true;
     ParseQuadraticCostWithRotatedLorentzCone(prog, &c, &A_triplets, &b,
                                              &A_row_count,
                                              &second_order_cone_length, &num_x);
@@ -662,7 +668,89 @@ ScsProblemData::ScsProblemData(const MathematicalProgram& prog, bool retain)
 
   SetScsProblemData(A_row_count, num_x, A, b, P_upper_triplets, c,
                     scs_problem_data);
+  if (snapshot) InitializeVectorRows();
+}
 
+void ScsProblemData::InitializeVectorRows() {
+  int linear = 0, equality = 0, box = 0;
+  for (const auto& entry : snapshot->constraints) {
+    const auto* e = entry.binding.evaluator().get();
+    std::vector<std::pair<int, int>> rows;
+    if (dynamic_cast<const BoundingBoxConstraint*>(e)) {
+      rows = bbcon_dual_indices[box++];
+    } else if (dynamic_cast<const LinearEqualityConstraint*>(e)) {
+      const int start = linear_eq_y_start_indices[equality++];
+      for (int i = 0; i < entry.v.size(); ++i) rows.emplace_back(start + i, -1);
+    } else if (dynamic_cast<const LinearConstraint*>(e)) {
+      rows = linear_constraint_dual_indices[linear++];
+    }
+    constraint_rows.push_back(std::move(rows));
+  }
+}
+
+std::string ScsProblemData::CheckUpdates() const {
+  for (const auto* entries : {&snapshot->costs, &snapshot->constraints}) {
+    for (const auto& entry : *entries) {
+      if (!entry.MatrixMatches()) return "SCS matrix changed";
+    }
+  }
+  for (const auto& entry : snapshot->costs) {
+    if (entry.VectorsMatch()) continue;
+    if (dynamic_cast<const L2NormCost*>(entry.binding.evaluator().get()))
+      return "cost reformulation changed";
+    if (quadratic_reformulated && entry.current_Q())
+      return "quadratic cost reformulation changed";
+  }
+  for (size_t j = 0; j < snapshot->constraints.size(); ++j) {
+    const auto& entry = snapshot->constraints[j];
+    if (entry.VectorsMatch()) continue;
+    if (constraint_rows[j].empty()) return "constraint reformulation changed";
+    for (int i = 0; i < entry.v.size(); ++i) {
+      if (std::isinf(entry.v(i)) != std::isinf((*entry.current_v())(i)) ||
+          std::isinf(entry.w(i)) != std::isinf((*entry.current_w())(i)))
+        return "finite constraint bounds changed";
+    }
+  }
+  return {};
+}
+
+scs_int ScsProblemData::UpdateVectors() {
+  bool c_changed = false, b_changed = false;
+  for (auto& entry : snapshot->costs) {
+    if (entry.VectorsMatch()) continue;
+    const auto& b = *entry.current_v();
+    for (int i = 0; i < b.size(); ++i) {
+      const double delta = b(i) - entry.v(i);
+      if (delta == 0) continue;
+      scs_problem_data->c[entry.variable_indices[i]] += delta;
+      c_changed = true;
+    }
+    cost_constant += entry.current_constant() - entry.constant;
+  }
+  for (size_t j = 0; j < snapshot->constraints.size(); ++j) {
+    auto& entry = snapshot->constraints[j];
+    if (entry.VectorsMatch()) continue;
+    const bool equality = dynamic_cast<const LinearEqualityConstraint*>(
+        entry.binding.evaluator().get()) != nullptr;
+    for (int i = 0; i < entry.v.size(); ++i) {
+      const auto [lower, upper] = constraint_rows[j][i];
+      if (lower >= 0) scs_problem_data->b[lower] =
+          (equality ? 1 : -1) * (*entry.current_v())(i);
+      if (upper >= 0) scs_problem_data->b[upper] = (*entry.current_w())(i);
+    }
+    b_changed = true;
+  }
+  const scs_int error = b_changed || c_changed ? scs_update(work,
+      b_changed ? scs_problem_data->b : nullptr,
+      c_changed ? scs_problem_data->c : nullptr) : 0;
+  if (error == 0) {
+    for (auto* entries : {&snapshot->costs, &snapshot->constraints}) {
+      for (auto& entry : *entries) {
+        if (!entry.VectorsMatch()) entry.RefreshVectors();
+      }
+    }
+  }
+  return error;
 }
 
 void ScsProblemData::WriteReproduction(const std::string& filename) const {
@@ -791,8 +879,7 @@ void ScsSolver::DoSolve2(const MathematicalProgram& prog,
     rebuild_reason = cached->snapshot->CheckStructure(prog);
     if (rebuild_reason.empty() && !SameSettings(cached->settings, settings))
       rebuild_reason = "solver settings changed";
-    if (rebuild_reason.empty() && !cached->snapshot->IsUnchanged())
-      rebuild_reason = "problem coefficients changed";
+    if (rebuild_reason.empty()) rebuild_reason = cached->CheckUpdates();
     cache_options.CheckRebuild(rebuild_reason);
   }
   std::unique_ptr<ScsProblemData> fresh;
@@ -801,13 +888,21 @@ void ScsSolver::DoSolve2(const MathematicalProgram& prog,
     fresh->settings = settings;
   }
   auto& data = fresh ? *fresh : *cached;
-  if (!reproduction_file.empty()) data.WriteReproduction(reproduction_file);
   auto& details = result->SetSolverDetailsType<ScsSolverDetails>();
   if (cache_options.retain) {
     details.cache.status = !cached ? SolverCacheStatus::kCreated
         : fresh ? SolverCacheStatus::kRebuilt : SolverCacheStatus::kReused;
     details.cache.rebuild_reason = rebuild_reason;
   }
+  if (!fresh && !data.snapshot->IsUnchanged()) {
+    if (data.UpdateVectors() != 0) {
+      result->SetSolverCache(nullptr);
+      result->set_solution_result(SolutionResult::kInvalidInput);
+      return;
+    }
+    details.cache.status = SolverCacheStatus::kUpdated;
+  }
+  if (!reproduction_file.empty()) data.WriteReproduction(reproduction_file);
   data.Solve(prog, initial_guess, cache_options.warm_start, result);
   if (result->get_solution_result() == SolutionResult::kInvalidInput) {
     result->SetSolverCache(nullptr);
