@@ -15,6 +15,41 @@ namespace drake {
 namespace solvers {
 namespace test {
 
+GTEST_TEST(OsqpCacheTest, ReuseAndPairing) {
+  OsqpSolver solver;
+  if (!solver.available()) GTEST_SKIP();
+  MathematicalProgram prog;
+  const auto x = prog.NewContinuousVariables<2>();
+  prog.AddQuadraticCost(x(0) * x(0) + x(1) * x(1));
+  auto box = prog.AddBoundingBoxConstraint(1, 2, x);
+  SolverOptions options;
+  options.SetOption(solver.id(), "retain_solver_cache", 1);
+  auto result = solver.Solve(prog, {}, options);
+  ASSERT_TRUE(result.is_success());
+  EXPECT_EQ(result.get_solver_details<OsqpSolver>().cache.status,
+            SolverCacheStatus::kCreated);
+  const auto* cache = result.get_solver_cache();
+  solver.Solve(prog, {}, options, &result);
+  EXPECT_EQ(result.get_solver_cache(), cache);
+  EXPECT_EQ(result.get_solver_details<OsqpSolver>().cache.status,
+            SolverCacheStatus::kReused);
+  auto clone = prog.Clone();
+  EXPECT_THROW(solver.Solve(*clone, {}, options, &result), std::invalid_argument);
+  EXPECT_TRUE(result.is_success());
+  options.SetOption(solver.id(), "solver_cache_rebuild_policy", "error");
+  prog.AddLinearCost(x(0));
+  EXPECT_THROW(solver.Solve(prog, {}, options, &result), std::runtime_error);
+  EXPECT_EQ(result.get_solver_cache(), cache);
+  options.SetOption(solver.id(), "solver_cache_rebuild_policy", "allow");
+  solver.Solve(prog, {}, options, &result);
+  ASSERT_TRUE(result.is_success());
+  EXPECT_EQ(result.get_solver_details<OsqpSolver>().cache.status,
+            SolverCacheStatus::kRebuilt);
+  options.SetOption(solver.id(), "retain_solver_cache", 0);
+  solver.Solve(prog, {}, options, &result);
+  EXPECT_EQ(result.get_solver_cache(), nullptr);
+}
+
 GTEST_TEST(QPtest, TestUnconstrainedQP) {
   MathematicalProgram prog;
   auto x = prog.NewContinuousVariables<3>("x");

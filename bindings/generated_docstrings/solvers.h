@@ -8931,6 +8931,12 @@ R"""(Type of details stored in MathematicalProgramResult.)""";
 R"""(The OSQP solver details after calling Solve() function. The user can
 call MathematicalProgramResult∷get_solver_details<OsqpSolver>() to
 obtain the details.)""";
+        // Symbol: drake::solvers::OsqpSolverDetails::cache
+        struct /* cache */ {
+          // Source: drake/solvers/osqp_solver.h
+          const char* doc =
+R"""(Native workspace reuse during this solve.)""";
+        } cache;
         // Symbol: drake::solvers::OsqpSolverDetails::dual_res
         struct /* dual_res */ {
           // Source: drake/solvers/osqp_solver.h

@@ -1,5 +1,6 @@
 #include "drake/solvers/osqp_solver.h"
 
+#include <memory>
 #include <optional>
 #include <unordered_map>
 #include <vector>
@@ -12,6 +13,8 @@
 #include "drake/solvers/aggregate_costs_constraints.h"
 #include "drake/solvers/mathematical_program.h"
 #include "drake/solvers/specific_options.h"
+#include "drake/solvers/solver_cache_options.h"
+#include "drake/solvers/solver_program_snapshot.h"
 
 // This function must appear in the global namespace -- the Serialize pattern
 // uses ADL (argument-dependent lookup) and the namespace for the OSQPSettings
@@ -248,10 +251,43 @@ OSQPCscMatrix* EigenSparseToCSC(const Eigen::SparseMatrix<OSQPFloat>& mat) {
   return result;
 }
 
+bool SameSettings(const OSQPSettings& a, const OSQPSettings& b) {
+  return a.device == b.device &&
+         a.allocate_solution == b.allocate_solution &&
+         a.verbose == b.verbose &&
+         a.profiler_level == b.profiler_level &&
+         a.warm_starting == b.warm_starting &&
+         a.scaling == b.scaling &&
+         a.polishing == b.polishing &&
+         a.rho == b.rho &&
+         a.rho_is_vec == b.rho_is_vec &&
+         a.sigma == b.sigma &&
+         a.alpha == b.alpha &&
+         a.cg_max_iter == b.cg_max_iter &&
+         a.cg_tol_reduction == b.cg_tol_reduction &&
+         a.cg_tol_fraction == b.cg_tol_fraction &&
+         a.adaptive_rho == b.adaptive_rho &&
+         a.adaptive_rho_interval == b.adaptive_rho_interval &&
+         a.adaptive_rho_fraction == b.adaptive_rho_fraction &&
+         a.adaptive_rho_tolerance == b.adaptive_rho_tolerance &&
+         a.max_iter == b.max_iter &&
+         a.eps_abs == b.eps_abs &&
+         a.eps_rel == b.eps_rel &&
+         a.eps_prim_inf == b.eps_prim_inf &&
+         a.eps_dual_inf == b.eps_dual_inf &&
+         a.scaled_termination == b.scaled_termination &&
+         a.check_termination == b.check_termination &&
+         a.check_dualgap == b.check_dualgap &&
+         a.time_limit == b.time_limit &&
+         a.delta == b.delta &&
+         a.polish_refine_iter == b.polish_refine_iter;
+}
+
 // Own both Drake's translation buffers and the native solver workspace.
-struct OsqpProblemData {
-  explicit OsqpProblemData(const MathematicalProgram& prog)
-      : q(prog.num_vars(), 0) {
+struct OsqpProblemData final : SolverDataCache {
+  explicit OsqpProblemData(const MathematicalProgram& prog, bool retain)
+      : SolverDataCache(prog, OsqpSolver::id()), q(prog.num_vars(), 0) {
+    if (retain) snapshot.emplace(prog);
     ParseQuadraticCosts(prog, &P_upper_sparse, &q, &constant_cost_term);
     ParseLinearCosts(prog, &q, &constant_cost_term);
     ParseAllLinearConstraints(prog, &A_sparse, &l, &u, &constraint_start_row);
@@ -279,6 +315,7 @@ struct OsqpProblemData {
   std::unordered_map<Binding<Constraint>, int> constraint_start_row;
   OSQPSettings settings{};
   OSQPSolver* solver{};
+  std::optional<internal::SolverProgramSnapshot> snapshot;
 };
 
 template <typename C>
@@ -312,12 +349,10 @@ void OsqpSolver::DoSolve2(const MathematicalProgram& prog,
   OsqpSolverDetails& solver_details =
       result->SetSolverDetailsType<OsqpSolverDetails>();
 
-  OsqpProblemData data(prog);
-  auto* settings = &data.settings;
-  const auto& constraint_start_row = data.constraint_start_row;
-  const auto& constant_cost_term = data.constant_cost_term;
-  const int m = data.A_sparse.rows();
-  auto*& solver = data.solver;
+  auto* cached = dynamic_cast<OsqpProblemData*>(result->get_mutable_solver_cache());
+  const internal::SolverCacheOptions cache_options(options, cached != nullptr);
+  OSQPSettings new_settings{};
+  auto* settings = &new_settings;
   osqp_set_default_settings(settings);
   // Customize the defaults for Drake.
   // - Default polishing to true, to get an accurate solution.
@@ -332,22 +367,50 @@ void OsqpSolver::DoSolve2(const MathematicalProgram& prog,
   });
   options->CopyToSerializableStruct(settings);
 
+  std::string rebuild_reason;
+  if (cached != nullptr) {
+    rebuild_reason = cached->snapshot->CheckStructure(prog);
+    if (rebuild_reason.empty() && !SameSettings(cached->settings, new_settings))
+      rebuild_reason = "solver settings changed";
+    if (rebuild_reason.empty() && !cached->snapshot->IsUnchanged())
+      rebuild_reason = "problem coefficients changed";
+    cache_options.CheckRebuild(rebuild_reason);
+  }
+  std::unique_ptr<OsqpProblemData> fresh;
+  if (cached == nullptr || !rebuild_reason.empty()) {
+    fresh = std::make_unique<OsqpProblemData>(prog, cache_options.retain);
+    fresh->settings = new_settings;
+  }
+  auto& data = fresh ? *fresh : *cached;
+  const auto& constraint_start_row = data.constraint_start_row;
+  const auto& constant_cost_term = data.constant_cost_term;
+  const int m = data.A_sparse.rows();
+  auto*& solver = data.solver;
+  if (cache_options.retain) {
+    solver_details.cache.status = cached == nullptr ? SolverCacheStatus::kCreated
+        : fresh ? SolverCacheStatus::kRebuilt : SolverCacheStatus::kReused;
+    solver_details.cache.rebuild_reason = rebuild_reason;
+  }
+
   // If any step fails, it will set the solution_result and skip other steps.
   std::optional<SolutionResult> solution_result;
 
-  if (!solution_result) {
+  if (fresh) {
     const OSQPInt osqp_setup_err = data.Setup();
     if (osqp_setup_err != 0) {
       solution_result = SolutionResult::kInvalidInput;
     }
   }
 
-  if (!solution_result && initial_guess.array().isFinite().all()) {
-    const OSQPInt osqp_warm_err =
-        osqp_warm_start(solver, initial_guess.data(), nullptr);
-    if (osqp_warm_err != 0) {
-      solution_result = SolutionResult::kInvalidInput;
-    }
+  if (!solution_result && !fresh && !cache_options.warm_start) {
+    osqp_cold_start(solver);
+  }
+  if (!solution_result && initial_guess.array().isFinite().all() &&
+      (!cache_options.retain || new_settings.warm_starting)) {
+    Eigen::VectorXd guess = initial_guess;
+    for (const auto& [index, scale] : prog.GetVariableScaling()) guess(index) /= scale;
+    const OSQPInt error = osqp_warm_start(solver, guess.data(), nullptr);
+    if (error != 0) solution_result = SolutionResult::kInvalidInput;
   }
 
   // Solve problem.
@@ -425,6 +488,12 @@ void OsqpSolver::DoSolve2(const MathematicalProgram& prog,
     }
   }
   result->set_solution_result(solution_result.value());
+  if (solution_result == SolutionResult::kInvalidInput) {
+    result->SetSolverCache(nullptr);
+  } else {
+    if (solution_result != SolutionResult::kSolutionFound) osqp_cold_start(solver);
+    if (cache_options.retain && fresh) result->SetSolverCache(std::move(fresh));
+  }
 }
 
 }  // namespace solvers

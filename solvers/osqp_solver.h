@@ -11,6 +11,8 @@ namespace solvers {
 MathematicalProgramResult::get_solver_details<OsqpSolver>() to obtain the
 details. */
 struct OsqpSolverDetails {
+  /// Native workspace reuse during this solve.
+  SolverCacheDetails cache;
   /// Number of iterations taken.
   int iter{};
   /// Status of the solver at termination. Please refer to
