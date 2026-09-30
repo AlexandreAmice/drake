@@ -4,6 +4,7 @@ load(
     "drake_cc_googlebench_binary",
     "drake_py_experiment_binary",
 )
+load("//tools/skylark:drake_cc.bzl", "drake_cc_library")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -47,16 +48,31 @@ drake_py_experiment_binary(
     googlebench_binary = ":benchmark_ipopt_solver",
 )
 
+drake_cc_library(
+    name = "mpc_fixture",
+    testonly = True,
+    srcs = ["mpc_fixture.cc"],
+    hdrs = ["mpc_fixture.h"],
+    deps = [
+        "//solvers:mathematical_program",
+        "//tools/performance:fixture_common",
+    ],
+)
+
 drake_cc_googlebench_binary(
     name = "benchmark_solver_cache",
     srcs = ["benchmark_solver_cache.cc"],
     deps = [
+        ":mpc_fixture",
         "//common:add_text_logging_gflags",
         "//common:essential",
         "//solvers:osqp_solver",
         "//solvers:scs_solver",
+        "//solvers:solver_cache_profiler",
         "//tools/performance:fixture_common",
+        "//tools/performance:fixture_memory",
         "//tools/performance:gflags_main",
+        "@gflags",
     ],
     add_test_rule = True,
     test_rule_args = [

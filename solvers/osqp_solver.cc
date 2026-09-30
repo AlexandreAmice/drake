@@ -69,8 +69,13 @@ static void Serialize(
                                &settings.polish_refine_iter));
 }
 
+#include "drake/solvers/solver_cache_profiler.h"
+
 namespace drake {
 namespace solvers {
+using internal::SolverCachePhase;
+using internal::SolverCachePhaseScope;
+
 namespace {
 
 void ParseQuadraticCosts(const MathematicalProgram& prog,
@@ -297,6 +302,7 @@ struct OsqpProblemData final : SolverDataCache {
       OSQPCscMatrix_free(const_cast<OSQPCscMatrix*>(P));
       OSQPCscMatrix_free(const_cast<OSQPCscMatrix*>(A));
     });
+    SolverCachePhaseScope phase(SolverCachePhase::kSetup);
     return osqp_setup(&solver, P, q.data(), A, l.data(), u.data(),
                       A_sparse.rows(), q.size(), &settings);
   }
@@ -428,6 +434,7 @@ struct OsqpProblemData final : SolverDataCache {
     apply(p_changes, &P_upper_sparse, &pi, &px);
     apply(a_changes, &A_sparse, &ai, &ax);
     if (px.empty() && ax.empty()) return 0;
+    SolverCachePhaseScope phase(SolverCachePhase::kNativeUpdate);
     return osqp_update_data_mat(
         solver, px.empty() ? nullptr : px.data(), pi.data(), pi.size(),
         ax.empty() ? nullptr : ax.data(), ai.data(), ai.size());
@@ -469,6 +476,7 @@ struct OsqpProblemData final : SolverDataCache {
     }
     OSQPInt error = 0;
     if (cost_changed || bounds_changed) {
+      SolverCachePhaseScope phase(SolverCachePhase::kNativeUpdate);
       error = osqp_update_data_vec(solver, cost_changed ? q.data() : nullptr,
                                    bounds_changed ? l.data() : nullptr,
                                    bounds_changed ? u.data() : nullptr);
@@ -543,6 +551,7 @@ void OsqpSolver::DoSolve2(const MathematicalProgram& prog,
   });
   options->CopyToSerializableStruct(settings);
 
+  SolverCachePhaseScope validation_phase(SolverCachePhase::kValidation);
   std::string rebuild_reason;
   if (cached != nullptr) {
     rebuild_reason = cached->snapshot->CheckStructure(prog);
@@ -553,6 +562,7 @@ void OsqpSolver::DoSolve2(const MathematicalProgram& prog,
   }
   std::unique_ptr<OsqpProblemData> fresh;
   if (cached == nullptr || !rebuild_reason.empty()) {
+    SolverCachePhaseScope phase(SolverCachePhase::kSetup);
     fresh = std::make_unique<OsqpProblemData>(prog, cache_options.retain);
     fresh->settings = new_settings;
   }
@@ -584,6 +594,7 @@ void OsqpSolver::DoSolve2(const MathematicalProgram& prog,
   }
 
   if (!fresh && !data.snapshot->IsUnchanged()) {
+    SolverCachePhaseScope phase(SolverCachePhase::kUpdatePrepare);
     if (data.UpdateMatrices(prog) != 0 || data.UpdateVectors(prog) != 0) {
       solution_result = SolutionResult::kInvalidInput;
     } else {
@@ -612,12 +623,14 @@ void OsqpSolver::DoSolve2(const MathematicalProgram& prog,
   // Solve problem.
   if (!solution_result) {
     DRAKE_THROW_UNLESS(solver != nullptr);
+    SolverCachePhaseScope phase(SolverCachePhase::kNativeSolve);
     const OSQPInt osqp_solve_err = osqp_solve(solver);
     if (osqp_solve_err != 0) {
       solution_result = SolutionResult::kInvalidInput;
     }
   }
 
+  SolverCachePhaseScope extraction_phase(SolverCachePhase::kExtraction);
   // Extract results.
   if (!solution_result) {
     DRAKE_THROW_UNLESS(solver->info != nullptr);

@@ -7,9 +7,12 @@
 
 #include "drake/common/drake_assert.h"
 #include "drake/common/nice_type_name.h"
+#include "drake/solvers/solver_cache_profiler.h"
 
 namespace drake {
 namespace solvers {
+using internal::SolverCachePhase;
+using internal::SolverCachePhaseScope;
 
 SolverBase::SolverBase(
     const SolverId& id, std::function<bool()> available,
@@ -43,6 +46,7 @@ void SolverBase::Solve(const MathematicalProgram& prog,
                        const std::optional<Eigen::VectorXd>& initial_guess,
                        const std::optional<SolverOptions>& solver_options,
                        MathematicalProgramResult* result) const {
+  SolverCachePhaseScope phase(SolverCachePhase::kResultPrepare);
   // Validate the pairing before clearing the result, so accidentally passing
   // another program leaves both the solution and its cache intact.
   bool retain_cache = result->get_solver_cache() != nullptr;

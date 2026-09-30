@@ -59,8 +59,13 @@ static void Serialize(
   // TODO(jwnimmer-tri) Handle log_csv_filename.
 }
 
+#include "drake/solvers/solver_cache_profiler.h"
+
 namespace drake {
 namespace solvers {
+using internal::SolverCachePhase;
+using internal::SolverCachePhaseScope;
+
 namespace {
 
 void ParseQuadraticCostWithRotatedLorentzCone(
@@ -778,11 +783,14 @@ scs_int ScsProblemData::UpdateVectors(int num_vars) {
     }
     b_changed = true;
   }
-  const scs_int error =
-      b_changed || c_changed
-          ? scs_update(work, b_changed ? scs_problem_data->b : nullptr,
-                       c_changed ? scs_problem_data->c : nullptr)
-          : 0;
+  scs_int error{};
+  {
+    SolverCachePhaseScope phase(SolverCachePhase::kNativeUpdate);
+    error = b_changed || c_changed
+                ? scs_update(work, b_changed ? scs_problem_data->b : nullptr,
+                             c_changed ? scs_problem_data->c : nullptr)
+                : 0;
+  }
   if (error == 0) {
     for (auto* entries : {&snapshot->costs, &snapshot->constraints}) {
       for (auto& entry : *entries) {
@@ -814,7 +822,10 @@ void ScsProblemData::Solve(const MathematicalProgram& prog,
   ScsInfo scs_info{};
   ScsSolverDetails& solver_details =
       result->SetSolverDetailsType<ScsSolverDetails>();
-  if (work == nullptr) work = scs_init(scs_problem_data, cone, &settings);
+  if (work == nullptr) {
+    SolverCachePhaseScope phase(SolverCachePhase::kSetup);
+    work = scs_init(scs_problem_data, cone, &settings);
+  }
   if (work == nullptr) {
     result->set_solution_result(SolutionResult::kInvalidInput);
     return;
@@ -840,8 +851,12 @@ void ScsProblemData::Solve(const MathematicalProgram& prog,
     Eigen::Map<Eigen::VectorXd>(scs_sol->x, prog.num_vars()) = initial_guess;
     use_warm_start = true;
   }
-  solver_details.scs_status =
-      scs_solve(work, scs_sol, &scs_info, use_warm_start);
+  {
+    SolverCachePhaseScope phase(SolverCachePhase::kNativeSolve);
+    solver_details.scs_status =
+        scs_solve(work, scs_sol, &scs_info, use_warm_start);
+  }
+  SolverCachePhaseScope extraction_phase(SolverCachePhase::kExtraction);
   can_warm_start = solver_details.scs_status == SCS_SOLVED ||
                    solver_details.scs_status == SCS_SOLVED_INACCURATE;
   if (scs_sol->x == nullptr || scs_sol->y == nullptr || scs_sol->s == nullptr) {
@@ -922,6 +937,7 @@ void ScsSolver::DoSolve2(const MathematicalProgram& prog,
     reproduction_file = common.standalone_reproduction_file_name;
   });
   options->CopyToSerializableStruct(&settings);
+  SolverCachePhaseScope validation_phase(SolverCachePhase::kValidation);
   std::string rebuild_reason;
   if (cached) {
     rebuild_reason = cached->snapshot->CheckStructure(prog);
@@ -932,6 +948,7 @@ void ScsSolver::DoSolve2(const MathematicalProgram& prog,
   }
   std::unique_ptr<ScsProblemData> fresh;
   if (!cached || !rebuild_reason.empty()) {
+    SolverCachePhaseScope phase(SolverCachePhase::kSetup);
     fresh = std::make_unique<ScsProblemData>(prog, cache_options.retain);
     fresh->settings = settings;
   }
@@ -948,6 +965,7 @@ void ScsSolver::DoSolve2(const MathematicalProgram& prog,
     if (!completed) result->SetSolverCache(nullptr);
   });
   if (!fresh && !data.snapshot->IsUnchanged()) {
+    SolverCachePhaseScope phase(SolverCachePhase::kUpdatePrepare);
     if (data.UpdateVectors(prog.num_vars()) != 0) {
       result->SetSolverCache(nullptr);
       result->set_solution_result(SolutionResult::kInvalidInput);
